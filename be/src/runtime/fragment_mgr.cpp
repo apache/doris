@@ -1393,7 +1393,6 @@ Status FragmentMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
 Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
                                  butil::IOBufAsZeroCopyInputStream* attach_data) {
     UniqueId queryid = request->query_id();
-    bool opt_remote_rf = request->has_opt_remote_rf() && request->opt_remote_rf();
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
 
@@ -1413,7 +1412,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         query_ctx = iter->second;
     }
     SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, query_ctx->query_id());
-    auto merge_status = filter_controller->merge(request, attach_data, opt_remote_rf);
+    auto merge_status = filter_controller->merge(request, attach_data);
     return merge_status;
 }
 

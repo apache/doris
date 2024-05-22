@@ -381,8 +381,7 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
 
 // merge data
 Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* request,
-                                                 butil::IOBufAsZeroCopyInputStream* attach_data,
-                                                 bool opt_remote_rf) {
+                                                 butil::IOBufAsZeroCopyInputStream* attach_data) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     std::shared_ptr<RuntimeFilterCntlVal> cnt_val;
     int merged_size = 0;
@@ -427,155 +426,81 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         merge_time = cnt_val->merge_time;
     }
 
+    auto st = Status::OK();
     if (merged_size == cnt_val->producer_size) {
-        if (opt_remote_rf) {
-            DCHECK_GT(cnt_val->targetv2_info.size(), 0);
-            // Optimize merging phase iff:
-            // 1. All BE has been upgraded (e.g. _opt_remote_rf)
-            // 2. FE has been upgraded (e.g. cnt_val->targetv2_info.size() > 0)
-            // 3. This filter is bloom filter (only bloom filter should be used for merging)
-            using PPublishFilterRpcContext =
-                    AsyncRPCContext<PPublishFilterRequestV2, PPublishFilterResponse>;
-            std::vector<std::unique_ptr<PPublishFilterRpcContext>> rpc_contexts;
-            rpc_contexts.reserve(cnt_val->targetv2_info.size());
+        DCHECK_GT(cnt_val->targetv2_info.size(), 0);
+        using PPublishFilterRpcContext =
+                AsyncRPCContext<PPublishFilterRequestV2, PPublishFilterResponse>;
+        std::vector<std::unique_ptr<PPublishFilterRpcContext>> rpc_contexts;
+        rpc_contexts.reserve(cnt_val->targetv2_info.size());
 
-            butil::IOBuf request_attachment;
+        butil::IOBuf request_attachment;
 
-            PPublishFilterRequestV2 apply_request;
-            // serialize filter
-            void* data = nullptr;
-            int len = 0;
-            bool has_attachment = false;
-            if (!cnt_val->filter->get_ignored()) {
-                RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
-            } else {
-                apply_request.set_ignored(true);
-                apply_request.set_filter_type(PFilterType::UNKNOW_FILTER);
-            }
-
-            if (data != nullptr && len > 0) {
-                request_attachment.append(data, len);
-                has_attachment = true;
-            }
-
-            std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val->targetv2_info;
-            for (size_t i = 0; i < targets.size(); i++) {
-                rpc_contexts.emplace_back(new PPublishFilterRpcContext);
-                size_t cur = rpc_contexts.size() - 1;
-                rpc_contexts[cur]->request = apply_request;
-                rpc_contexts[cur]->request.set_filter_id(request->filter_id());
-                rpc_contexts[cur]->request.set_is_pipeline(request->has_is_pipeline() &&
-                                                           request->is_pipeline());
-                rpc_contexts[cur]->request.set_merge_time(merge_time);
-                *rpc_contexts[cur]->request.mutable_query_id() = request->query_id();
-                if (has_attachment) {
-                    rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
-                }
-                rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
-                // set fragment-id
-                for (size_t fid = 0; fid < targets[cur].target_fragment_instance_ids.size();
-                     fid++) {
-                    PUniqueId* cur_id = rpc_contexts[cur]->request.add_fragment_instance_ids();
-                    cur_id->set_hi(targets[cur].target_fragment_instance_ids[fid].hi);
-                    cur_id->set_lo(targets[cur].target_fragment_instance_ids[fid].lo);
-                }
-
-                std::shared_ptr<PBackendService_Stub> stub(
-                        ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
-                                targets[i].target_fragment_instance_addr));
-                VLOG_NOTICE << "send filter " << rpc_contexts[cur]->request.filter_id()
-                            << " to:" << targets[i].target_fragment_instance_addr.hostname << ":"
-                            << targets[i].target_fragment_instance_addr.port
-                            << rpc_contexts[cur]->request.ShortDebugString();
-                if (stub == nullptr) {
-                    rpc_contexts.pop_back();
-                    continue;
-                }
-                stub->apply_filterv2(&rpc_contexts[cur]->cntl, &rpc_contexts[cur]->request,
-                                     &rpc_contexts[cur]->response, brpc::DoNothing());
-            }
-            for (auto& rpc_context : rpc_contexts) {
-                brpc::Join(rpc_context->cid);
-                if (auto status = Status::create(rpc_context->response.status()); !status) {
-                    return status;
-                }
-                if (rpc_context->cntl.Failed()) {
-                    LOG(WARNING) << "runtimefilter rpc err:" << rpc_context->cntl.ErrorText();
-                    ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                            rpc_context->cntl.remote_side());
-                }
-            }
+        PPublishFilterRequestV2 apply_request;
+        // serialize filter
+        void* data = nullptr;
+        int len = 0;
+        bool has_attachment = false;
+        if (!cnt_val->filter->get_ignored()) {
+            RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
         } else {
-            // prepare rpc context
-            using PPublishFilterRpcContext =
-                    AsyncRPCContext<PPublishFilterRequest, PPublishFilterResponse>;
-            std::vector<std::unique_ptr<PPublishFilterRpcContext>> rpc_contexts;
-            rpc_contexts.reserve(cnt_val->target_info.size());
+            apply_request.set_ignored(true);
+            apply_request.set_filter_type(PFilterType::UNKNOW_FILTER);
+        }
 
-            butil::IOBuf request_attachment;
+        if (data != nullptr && len > 0) {
+            request_attachment.append(data, len);
+            has_attachment = true;
+        }
 
-            PPublishFilterRequest apply_request;
-            // serialize filter
-            void* data = nullptr;
-            int len = 0;
-            bool has_attachment = false;
-            if (!cnt_val->filter->get_ignored()) {
-                RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
-            } else {
-                apply_request.set_ignored(true);
-                apply_request.set_filter_type(PFilterType::UNKNOW_FILTER);
+        std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val->targetv2_info;
+        for (size_t i = 0; i < targets.size(); i++) {
+            rpc_contexts.emplace_back(new PPublishFilterRpcContext);
+            size_t cur = rpc_contexts.size() - 1;
+            rpc_contexts[cur]->request = apply_request;
+            rpc_contexts[cur]->request.set_filter_id(request->filter_id());
+            rpc_contexts[cur]->request.set_is_pipeline(request->has_is_pipeline() &&
+                                                       request->is_pipeline());
+            rpc_contexts[cur]->request.set_merge_time(merge_time);
+            *rpc_contexts[cur]->request.mutable_query_id() = request->query_id();
+            if (has_attachment) {
+                rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
+            }
+            rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
+            // set fragment-id
+            for (size_t fid = 0; fid < targets[cur].target_fragment_instance_ids.size(); fid++) {
+                PUniqueId* cur_id = rpc_contexts[cur]->request.add_fragment_instance_ids();
+                cur_id->set_hi(targets[cur].target_fragment_instance_ids[fid].hi);
+                cur_id->set_lo(targets[cur].target_fragment_instance_ids[fid].lo);
             }
 
-            if (data != nullptr && len > 0) {
-                request_attachment.append(data, len);
-                has_attachment = true;
+            std::shared_ptr<PBackendService_Stub> stub(
+                    ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
+                            targets[i].target_fragment_instance_addr));
+            VLOG_NOTICE << "send filter " << rpc_contexts[cur]->request.filter_id()
+                        << " to:" << targets[i].target_fragment_instance_addr.hostname << ":"
+                        << targets[i].target_fragment_instance_addr.port
+                        << rpc_contexts[cur]->request.ShortDebugString();
+            if (stub == nullptr) {
+                rpc_contexts.pop_back();
+                continue;
             }
-
-            std::vector<TRuntimeFilterTargetParams>& targets = cnt_val->target_info;
-            for (size_t i = 0; i < targets.size(); i++) {
-                rpc_contexts.emplace_back(new PPublishFilterRpcContext);
-                size_t cur = rpc_contexts.size() - 1;
-                rpc_contexts[cur]->request = apply_request;
-                rpc_contexts[cur]->request.set_filter_id(request->filter_id());
-                rpc_contexts[cur]->request.set_is_pipeline(request->has_is_pipeline() &&
-                                                           request->is_pipeline());
-                rpc_contexts[cur]->request.set_merge_time(merge_time);
-                *rpc_contexts[cur]->request.mutable_query_id() = request->query_id();
-                if (has_attachment) {
-                    rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
-                }
-                rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
-                // set fragment_instance_id
-                auto request_fragment_instance_id =
-                        rpc_contexts[cur]->request.mutable_fragment_instance_id();
-                request_fragment_instance_id->set_hi(targets[cur].target_fragment_instance_id.hi);
-                request_fragment_instance_id->set_lo(targets[cur].target_fragment_instance_id.lo);
-
-                std::shared_ptr<PBackendService_Stub> stub(
-                        ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
-                                targets[i].target_fragment_instance_addr));
-                VLOG_NOTICE << "send filter " << rpc_contexts[cur]->request.filter_id()
-                            << " to:" << targets[i].target_fragment_instance_addr.hostname << ":"
-                            << targets[i].target_fragment_instance_addr.port
-                            << rpc_contexts[cur]->request.ShortDebugString();
-                if (stub == nullptr) {
-                    rpc_contexts.pop_back();
-                    continue;
-                }
-                stub->apply_filter(&rpc_contexts[cur]->cntl, &rpc_contexts[cur]->request,
-                                   &rpc_contexts[cur]->response, brpc::DoNothing());
+            stub->apply_filterv2(&rpc_contexts[cur]->cntl, &rpc_contexts[cur]->request,
+                                 &rpc_contexts[cur]->response, brpc::DoNothing());
+        }
+        for (auto& rpc_context : rpc_contexts) {
+            brpc::Join(rpc_context->cid);
+            if (auto status = Status::create(rpc_context->response.status()); !status) {
+                st = status;
             }
-            for (auto& rpc_context : rpc_contexts) {
-                brpc::Join(rpc_context->cid);
-                if (rpc_context->cntl.Failed()) {
-                    LOG(WARNING) << "runtimefilter rpc err:" << rpc_context->cntl.ErrorText();
-                    ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                            rpc_context->cntl.remote_side());
-                }
+            if (rpc_context->cntl.Failed()) {
+                LOG(WARNING) << "runtimefilter rpc err:" << rpc_context->cntl.ErrorText();
+                ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                        rpc_context->cntl.remote_side());
             }
         }
     }
-    return Status::OK();
+    return st;
 }
 
 Status RuntimeFilterMergeController::acquire(
