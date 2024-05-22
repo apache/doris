@@ -167,6 +167,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 if (GroupCommitInsertExecutor.canGroupCommit(ctx, sink, physicalSink, planner)) {
                     insertExecutor = new GroupCommitInsertExecutor(ctx, targetTableIf, label, planner, insertCtx,
                             emptyInsert);
+                    targetTableIf.readUnlock();
                     return insertExecutor;
                 }
                 OlapTable olapTable = (OlapTable) targetTableIf;
