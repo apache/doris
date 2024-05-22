@@ -2234,13 +2234,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
-        switch (request.getSchemaTableName()) {
-            case METADATA_TABLE:
-                return MetadataGenerator.getMetadataTable(request);
-            default:
-                break;
+        try {
+            switch (request.getSchemaTableName()) {
+                case METADATA_TABLE:
+                    return MetadataGenerator.getMetadataTable(request);
+                default:
+                    break;
+            }
+            return MetadataGenerator.errorResult("Fetch schema table name is not set");
+        } catch (Exception e) {
+            LOG.warn("Failed to fetchSchemaTableData", e);
+            return MetadataGenerator.errorResult(e.getMessage());
         }
-        return MetadataGenerator.errorResult("Fetch schema table name is not set");
     }
 
     private TNetworkAddress getClientAddr() {
