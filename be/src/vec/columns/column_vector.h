@@ -45,6 +45,7 @@
 #include "vec/common/cow.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
+#include "vec/common/typeid_cast.h"
 #include "vec/common/uint128.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/field.h"
@@ -402,9 +403,15 @@ public:
     }
 
     /** More efficient methods of manipulation - to manipulate with data directly. */
-    Container& get_data() { return data; }
+    Container& get_data() {
+        [[maybe_unused]] auto* col_this = typeid_cast<ColumnVector<T>*>(this);
+        return data;
+    }
 
-    const Container& get_data() const { return data; }
+    const Container& get_data() const {
+        [[maybe_unused]] const auto* col_this = typeid_cast<const ColumnVector<T>*>(this);
+        return data;
+    }
 
     const T& get_element(size_t n) const { return data[n]; }
 
