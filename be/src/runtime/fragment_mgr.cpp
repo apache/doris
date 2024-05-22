@@ -281,7 +281,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                     detailed_param.__isset.profile = true;
                     detailed_param.__isset.loadChannelProfile = false;
                     pipeline_profile->to_thrift(&detailed_param.profile);
-                    params.detailed_report.push_back(detailed_param);
+                    params.detailed_report.push_back(std::move(detailed_param));
                 }
             }
         } else {
