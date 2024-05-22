@@ -147,6 +147,9 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanContext context) {
+        if (context.getStatementContext().isDpHyp()) {
+            return CostV1.zero();
+        }
         double filterCostFactor = 0.0001;
         if (ConnectContext.get() != null) {
             filterCostFactor = ConnectContext.get().getSessionVariable().filterCostFactor;
@@ -168,10 +171,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 }
             }
         }
-
         return CostV1.ofCpu(context.getSessionVariable(),
-                (filter.getConjuncts().size() - prefixIndexMatched) * filterCostFactor
-                        * context.getStatisticsWithCheck().getRowCount());
+                (filter.getConjuncts().size() - prefixIndexMatched) * filterCostFactor);
     }
 
     @Override
@@ -350,13 +351,17 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         double leftRowCount = probeStats.getRowCount();
         double rightRowCount = buildStats.getRowCount();
-        if (leftRowCount == rightRowCount
-                && physicalHashJoin.getGroupExpression().isPresent()
-                && physicalHashJoin.getGroupExpression().get().getOwnerGroup() != null
-                && !physicalHashJoin.getGroupExpression().get().getOwnerGroup().isStatsReliable()) {
-            int leftConnectivity = computeConnectivity(physicalHashJoin.left(), context);
-            int rightConnectivity = computeConnectivity(physicalHashJoin.right(), context);
-            if (rightConnectivity < leftConnectivity) {
+        if (leftRowCount == rightRowCount) {
+            // reorder by connectivity to be friendly to runtime filter.
+            if (physicalHashJoin.getGroupExpression().isPresent()
+                    && physicalHashJoin.getGroupExpression().get().getOwnerGroup() != null
+                    && !physicalHashJoin.getGroupExpression().get().getOwnerGroup().isStatsReliable()) {
+                int leftConnectivity = computeConnectivity(physicalHashJoin.left(), context);
+                int rightConnectivity = computeConnectivity(physicalHashJoin.right(), context);
+                if (rightConnectivity < leftConnectivity) {
+                    leftRowCount += 1;
+                }
+            } else if (probeStats.getWidthInJoinCluster() < buildStats.getWidthInJoinCluster()) {
                 leftRowCount += 1;
             }
         }
