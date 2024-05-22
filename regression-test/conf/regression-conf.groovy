@@ -90,7 +90,8 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "segcompaction_p2," +
     "workload_manager_p1," +
     "cloud_p0/cache" +
-    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
+    "zzz_the_end_sentinel_do_not_touch" +
+    "dialect_compatible"// keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 
