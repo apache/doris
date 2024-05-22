@@ -1726,7 +1726,7 @@ public class SessionVariable implements Serializable, Writable {
                     "When the materialized view is not enough to provide all the data for the query, "
                             + "whether to allow the union of the base table and the materialized view to "
                             + "respond to the query"})
-    public boolean enableMaterializedViewUnionRewrite = false;
+    public boolean enableMaterializedViewUnionRewrite = true;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_NEST_REWRITE, needForward = true,
             description = {"是否允许嵌套物化视图改写",

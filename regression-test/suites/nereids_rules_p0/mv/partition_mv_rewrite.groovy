@@ -1,3 +1,5 @@
+import java.text.SimpleDateFormat
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -22,7 +24,6 @@ suite("partition_mv_rewrite") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
-    sql "SET enable_nereids_timeout = false"
 
     sql """
     drop table if exists orders
@@ -42,7 +43,7 @@ suite("partition_mv_rewrite") {
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
     PARTITION BY RANGE(o_orderdate)(
-    FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY
+    FROM ('2023-10-17') TO ('2023-11-01') INTERVAL 1 DAY
     )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
@@ -54,6 +55,7 @@ suite("partition_mv_rewrite") {
     drop table if exists lineitem
     """
 
+    // test pre init partition
     sql"""
     CREATE TABLE IF NOT EXISTS lineitem (
       l_orderkey    integer not null,
@@ -75,7 +77,7 @@ suite("partition_mv_rewrite") {
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
     PARTITION BY RANGE(l_shipdate) 
-    (FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)
+    (FROM ('2023-10-17') TO ('2023-11-01') INTERVAL 1 DAY)
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -140,8 +142,8 @@ suite("partition_mv_rewrite") {
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL
         partition by(l_shipdate)
         DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS 
+        PROPERTIES ('replication_num' = '1')
+        AS
         ${mv_def_sql}
         """
 
@@ -158,37 +160,295 @@ suite("partition_mv_rewrite") {
         sql("${partition_sql}")
         contains("${mv_name}(${mv_name})")
     }
-    // partition is invalid, so can not use partition 2023-10-17 to rewrite
+    // base table partition data change
     sql """
-    insert into lineitem values 
+    insert into lineitem values
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
     """
-    // wait partition is invalid
     sleep(5000)
-    // only can use valid partition
-    sql "SET enable_materialized_view_union_rewrite=false"
-    // Test query all partition when disable enable_materialized_view_union_rewrite
-    order_qt_query_all_direct_before "${all_partition_sql}"
+
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_1_0_before "${all_partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${all_partition_sql}")
         notContains("${mv_name}(${mv_name})")
     }
-    order_qt_query_all_direct_after "${all_partition_sql}"
+    order_qt_query_1_0_after "${all_partition_sql}"
 
-    // Test query part partition when disable enable_materialized_view_union_rewrite
-    order_qt_query_partition_before "${partition_sql}"
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_2_0_before "${partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${partition_sql}")
         contains("${mv_name}(${mv_name})")
     }
-    order_qt_query_partition_after "${partition_sql}"
+    order_qt_query_2_0_after "${partition_sql}"
 
-    // Test query part partition when enable enable_materialized_view_union_rewrite
+    // enable union rewrite
     sql "SET enable_materialized_view_union_rewrite=true"
-    order_qt_query_all_before "${all_partition_sql}"
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_3_0_before "${all_partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${all_partition_sql}")
         contains("${mv_name}(${mv_name})")
     }
-    order_qt_query_all_after "${all_partition_sql}"
+    order_qt_query_3_0_after "${all_partition_sql}"
+
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_4_0_before "${partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${partition_sql}")
+        contains("${mv_name}(${mv_name})")
+    }
+    order_qt_query_4_0_after "${partition_sql}"
+
+
+    // base table add partition
+    sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
+    sql "SET enable_materialized_view_union_rewrite=false"
+    waitingMTMVTaskFinished(getJobName(db, mv_name))
+    sql """
+    insert into lineitem values
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-21', '2023-10-21', '2023-10-21', 'a', 'b', 'yyyyyyyyy');
+    """
+
+    sleep(5000)
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_5_0_before "${all_partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${all_partition_sql}")
+        notContains("${mv_name}(${mv_name})")
+    }
+    order_qt_query_5_0_after "${all_partition_sql}"
+
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_6_0_before "${partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${partition_sql}")
+        contains("${mv_name}(${mv_name})")
+    }
+    order_qt_query_6_0_after "${partition_sql}"
+
+    // enable union rewrite
+    sql "SET enable_materialized_view_union_rewrite=true"
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_7_0_before "${all_partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${all_partition_sql}")
+        // mv doesn't contain all valid partitions, rewrite by union
+        contains("${mv_name}(${mv_name})")
+    }
+    order_qt_query_7_0_after "${all_partition_sql}"
+
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_8_0_before "${partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${partition_sql}")
+        contains("${mv_name}(${mv_name})")
+    }
+    order_qt_query_8_0_after "${partition_sql}"
+
+
+    // base table delete partition test
+    sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
+    sql "SET enable_materialized_view_union_rewrite=false"
+    waitingMTMVTaskFinished(getJobName(db, mv_name))
+    sql """ ALTER TABLE lineitem DROP PARTITION IF EXISTS p_20231017 FORCE;
+    """
+
+    sleep(3000)
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_9_0_before "${all_partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${all_partition_sql}")
+        // mv doesn't contain all valid partitions, can not use materialized view
+        notContains("${mv_name}(${mv_name})")
+    }
+    order_qt_query_9_0_after "${all_partition_sql}"
+
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_10_0_before "${partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${partition_sql}")
+        contains("${mv_name}(${mv_name})")
+    }
+    order_qt_query_10_0_after "${partition_sql}"
+
+    // enable union rewrite
+    sql "SET enable_materialized_view_union_rewrite=true"
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_11_0_before "${all_partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${all_partition_sql}")
+        // mv doesn't contain all valid partitions, can not use materialized view
+        contains("${mv_name}(${mv_name})")
+    }
+    order_qt_query_11_0_after "${all_partition_sql}"
+
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_12_0_before "${partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${partition_sql}")
+        contains("${mv_name}(${mv_name})")
+    }
+    order_qt_query_12_0_after "${partition_sql}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv_10086"""
+
+    // test mv with ttl
+    def today_str = new SimpleDateFormat("yyyy-MM-dd").format(new Date()).toString();
+
+    sql """
+    drop table if exists lineitem_static;
+    """
+    sql"""
+    CREATE TABLE IF NOT EXISTS lineitem_static (
+      l_orderkey    integer not null,
+      l_partkey     integer not null,
+      l_suppkey     integer not null,
+      l_linenumber  integer not null,
+      l_quantity    decimalv3(15,2) not null,
+      l_extendedprice  decimalv3(15,2) not null,
+      l_discount    decimalv3(15,2) not null,
+      l_tax         decimalv3(15,2) not null,
+      l_returnflag  char(1) not null,
+      l_linestatus  char(1) not null,
+      l_shipdate    date not null,
+      l_commitdate  date not null,
+      l_receiptdate date not null,
+      l_shipinstruct char(25) not null,
+      l_shipmode     char(10) not null,
+      l_comment      varchar(44) not null
+    )
+    DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
+    PARTITION BY RANGE(l_shipdate) 
+    (
+    PARTITION `p1` VALUES LESS THAN ("2023-10-18"),
+    PARTITION `p2` VALUES [("2023-10-18"), ("2023-10-20")),
+    PARTITION `other` VALUES LESS THAN (MAXVALUE)
+    )
+    DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
+    PROPERTIES (
+      "replication_num" = "1"
+    );
+    """
+    sql """
+    insert into lineitem_static values 
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx');
+    """
+    sql """
+    insert into lineitem_static values 
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '${today_str}', '${today_str}', '${today_str}', 'a', 'b', 'yyyyyyyyy');
+    """
+
+    def ttl_mv_def_sql = """
+    select l_shipdate, o_orderdate, l_partkey,
+    l_suppkey, sum(o_totalprice) as sum_total
+    from lineitem_static
+    left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+    group by
+    l_shipdate,
+    o_orderdate,
+    l_partkey,
+    l_suppkey;
+    """
+    def ttl_all_partition_sql = """
+    select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total
+    from lineitem_static
+    left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+    group by
+    l_shipdate,
+    o_orderdate,
+    l_partkey,
+    l_suppkey;
+   """
+    def ttl_partition_sql = """
+    select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total
+    from lineitem_static
+    left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+    where (l_shipdate>= '2023-10-18' and l_shipdate <= '2023-10-19')
+    group by
+    l_shipdate,
+    o_orderdate,
+    l_partkey,
+    l_suppkey;
+    """
+    def ttl_mv_name = "mv_10000"
+
+    sql """analyze table lineitem_static with sync;"""
+
+    def create_ttl_mtmv = { db_name, mv_inner_name, mv_inner_sql ->
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_inner_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_inner_name}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY(l_shipdate)
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+        'replication_num' = '1',
+        'partition_sync_limit' = 2,
+        'partition_sync_time_unit' = 'DAY',
+        'partition_date_format' = 'yyyy-MM-dd')
+        AS ${mv_inner_sql}
+        """
+        waitingMTMVTaskFinished(getJobName(db_name, mv_inner_name))
+    }
+
+    create_ttl_mtmv(db, ttl_mv_name, ttl_mv_def_sql)
+
+    // test when mv is ttl
+    sql "SET enable_materialized_view_union_rewrite=false"
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_13_0_before "${ttl_all_partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${ttl_all_partition_sql}")
+        // mv doesn't contain all valid partitions, can not use materialized view
+        notContains("${ttl_mv_name}(${ttl_mv_name})")
+    }
+    order_qt_query_13_0_after "${ttl_all_partition_sql}"
+
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_14_0_before "${ttl_partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${ttl_partition_sql}")
+        notContains("${ttl_mv_name}(${ttl_mv_name})")
+    }
+    order_qt_query_14_0_after "${ttl_partition_sql}"
+
+    // enable union rewrite
+    sql "SET enable_materialized_view_union_rewrite=true"
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_15_0_before "${ttl_all_partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${ttl_all_partition_sql}")
+        // mv doesn't contain all valid partitions, can not use materialized view
+        contains("${ttl_mv_name}(${ttl_mv_name})")
+    }
+    order_qt_query_15_0_after "${ttl_all_partition_sql}"
+
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_16_0_before "${ttl_partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${ttl_partition_sql}")
+        notContains("${ttl_mv_name}(${ttl_mv_name})")
+    }
+    order_qt_query_16_0_after "${ttl_partition_sql}"
+
+    sql """ DROP MATERIALIZED VIEW IF EXISTS ${ttl_mv_name}"""
 }
