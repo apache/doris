@@ -35,8 +35,7 @@ const std::string PARAM_END_VERSION = "end_version";
 // This action is used to calculate the crc value of the files in the tablet.
 class CalcFileCrcAction : public HttpHandlerWithAuth {
 public:
-    CalcFileCrcAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
-                      TPrivilegeType::type ptype);
+    CalcFileCrcAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type ptype);
 
     ~CalcFileCrcAction() override = default;
 
@@ -45,9 +44,6 @@ public:
 private:
     Status _handle_calc_crc(HttpRequest* req, uint32_t* crc_value, int64_t* start_version,
                             int64_t* end_version, int32_t* rowset_count, int64_t* file_count);
-
-private:
-    StorageEngine& _engine;
 };
 
 } // end namespace doris

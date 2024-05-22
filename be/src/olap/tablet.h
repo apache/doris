@@ -347,8 +347,6 @@ public:
 
     bool should_fetch_from_peer();
 
-    bool should_fetch_from_peer();
-
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->all_beta();

@@ -316,10 +316,9 @@ Status HttpService::start() {
             _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_DISK_STATE"));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/disk", report_disk_action);
 
-    CalcFileCrcAction* calc_crc_action = _pool.add(
-            new CalcFileCrcAction(_env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    CalcFileCrcAction* calc_crc_action =
+            _pool.add(new CalcFileCrcAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
-}
 
     ReportAction* report_task_action = _pool.add(
             new ReportAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_TASK"));

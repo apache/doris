@@ -38,9 +38,9 @@
 namespace doris {
 using namespace ErrorCode;
 
-CalcFileCrcAction::CalcFileCrcAction(ExecEnv* exec_env, StorageEngine& engine,
-                                     TPrivilegeHier::type hier, TPrivilegeType::type ptype)
-        : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine) {}
+CalcFileCrcAction::CalcFileCrcAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                     TPrivilegeType::type ptype)
+        : HttpHandlerWithAuth(exec_env, hier, ptype) {}
 
 // calculate the crc value of the files in the tablet
 Status CalcFileCrcAction::_handle_calc_crc(HttpRequest* req, uint32_t* crc_value,
@@ -58,7 +58,7 @@ Status CalcFileCrcAction::_handle_calc_crc(HttpRequest* req, uint32_t* crc_value
         return Status::InternalError("convert tablet id or failed, {}", e.what());
     }
 
-    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
