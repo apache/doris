@@ -160,8 +160,7 @@ class MemoTest implements MemoPatternMatchSupported {
                         // swap join's children
                         logicalJoin(logicalOlapScan(), logicalOlapScan()).then(joinBA ->
                                 // this project eliminate when copy in, because it's output same with child.
-                                new LogicalProject<>(Lists.newArrayList(joinBA.getOutput()),
-                                        new LogicalJoin<>(JoinType.INNER_JOIN, joinBA.right(), joinBA.left(), null))
+                                new LogicalJoin<>(JoinType.INNER_JOIN, joinBA.right(), joinBA.left(), null)
                         ))
                 .checkGroupNum(5)
                 .checkGroupExpressionNum(6)

@@ -15,24 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.processor.post;
+package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
+import com.google.common.collect.ImmutableList;
+
 /**
- * PlanPostprocessor: a PlanVisitor to rewrite PhysicalPlan to new PhysicalPlan.
+ * We need this rule to cast all filter and join conjunct's return type to boolean after rewrite.
  */
-public class PlanPostProcessor extends DefaultPlanRewriter<CascadesContext> {
+public class AddProjectForJoin extends DefaultPlanRewriter<Void> implements CustomRewriter {
+
     @Override
-    public Plan visit(Plan plan, CascadesContext context) {
-        AbstractPhysicalPlan newPlan = (AbstractPhysicalPlan) super.visit(plan, context);
-        return newPlan == plan ? plan : newPlan.copyStatsAndGroupIdFrom((AbstractPhysicalPlan) plan);
+    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        return plan.accept(this, null);
     }
 
-    public Plan processRoot(Plan plan, CascadesContext ctx) {
-        return plan.accept(this, ctx);
+    @Override
+    public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
+        join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, context);
+        return new LogicalProject<>(ImmutableList.copyOf(join.getOutput()), join);
     }
 }

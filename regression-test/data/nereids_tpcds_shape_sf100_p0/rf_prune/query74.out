@@ -39,13 +39,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((t_s_firstyear.customer_id = t_w_firstyear.customer_id)) otherCondition=((if((year_total > 0.0), (year_total / year_total), NULL) > if((year_total > 0.0), (year_total / year_total), NULL)))
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------filter((t_w_firstyear.sale_type = 'w') and (t_w_firstyear.year = 1999) and (t_w_firstyear.year_total > 0.0))
---------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------hashJoin[INNER_JOIN] hashCondition=((t_s_firstyear.customer_id = t_w_secyear.customer_id)) otherCondition=((if((year_total > 0.0), (year_total / year_total), NULL) > if((year_total > 0.0), (year_total / year_total), NULL)))
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t_s_firstyear.customer_id = t_w_secyear.customer_id)) otherCondition=()
+----------------hashJoin[INNER_JOIN] hashCondition=((t_s_firstyear.customer_id = t_w_firstyear.customer_id)) otherCondition=()
 ------------------hashJoin[INNER_JOIN] hashCondition=((t_s_secyear.customer_id = t_s_firstyear.customer_id)) otherCondition=()
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------PhysicalProject
@@ -57,6 +53,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------filter((t_w_secyear.sale_type = 'w') and (t_w_secyear.year = 2000))
+----------------------filter((t_w_firstyear.sale_type = 'w') and (t_w_firstyear.year = 1999) and (t_w_firstyear.year_total > 0.0))
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------PhysicalProject
+------------------filter((t_w_secyear.sale_type = 'w') and (t_w_secyear.year = 2000))
+--------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
