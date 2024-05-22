@@ -516,7 +516,7 @@ public class CreateTableStmt extends DdlStmt {
 
             // analyze distribution
             if (distributionDesc == null) {
-                throw new AnalysisException("Create olap table should contain distribution desc");
+                distributionDesc = new RandomDistributionDesc(FeConstants.default_bucket_num, true);
             }
             distributionDesc.analyze(columnSet, columnDefs, keysDesc);
             if (distributionDesc.type == DistributionInfo.DistributionInfoType.RANDOM) {
