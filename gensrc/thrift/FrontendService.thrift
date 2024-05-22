@@ -395,6 +395,7 @@ struct TDetailedReportParams {
   1: optional Types.TUniqueId fragment_instance_id
   2: optional RuntimeProfile.TRuntimeProfileTree profile
   3: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+  4: optional bool is_fragment_level
 }
 
 
