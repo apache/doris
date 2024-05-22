@@ -24,10 +24,34 @@ suite('test_drop_clone_tablet_path_race') {
     }
     def options = new ClusterOptions()
     options.enableDebugPoints()
+    options.feConfigs += [
+        'tablet_checker_interval_ms=100',
+        'schedule_slot_num_per_hdd_path=1000',
+        'storage_high_watermark_usage_percent=99',
+        'storage_flood_stage_usage_percent=99',
+    ]
     options.beNum = 3
-    
     docker(options) {
         def table = "t1"
+        def checkFunc = {size -> 
+            boolean succ = false
+            for (int i = 0; i < 120; i++) {
+                def result = sql_return_maparray """SHOW TABLETS FROM ${table}"""
+                if (result.size() == size) {
+                    def version = result[0].Version
+                    def state = result[0].State
+                    result.forEach {
+                         Assert.assertEquals(it.Version, version)
+                         Assert.assertEquals(it.State, state)
+                    }
+                    succ = true
+                    break
+                }
+                sleep(1000)
+            }
+            Assert.assertTrue(succ)
+        }
+
         sql """DROP TABLE IF EXISTS ${table}"""
         sql """
             CREATE TABLE `${table}` (
@@ -45,38 +69,17 @@ suite('test_drop_clone_tablet_path_race') {
 
         try {
             // 10h
-            GetDebugPoint().enableDebugPointForAllBEs("TabletManager.start_trash_sweep.sleep", [duration:36000000])
+            GetDebugPoint().enableDebugPointForAllBEs("TabletManager.start_trash_sweep.sleep")
             for(int i= 0; i < 100; ++i) {
                 sql """INSERT INTO ${table} values (${i}, "${i}str", ${i} * 100)"""
             }
 
             sql """ALTER TABLE ${table} MODIFY PARTITION(${table}) SET ("replication_num" = "2")"""
 
-            sleep(60 * 1000)
-            boolean succ = false
-            for (int i = 0; i < 60; i++) {
-                def result = sql """SHOW TABLETS FROM ${table}"""
-                if (result.size() == 20) {
-                    succ = true
-                    break
-                }
-                sleep(1000)
-            }
-            Assert.assertTrue(succ)
+            checkFunc(20)
 
             sql """ALTER TABLE ${table} MODIFY PARTITION(${table}) SET ("replication_num" = "3")"""
-
-            sleep(60 * 1000)
-            succ = false
-            for (int i = 0; i < 60; i++) {
-                def result = sql """SHOW TABLETS FROM ${table}"""
-                if (result.size() == 30) {
-                    succ = true
-                    break
-                }
-                sleep(1000)
-            }
-            Assert.assertTrue(succ)
+            checkFunc(30)
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("TabletManager.start_trash_sweep.sleep")
         }

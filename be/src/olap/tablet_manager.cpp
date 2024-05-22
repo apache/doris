@@ -1134,12 +1134,7 @@ Status TabletManager::try_move_to_trash(TTabletId tablet_id, TSchemaHash schema_
 }
 
 Status TabletManager::start_trash_sweep() {
-    DBUG_EXECUTE_IF("TabletManager.start_trash_sweep.sleep", {
-        auto duration = std::chrono::milliseconds(dp->param("duration", 3600 * 1000));
-        LOG(INFO) << "in debug point TabletManager.start_trash_sweep.sleep "
-                  << std::chrono::duration_cast<std::chrono::seconds>(duration).count() << " s";
-        std::this_thread::sleep_for(duration);
-    });
+    DBUG_EXECUTE_IF("TabletManager.start_trash_sweep.sleep", DBUG_BLOCK);
     std::unique_lock<std::mutex> lock(_gc_tablets_lock, std::defer_lock);
     if (!lock.try_lock()) {
         return Status::OK();
@@ -1283,7 +1278,7 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                           << "tablet_id=" << tablet->tablet_id()
                           << ", schema_hash=" << tablet->schema_hash()
                           << ", delete tablet_path=" << tablet_path;
-                RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(tablet_path));
+                RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_path));
                 return true;
             }
             LOG(WARNING) << "errors while load meta from store, skip this tablet. "
