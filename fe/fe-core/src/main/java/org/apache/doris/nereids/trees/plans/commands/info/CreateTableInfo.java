@@ -460,10 +460,6 @@ public class CreateTableInfo {
                     }
                 }
             }
-
-            for (RollupDefinition rollup : rollups) {
-                rollup.validate();
-            }
         } else {
             // mysql, broker and hive do not need key desc
             if (keysType != null) {
