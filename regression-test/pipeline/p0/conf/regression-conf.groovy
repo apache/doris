@@ -66,7 +66,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_bitmap_filter," +
     "test_dump_image," +
     "test_index_failure_injection," +
-    "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
     "test_broker_load_func," +
