@@ -176,6 +176,8 @@ public enum RuleType {
 
     PUSH_DOWN_DISTINCT_THROUGH_JOIN(RuleTypeClass.REWRITE),
 
+    ADD_PROJECT_FOR_JOIN(RuleTypeClass.REWRITE),
+
     COLUMN_PRUNING(RuleTypeClass.REWRITE),
     ELIMINATE_SORT(RuleTypeClass.REWRITE),
 
