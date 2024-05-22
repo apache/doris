@@ -82,6 +82,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -333,16 +334,17 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 return canNotPush;
             }
         }
-        List<Expression> projectExpr = project.getProjects()
-                .stream()
-                .flatMap(p -> Project.collectExpressions(p).stream())
-                .collect(ImmutableList.toImmutableList());
-        boolean noSlotRef = projectExpr.stream().allMatch(expr -> {
+        List<Expression> projectExpr = new ArrayList<>();
+        for (Expression p : project.getProjects()) {
+            projectExpr.addAll(Project.collectExpressions(p));
+        }
+        boolean noSlotRef = true;
+        for (Expression expr : projectExpr) {
             if (expr instanceof SlotReference) {
-                return false;
+                noSlotRef = false;
+                break;
             }
-            return true;
-        });
+        }
         if (!noSlotRef) {
             return canNotPush;
         }
