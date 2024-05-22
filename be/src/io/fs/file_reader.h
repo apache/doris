@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "io/fs/path.h"
+#include "util/profile_collector.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -33,7 +34,7 @@ namespace io {
 class FileSystem;
 class IOContext;
 
-class FileReader {
+class FileReader : public doris::ProfileCollector {
 public:
     FileReader() = default;
     virtual ~FileReader() = default;
