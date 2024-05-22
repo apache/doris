@@ -25,6 +25,7 @@
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -53,7 +54,7 @@ public:
         return Impl::get_return_type_impl(arguments);
     }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     bool use_default_implementation_for_constants() const override { return false; }
 
@@ -65,10 +66,11 @@ public:
 
 struct UDTFImpl {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        DCHECK(false) << "get_return_type_impl not supported, shouldn't into here.";
-        return nullptr;
+        return std::make_shared<DataTypeUInt8>(); //just fake return uint8
     }
-    static std::string get_error_msg() { return "Fake function do not support execute"; }
+    static std::string get_error_msg() {
+        return "UDTF function do not support this, it's should execute with lateral view.";
+    }
 };
 
 } // namespace doris::vectorized
