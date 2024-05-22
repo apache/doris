@@ -367,9 +367,6 @@ public:
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
-    template <typename Type>
-    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
-
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
     void append_data_by_selector(MutableColumnPtr& res,
@@ -405,11 +402,6 @@ public:
         data[self_row] = assert_cast<const Self&>(rhs).data[row];
     }
 
-    void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        data[self_row] = T();
-    }
-
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
@@ -419,27 +411,8 @@ public:
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
 
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
-
 protected:
     Container data;
 };
-
-template <typename T>
-template <typename Type>
-ColumnPtr ColumnVector<T>::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
-    size_t size = indexes.size();
-
-    if (limit == 0)
-        limit = size;
-    else
-        limit = std::min(size, limit);
-
-    auto res = this->create(limit);
-    typename Self::Container& res_data = res->get_data();
-    for (size_t i = 0; i < limit; ++i) res_data[i] = data[indexes[i]];
-
-    return res;
-}
 
 } // namespace doris::vectorized

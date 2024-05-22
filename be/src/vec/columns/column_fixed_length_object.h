@@ -179,15 +179,30 @@ public:
         hash.update(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size);
     }
 
-    [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
-                                  ssize_t result_size_hint) const override {
-        LOG(FATAL) << "filter not supported";
-        __builtin_unreachable();
+    ColumnPtr filter(const IColumn::Filter& filter, ssize_t result_size_hint) const override {
+        column_match_filter_size(size(), filter.size());
+        auto res = create(_item_size);
+        res->resize(result_size_hint);
+
+        for (size_t i = 0, pos = 0; i < filter.size(); i++) {
+            if (filter[i]) {
+                memcpy(&res->_data[pos * _item_size], &_data[i * _item_size], _item_size);
+                pos++;
+            }
+        }
+        return res;
     }
 
-    [[noreturn]] size_t filter(const IColumn::Filter&) override {
-        LOG(FATAL) << "filter not supported";
-        __builtin_unreachable();
+    size_t filter(const IColumn::Filter& filter) override {
+        size_t pos = 0;
+        for (size_t i = 0; i < filter.size(); i++) {
+            if (filter[i]) {
+                memcpy(&_data[pos * _item_size], &_data[i * _item_size], _item_size);
+                pos++;
+            }
+        }
+        resize(pos);
+        return pos;
     }
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
@@ -205,23 +220,6 @@ public:
                                                      _item_size);
         }
         return res;
-    }
-
-    [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
-                                int nan_direction_hint) const override {
-        LOG(FATAL) << "compare_at not supported";
-        __builtin_unreachable();
-    }
-
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                         IColumn::Permutation& res) const override {
-        LOG(FATAL) << "get_permutation not supported";
-        __builtin_unreachable();
-    }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override {
-        LOG(FATAL) << "index not supported";
-        __builtin_unreachable();
     }
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override {
@@ -277,11 +275,6 @@ public:
                 << _item_size << " " << assert_cast<const Self&>(rhs)._item_size;
         auto obj = assert_cast<const Self&>(rhs).get_data_at(row);
         memcpy(&_data[self_row * _item_size], obj.data, _item_size);
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "replace_column_data_default not supported";
-        __builtin_unreachable();
     }
 
     void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,

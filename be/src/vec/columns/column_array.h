@@ -163,16 +163,7 @@ public:
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
-    //ColumnPtr index(const IColumn & indexes, size_t limit) const;
-    template <typename Type>
-    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
-
-    [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                      Permutation& res) const override {
-        LOG(FATAL) << "get_permutation not implemented";
-        __builtin_unreachable();
-    }
     void reserve(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
@@ -233,10 +224,6 @@ public:
         LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
     }
 
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
-    }
-
     void clear() override {
         data->clear();
         offsets->clear();
@@ -251,8 +238,6 @@ public:
                nested_array
                        ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
     }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
 private:
     // [[2,1,5,9,1], [1,2,4]] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8

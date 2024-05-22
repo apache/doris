@@ -54,39 +54,6 @@ extern const int LOGICAL_ERROR;
 extern const int TOO_LARGE_ARRAY_SIZE;
 } // namespace ErrorCodes
 
-template <typename T>
-ColumnPtr ColumnArray::index_impl(const PaddedPODArray<T>& indexes, size_t limit) const {
-    assert(limit <= indexes.size());
-    if (limit == 0) {
-        return ColumnArray::create(data->clone_empty());
-    }
-    /// Convert indexes to UInt64 in case of overflow.
-    auto nested_indexes_column = ColumnUInt64::create();
-    PaddedPODArray<UInt64>& nested_indexes = nested_indexes_column->get_data();
-    nested_indexes.reserve(get_offsets().back());
-    auto res = ColumnArray::create(data->clone_empty());
-    Offsets64& res_offsets = res->get_offsets();
-    res_offsets.resize(limit);
-    size_t current_offset = 0;
-    for (size_t i = 0; i < limit; ++i) {
-        for (size_t j = 0; j < size_at(indexes[i]); ++j) {
-            nested_indexes.push_back(offset_at(indexes[i]) + j);
-        }
-        current_offset += size_at(indexes[i]);
-        res_offsets[i] = current_offset;
-    }
-    if (current_offset != 0) {
-        res->data = data->index(*nested_indexes_column, current_offset);
-    }
-    return res;
-}
-
-ColumnPtr ColumnArray::index(const IColumn& indexes, size_t limit) const {
-    return select_index_impl(*this, indexes, limit);
-}
-
-INSTANTIATE_INDEX_IMPL(ColumnArray)
-
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
         : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
     const ColumnOffsets* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());

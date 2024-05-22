@@ -145,11 +145,6 @@ public:
         __builtin_unreachable();
     }
 
-    [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
-        LOG(FATAL) << "index not supported in PredicateColumnType";
-        __builtin_unreachable();
-    }
-
     void insert_string_value(const char* data_ptr, size_t length) {
         StringRef sv((char*)data_ptr, length);
         data.push_back_without_reserve(sv);
@@ -323,12 +318,6 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                         IColumn::Permutation& res) const override {
-        LOG(FATAL) << "get_permutation not supported in PredicateColumnType";
-        __builtin_unreachable();
-    }
-
     void reserve(size_t n) override { data.reserve(n); }
 
     const char* get_family_name() const override { return TypeName<T>::get(); }
@@ -372,12 +361,6 @@ public:
 
     [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
         LOG(FATAL) << "deserialize_and_insert_from_arena not supported in PredicateColumnType";
-        __builtin_unreachable();
-    }
-
-    [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
-                                int nan_direction_hint) const override {
-        LOG(FATAL) << "compare_at not supported in PredicateColumnType";
         __builtin_unreachable();
     }
 
@@ -444,11 +427,6 @@ public:
 
     void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "should not call replace_column_data in predicate column";
-        __builtin_unreachable();
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "should not call replace_column_data_default in predicate column";
         __builtin_unreachable();
     }
 

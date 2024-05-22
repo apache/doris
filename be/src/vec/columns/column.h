@@ -412,13 +412,6 @@ public:
     using Permutation = PaddedPODArray<size_t>;
     virtual Ptr permute(const Permutation& perm, size_t limit) const = 0;
 
-    /// Creates new column with values column[indexes[:limit]]. If limit is 0, all indexes are used.
-    /// Indexes must be one of the ColumnUInt. For default implementation, see select_index_impl from ColumnsCommon.h
-    virtual Ptr index(const IColumn& indexes, size_t limit) const {
-        LOG(FATAL) << "column not support index";
-        __builtin_unreachable();
-    }
-
     /** Compares (*this)[n] and rhs[m]. Column rhs should have the same type.
       * Returns negative number, 0, or positive number (*this)[n] is less, equal, greater than rhs[m] respectively.
       * Is used in sortings.
@@ -431,8 +424,10 @@ public:
       * For non Nullable and non floating point types, nan_direction_hint is ignored.
       * For array/map/struct types, we compare with nested column element and offsets size
       */
-    virtual int compare_at(size_t n, size_t m, const IColumn& rhs,
-                           int nan_direction_hint) const = 0;
+    virtual int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "compare_at for " + std::string(get_family_name()));
+    }
 
     /**
      * To compare all rows in this column with another row (with row_id = rhs_row_id in column rhs)
@@ -451,7 +446,10 @@ public:
       * nan_direction_hint - see above.
       */
     virtual void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                 Permutation& res) const = 0;
+                                 Permutation& res) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_permutation for " + std::string(get_family_name()));
+    }
 
     /** Copies each element according offsets parameter.
       * (i-th element should be copied offsets[i] - offsets[i - 1] times.)
@@ -644,9 +642,6 @@ public:
     // ColumnString should replace according to 0,1,2... ,size,0,1,2...
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
 
-    // only used in ColumnNullable replace_column_data
-    virtual void replace_column_data_default(size_t self_row = 0) = 0;
-
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
     virtual bool is_date_type() const { return is_date; }
@@ -729,6 +724,6 @@ namespace doris {
 struct ColumnPtrWrapper {
     vectorized::ColumnPtr column_ptr;
 
-    ColumnPtrWrapper(vectorized::ColumnPtr col) : column_ptr(col) {}
+    ColumnPtrWrapper(vectorized::ColumnPtr col) : column_ptr(std::move(col)) {}
 };
 } // namespace doris

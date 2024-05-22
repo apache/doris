@@ -152,19 +152,6 @@ public:
         __builtin_unreachable();
     }
 
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "should not call the method in column dummy";
-        __builtin_unreachable();
-    }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override {
-        if (indexes.size() < limit) {
-            LOG(FATAL) << "Size of indexes is less than required.";
-            __builtin_unreachable();
-        }
-        return clone_dummy(limit ? limit : s);
-    }
-
 protected:
     size_t s;
 };

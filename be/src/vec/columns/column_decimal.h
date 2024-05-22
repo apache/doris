@@ -211,12 +211,6 @@ public:
     size_t filter(const IColumn::Filter& filter) override;
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
-    //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
-
-    template <typename Type>
-    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
@@ -246,11 +240,6 @@ public:
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data[self_row] = assert_cast<const Self&>(rhs).data[row];
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        data[self_row] = T();
     }
 
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
@@ -313,22 +302,5 @@ struct ColumnVectorOrDecimalT<T, true> {
 
 template <typename T>
 using ColumnVectorOrDecimal = typename ColumnVectorOrDecimalT<T, IsDecimalNumber<T>>::Col;
-
-template <typename T>
-template <typename Type>
-ColumnPtr ColumnDecimal<T>::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
-    size_t size = indexes.size();
-
-    if (limit == 0)
-        limit = size;
-    else
-        limit = std::min(size, limit);
-
-    auto res = this->create(limit, scale);
-    typename Self::Container& res_data = res->get_data();
-    for (size_t i = 0; i < limit; ++i) res_data[i] = data[indexes[i]];
-
-    return res;
-}
 
 } // namespace doris::vectorized

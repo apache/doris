@@ -134,16 +134,6 @@ void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_
     }
 }
 
-ColumnPtr ColumnConst::index(const IColumn& indexes, size_t limit) const {
-    if (limit == 0) {
-        limit = indexes.size();
-    }
-    if (indexes.size() < limit) {
-        LOG(FATAL) << "Size of indexes  is less than required " << std::to_string(limit);
-    }
-    return ColumnConst::create(data, limit);
-}
-
 std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
                                                                 size_t row_num) noexcept {
     std::pair<ColumnPtr, size_t> result;

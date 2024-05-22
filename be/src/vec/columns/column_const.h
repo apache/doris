@@ -154,8 +154,6 @@ public:
 
     void pop_back(size_t n) override { s -= n; }
 
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
-
     StringRef serialize_value_into_arena(size_t, Arena& arena, char const*& begin) const override {
         return data->serialize_value_into_arena(0, arena, begin);
     }
@@ -281,12 +279,6 @@ public:
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data->replace_column_data(rhs, row, self_row);
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        LOG(FATAL) << "should not call the method in column const";
-        __builtin_unreachable();
     }
 };
 } // namespace doris::vectorized

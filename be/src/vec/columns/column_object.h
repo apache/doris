@@ -474,27 +474,12 @@ public:
 
     ColumnPtr permute(const Permutation&, size_t) const override;
 
-    int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        return 0;
-    }
-
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                         Permutation& res) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        __builtin_unreachable();
-    }
-
     bool is_variable_length() const override { return true; }
 
     void replace_column_data(const IColumn&, size_t row, size_t self_row) override;
 
-    void replace_column_data_default(size_t self_row) override;
-
     template <typename Func>
     MutableColumnPtr apply_for_subcolumns(Func&& func) const;
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
     // Extract path from root column and replace root with new extracted column,
     // root must be jsonb type

@@ -527,11 +527,6 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-ColumnPtr ColumnVector<T>::index(const IColumn& indexes, size_t limit) const {
-    return select_index_impl(*this, indexes, limit);
-}
-
-template <typename T>
 void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
     auto s = size();
     size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);

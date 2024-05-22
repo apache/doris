@@ -349,14 +349,7 @@ public:
 
         if (!nullable_rhs.is_null_at(row)) {
             nested_column->replace_column_data(*nullable_rhs.nested_column, row, self_row);
-        } else {
-            nested_column->replace_column_data_default(self_row);
         }
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "should not call the method in column nullable";
-        __builtin_unreachable();
     }
 
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
@@ -411,8 +404,6 @@ public:
     std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
         return nested_column->get_rowset_segment_id();
     }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
 private:
     // the two functions will not update `_need_update_has_null`
