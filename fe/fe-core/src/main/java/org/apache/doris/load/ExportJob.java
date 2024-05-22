@@ -514,7 +514,7 @@ public class ExportJob implements Writable {
                 this.partitionNames.forEach(partitionName -> {
                     Partition partition = table.getPartition(partitionName);
                     if (partition.hasData()) {
-                        partitions.add(table.getPartition(partitionName));
+                        partitions.add(partition);
                     }
                 });
             } else {
