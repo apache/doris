@@ -197,6 +197,8 @@ public:
 private:
     static bool _s_initialized;
     static std::atomic<int64_t> _s_physical_mem;
+    static int64_t _s_cgroup_mem_limit;
+    static int64_t _s_cgroup_mem_limit_refresh_wait_times;
     static std::atomic<int64_t> _s_mem_limit;
     static std::atomic<int64_t> _s_soft_mem_limit;
 
