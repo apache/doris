@@ -355,11 +355,16 @@ public class ProfileManager {
             try {
                 loadJobId = Long.parseLong(id);
             } catch (Exception e) {
-                return futures;
+                throw new IllegalArgumentException("Invalid profile id: " + id);
             }
 
             LoadJob loadJob = Env.getCurrentEnv().getLoadManager().getLoadJob(loadJobId);
+            if (loadJob == null) {
+                throw new RuntimeException("Profile " + id + " not found");
+            }
+
             if (loadJob.getLoadTaskIds() == null) {
+                LOG.warn("Load job {} has no task ids", loadJobId);
                 return futures;
             }
 
@@ -393,7 +398,6 @@ public class ProfileManager {
 
     public String getProfile(String id) {
         List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(id);
-
         // beAddr of reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
         // to avoid compile failing.
         TNetworkAddress dummyAddr = new TNetworkAddress();
