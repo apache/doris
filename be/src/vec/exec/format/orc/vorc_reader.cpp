@@ -194,6 +194,7 @@ void OrcReader::_collect_profile_before_close() {
         COUNTER_UPDATE(_orc_profile.set_fill_column_time, _statistics.set_fill_column_time);
         COUNTER_UPDATE(_orc_profile.decode_value_time, _statistics.decode_value_time);
         COUNTER_UPDATE(_orc_profile.decode_null_map_time, _statistics.decode_null_map_time);
+        COUNTER_UPDATE(_orc_profile.filter_block_time, _statistics.filter_block_time);
 
         if (_file_input_stream != nullptr) {
             _file_input_stream->collect_profile_before_close();
@@ -227,6 +228,8 @@ void OrcReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeValueTime", orc_profile, 1);
         _orc_profile.decode_null_map_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", orc_profile, 1);
+        _orc_profile.filter_block_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FilterBlockTime", orc_profile, 1);
     }
 }
 
@@ -1608,8 +1611,11 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             return Status::OK();
         }
         _execute_filter_position_delete_rowids(*_filter);
-
-        RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter, *_filter));
+        {
+            SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
+            RETURN_IF_CATCH_EXCEPTION(
+                    Block::filter_block_internal(block, columns_to_filter, *_filter));
+        }
         if (!_not_single_slot_filter_conjuncts.empty()) {
             static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
             RETURN_IF_CATCH_EXCEPTION(
@@ -1736,8 +1742,11 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 return Status::OK();
             }
             _execute_filter_position_delete_rowids(result_filter);
-            RETURN_IF_CATCH_EXCEPTION(
-                    Block::filter_block_internal(block, columns_to_filter, result_filter));
+            {
+                SCOPED_RAW_TIMER(&_statistics.filter_block_time);
+                RETURN_IF_CATCH_EXCEPTION(
+                        Block::filter_block_internal(block, columns_to_filter, result_filter));
+            }
             if (!_not_single_slot_filter_conjuncts.empty()) {
                 static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
                 RETURN_IF_CATCH_EXCEPTION(
@@ -1751,15 +1760,16 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         } else {
             if (_delete_rows_filter_ptr) {
                 _execute_filter_position_delete_rowids(*_delete_rows_filter_ptr);
+                SCOPED_RAW_TIMER(&_statistics.filter_block_time);
                 RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter,
                                                                        (*_delete_rows_filter_ptr)));
             } else {
                 std::unique_ptr<IColumn::Filter> filter(new IColumn::Filter(block->rows(), 1));
                 _execute_filter_position_delete_rowids(*filter);
+                SCOPED_RAW_TIMER(&_statistics.filter_block_time);
                 RETURN_IF_CATCH_EXCEPTION(
                         Block::filter_block_internal(block, columns_to_filter, (*filter)));
             }
-
             Block::erase_useless_column(block, column_to_keep);
             static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
         }
