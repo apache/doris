@@ -273,6 +273,7 @@ private:
     // Maybe null if not used
     FileMetaCache* _meta_cache = nullptr;
     bool _enable_lazy_mat = true;
+    bool _enable_filter_by_min_max = true;
     const TupleDescriptor* _tuple_descriptor = nullptr;
     const RowDescriptor* _row_descriptor = nullptr;
     const std::unordered_map<std::string, int>* _colname_to_slot_id = nullptr;
