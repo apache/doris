@@ -111,8 +111,10 @@ T swapEndianness(T value) {
 
 template <typename T>
 T next_from_charstream(int8_t*& src) {
-    T value = *reinterpret_cast<T*>(src);
-    src += sizeof(T) / sizeof(int8_t);
+    T value = 0;
+    constexpr auto step = sizeof(T) / sizeof(int8_t);
+    memcpy(&value, src, step);
+    src += step;
     if constexpr (std::endian::native == std::endian::little) {
         return swapEndianness(
                 value); // timezone information files use network endianess, which is big-endian
