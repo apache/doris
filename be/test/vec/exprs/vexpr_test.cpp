@@ -519,6 +519,30 @@ TEST(TEST_VEXPR, LITERALTEST) {
         EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07", literal.value());
     }
+    {
+        DateV2Value<DateV2ValueType> data_time_value;
+        const char* date = "00000000";
+        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date), -1, true), true);
+
+        DateV2Value<DateV2ValueType> data_time_value1;
+        const char* date1 = "00000101";
+        EXPECT_EQ(data_time_value1.from_date_str(date1, strlen(date1), -1, true), true);
+        EXPECT_EQ(data_time_value.to_int64(), data_time_value1.to_int64());
+
+        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), false);
+    }
+    {
+        DateV2Value<DateTimeV2ValueType> data_time_value;
+        const char* date = "00000000111111";
+        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date), -1, true), true);
+
+        DateV2Value<DateTimeV2ValueType> data_time_value1;
+        const char* date1 = "00000101111111";
+        EXPECT_EQ(data_time_value1.from_date_str(date1, strlen(date1), -1, true), true);
+        EXPECT_EQ(data_time_value.to_int64(), data_time_value1.to_int64());
+
+        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), false);
+    }
     // jsonb
     {
         std::string j = R"([null,true,false,100,6.18,"abc"])";
