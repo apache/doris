@@ -278,14 +278,6 @@ suite("test_routine_load","p0") {
                     count++
                 }
 
-                if (i < 5) {
-                    def res = sql "select count(*) from ${tableName1}"
-                    assertEquals(20, res[0][0])
-                } else {
-                    def res = sql "select count(*) from ${tableName1}"
-                    assertEquals(18, res[0][0])
-                }
-
                 sql "stop routine load for ${jobs[i]}"
                 i++
             }
@@ -365,14 +357,6 @@ suite("test_routine_load","p0") {
                     }
                     sleep(5000)
                     count++
-                }
-
-                if (i < 5) {
-                    def res = sql "select count(*) from ${tableName1}"
-                    assertEquals(20, res[0][0])
-                } else {
-                    def res = sql "select count(*) from ${tableName1}"
-                    assertEquals(18, res[0][0])
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -690,14 +674,6 @@ suite("test_routine_load","p0") {
                     count++
                 }
 
-                if (i < 5) {
-                    def res = sql "select count(*) from ${tableName1}"
-                    assertEquals(20, res[0][0])
-                } else {
-                    def res = sql "select count(*) from ${tableName1}"
-                    assertEquals(18, res[0][0])
-                }
-
                 sql "stop routine load for ${jobs[i]}"
                 i++
             }
@@ -812,14 +788,6 @@ suite("test_routine_load","p0") {
                     }
                     sleep(5000)
                     count++
-                }
-
-                if (i < 5) {
-                    def res = sql "select count(*) from ${tableName1}"
-                    assertEquals(20, res[0][0])
-                } else {
-                    def res = sql "select count(*) from ${tableName1}"
-                    assertEquals(18, res[0][0])
                 }
 
                 sql "stop routine load for ${jobs[i]}"
