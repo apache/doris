@@ -276,5 +276,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public void computeFd(FunctionalDependencies.Builder fdBuilder) {
         fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
+        for (NamedExpression expr : getProjects()) {
+            if (!expr.isSlot()) {
+                fdBuilder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
+            }
+        }
     }
 }

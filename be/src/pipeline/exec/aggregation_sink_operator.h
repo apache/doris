@@ -157,7 +157,7 @@ public:
 
     Status reset_hash_table(RuntimeState* state);
 
-    using DataSinkOperatorX<AggSinkLocalState>::id;
+    using DataSinkOperatorX<AggSinkLocalState>::node_id;
     using DataSinkOperatorX<AggSinkLocalState>::operator_id;
     using DataSinkOperatorX<AggSinkLocalState>::get_local_state;
 

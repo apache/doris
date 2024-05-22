@@ -667,6 +667,12 @@ class Suite implements GroovyInterceptable {
         return hdfsFs
     }
 
+    String getHmsHdfsFs() {
+        String host = context.config.otherConfigs.get("extHiveHmsHost")
+        String port = context.config.otherConfigs.get("extHdfsPort")
+        return "hdfs://" + host + ":" + port;
+    }
+
     String getHdfsUser() {
         String hdfsUser = context.config.otherConfigs.get("hdfsUser")
         return hdfsUser

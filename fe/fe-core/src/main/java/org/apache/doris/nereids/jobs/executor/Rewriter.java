@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptim
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
+import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AdjustPreAggStatus;
@@ -406,6 +407,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("agg rewrite",
                 // these rules should be put after mv optimization to avoid mv matching fail
                 topDown(new SumLiteralRewrite())
+            ),
+            topic("add projection for join",
+                    custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
+                    topDown(new MergeProjects())
             ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",

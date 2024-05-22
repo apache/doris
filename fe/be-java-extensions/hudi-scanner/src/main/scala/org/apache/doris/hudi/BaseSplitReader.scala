@@ -44,7 +44,7 @@ import org.apache.hudi.io.storage.HoodieAvroHFileReader
 import org.apache.hudi.metadata.HoodieTableMetadataUtil
 import org.apache.hudi.{AvroConversionUtils, DataSourceReadOptions, DataSourceWriteOptions, HoodieSparkConfUtils, HoodieTableSchema, HoodieTableState}
 import org.apache.log4j.Logger
-import org.apache.spark.sql.adapter.Spark3_2Adapter
+import org.apache.spark.sql.adapter.Spark3_4Adapter
 import org.apache.spark.sql.avro.{HoodieAvroSchemaConverters, HoodieSparkAvroSchemaConverters}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
@@ -66,7 +66,7 @@ import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 
-class DorisSparkAdapter extends Spark3_2Adapter {
+class DorisSparkAdapter extends Spark3_4Adapter {
   override def getAvroSchemaConverters: HoodieAvroSchemaConverters = HoodieSparkAvroSchemaConverters
 }
 
@@ -498,7 +498,7 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
                                 hadoopConf: Configuration): PartitionedFile => Iterator[InternalRow] = {
     partitionedFile => {
       val reader = new HoodieAvroHFileReader(
-        hadoopConf, new Path(partitionedFile.filePath), new CacheConfig(hadoopConf))
+        hadoopConf, partitionedFile.filePath.toPath, new CacheConfig(hadoopConf))
 
       val requiredRowSchema = requiredDataSchema.structTypeSchema
       // NOTE: Schema has to be parsed at this point, since Avro's [[Schema]] aren't serializable
@@ -573,7 +573,7 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
 
     BaseFileReader(
       read = partitionedFile => {
-        val extension = FSUtils.getFileExtension(partitionedFile.filePath)
+        val extension = FSUtils.getFileExtension(partitionedFile.filePath.toString())
         if (tableBaseFileFormat.getFileExtension.equals(extension)) {
           read(partitionedFile)
         } else {

@@ -221,89 +221,103 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
-    _num_instances = request.local_params.size();
-    _total_instances = request.__isset.total_instances ? request.total_instances : _num_instances;
     _runtime_profile = std::make_unique<RuntimeProfile>("PipelineContext");
     _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
     SCOPED_TIMER(_prepare_timer);
+    _build_pipelines_timer = ADD_TIMER(_runtime_profile, "BuildPipelinesTime");
+    _init_context_timer = ADD_TIMER(_runtime_profile, "InitContextTime");
+    _plan_local_shuffle_timer = ADD_TIMER(_runtime_profile, "PlanLocalShuffleTime");
+    _build_tasks_timer = ADD_TIMER(_runtime_profile, "BuildTasksTime");
+    _prepare_all_pipelines_timer = ADD_TIMER(_runtime_profile, "PrepareAllPipelinesTime");
+    {
+        SCOPED_TIMER(_init_context_timer);
+        _num_instances = request.local_params.size();
+        _total_instances =
+                request.__isset.total_instances ? request.total_instances : _num_instances;
 
-    auto* fragment_context = this;
+        auto* fragment_context = this;
 
-    LOG_INFO("PipelineFragmentContext::prepare")
-            .tag("query_id", print_id(_query_id))
-            .tag("fragment_id", _fragment_id)
-            .tag("pthread_id", (uintptr_t)pthread_self());
+        LOG_INFO("PipelineFragmentContext::prepare")
+                .tag("query_id", print_id(_query_id))
+                .tag("fragment_id", _fragment_id)
+                .tag("pthread_id", (uintptr_t)pthread_self());
 
-    if (request.query_options.__isset.is_report_success) {
-        fragment_context->set_is_report_success(request.query_options.is_report_success);
+        if (request.query_options.__isset.is_report_success) {
+            fragment_context->set_is_report_success(request.query_options.is_report_success);
+        }
+
+        // 1. Set up the global runtime state.
+        _runtime_state = RuntimeState::create_unique(
+                request.query_id, request.fragment_id, request.query_options,
+                _query_ctx->query_globals, _exec_env, _query_ctx.get());
+
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
+        if (request.__isset.backend_id) {
+            _runtime_state->set_backend_id(request.backend_id);
+        }
+        if (request.__isset.import_label) {
+            _runtime_state->set_import_label(request.import_label);
+        }
+        if (request.__isset.db_name) {
+            _runtime_state->set_db_name(request.db_name);
+        }
+        if (request.__isset.load_job_id) {
+            _runtime_state->set_load_job_id(request.load_job_id);
+        }
+
+        if (request.is_simplified_param) {
+            _desc_tbl = _query_ctx->desc_tbl;
+        } else {
+            DCHECK(request.__isset.desc_tbl);
+            RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl,
+                                                  &_desc_tbl));
+        }
+        _runtime_state->set_desc_tbl(_desc_tbl);
+        _runtime_state->set_num_per_fragment_instances(request.num_senders);
+        _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
+        _runtime_state->set_total_load_streams(request.total_load_streams);
+        _runtime_state->set_num_local_sink(request.num_local_sink);
+
+        const auto& local_params = request.local_params[0];
+        if (local_params.__isset.runtime_filter_params) {
+            _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                    local_params.runtime_filter_params);
+        }
+        if (local_params.__isset.topn_filter_source_node_ids) {
+            _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
+        } else {
+            _query_ctx->init_runtime_predicates({0});
+        }
+
+        _need_local_merge = request.__isset.parallel_instances;
     }
 
-    // 1. Set up the global runtime state.
-    _runtime_state = RuntimeState::create_unique(request.query_id, request.fragment_id,
-                                                 request.query_options, _query_ctx->query_globals,
-                                                 _exec_env, _query_ctx.get());
+    {
+        SCOPED_TIMER(_build_pipelines_timer);
+        // 2. Build pipelines with operators in this fragment.
+        auto root_pipeline = add_pipeline();
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_pipelines(_runtime_state->obj_pool(), request,
+                                                            *_query_ctx->desc_tbl, &_root_op,
+                                                            root_pipeline));
 
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
-    if (request.__isset.backend_id) {
-        _runtime_state->set_backend_id(request.backend_id);
-    }
-    if (request.__isset.import_label) {
-        _runtime_state->set_import_label(request.import_label);
-    }
-    if (request.__isset.db_name) {
-        _runtime_state->set_db_name(request.db_name);
-    }
-    if (request.__isset.load_job_id) {
-        _runtime_state->set_load_job_id(request.load_job_id);
-    }
+        // 3. Create sink operator
+        if (!request.fragment.__isset.output_sink) {
+            return Status::InternalError("No output sink in this fragment!");
+        }
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_data_sink(
+                _runtime_state->obj_pool(), request.fragment.output_sink,
+                request.fragment.output_exprs, request, root_pipeline->output_row_desc(),
+                _runtime_state.get(), *_desc_tbl, root_pipeline->id()));
+        RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
+        RETURN_IF_ERROR(root_pipeline->set_sink(_sink));
 
-    if (request.is_simplified_param) {
-        _desc_tbl = _query_ctx->desc_tbl;
-    } else {
-        DCHECK(request.__isset.desc_tbl);
-        RETURN_IF_ERROR(
-                DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl, &_desc_tbl));
-    }
-    _runtime_state->set_desc_tbl(_desc_tbl);
-    _runtime_state->set_num_per_fragment_instances(request.num_senders);
-    _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
-    _runtime_state->set_total_load_streams(request.total_load_streams);
-    _runtime_state->set_num_local_sink(request.num_local_sink);
-
-    const auto& local_params = request.local_params[0];
-    if (local_params.__isset.runtime_filter_params) {
-        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                local_params.runtime_filter_params);
-    }
-    if (local_params.__isset.topn_filter_source_node_ids) {
-        _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
-    } else {
-        _query_ctx->init_runtime_predicates({0});
-    }
-
-    _need_local_merge = request.__isset.parallel_instances;
-
-    // 2. Build pipelines with operators in this fragment.
-    auto root_pipeline = add_pipeline();
-    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_pipelines(
-            _runtime_state->obj_pool(), request, *_query_ctx->desc_tbl, &_root_op, root_pipeline));
-
-    // 3. Create sink operator
-    if (!request.fragment.__isset.output_sink) {
-        return Status::InternalError("No output sink in this fragment!");
-    }
-    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_data_sink(
-            _runtime_state->obj_pool(), request.fragment.output_sink, request.fragment.output_exprs,
-            request, root_pipeline->output_row_desc(), _runtime_state.get(), *_desc_tbl,
-            root_pipeline->id()));
-    RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
-    RETURN_IF_ERROR(root_pipeline->set_sink(_sink));
-
-    for (PipelinePtr& pipeline : _pipelines) {
-        DCHECK(pipeline->sink_x() != nullptr) << pipeline->operator_xs().size();
-        RETURN_IF_ERROR(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
+        for (PipelinePtr& pipeline : _pipelines) {
+            DCHECK(pipeline->sink_x() != nullptr) << pipeline->operator_xs().size();
+            RETURN_IF_ERROR(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
+        }
     }
     if (_enable_local_shuffle()) {
+        SCOPED_TIMER(_plan_local_shuffle_timer);
         RETURN_IF_ERROR(_plan_local_exchange(request.num_buckets,
                                              request.bucket_seq_to_instance_idx,
                                              request.shuffle_idx_to_instance_idx));
@@ -311,12 +325,16 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
+        SCOPED_TIMER(_prepare_all_pipelines_timer);
         pipeline->children().clear();
         RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
     }
 
-    // 5. Build pipeline tasks and initialize local state.
-    RETURN_IF_ERROR(_build_pipeline_tasks(request));
+    {
+        SCOPED_TIMER(_build_tasks_timer);
+        // 5. Build pipeline tasks and initialize local state.
+        RETURN_IF_ERROR(_build_pipeline_tasks(request));
+    }
 
     _init_next_report_time();
 
@@ -625,7 +643,7 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
     }
 
     cur_pipe->_name.push_back('-');
-    cur_pipe->_name.append(std::to_string(op->id()));
+    cur_pipe->_name.append(std::to_string(op->node_id()));
     cur_pipe->_name.append(op->get_name());
 
     // rely on that tnodes is preorder of the plan
@@ -1560,7 +1578,7 @@ Status PipelineFragmentContext::send_report(bool done) {
     ReportStatusRequest req {true,
                              exec_status,
                              runtime_states,
-                             nullptr,
+                             _runtime_profile.get(),
                              _runtime_state->load_channel_profile(),
                              done || !exec_status.ok(),
                              _query_ctx->coord_addr,

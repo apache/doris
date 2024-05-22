@@ -86,7 +86,7 @@ public:
 
     Status revoke_memory(RuntimeState* state) override;
 
-    using DataSinkOperatorX<LocalStateType>::id;
+    using DataSinkOperatorX<LocalStateType>::node_id;
     using DataSinkOperatorX<LocalStateType>::operator_id;
     using DataSinkOperatorX<LocalStateType>::get_local_state;
 

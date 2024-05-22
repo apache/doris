@@ -268,7 +268,7 @@ protected:
     Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
                                                 std::vector<RowsetSharedPtr>* rowsets) const;
 
-    void sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
+    Status sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
 
     mutable std::shared_mutex _meta_lock;
     TimestampedVersionTracker _timestamped_version_tracker;

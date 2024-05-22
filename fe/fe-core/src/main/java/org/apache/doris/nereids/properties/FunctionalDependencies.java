@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.util.ImmutableEqualSet;
 
 import com.google.common.collect.ImmutableSet;
@@ -196,6 +197,9 @@ public class FunctionalDependencies {
         }
 
         public void addDeps(Set<Slot> dominate, Set<Slot> dependency) {
+            if (dominate.containsAll(dependency)) {
+                return;
+            }
             fdDgBuilder.addDeps(dominate, dependency);
         }
 
@@ -265,10 +269,17 @@ public class FunctionalDependencies {
         /**
          * get all unique slots
          */
-        public List<Set<Slot>> getAllUnique() {
-            List<Set<Slot>> res = new ArrayList<>(uniqueSet.slotSets);
-            for (Slot s : uniqueSet.slots) {
-                res.add(ImmutableSet.of(s));
+        public List<Set<Slot>> getAllUniqueAndNotNull() {
+            List<Set<Slot>> res = new ArrayList<>();
+            for (Slot slot : uniqueSet.slots) {
+                if (!slot.nullable()) {
+                    res.add(ImmutableSet.of(slot));
+                }
+            }
+            for (Set<Slot> slotSet : uniqueSet.slotSets) {
+                if (slotSet.stream().noneMatch(ExpressionTrait::nullable)) {
+                    res.add(slotSet);
+                }
             }
             return res;
         }
@@ -276,8 +287,14 @@ public class FunctionalDependencies {
         /**
          * get all uniform slots
          */
-        public Set<Slot> getAllUniform() {
-            return uniformSet.slots;
+        public List<Set<Slot>> getAllUniformAndNotNull() {
+            List<Set<Slot>> res = new ArrayList<>();
+            for (Slot s : uniformSet.slots) {
+                if (!s.nullable()) {
+                    res.add(ImmutableSet.of(s));
+                }
+            }
+            return res;
         }
 
         public void addEqualPair(Slot l, Slot r) {
