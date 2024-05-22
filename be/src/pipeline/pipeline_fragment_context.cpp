@@ -353,6 +353,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         const auto& local_params = request.local_params[i];
         auto fragment_instance_id = local_params.fragment_instance_id;
         _fragment_instance_ids.push_back(fragment_instance_id);
+        _query_ctx->incr_instances();
         std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr;
         auto init_runtime_state = [&](std::unique_ptr<RuntimeState>& runtime_state) {
             runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);

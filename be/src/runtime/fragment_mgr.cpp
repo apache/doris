@@ -734,8 +734,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     bool pipeline_engine_enabled = params.query_options.__isset.enable_pipeline_engine &&
                                    params.query_options.enable_pipeline_engine;
 
-    RETURN_IF_ERROR(
-            _get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
+    RETURN_IF_ERROR(_get_query_ctx(params, params.params.query_id, false, query_ctx));
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
     {
         // Need lock here, because it will modify fragment ids and std::vector may resize and reallocate

@@ -58,13 +58,16 @@ public:
 QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
                            bool is_pipeline, bool is_nereids)
-        : fragment_num(total_fragment_num),
+        : _fragment_num(total_fragment_num),
           _timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
           _is_pipeline(is_pipeline),
           _is_nereids(is_nereids),
           _query_options(query_options) {
+    if (!is_pipeline) {
+        _num_instances = _fragment_num;
+    }
     _init_query_mem_tracker();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker);
     _query_watcher.start();

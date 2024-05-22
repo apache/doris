@@ -81,8 +81,10 @@ public:
     // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
     // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
     bool countdown(int instance_num) {
-        return fragment_num.fetch_sub(instance_num) <= instance_num;
+        return _num_instances.fetch_sub(instance_num) <= instance_num;
     }
+
+    void incr_instances() { _num_instances++; }
 
     ExecEnv* exec_env() { return _exec_env; }
 
@@ -260,14 +262,6 @@ public:
     TNetworkAddress coord_addr;
     TQueryGlobals query_globals;
 
-    /// In the current implementation, for multiple fragments executed by a query on the same BE node,
-    /// we store some common components in QueryContext, and save QueryContext in FragmentMgr.
-    /// When all Fragments are executed, QueryContext needs to be deleted from FragmentMgr.
-    /// Here we use a counter to store the number of Fragments that have not yet been completed,
-    /// and after each Fragment is completed, this value will be reduced by one.
-    /// When the last Fragment is completed, the counter is cleared, and the worker thread of the last Fragment
-    /// will clean up QueryContext.
-    std::atomic<int> fragment_num;
     ObjectPool obj_pool;
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
@@ -279,6 +273,15 @@ public:
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
 private:
+    const int _fragment_num;
+    /// In the current implementation, for multiple fragments executed by a query on the same BE node,
+    /// we store some common components in QueryContext, and save QueryContext in FragmentMgr.
+    /// When all Fragments are executed, QueryContext needs to be deleted from FragmentMgr.
+    /// Here we use a counter to store the number of Fragments that have not yet been completed,
+    /// and after each Fragment is completed, this value will be reduced by one.
+    /// When the last Fragment is completed, the counter is cleared, and the worker thread of the last Fragment
+    /// will clean up QueryContext.
+    std::atomic<int> _num_instances = 0;
     int _timeout_second;
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
