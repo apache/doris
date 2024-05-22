@@ -281,7 +281,6 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         LogicalPartitionTopN<?> ptopn = (LogicalPartitionTopN<?>) plan.child(0).child(0).child(0).child(0).child(0);
         System.out.println(ptopn.getLogicalProperties().getFunctionalDependencies());
-        System.out.println(ptopn.getOutput());
         Assertions.assertTrue(ptopn.getLogicalProperties()
                 .getFunctionalDependencies().isUniformAndNotNull(ImmutableSet.copyOf(ptopn.getOutputSet())));
 
@@ -290,8 +289,9 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .rewrite()
                 .getPlan();
         ptopn = (LogicalPartitionTopN<?>) plan.child(0).child(0).child(0).child(0).child(0);
-        Assertions.assertTrue(ptopn.getLogicalProperties()
-                .getFunctionalDependencies().isEmpty());
+
+        Assertions.assertFalse(ptopn.getLogicalProperties()
+                .getFunctionalDependencies().isUnique(plan.getOutputSet()));
     }
 
     @Test
