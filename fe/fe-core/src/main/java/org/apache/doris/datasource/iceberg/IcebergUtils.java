@@ -598,8 +598,8 @@ public class IcebergUtils {
             if (icebergTable.specs().values().stream().allMatch(PartitionSpec::isUnpartitioned)) {
                 return res;
             }
-            PartitionsTable partitionsTable = (PartitionsTable) MetadataTableUtils.
-                    createMetadataTableInstance(icebergTable, MetadataTableType.PARTITIONS);
+            PartitionsTable partitionsTable = (PartitionsTable) MetadataTableUtils.createMetadataTableInstance(
+                    icebergTable, MetadataTableType.PARTITIONS);
             // For partition table, we need to get all partitions from PartitionsTable.
             try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().planFiles()) {
                 for (FileScanTask task : tasks) {
@@ -630,12 +630,14 @@ public class IcebergUtils {
                         } catch (NullPointerException e) {
                             LOG.error("The table  snapshot has been expired", e);
                         }
+                        System.out.println(lastUpdated);
                         long lastSnapshotId = -1;
                         try {
                             lastSnapshotId = row.get(10, Long.class);
                         } catch (NullPointerException e) {
                             LOG.error("The table  snapshot has been expired", e);
                         }
+                        System.out.println(lastSnapshotId);
                         res.add(partitionName);
                     }
                 }
