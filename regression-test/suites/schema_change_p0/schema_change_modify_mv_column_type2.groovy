@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("schema_change_modify_mv_column_type") {
+suite("schema_change_modify_mv_column_type2") {
     //test legacy planner
 
     def dataFile = """${getS3Url()}/regression/datatypes/test_scalar_types_10w.csv"""
@@ -68,7 +68,7 @@ suite("schema_change_modify_mv_column_type") {
             assertEquals(100000, json.NumberLoadedRows)
         }
     }
-    createMV ("""CREATE MATERIALIZED VIEW mv_${testTable}_1 AS SELECT c_tinyint, c_bool, k1, c_smallint, c_int, c_bigint, c_largeint, c_float, c_double,  c_decimal, c_decimalv3, c_date, c_datetime, c_datev2, c_datetimev2, c_char, c_varchar, c_string FROM ${testTable} ORDER BY c_tinyint, c_bool, k1""")
+    createMV ("""CREATE MATERIALIZED VIEW mv_${testTable}_2 AS SELECT k1, sum(c_int), max(c_int), min(c_int) FROM ${testTable} GROUP BY k1""")
     qt_sql """ desc ${testTable} all """
     sql "set topn_opt_limit_threshold = 100"
     qt_sql "SELECT * from ${testTable} order by 1, 2, 3 limit 10"
