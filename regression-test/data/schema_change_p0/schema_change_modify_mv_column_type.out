@@ -19,7 +19,7 @@ tbl_scalar_types_dup	DUP_KEYS	k1	BIGINT	BIGINT	Yes	true	\N		true
 		c_varchar	VARCHAR(100)	VARCHAR(100)	Yes	false	\N	NONE	true		
 		c_string	TEXT	TEXT	Yes	false	\N	NONE	true		
 											
-mv_tbl_scalar_types_dup	DUP_KEYS	mv_c_tinyint	TINYINT	TINYINT	Yes	true	\N		true	`c_tinyint`	
+mv_tbl_scalar_types_dup_1	DUP_KEYS	mv_c_tinyint	TINYINT	TINYINT	Yes	true	\N		true	`c_tinyint`	
 		mv_c_bool	BOOLEAN	BOOLEAN	Yes	true	\N		true	`c_bool`	
 		mv_k1	BIGINT	BIGINT	Yes	true	\N		true	`k1`	
 		mv_c_smallint	SMALLINT	SMALLINT	Yes	false	\N	NONE	true	`c_smallint`	
@@ -37,6 +37,11 @@ mv_tbl_scalar_types_dup	DUP_KEYS	mv_c_tinyint	TINYINT	TINYINT	Yes	true	\N		true	
 		mv_c_char	CHARACTER	CHARACTER	Yes	false	\N	NONE	true	`c_char`	
 		mv_c_varchar	VARCHAR(65533)	VARCHAR(65533)	Yes	false	\N	NONE	true	`c_varchar`	
 		mv_c_string	TEXT	TEXT	Yes	false	\N	NONE	true	`c_string`	
+											
+mv_tbl_scalar_types_dup_2	AGG_KEYS	mv_k1	BIGINT	BIGINT	Yes	true	\N		true	`k1`	
+		mva_SUM__CAST(`c_int` AS BIGINT)	BIGINT	BIGINT	Yes	false	\N	SUM	true	CAST(`c_int` AS BIGINT)	
+		mva_MAX__`c_int`	INT	INT	Yes	false	\N	MAX	true	`c_int`	
+		mva_MIN__`c_int`	INT	INT	Yes	false	\N	MIN	true	`c_int`	
 
 -- !sql --
 -2147475406	true	45	23794	-11023	915989078	2115356192	15927.068	1.392557423391501E9	45951348783208518.810	8340516346665031.310	2022-01-26	2022-04-13T11:13:48	2022-01-31	2022-02-16T06:07:21	130.50.6.0	DeniseMatthews@Yozio.mil	Londonderry Alley 61
@@ -82,7 +87,7 @@ tbl_scalar_types_dup	DUP_KEYS	k1	BIGINT	BIGINT	Yes	true	\N		true
 		c_varchar	VARCHAR(100)	VARCHAR(100)	Yes	false	\N	NONE	true		
 		c_string	TEXT	TEXT	Yes	false	\N	NONE	true		
 											
-mv_tbl_scalar_types_dup	DUP_KEYS	mv_c_tinyint	TINYINT	TINYINT	Yes	true	\N		true	`c_tinyint`	
+mv_tbl_scalar_types_dup_1	DUP_KEYS	mv_c_tinyint	TINYINT	TINYINT	Yes	true	\N		true	`c_tinyint`	
 		mv_c_bool	BOOLEAN	BOOLEAN	Yes	true	\N		true	`c_bool`	
 		mv_k1	BIGINT	BIGINT	Yes	true	\N		true	`k1`	
 		mv_c_smallint	SMALLINT	SMALLINT	Yes	false	\N	NONE	true	`c_smallint`	
@@ -100,4 +105,9 @@ mv_tbl_scalar_types_dup	DUP_KEYS	mv_c_tinyint	TINYINT	TINYINT	Yes	true	\N		true	
 		mv_c_char	CHARACTER	CHARACTER	Yes	false	\N	NONE	true	`c_char`	
 		mv_c_varchar	VARCHAR(65533)	VARCHAR(65533)	Yes	false	\N	NONE	true	`c_varchar`	
 		mv_c_string	TEXT	TEXT	Yes	false	\N	NONE	true	`c_string`	
+											
+mv_tbl_scalar_types_dup_2	AGG_KEYS	mv_k1	BIGINT	BIGINT	Yes	true	\N		true	`k1`	
+		mva_SUM__CAST(`c_int` AS BIGINT)	BIGINT	BIGINT	Yes	false	\N	SUM	true	CAST(`c_int` AS BIGINT)	
+		mva_MAX__`c_int`	BIGINT	BIGINT	Yes	false	\N	MAX	true	`c_int`	
+		mva_MIN__`c_int`	BIGINT	BIGINT	Yes	false	\N	MIN	true	`c_int`	
 

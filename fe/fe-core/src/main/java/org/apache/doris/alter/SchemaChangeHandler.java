@@ -25,6 +25,7 @@ import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateIndexClause;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.IndexDef;
@@ -674,7 +675,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 for (Column column : schema) {
                     String columnName = column.getName();
                     if (column.isMaterializedViewColumn()) {
-                        columnName = columnName.substring(columnName.indexOf('_') + 1);
+                        columnName = CreateMaterializedViewStmt.mvColumnBreaker(columnName);
                     }
                     if (columnName.equalsIgnoreCase(modColumn.getName())) {
                         otherIndexIds.add(entry.getKey());
@@ -684,34 +685,34 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             for (Long otherIndexId : otherIndexIds) {
                 List<Column> otherIndexSchema = indexSchemaMap.get(otherIndexId);
-                modColIndex = -1;
-                Column otherCol = null;
                 for (int i = 0; i < otherIndexSchema.size(); i++) {
+                    modColIndex = -1;
+                    Column otherCol = null;
                     Column col = otherIndexSchema.get(i);
                     String columnName = col.getName();
                     if (col.isMaterializedViewColumn()) {
-                        columnName = columnName.substring(columnName.indexOf('_') + 1);
+                        columnName = CreateMaterializedViewStmt.mvColumnBreaker(columnName);
                     }
-                    if (columnName.equalsIgnoreCase(modColumn.getName())) {
-                        modColIndex = i;
-                        otherCol = new Column(modColumn);
-                        otherCol.setName(col.getName());
-                        otherCol.setDefineExpr(col.getDefineExpr());
-                        break;
+                    if (!columnName.equalsIgnoreCase(modColumn.getName())) {
+                        continue;
                     }
+                    modColIndex = i;
+                    otherCol = new Column(modColumn);
+                    otherCol.setName(col.getName());
+                    otherCol.setDefineExpr(col.getDefineExpr());
+                    Preconditions.checkState(modColIndex != -1);
+                    Preconditions.checkState(otherCol != null);
+                    // replace the old column
+                    if (KeysType.AGG_KEYS != olapTable.getKeysType() && KeysType.UNIQUE_KEYS != olapTable.getKeysType()) {
+                        Column oldCol = otherIndexSchema.get(modColIndex);
+                        otherCol.setIsKey(oldCol.isKey());
+                        otherCol.setAggregationType(oldCol.getAggregationType(), oldCol.isAggregationTypeImplicit());
+                    }
+                    if (typeChanged && !lightSchemaChange) {
+                        otherCol.setName(SHADOW_NAME_PREFIX + otherCol.getName());
+                    }
+                    otherIndexSchema.set(modColIndex, otherCol);
                 }
-                Preconditions.checkState(modColIndex != -1);
-                Preconditions.checkState(otherCol != null);
-                // replace the old column
-                if (KeysType.AGG_KEYS != olapTable.getKeysType() && KeysType.UNIQUE_KEYS != olapTable.getKeysType()) {
-                    Column oldCol = otherIndexSchema.get(modColIndex);
-                    otherCol.setIsKey(oldCol.isKey());
-                    otherCol.setAggregationType(oldCol.getAggregationType(), oldCol.isAggregationTypeImplicit());
-                }
-                if (typeChanged && !lightSchemaChange) {
-                    otherCol.setName(SHADOW_NAME_PREFIX + otherCol.getName());
-                }
-                otherIndexSchema.set(modColIndex, otherCol);
             } //  end for other indices
         } // end for handling other indices
 

@@ -671,9 +671,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     public static String mvColumnBreaker(String name) {
         if (name.startsWith(MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX)) {
-            // mva_SUM__k2 -> k2
-            return mvColumnBreaker(name.substring(name.indexOf(MATERIALIZED_VIEW_AGGREGATE_NAME_LINK)
-                    + MATERIALIZED_VIEW_AGGREGATE_NAME_LINK.length()));
+            // mva_SUM__`k2` -> k2
+            String columnName = name.substring(name.indexOf(MATERIALIZED_VIEW_AGGREGATE_NAME_LINK)
+                    + MATERIALIZED_VIEW_AGGREGATE_NAME_LINK.length());
+            return mvColumnBreaker(columnName.substring(1, columnName.length() - 1));
         } else if (name.startsWith(MATERIALIZED_VIEW_NAME_PREFIX)) {
             // mv_k2 -> k2
             return mvColumnBreaker(name.substring(MATERIALIZED_VIEW_NAME_PREFIX.length()));

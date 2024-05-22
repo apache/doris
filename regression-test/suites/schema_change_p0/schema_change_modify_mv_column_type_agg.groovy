@@ -17,36 +17,37 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("schema_change_modify_mv_column_type") {
+suite("schema_change_modify_mv_column_type_agg") {
     //test legacy planner
 
     def dataFile = """${getS3Url()}/regression/datatypes/test_scalar_types_10w.csv"""
 
     // define dup key table1
-    def testTable = "tbl_scalar_types_dup"
+    def testTable = "tbl_scalar_types_agg"
     sql "DROP TABLE IF EXISTS ${testTable} FORCE"
     sql """
         CREATE TABLE IF NOT EXISTS ${testTable} (
             `k1` bigint(11) NULL,
-            `c_bool` boolean NULL,
-            `c_tinyint` tinyint(4) NULL,
-            `c_smallint` smallint(6) NULL,
-            `c_int` int(11) NULL,
-            `c_bigint` bigint(20) NULL,
-            `c_largeint` largeint(40) NULL,
-            `c_float` float NULL,
-            `c_double` double NULL,
-            `c_decimal` decimal(20, 3) NULL,
-            `c_decimalv3` decimalv3(20, 3) NULL,
-            `c_date` date NULL,
-            `c_datetime` datetime NULL,
-            `c_datev2` datev2 NULL,
-            `c_datetimev2` datetimev2(0) NULL,
-            `c_char` char(15) NULL,
-            `c_varchar` varchar(100) NULL,
-            `c_string` text NULL
+            `k2` bigint(11) NULL,
+            `c_bool` boolean replace NULL,
+            `c_tinyint` tinyint(4) min NULL,
+            `c_smallint` smallint(6) max NULL,
+            `c_int` int(11) max NULL,
+            `c_bigint` bigint(20) sum NULL,
+            `c_largeint` largeint(40) min NULL,
+            `c_float` float min NULL,
+            `c_double` double max NULL,
+            `c_decimal` decimal(20, 3) sum NULL,
+            `c_decimalv3` decimalv3(20, 3) sum NULL,
+            `c_date` date replace NULL,
+            `c_datetime` datetime replace NULL,
+            `c_datev2` datev2 replace NULL,
+            `c_datetimev2` datetimev2(0)replace NULL,
+            `c_char` char(15) replace NULL,
+            `c_varchar` varchar(100) replace NULL,
+            `c_string` text replace NULL
         ) ENGINE=OLAP
-        DUPLICATE KEY(`k1`)
+        AGGREGATE KEY(`k1`, `k2`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`k1`) BUCKETS 1
         PROPERTIES("replication_num" = "1");
@@ -64,19 +65,16 @@ suite("schema_change_modify_mv_column_type") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals(100000, json.NumberTotalRows)
-            assertEquals(100000, json.NumberLoadedRows)
         }
     }
-    createMV ("""CREATE MATERIALIZED VIEW mv_${testTable}_1 AS SELECT c_tinyint, c_bool, k1, c_smallint, c_int, c_bigint, c_largeint, c_float, c_double,  c_decimal, c_decimalv3, c_date, c_datetime, c_datev2, c_datetimev2, c_char, c_varchar, c_string FROM ${testTable} ORDER BY c_tinyint, c_bool, k1""")
-    createMV ("""CREATE MATERIALIZED VIEW mv_${testTable}_2 AS SELECT k1, sum(c_int), max(c_int), min(c_int) FROM ${testTable} GROUP BY k1""")
+    createMV ("""CREATE MATERIALIZED VIEW mv_${testTable}_1 AS SELECT k2, k1, max(c_int) FROM ${testTable} GROUP BY k2, k1""")
     qt_sql """ desc ${testTable} all """
     sql "set topn_opt_limit_threshold = 100"
     qt_sql "SELECT * from ${testTable} order by 1, 2, 3 limit 10"
     qt_sql "SELECT * from ${testTable} where c_tinyint = 10 order by 1, 2, 3 limit 10 "
 
     sql """
-          ALTER table ${testTable} MODIFY COLUMN c_int BIGINT;
+          ALTER table ${testTable} MODIFY COLUMN c_int BIGINT max;
           """
     def getJobState = { tableName ->
           def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
