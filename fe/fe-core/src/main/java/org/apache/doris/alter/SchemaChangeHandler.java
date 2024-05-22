@@ -675,7 +675,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 for (Column column : schema) {
                     String columnName = column.getName();
                     if (column.isMaterializedViewColumn()) {
-                        columnName = CreateMaterializedViewStmt.mvColumnBreaker(columnName);
+                        columnName = MaterializedIndexMeta.normalizeName(
+                                CreateMaterializedViewStmt.mvColumnBreaker(columnName));
                     }
                     if (columnName.equalsIgnoreCase(modColumn.getName())) {
                         otherIndexIds.add(entry.getKey());
@@ -691,7 +692,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     Column col = otherIndexSchema.get(i);
                     String columnName = col.getName();
                     if (col.isMaterializedViewColumn()) {
-                        columnName = CreateMaterializedViewStmt.mvColumnBreaker(columnName);
+                        columnName = MaterializedIndexMeta.normalizeName(
+                                CreateMaterializedViewStmt.mvColumnBreaker(columnName));
                     }
                     if (!columnName.equalsIgnoreCase(modColumn.getName())) {
                         continue;
