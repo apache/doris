@@ -703,7 +703,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     Preconditions.checkState(modColIndex != -1);
                     Preconditions.checkState(otherCol != null);
                     // replace the old column
-                    if (KeysType.AGG_KEYS != olapTable.getKeysType() && KeysType.UNIQUE_KEYS != olapTable.getKeysType()) {
+                    if (KeysType.AGG_KEYS != olapTable.getKeysType()
+                            && KeysType.UNIQUE_KEYS != olapTable.getKeysType()) {
                         Column oldCol = otherIndexSchema.get(modColIndex);
                         otherCol.setIsKey(oldCol.isKey());
                         otherCol.setAggregationType(oldCol.getAggregationType(), oldCol.isAggregationTypeImplicit());
