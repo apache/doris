@@ -21,8 +21,7 @@ import org.apache.doris.analysis.AlterColumnStatsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -44,7 +43,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
-import java.util.stream.Collectors;
 
 /**
  * All the logic that interacts with internal statistics table should be placed here.
@@ -58,6 +56,9 @@ public class StatisticsRepository {
     private static final String FULL_QUALIFIED_COLUMN_STATISTICS_NAME = FULL_QUALIFIED_DB_NAME + "."
             + "`" + StatisticConstants.TABLE_STATISTIC_TBL_NAME + "`";
 
+    private static final String FULL_QUALIFIED_PARTITION_STATISTICS_NAME = FULL_QUALIFIED_DB_NAME + "."
+            + "`" + StatisticConstants.PARTITION_STATISTIC_TBL_NAME + "`";
+
     private static final String FULL_QUALIFIED_COLUMN_HISTOGRAM_NAME = FULL_QUALIFIED_DB_NAME + "."
             + "`" + StatisticConstants.HISTOGRAM_TBL_NAME + "`";
 
@@ -65,9 +66,11 @@ public class StatisticsRepository {
             + FULL_QUALIFIED_COLUMN_STATISTICS_NAME
             + " WHERE `id` = '${id}' AND `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}'";
 
-    private static final String FETCH_PARTITIONS_STATISTIC_TEMPLATE = "SELECT * FROM "
-            + FULL_QUALIFIED_COLUMN_STATISTICS_NAME
-            + " WHERE `id` IN (${idList}) AND `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}'";
+    private static final String FETCH_PARTITIONS_STATISTIC_TEMPLATE = "SELECT col_id, part_id, idx_id, count, "
+            + "hll_cardinality(ndv) as ndv, null_count, min, max, data_size_in_bytes, update_time FROM "
+            + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
+            + " WHERE `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}' AND `tbl_id` = ${tableId}"
+            + " AND `part_id` in (${partitionInfo}) AND `col_id` in (${columnInfo})";
 
     private static final String FETCH_COLUMN_HISTOGRAM_TEMPLATE = "SELECT * FROM "
             + FULL_QUALIFIED_COLUMN_HISTOGRAM_NAME
@@ -117,20 +120,24 @@ public class StatisticsRepository {
         return ColumnStatistic.fromResultRow(resultRow);
     }
 
-    public static List<ColumnStatistic> queryColumnStatisticsByPartitions(TableName tableName, String colName,
-            List<String> partitionNames) throws AnalysisException {
-        DBObjects dbObjects = StatisticsUtil.convertTableNameToObjects(tableName);
-        Set<Long> partitionIds = new HashSet<>();
-        for (String partitionName : partitionNames) {
-            Partition partition = dbObjects.table.getPartition(partitionName);
-            if (partition == null) {
-                throw new AnalysisException(String.format("partition:%s not exists", partitionName));
-            }
-            partitionIds.add(partition.getId());
+    public static List<ResultRow> queryColumnStatisticsByPartitions(TableIf table, Set<String> columnNames,
+            List<String> partitionNames) {
+        long ctlId = table.getDatabase().getCatalog().getId();
+        long dbId = table.getDatabase().getId();
+        Map<String, String> params = new HashMap<>();
+        generateCtlDbIdParams(ctlId, dbId, params);
+        params.put("tableId", String.valueOf(table.getId()));
+        StringJoiner sj = new StringJoiner(",");
+        for (String colName : columnNames) {
+            sj.add("'" + colName + "'");
         }
-        return queryPartitionStatistics(dbObjects.catalog.getId(), dbObjects.db.getId(), dbObjects.table.getId(),
-                colName, partitionIds).stream().map(ColumnStatistic::fromResultRow).collect(
-                Collectors.toList());
+        params.put("columnInfo", sj.toString());
+        sj = new StringJoiner(",");
+        for (String part : partitionNames) {
+            sj.add("'" + part + "'");
+        }
+        params.put("partitionInfo", sj.toString());
+        return StatisticsUtil.executeQuery(FETCH_PARTITIONS_STATISTIC_TEMPLATE, params);
     }
 
     public static List<ResultRow> queryColumnStatisticsForTable(long ctlId, long dbId, long tableId) {
@@ -164,19 +171,6 @@ public class StatisticsRepository {
             throw new IllegalStateException(String.format("id: %s should be unique, but return more than one row", id));
         }
         return size == 0 ? null : rows.get(0);
-    }
-
-    private static List<ResultRow> queryPartitionStatistics(
-            long ctlId, long dbId, long tblId, String colName, Set<Long> partIds) {
-        StringJoiner sj = new StringJoiner(",");
-        for (Long partId : partIds) {
-            sj.add("'" + constructId(tblId, -1, colName, partId) + "'");
-        }
-        Map<String, String> params = new HashMap<>();
-        params.put("idList", sj.toString());
-        generateCtlDbIdParams(ctlId, dbId, params);
-        List<ResultRow> rows = StatisticsUtil.executeQuery(FETCH_PARTITIONS_STATISTIC_TEMPLATE, params);
-        return rows == null ? Collections.emptyList() : rows;
     }
 
     private static Histogram queryColumnHistogramByName(
