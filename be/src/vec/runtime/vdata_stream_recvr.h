@@ -85,7 +85,7 @@ public:
     Status add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done);
 
-    void add_block(Block* block, int sender_id, bool use_move);
+    int64_t add_block(Block* block, int sender_id, bool use_move);
 
     bool sender_queue_empty(int sender_id);
 
