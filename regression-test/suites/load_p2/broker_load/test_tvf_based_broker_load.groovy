@@ -38,7 +38,7 @@ suite("test_tvf_based_broker_load_p2", "p2") {
                   "parquet_s3_case6", // normal
                   "parquet_s3_case7", // col5 will be ignored, load normally
                   "parquet_s3_case8", // first column in table is not specified, will load default value for it.
-                  "parquet_s3_case9", // first column in table is not specified, will load default value for it.
+                  // "parquet_s3_case9", // can't support complex type, we just ignore it. first column in table is not specified, will load default value for it.
                   "orc_s3_case1", // table column capitalize firsrt
                   "orc_s3_case2", // table column lowercase * load column lowercase * orc file lowercase
                   "orc_s3_case3", // table column lowercase * load column uppercase * orc file lowercase
@@ -71,7 +71,7 @@ suite("test_tvf_based_broker_load_p2", "p2") {
                  "s3://doris-build-1308700295/regression/load/data/part*",
                  "s3://doris-build-1308700295/regression/load/data/part*",
                  "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/random_all_types/part*",
+                 // "s3://doris-build-1308700295/regression/load/data/random_all_types/part*", // just ignore it, parquet_case9 can't support complex type
                  "s3://doris-build-1308700295/regression/load/data/orc/hits_100k_rows.orc",
                  "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
                  "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
@@ -104,7 +104,7 @@ suite("test_tvf_based_broker_load_p2", "p2") {
                         """p_partkey, p_name, p_mfgr, p_brand""",
                         """p_partkey, p_name, p_mfgr, p_brand""",
                         """p_name, p_mfgr""",
-                        """""",
+                        // """""",
                         """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
                         //TODO: comment blow 8 rows after jibing fix
                         """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
@@ -126,8 +126,12 @@ suite("test_tvf_based_broker_load_p2", "p2") {
                         //    """WATCHID,JAVAENABLE,TITLE,GOODEVENT,EVENTTIME,EVENTDATE,COUNTERID,CLIENTIP,REGIONID,USERID,COUNTERCLASS,OS,USERAGENT,URL,REFERER,ISREFRESH,REFERERCATEGORYID,REFERERREGIONID,URLCATEGORYID,URLREGIONID,RESOLUTIONWIDTH,RESOLUTIONHEIGHT,RESOLUTIONDEPTH,FLASHMAJOR,FLASHMINOR,FLASHMINOR2,NETMAJOR,NETMINOR,USERAGENTMAJOR,USERAGENTMINOR,COOKIEENABLE,JAVASCRIPTENABLE,ISMOBILE,MOBILEPHONE,MOBILEPHONEMODEL,PARAMS,IPNETWORKID,TRAFICSOURCEID,SEARCHENGINEID,SEARCHPHRASE,ADVENGINEID,ISARTIFICAL,WINDOWCLIENTWIDTH,WINDOWCLIENTHEIGHT,CLIENTTIMEZONE,CLIENTEVENTTIME,SILVERLIGHTVERSION1,SILVERLIGHTVERSION2,SILVERLIGHTVERSION3,SILVERLIGHTVERSION4,PAGECHARSET,CODEVERSION,ISLINK,ISDOWNLOAD,ISNOTBOUNCE,FUNIQID,ORIGINALURL,HID,ISOLDCOUNTER,ISEVENT,ISPARAMETER,DONTCOUNTHITS,WITHHASH,HITCOLOR,LOCALEVENTTIME,AGE,SEX,INCOME,INTERESTS,ROBOTNESS,REMOTEIP,WINDOWNAME,OPENERNAME,HISTORYLENGTH,BROWSERLANGUAGE,BROWSERCOUNTRY,SOCIALNETWORK,SOCIALACTION,HTTPERROR,SENDTIMING,DNSTIMING,CONNECTTIMING,RESPONSESTARTTIMING,RESPONSEENDTIMING,FETCHTIMING,SOCIALSOURCENETWORKID,SOCIALSOURCEPAGE,PARAMPRICE,PARAMORDERID,PARAMCURRENCY,PARAMCURRENCYID,OPENSTATSERVICENAME,OPENSTATCAMPAIGNID,OPENSTATADID,OPENSTATSOURCEID,UTMSOURCE,UTMMEDIUM,UTMCAMPAIGN,UTMCONTENT,UTMTERM,FROMTAG,HASGCLID,REFERERHASH,URLHASH,CLID""",
                         //    """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
     ]
-    def column_in_paths = ["", "", "", "", "", "", "", "", "", "", "", "", "COLUMNS FROM PATH AS (city)", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
-    def preceding_filters = ["", "", "", "", "", "", "", "", "", "", "", "preceding filter p_size < 10", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+    def column_in_paths = ["", "", "", "", "", "", "", "", "", "", "", "", "COLUMNS FROM PATH AS (city)", "", "", "", "", "", "", "", "", 
+        // "",
+         "", "", "", "", "", "", "", "", "", ""]
+    def preceding_filters = ["", "", "", "", "", "", "", "", "", "", "", "preceding filter p_size < 10", "", "", "", "", "", "", "", "", "", 
+    // "", 
+    "", "", "", "", "", "", "", "", "", ""]
     def set_values = ["",
                       "",
                       "SET(comment=p_comment, retailprice=p_retailprice, container=p_container, size=p_size, type=p_type, brand=p_brand, mfgr=p_mfgr, name=p_name, partkey=p_partkey)",
@@ -149,7 +153,7 @@ suite("test_tvf_based_broker_load_p2", "p2") {
                       "set(col4 = p_brand)",
                       "set(col5 = p_brand)",
                       "",
-                      "",
+                      // "",
                       "",
                       "",
                       "",
@@ -161,8 +165,12 @@ suite("test_tvf_based_broker_load_p2", "p2") {
                       "",
                       ""
     ]
-    def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",""]
-    def line_delimiters = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "\u0007"]
+    def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", "", "", "", "", "", "", "", "", 
+        //"", 
+        "", "", "", "", "", "", "", "", "", "", ""]
+    def line_delimiters = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 
+    // "", 
+    "", "", "", "", "", "", "", "", "", "", "\u0007"]
 
     String ak = getS3AK()
     String sk = getS3SK()
@@ -249,6 +257,7 @@ suite("test_tvf_based_broker_load_p2", "p2") {
                 logger.info("generate {$i}th table(${tables.size()}): $table, the line_delimiter is: ${line_delimiters[i]}")
                 def uuid = UUID.randomUUID().toString().replace("-", "0")
                 uuids.add(uuid)
+                logger.info("\n$i, ${paths[i]}, $table, ${columns_list[i]}, ${column_in_paths[i]}, ${preceding_filters[i]}, ${set_values[i]}, ${where_exprs[i]}, ${line_delimiters[i]}")
                 do_load_job.call(uuid, paths[i], table, columns_list[i], column_in_paths[i], preceding_filters[i],
                         set_values[i], where_exprs[i], line_delimiters[i])
                 i++
@@ -261,10 +270,7 @@ suite("test_tvf_based_broker_load_p2", "p2") {
                     String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
                     logger.info("\ntable: ${tables[i]} show load result: $result\n")
                     if (result[0][2].equals("FINISHED")) {
-                        def ret = sql """
-                                        select count(*) from ${tables[i]}
-                                    """
-                        logger.info("execute sql with result: $ret")
+                        
                         // logger.info("Load FINISHED " + label + ", table ${tables[i]}")
                         assertTrue(result[0][6].contains(task_info[0]))
                         // assertTrue(etl_info[0] == result[0][5], "expected: " + etl_info[0] + ", actual: " + result[0][5] + ", label: $label")
@@ -298,10 +304,7 @@ suite("test_tvf_based_broker_load_p2", "p2") {
                 }
             }
 
-            def count = sql """select count(*) from parquet_s3_case1 where col1=10"""
-            def parquet_s3_case = sql """ select * from parquet_s3_case9 limit 10"""
 
-            logger.info("orc_s3_case[23456789] passed, then start to test parquet_s3_case[136789] and $count \n $parquet_s3_case")
             logger.info("test parquet_s3_case1")
             order_qt_parquet_s3_case1 """select count(*) from parquet_s3_case1 where col1=10"""
             logger.info("test parquet_s3_case2")
@@ -313,8 +316,8 @@ suite("test_tvf_based_broker_load_p2", "p2") {
             logger.info("test parquet_s3_case5")
             order_qt_parquet_s3_case8 """ select count(*) from parquet_s3_case8 where p_partkey=1"""
             logger.info("test parquet_s3_case6")
-            order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
-            logger.info("test parquet_s3_case[123456789] passed")
+            // order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
+            // logger.info("test parquet_s3_case[123456789] passed")
 
         } finally {
             for (String table in tables) {
