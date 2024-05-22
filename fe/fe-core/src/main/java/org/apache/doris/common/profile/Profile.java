@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.planner.Planner;
 
 import com.google.common.collect.Lists;
@@ -95,6 +96,11 @@ public class Profile {
         try {
             if (this.isFinished) {
                 return;
+            }
+            if (planner instanceof NereidsPlanner) {
+                summaryInfo.put(SummaryProfile.PHYSICAL_PLAN,
+                        ((NereidsPlanner) planner).getPhysicalPlan()
+                                .treeString().replace("\n", "\n     "));
             }
             summaryProfile.update(summaryInfo);
             for (ExecutionProfile executionProfile : executionProfiles) {
