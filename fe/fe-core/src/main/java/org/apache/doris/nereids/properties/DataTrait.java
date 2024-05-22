@@ -33,7 +33,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Records functional dependencies (func deps), which include:
+ * Records data trait, which include:
  * 1. Unique Slot:  Represents a column where the number of distinct values (ndv)
  *                  equals the row count. This column may include null values.
  * 2. Uniform Slot: Represents a column where the number of distinct values (ndv) is 1,
@@ -43,10 +43,10 @@ import java.util.stream.Collectors;
  *                   which signifies that if values in column 'a' are identical,
  *                   then values in column 'b' must also be identical.
  */
-public class FunctionalDependencies {
+public class DataTrait {
 
-    public static final FunctionalDependencies EMPTY_FUNC_DEPS
-            = new FunctionalDependencies(new NestedSet().toImmutable(),
+    public static final DataTrait EMPTY_TRAIT
+            = new DataTrait(new NestedSet().toImmutable(),
                     new NestedSet().toImmutable(), new ImmutableSet.Builder<FdItem>().build(),
                     ImmutableEqualSet.empty(), new FuncDepsDG.Builder().build());
     private final NestedSet uniqueSet;
@@ -55,7 +55,7 @@ public class FunctionalDependencies {
     private final ImmutableEqualSet<Slot> equalSet;
     private final FuncDepsDG fdDg;
 
-    private FunctionalDependencies(NestedSet uniqueSet, NestedSet uniformSet, ImmutableSet<FdItem> fdItems,
+    private DataTrait(NestedSet uniqueSet, NestedSet uniformSet, ImmutableSet<FdItem> fdItems,
             ImmutableEqualSet<Slot> equalSet, FuncDepsDG fdDg) {
         this.uniqueSet = uniqueSet;
         this.uniformSet = uniformSet;
@@ -136,7 +136,7 @@ public class FunctionalDependencies {
     }
 
     /**
-     * Builder of Func Deps
+     * Builder of trait
      */
     public static class Builder {
         private final NestedSet uniqueSet;
@@ -153,7 +153,7 @@ public class FunctionalDependencies {
             fdDgBuilder = new FuncDepsDG.Builder();
         }
 
-        public Builder(FunctionalDependencies other) {
+        public Builder(DataTrait other) {
             this.uniformSet = new NestedSet(other.uniformSet);
             this.uniqueSet = new NestedSet(other.uniqueSet);
             this.fdItems = ImmutableSet.copyOf(other.fdItems);
@@ -165,8 +165,8 @@ public class FunctionalDependencies {
             uniformSet.add(slot);
         }
 
-        public void addUniformSlot(FunctionalDependencies functionalDependencies) {
-            uniformSet.add(functionalDependencies.uniformSet);
+        public void addUniformSlot(DataTrait dataTrait) {
+            uniformSet.add(dataTrait.uniformSet);
         }
 
         public void addUniqueSlot(Slot slot) {
@@ -177,22 +177,22 @@ public class FunctionalDependencies {
             uniqueSet.add(slotSet);
         }
 
-        public void addUniqueSlot(FunctionalDependencies functionalDependencies) {
-            uniqueSet.add(functionalDependencies.uniqueSet);
+        public void addUniqueSlot(DataTrait dataTrait) {
+            uniqueSet.add(dataTrait.uniqueSet);
         }
 
         public void addFdItems(ImmutableSet<FdItem> items) {
             fdItems = ImmutableSet.copyOf(items);
         }
 
-        public void addFunctionalDependencies(FunctionalDependencies fd) {
+        public void addDataTrait(DataTrait fd) {
             uniformSet.add(fd.uniformSet);
             uniqueSet.add(fd.uniqueSet);
             equalSetBuilder.addEqualSet(fd.equalSet);
             fdDgBuilder.addDeps(fd.fdDg);
         }
 
-        public void addFuncDepsDG(FunctionalDependencies fd) {
+        public void addFuncDepsDG(DataTrait fd) {
             fdDgBuilder.addDeps(fd.fdDg);
         }
 
@@ -301,12 +301,12 @@ public class FunctionalDependencies {
             equalSetBuilder.addEqualPair(l, r);
         }
 
-        public void addEqualSet(FunctionalDependencies functionalDependencies) {
-            equalSetBuilder.addEqualSet(functionalDependencies.equalSet);
+        public void addEqualSet(DataTrait dataTrait) {
+            equalSetBuilder.addEqualSet(dataTrait.equalSet);
         }
 
-        public FunctionalDependencies build() {
-            return new FunctionalDependencies(uniqueSet.toImmutable(), uniformSet.toImmutable(),
+        public DataTrait build() {
+            return new DataTrait(uniqueSet.toImmutable(), uniformSet.toImmutable(),
                     ImmutableSet.copyOf(fdItems), equalSetBuilder.build(), fdDgBuilder.build());
         }
 
