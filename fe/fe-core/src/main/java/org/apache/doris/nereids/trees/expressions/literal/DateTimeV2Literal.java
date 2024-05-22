@@ -232,7 +232,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         long newYear = year;
         if (remain != 0) {
             newMicroSecond = Double
-                    .valueOf((microSecond + (Math.pow(10, 6 - newScale)))
+                    .valueOf((microSecond + (int) (Math.pow(10, 6 - newScale)))
                             / (int) (Math.pow(10, 6 - newScale)) * (Math.pow(10, 6 - newScale)))
                     .longValue();
         }
@@ -251,8 +251,8 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     public DateTimeV2Literal roundFloor(int newScale) {
-        // use roundMicroSecond in constructor
-        return new DateTimeV2Literal(DateTimeV2Type.of(newScale), year, month, day, hour, minute, second, microSecond);
+        return new DateTimeV2Literal(DateTimeV2Type.of(newScale), year, month, day, hour, minute, second,
+                microSecond / (int) Math.pow(10, 6 - newScale) * (int) Math.pow(10, 6 - newScale));
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {
