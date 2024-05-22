@@ -335,7 +335,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         }
         List<Expression> projectExpr = project.getProjects()
                 .stream()
-                .map(p -> p instanceof Alias ? p.child(0) : p)
+                .flatMap(p -> Project.collectExpressions(p).stream())
                 .collect(ImmutableList.toImmutableList());
         boolean noSlotRef = projectExpr.stream().allMatch(expr -> {
             if (expr instanceof SlotReference) {
