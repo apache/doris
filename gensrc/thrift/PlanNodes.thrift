@@ -904,7 +904,7 @@ struct TAggregationNode {
   7: optional list<TSortInfo> agg_sort_infos
   8: optional bool is_first_phase
   9: optional bool is_colocate
-  10: optional TSortInfo agg_sort_info_by_group_keya
+  10: optional TSortInfo agg_sort_info_by_group_key
 }
 
 struct TRepeatNode {
