@@ -595,7 +595,7 @@ void FragmentMgr::remove_pipeline_context(
 
 template <typename Params>
 Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
-                                   std::shared_ptr<QueryContext>& query_ctx) {
+                                   bool pipeline_x, std::shared_ptr<QueryContext>& query_ctx) {
     if (params.is_simplified_param) {
         // Get common components from _query_ctx_map
         std::lock_guard<std::mutex> lock(_lock);
@@ -699,8 +699,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     bool pipeline_engine_enabled = params.query_options.__isset.enable_pipeline_engine &&
                                    params.query_options.enable_pipeline_engine;
 
-    RETURN_IF_ERROR(
-            _get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
+    RETURN_IF_ERROR(_get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, false,
+                                   query_ctx));
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
     {
         // Need lock here, because it will modify fragment ids and std::vector may resize and reallocate
@@ -800,10 +800,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
     std::shared_ptr<QueryContext> query_ctx;
-    RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
-    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
     const bool enable_pipeline_x = params.query_options.__isset.enable_pipeline_x_engine &&
                                    params.query_options.enable_pipeline_x_engine;
+    RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, enable_pipeline_x, query_ctx));
+    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
+
     if (enable_pipeline_x) {
         _setup_shared_hashtable_for_broadcast_join(params, query_ctx.get());
         int64_t duration_ns = 0;

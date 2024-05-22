@@ -1481,8 +1481,7 @@ public class Coordinator implements CoordInterface {
                 // Print an error stack here to know why send cancel again.
                 LOG.warn("Query {} already in abnormal status {}, but received cancel again,"
                         + "so that send cancel to BE again",
-                        DebugUtil.printId(queryId), queryStatus.toString(),
-                        new Exception("cancel failed"));
+                        DebugUtil.printId(queryId), queryStatus.toString());
             } else {
                 queryStatus.updateStatus(TStatusCode.CANCELLED, "cancelled");
             }
