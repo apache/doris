@@ -377,12 +377,11 @@ TEST(TEST_VEXPR, LITERALTEST) {
     // bool
     {
         VLiteral literal(create_literal<TYPE_BOOLEAN>(true));
-        std::cout << "data type: " << literal.data_type().get()->get_name() << std::endl;
         Block block;
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto column = block.safe_get_by_position(ret).column->convert_to_full_column_if_const();
-        bool v = assert_cast<const ColumnUInt8*>(column.get())->get_element(0);
+        auto ctn = block.safe_get_by_position(ret);
+        auto v = (*ctn.column)[0].get<uint8_t>();
         EXPECT_EQ(v, true);
         EXPECT_EQ("1", literal.value());
     }
@@ -392,8 +391,8 @@ TEST(TEST_VEXPR, LITERALTEST) {
         Block block;
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto column = block.safe_get_by_position(ret).column->convert_to_full_column_if_const();
-        auto v = assert_cast<const ColumnInt16*>(column.get())->get_element(0);
+        auto ctn = block.safe_get_by_position(ret);
+        auto v = (*ctn.column)[0].get<int16_t>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
     }
@@ -403,8 +402,8 @@ TEST(TEST_VEXPR, LITERALTEST) {
         Block block;
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto column = block.safe_get_by_position(ret).column->convert_to_full_column_if_const();
-        auto v = assert_cast<const ColumnInt32*>(column.get())->get_element(0);
+        auto ctn = block.safe_get_by_position(ret);
+        auto v = (*ctn.column)[0].get<int32_t>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
     }
@@ -414,8 +413,8 @@ TEST(TEST_VEXPR, LITERALTEST) {
         Block block;
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto column = block.safe_get_by_position(ret).column->convert_to_full_column_if_const();
-        auto v = assert_cast<const ColumnInt64*>(column.get())->get_element(0);
+        auto ctn = block.safe_get_by_position(ret);
+        auto v = (*ctn.column)[0].get<int64_t>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
     }
