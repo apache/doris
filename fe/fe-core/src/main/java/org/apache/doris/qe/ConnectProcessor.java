@@ -17,8 +17,11 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
+import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.InsertStmt;
@@ -316,7 +319,10 @@ public abstract class ConnectProcessor {
                 || s instanceof UpdateStmt
                 || s instanceof DeleteStmt
                 || s instanceof CreateTableAsSelectStmt
-                || s instanceof CreateTableStmt)) {
+                || s instanceof CreateTableStmt
+                || s instanceof CreateTableLikeStmt
+                || s instanceof CreateViewStmt
+                || s instanceof AlterViewStmt)) {
             String errMsg;
             Throwable exception = null;
             if (nereidsParseException != null) {
