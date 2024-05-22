@@ -628,7 +628,6 @@ ${clt} -e "set global enable_profile=true;"
         insert_into_select_time=0
         insert_into_select_rows=10000000
         start=$(date +%s%3N)
-        ${clt} -e "set parallel_pipeline_task_num = 1;"
         if ${clt} -e"insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"; then
             end=$(date +%s%3N)
             echo "first test scale=1; (${end} - ${start})/1000"
