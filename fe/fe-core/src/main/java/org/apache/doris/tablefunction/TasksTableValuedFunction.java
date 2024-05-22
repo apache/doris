@@ -20,6 +20,7 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.extensions.cdc.CdcTableTask;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -87,7 +88,9 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
             return MTMVTask.COLUMN_TO_INDEX.get(columnName.toLowerCase());
         } else if (JobType.INSERT == jobType) {
             return InsertTask.COLUMN_TO_INDEX.get(columnName.toLowerCase());
-        } else {
+        } if (JobType.CDC_TABLE == jobType) {
+            return CdcTableTask.COLUMN_TO_INDEX.get(columnName.toLowerCase());
+        }else {
             throw new AnalysisException("Invalid job type: " + jobType.toString());
         }
     }
@@ -119,6 +122,8 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
             return MTMVTask.SCHEMA;
         } else if (JobType.INSERT == jobType) {
             return InsertTask.SCHEMA;
+        } else if (JobType.CDC_TABLE == jobType) {
+            return CdcTableTask.SCHEMA;
         } else {
             throw new AnalysisException("Invalid job type: " + jobType.toString());
         }

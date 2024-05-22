@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
+import org.apache.doris.nereids.trees.expressions.functions.table.Cdc;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
 import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
@@ -55,7 +56,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(S3.class, "s3"),
             tableValued(MvInfos.class, "mv_infos"),
             tableValued(Jobs.class, "jobs"),
-            tableValued(Tasks.class, "tasks")
+            tableValued(Tasks.class, "tasks"),
+            tableValued(Cdc.class, "cdc")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

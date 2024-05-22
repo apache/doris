@@ -57,7 +57,7 @@ public class HttpUtils {
                 .collect(Collectors.toList());
     }
 
-    static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
+    public static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
         StringBuilder url = new StringBuilder("http://")
                 .append(ipPort.first).append(":").append(ipPort.second).append(path);
         boolean isFirst = true;
@@ -85,7 +85,7 @@ public class HttpUtils {
         return doGet(url, headers, DEFAULT_TIME_OUT_MS);
     }
 
-    static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
+    public static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
         HttpPost httpPost = new HttpPost(url);
         if (Objects.nonNull(body)) {
             String jsonString = GsonUtils.GSON.toJson(body);
@@ -117,7 +117,7 @@ public class HttpUtils {
         return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
     }
 
-    static String parseResponse(String response) {
+    public static String parseResponse(String response) {
         ResponseBody responseEntity = GsonUtils.GSON.fromJson(response, new TypeToken<ResponseBody>() {}.getType());
         if (responseEntity.getCode() != REQUEST_SUCCESS_CODE) {
             throw new RuntimeException(responseEntity.getMsg());

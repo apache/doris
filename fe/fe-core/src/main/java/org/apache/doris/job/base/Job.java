@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.base;
 
+import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
@@ -108,6 +109,17 @@ public interface Job<T extends AbstractTask, C> {
      * @throws JobException If register job failed.
      */
     void onRegister() throws JobException;
+
+    /**
+     * initialize job
+     */
+    default void initialize() throws JobException {};
+
+    /**
+     * status changed
+     * @throws JobException If register job failed.
+     */
+    default void onStatusChanged(JobStatus oldStatus, JobStatus newStatus) throws JobException{};
 
     /**
      * register job failed

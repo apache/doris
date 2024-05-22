@@ -70,6 +70,7 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
 
     public void init() {
         registerInsertDisruptor();
+        registerCdcTableDisruptor();
         registerMTMVDisruptor();
         //when all task queue is ready, dispatch task to registered task executor
         registerDispatchDisruptor();
@@ -104,6 +105,23 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
         TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, DISPATCH_INSERT_TASK_QUEUE_SIZE,
                 insertTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
         disruptorMap.put(JobType.INSERT, insertDisruptor);
+    }
+
+    private void registerCdcTableDisruptor() {
+        EventFactory<ExecuteTaskEvent<InsertTask>> insertEventFactory = ExecuteTaskEvent.factory();
+        ThreadFactory insertTaskThreadFactory = new CustomThreadFactory("insert-cdc-task-execute");
+        WorkHandler[] insertTaskExecutorHandlers = new WorkHandler[DISPATCH_INSERT_THREAD_NUM];
+        for (int i = 0; i < DISPATCH_INSERT_THREAD_NUM; i++) {
+            insertTaskExecutorHandlers[i] = new DefaultTaskExecutorHandler<InsertTask>();
+        }
+        EventTranslatorVararg<ExecuteTaskEvent<InsertTask>> eventTranslator =
+            (event, sequence, args) -> {
+                event.setTask((InsertTask) args[0]);
+                event.setJobConfig((JobExecutionConfiguration) args[1]);
+            };
+        TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, DISPATCH_INSERT_TASK_QUEUE_SIZE,
+            insertTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
+        disruptorMap.put(JobType.CDC_TABLE, insertDisruptor);
     }
 
     private void registerMTMVDisruptor() {

@@ -116,6 +116,11 @@ public class BackendServiceClient {
         return stub.testJdbcConnection(request);
     }
 
+    public Future<InternalService.PCdcJobStartResult> startCdcJobAsync(
+        InternalService.PCdcJobStartRequest request) {
+        return stub.startCdcJobAsync(request);
+    }
+
     public Future<InternalService.PCacheResponse> updateCache(InternalService.PUpdateCacheRequest request) {
         return stub.updateCache(request);
     }

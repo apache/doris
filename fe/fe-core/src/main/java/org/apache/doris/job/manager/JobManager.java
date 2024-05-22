@@ -17,6 +17,9 @@
 
 package org.apache.doris.job.manager;
 
+import com.google.common.collect.Lists;
+import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.catalog.Database;
@@ -38,16 +41,13 @@ import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.scheduler.JobScheduler;
 import org.apache.doris.load.loadv2.JobState;
 
-import com.google.common.collect.Lists;
-import lombok.extern.log4j.Log4j2;
-import org.apache.commons.lang3.StringUtils;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -99,6 +99,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         writeLock();
         try {
             job.onRegister();
+            job.initialize();
             job.checkJobParams();
             checkJobNameExist(job.getJobName());
             if (jobMap.get(job.getJobId()) != null) {
@@ -117,6 +118,10 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         if (jobMap.values().stream().anyMatch(a -> a.getJobName().equals(jobName))) {
             throw new JobException("job name exist, jobName:" + jobName);
         }
+    }
+
+    public Map<Long, T> getJobMap(){
+        return jobMap;
     }
 
     /**

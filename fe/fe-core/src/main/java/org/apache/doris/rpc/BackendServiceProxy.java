@@ -333,6 +333,18 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PCdcJobStartResult> startCdcJobAsync(
+        TNetworkAddress address, InternalService.PCdcJobStartRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.startCdcJobAsync(request);
+        } catch (Throwable e) {
+            LOG.warn("start cdc job catch a exception, address={}:{}",
+                address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PReportStreamLoadStatusResponse> reportStreamLoadStatus(
             TNetworkAddress address, InternalService.PReportStreamLoadStatusRequest request) throws RpcException {
         try {

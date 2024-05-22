@@ -18,8 +18,6 @@
 package org.apache.doris.job.common;
 
 public enum JobStatus {
-
-
     /**
      * When the task is not started, the initial state will be triggered.
      * The initial state can be started

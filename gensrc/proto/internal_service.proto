@@ -675,6 +675,15 @@ message PJdbcTestConnectionResult {
     optional PStatus status = 1;
 }
 
+message PCdcJobStartRequest {
+    optional string params = 1;
+}
+
+message PCdcJobStartResult {
+    optional PStatus status = 1;
+    optional int32 port = 2;
+}
+
 message PRowLocation {
     optional int64 tablet_id = 1;
     optional string rowset_id = 2;
@@ -939,5 +948,6 @@ service PBackendService {
     rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
     rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
+    rpc start_cdc_job_async(PCdcJobStartRequest) returns (PCdcJobStartResult);
 };
 

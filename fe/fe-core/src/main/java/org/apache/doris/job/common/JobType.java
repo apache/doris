@@ -20,4 +20,5 @@ package org.apache.doris.job.common;
 public enum JobType {
     INSERT,
     MV,
+    CDC_TABLE
 }

@@ -67,6 +67,7 @@ under the License.
         <module>auditloader</module>
         <module>trino-converter</module>
         <module>sparksql-converter</module>
+        <module>cdcloader</module>
     </modules>
     <properties>
         <project.scm.id>github</project.scm.id>
