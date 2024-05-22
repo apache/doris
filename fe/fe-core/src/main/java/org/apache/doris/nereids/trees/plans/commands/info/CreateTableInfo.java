@@ -210,7 +210,7 @@ public class CreateTableInfo {
 
         if (engineName.equalsIgnoreCase("olap")) {
             if (distribution == null) {
-                throw new AnalysisException("Create olap table should contain distribution desc");
+                distribution = new DistributionDescriptor(false, true, FeConstants.default_bucket_num, null);
             }
             properties = maybeRewriteByAutoBucket(distribution, properties);
         }
