@@ -48,6 +48,7 @@ public class LogicalCompatibilityContext {
     private final Supplier<BiMap<Expression, Expression>> queryToViewJoinEdgeExpressionMappingSupplier;
     private final Supplier<BiMap<Expression, Expression>> queryToViewNodeExpressionMappingSupplier;
     private final Supplier<BiMap<Expression, Expression>> queryToViewFilterEdgeExpressionMappingSupplier;
+
     /**
      * LogicalCompatibilityContext
      */
