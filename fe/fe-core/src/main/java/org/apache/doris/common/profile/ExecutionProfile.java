@@ -340,9 +340,10 @@ public class ExecutionProfile {
         if (isPipelineXProfile) {
             int pipelineIdx = 0;
             List<RuntimeProfile> taskProfile = Lists.newArrayList();
+            String suffix = " (host=" + backend.getHeartbeatAddress() + ")";
             for (TDetailedReportParams param : params.detailed_report) {
-                String name = "Pipeline :" + pipelineIdx + " "
-                        + " (host=" + backend.getHeartbeatAddress() + ")";
+                String name = param.isSetIsFragmentLevel() && param.is_fragment_level ? "Fragment Level Profile: "
+                        + suffix : "Pipeline :" + pipelineIdx + " " + suffix;
                 RuntimeProfile profile = new RuntimeProfile(name);
                 taskProfile.add(profile);
                 if (param.isSetProfile()) {
