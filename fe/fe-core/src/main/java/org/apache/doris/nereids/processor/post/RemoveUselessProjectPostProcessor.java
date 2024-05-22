@@ -18,27 +18,33 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.annotation.DependsRules;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
-import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * merge consecutive projects
+ * Prune column for Join-Cluster
  */
-public class MergeProjectPostProcessor extends PlanPostProcessor {
-
+@DependsRules({
+        MergeProjectPostProcessor.class
+})
+public class RemoveUselessProjectPostProcessor extends PlanPostProcessor {
     @Override
-    public PhysicalProject visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
+    public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
         project = (PhysicalProject<? extends Plan>) super.visit(project, ctx);
         Plan child = project.child();
-        if (child instanceof PhysicalProject) {
-            List<NamedExpression> projections = project.mergeProjections((PhysicalProject) child);
-            return (PhysicalProject) project
-                    .withProjectionsAndChild(projections, child.child(0))
-                    .copyStatsAndGroupIdFrom(project);
+        if (project.isAllSlots()) {
+            Set<Slot> projects = project.getProjects().stream().map(Slot.class::cast).collect(Collectors.toSet());
+            Set<Slot> outputSet = child.getOutputSet();
+            if (outputSet.equals(projects)) {
+                return child;
+            }
         }
         return project;
     }
 }
+

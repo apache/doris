@@ -35,16 +35,6 @@ import java.util.stream.Collectors;
  * Common
  */
 public class CBOUtils {
-    /**
-     * If projects is empty or project output equal plan output, return the original plan.
-     */
-    public static Plan projectOrSelf(List<NamedExpression> projects, Plan plan) {
-        if (projects.isEmpty() || projects.equals(plan.getOutput())) {
-            return plan;
-        }
-        return new LogicalProject<>(projects, plan);
-    }
-
     public static Set<Slot> joinChildConditionSlots(LogicalJoin<? extends Plan, ? extends Plan> join, boolean left) {
         Set<Slot> childSlots = left ? join.left().getOutputSet() : join.right().getOutputSet();
         return join.getConditionSlot().stream()
