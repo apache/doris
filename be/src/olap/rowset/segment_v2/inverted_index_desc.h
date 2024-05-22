@@ -28,8 +28,8 @@ namespace segment_v2 {
 
 class InvertedIndexDescriptor {
 public:
-    static std::string get_temporary_index_path(const std::string& segment_path, uint32_t uuid);
-    static std::string get_index_file_name(const std::string& path, uint32_t uuid);
+    static std::string get_temporary_index_path(const std::string& segment_path, uint64_t uuid);
+    static std::string get_index_file_name(const std::string& path, uint64_t uuid);
     static const std::string get_temporary_null_bitmap_file_name() { return "null_bitmap"; }
     static const std::string get_temporary_bkd_index_data_file_name() { return "bkd"; }
     static const std::string get_temporary_bkd_index_meta_file_name() { return "bkd_meta"; }

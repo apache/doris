@@ -51,7 +51,7 @@ DEFINE_string(pred_type, "", "inverted index term query predicate, eq/lt/gt/le/g
 DEFINE_bool(print_row_id, false, "print row id when query terms");
 DEFINE_bool(print_doc_id, false, "print doc id when check terms stats");
 // only for debug index compaction
-DEFINE_int32(idx_id, -1, "inverted index id");
+DEFINE_int64(idx_id, -1, "inverted index id");
 DEFINE_string(src_idx_dirs_file, "", "source segment index files");
 DEFINE_string(dest_idx_dirs_file, "", "destination segment index files");
 DEFINE_string(dest_seg_num_rows_file, "", "destination segment number of rows");
@@ -276,7 +276,7 @@ int main(int argc, char** argv) {
             return true;
         };
 
-        int32_t index_id = FLAGS_idx_id;
+        int64_t index_id = FLAGS_idx_id;
         std::string tablet_path = FLAGS_tablet_path;
         std::string src_index_dirs_string;
         std::string dest_index_dirs_string;
