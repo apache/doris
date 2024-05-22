@@ -432,7 +432,7 @@ Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_n
     return Status::OK();
 }
 
-int64_t VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
+void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(block, use_move);
     _queue_total_rows[use_sender_id] = _queue_total_rows[use_sender_id] + block->rows();
