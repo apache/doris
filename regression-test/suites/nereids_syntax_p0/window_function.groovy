@@ -193,6 +193,6 @@ suite("window_function") {
         where c6 is not null;
     """
 
-    qt_select_lead "SELECT c3,c2,c1,lead(c1, 0, 111) over(partition by c3 order by c2,c1) FROM window_test"
-    qt_select_lag "SELECT c3,c2,c1,lag(c1, 0, 222) over(partition by c3 order by c2,c1) FROM window_test"
+    qt_select_lead "SELECT c3,c2,c1,lead(c1, 0, 111) over(partition by c3 order by c2,c1) FROM window_test order by c3;"
+    qt_select_lag "SELECT c3,c2,c1,lag(c1, 0, 222) over(partition by c3 order by c2,c1) FROM window_test order by c3;"
 }
