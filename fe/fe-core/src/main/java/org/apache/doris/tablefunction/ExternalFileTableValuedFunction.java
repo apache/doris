@@ -434,7 +434,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            if (fileStatus.isIsDir() || fileStatus.size == 0) {
+            if (isFileContentEmpty(fileStatus)) {
                 continue;
             }
             firstFile = fileStatus;
@@ -464,6 +464,44 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRange.setParams(fileScanRangeParams);
         return InternalService.PFetchTableSchemaRequest.newBuilder()
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
+    }
+
+    private boolean isFileContentEmpty(TBrokerFileStatus fileStatus) {
+        if (fileStatus.isIsDir() || fileStatus.size == 0) {
+            return true;
+        }
+        if (Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON) {
+            int magicNumberBytes = 0;
+            switch (compressionType) {
+                case GZ:
+                    magicNumberBytes = 20;
+                    break;
+                case LZO:
+                case LZOP:
+                    magicNumberBytes = 42;
+                    break;
+                case DEFLATE:
+                    magicNumberBytes = 8;
+                    break;
+                case SNAPPYBLOCK:
+                case LZ4BLOCK:
+                case LZ4FRAME:
+                    magicNumberBytes = 4;
+                    break;
+                case BZ2:
+                    magicNumberBytes = 14;
+                    break;
+                case UNKNOWN:
+                case PLAIN:
+                default:
+                    break;
+            }
+            // fileStatus.size may be -1 in http_stream
+            if (fileStatus.size >= 0 && fileStatus.size <= magicNumberBytes) {
+                return true;
+            }
+        }
+        return false;
     }
 }
 
