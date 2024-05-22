@@ -332,7 +332,8 @@ under the License.
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
         <hadoop.version>3.3.6</hadoop.version>
-        <hadoop.thirdparty.version>1.2.0</hadoop.thirdparty.version>
+        <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
+        <hadoop.thirdparty.protobuf_3_7.version>1.1.1</hadoop.thirdparty.protobuf_3_7.version>
         <hbase.version>2.4.9</hbase.version>
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
@@ -546,12 +547,12 @@ under the License.
             <dependency>
                 <groupId>org.apache.hadoop.thirdparty</groupId>
                 <artifactId>hadoop-shaded-guava</artifactId>
-                <version>${hadoop.thirdparty.version}</version>
+                <version>${hadoop.thirdparty.guava.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop.thirdparty</groupId>
                 <artifactId>hadoop-shaded-protobuf_3_7</artifactId>
-                <version>${hadoop.thirdparty.version}</version>
+                <version>${hadoop.thirdparty.protobuf_3_7.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
