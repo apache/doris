@@ -411,7 +411,7 @@ BENCHMARK_SOURCE=benchmark-1.8.0
 BENCHMARK_MD5SUM="8ddf8571d3f6198d37852bcbd964f817"
 
 # xsimd
-# for arrow-7.0.0, if arrow upgrade, this version may also need to be changed
+# for arrow-13.0.0, if arrow upgrade, this version may also need to be changed
 XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/refs/tags/9.0.1.tar.gz"
 XSIMD_NAME="xsimd-9.0.1.tar.gz"
 XSIMD_SOURCE=xsimd-9.0.1
