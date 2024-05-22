@@ -974,6 +974,24 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     _table_id = tablet_schema.table_id();
 }
 
+void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
+    for (auto& col : _cols) {
+        if (col->unique_id() < 0) {
+            continue;
+        }
+        const auto iter = tablet_schema._field_id_to_index.find(col->unique_id());
+        if (iter == tablet_schema._field_id_to_index.end()) {
+            continue;
+        }
+        int32_t col_idx = iter->second;
+        if (col_idx < 0 || col_idx >= tablet_schema._cols.size()) {
+            continue;
+        }
+        col->set_is_bf_column(tablet_schema._cols[col_idx]->is_bf_column());
+        col->set_has_bitmap_index(tablet_schema._cols[col_idx]->has_bitmap_index());
+    }
+}
+
 std::string TabletSchema::to_key() const {
     TabletSchemaPB pb;
     to_schema_pb(&pb);

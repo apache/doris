@@ -24,6 +24,7 @@
 #include <roaring/roaring.hh>
 
 #include "olap/types.h"
+#include "util/debug_points.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
@@ -53,6 +54,8 @@ Status BitmapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
 }
 
 Status BitmapIndexReader::new_iterator(BitmapIndexIterator** iterator) {
+    DBUG_EXECUTE_IF("BitmapIndexReader::new_iterator.fail",
+                    { return Status::InternalError("new_iterator for bitmap index failed"); });
     *iterator = new BitmapIndexIterator(this);
     return Status::OK();
 }
