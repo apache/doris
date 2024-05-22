@@ -494,10 +494,17 @@ public class NereidsPlanner extends Planner {
                 plan = super.getExplainString(explainOptions)
                         + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
                         this.getPhysicalPlan());
+                if (statementContext != null) {
+                    if (statementContext.isHasUnknownColStats()) {
+                        plan += "\n\nStatistics\n planed with unknown column statistics\n";
+                    }
+                }
         }
-        if (statementContext != null && !statementContext.getHints().isEmpty()) {
-            String hint = getHintExplainString(statementContext.getHints());
-            return plan + hint;
+        if (statementContext != null) {
+            if (!statementContext.getHints().isEmpty()) {
+                String hint = getHintExplainString(statementContext.getHints());
+                return plan + hint;
+            }
         }
         return plan;
     }

@@ -19,6 +19,7 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.Hint;
@@ -29,8 +30,10 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -55,6 +58,7 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -99,6 +103,7 @@ public class StatementContext implements Closeable {
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
     private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
+    private final IdGenerator<TableId> talbeIdGenerator = TableId.createGenerator();
 
     private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
     private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
@@ -138,6 +143,9 @@ public class StatementContext implements Closeable {
     // and value is the new string used for replacement.
     private final TreeMap<Pair<Integer, Integer>, String> indexInSqlToString
             = new TreeMap<>(new Pair.PairComparator<>());
+    // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
+    // the value is the auto-increment id in the cascades context
+    private final Map<TableIdentifier, TableId> tableIdMapping = new LinkedHashMap<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -288,6 +296,10 @@ public class StatementContext implements Closeable {
 
     public RelationId getNextRelationId() {
         return relationIdGenerator.getNextId();
+    }
+
+    public TableId getNextTableId() {
+        return talbeIdGenerator.getNextId();
     }
 
     public void setParsedStatement(StatementBase parsedStatement) {
@@ -484,5 +496,17 @@ public class StatementContext implements Closeable {
             return "\nResource {\n  name: " + resourceName + ",\n  thread: " + threadName
                     + ",\n  sql:\n" + sql + "\n}";
         }
+    }
+
+    /** Get table id with lazy */
+    public TableId getTableId(TableIf tableIf) {
+        TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
+        TableId tableId = this.tableIdMapping.get(tableIdentifier);
+        if (tableId != null) {
+            return tableId;
+        }
+        tableId = StatementScopeIdGenerator.newTableId();
+        this.tableIdMapping.put(tableIdentifier, tableId);
+        return tableId;
     }
 }
