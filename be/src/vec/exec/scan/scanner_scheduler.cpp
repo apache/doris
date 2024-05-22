@@ -103,11 +103,11 @@ Status ScannerScheduler::init(ExecEnv* env) {
             _remote_thread_pool_max_size, remote_scan_pool_queue_size, "RemoteScanThreadPool");
 
     // 3. limited scan thread pool
-    static_cast<void>(ThreadPoolBuilder("LimitedScanThreadPool")
-                              .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-                              .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-                              .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-                              .build(&_limited_scan_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("LimitedScanThreadPool")
+                            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
+                            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+                            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
+                            .build(&_limited_scan_thread_pool));
     _register_metrics();
     _is_init = true;
     return Status::OK();
@@ -246,7 +246,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         scanner->set_opened();
     }
 
-    static_cast<void>(scanner->try_append_late_arrival_runtime_filter());
+    Status rf_status = scanner->try_append_late_arrival_runtime_filter();
+    if (!rf_status.ok()) {
+        LOG(WARNING) << "Failed to append late arrival runtime filter: " << rf_status.to_string();
+    }
 
     size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     size_t raw_bytes_read = 0;

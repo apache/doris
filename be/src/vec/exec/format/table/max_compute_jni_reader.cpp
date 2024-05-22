@@ -42,11 +42,9 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
                                          const std::vector<SlotDescriptor*>& file_slot_descs,
                                          const TFileRangeDesc& range, RuntimeState* state,
                                          RuntimeProfile* profile)
-        : _max_compute_params(max_compute_params),
-          _file_slot_descs(file_slot_descs),
-          _range(range),
-          _state(state),
-          _profile(profile) {
+        : JniReader(file_slot_descs, state, profile),
+          _max_compute_params(max_compute_params),
+          _range(range) {
     _table_desc = mc_desc;
     std::ostringstream required_fields;
     std::ostringstream columns_types;
