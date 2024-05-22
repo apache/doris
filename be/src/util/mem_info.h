@@ -92,6 +92,12 @@ public:
     static inline int64_t sys_mem_available_warning_water_mark() {
         return _s_sys_mem_available_warning_water_mark;
     }
+    static inline int64_t process_minor_gc_size() {
+        return _s_process_minor_gc_size.load(std::memory_order_relaxed);
+    }
+    static inline int64_t process_full_gc_size() {
+        return _s_process_full_gc_size.load(std::memory_order_relaxed);
+    }
 
     static inline int64_t get_tc_metrics(const std::string& name) {
 #ifndef USE_JEMALLOC
@@ -152,29 +158,10 @@ public:
         return _s_allocator_cache_mem.load(std::memory_order_relaxed);
     }
     static inline std::string allocator_cache_mem_str() { return _s_allocator_cache_mem_str; }
-    static inline int64_t proc_mem_no_allocator_cache() {
-        return _s_proc_mem_no_allocator_cache.load(std::memory_order_relaxed) +
-               refresh_interval_memory_growth;
-    }
 
     // Tcmalloc property `generic.total_physical_bytes` records the total length of the virtual memory
     // obtained by the process malloc, not the physical memory actually used by the process in the OS.
     static void refresh_allocator_mem();
-
-    /** jemalloc pdirty is number of pages within unused extents that are potentially
-      * dirty, and for which madvise() or similar has not been called.
-      *
-      * So they will be subtracted from RSS to make accounting more
-      * accurate, since those pages are not really RSS but a memory
-      * that can be used at anytime via jemalloc.
-      */
-    static inline void refresh_proc_mem_no_allocator_cache() {
-        _s_proc_mem_no_allocator_cache.store(
-                PerfCounters::get_vm_rss() - static_cast<int64_t>(_s_allocator_cache_mem.load(
-                                                     std::memory_order_relaxed)),
-                std::memory_order_relaxed);
-        refresh_interval_memory_growth = 0;
-    }
 
     static inline int64_t mem_limit() {
         DCHECK(_s_initialized);
@@ -193,17 +180,13 @@ public:
         return PrettyPrinter::print(_s_soft_mem_limit.load(std::memory_order_relaxed),
                                     TUnit::BYTES);
     }
-    static bool is_exceed_soft_mem_limit(int64_t bytes = 0) {
-        return proc_mem_no_allocator_cache() + bytes >= soft_mem_limit() ||
-               sys_mem_available() < sys_mem_available_warning_water_mark();
-    }
 
     static std::string debug_string();
 
     static bool process_minor_gc();
     static bool process_full_gc();
 
-    static int64_t tg_not_enable_overcommit_group_gc();
+    static int64_t tg_disable_overcommit_group_gc();
     static int64_t tg_enable_overcommit_group_gc(int64_t request_free_memory,
                                                  RuntimeProfile* profile, bool is_minor_gc);
 
@@ -220,7 +203,6 @@ private:
     static std::atomic<int64_t> _s_allocator_cache_mem;
     static std::string _s_allocator_cache_mem_str;
     static std::atomic<int64_t> _s_virtual_memory_used;
-    static std::atomic<int64_t> _s_proc_mem_no_allocator_cache;
 
     static std::atomic<int64_t> _s_sys_mem_available;
     static int64_t _s_sys_mem_available_low_water_mark;

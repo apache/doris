@@ -27,7 +27,7 @@
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/format/format_common.h"
-#include "vec/exec/scan/vscan_node.h"
+#include "vec/exec/scan/split_source_connector.h"
 
 namespace doris {
 class ExecNode;
@@ -57,7 +57,8 @@ public:
     std::string name_suffix() const override;
 
 private:
-    std::vector<TScanRangeParams> _scan_ranges;
+    std::shared_ptr<vectorized::SplitSourceConnector> _split_source = nullptr;
+    int _max_scanners;
     // A in memory cache to save some common components
     // of the this scan node. eg:
     // 1. iceberg delete file
