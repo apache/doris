@@ -83,14 +83,6 @@ suite("test_nereids_row_policy") {
 
     sql 'sync'
 
-    //cloud-mode
-    if (cloudMode) {
-        def clusters = sql " SHOW CLUSTERS; "
-        assertTrue(!clusters.isEmpty())
-        def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
-    }
-
     dropPolciy "policy0"
     dropPolciy "policy1"
     dropPolciy "policy2"
