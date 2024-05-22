@@ -34,10 +34,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -64,6 +66,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultSinkType;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
@@ -219,7 +222,7 @@ public class ConnectContext {
 
     private StatsErrorEstimator statsErrorEstimator;
 
-    private Map<String, String> resultAttachedInfo;
+    private Map<String, String> resultAttachedInfo = Maps.newHashMap();
 
     private String workloadGroupName = "";
     private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
@@ -374,12 +377,8 @@ public class ConnectContext {
         return txnEntry != null && txnEntry.isTxnModel();
     }
 
-    public boolean isTxnIniting() {
-        return txnEntry != null && txnEntry.isTxnIniting();
-    }
-
-    public boolean isTxnBegin() {
-        return txnEntry != null && txnEntry.isTxnBegin();
+    public boolean isInsertValuesTxnIniting() {
+        return txnEntry != null && txnEntry.isInsertValuesTxnIniting();
     }
 
     public void addPreparedStmt(String stmtName, PrepareStmtContext ctx) {
@@ -584,7 +583,7 @@ public class ConnectContext {
 
     // for USER() function
     public UserIdentity getUserIdentity() {
-        return new UserIdentity(qualifiedUser, remoteIP);
+        return UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIP);
     }
 
     public UserIdentity getCurrentUserIdentity() {
@@ -891,6 +890,25 @@ public class ConnectContext {
         cancelQuery();
     }
 
+    // kill operation with no protect by timeout.
+    private void killByTimeout(boolean killConnection) {
+        LOG.warn("kill query from {}, kill mysql connection: {} reason time out", getRemoteHostPortString(),
+                killConnection);
+
+        if (killConnection) {
+            isKilled = true;
+            // Close channel to break connection with client
+            closeChannel();
+        }
+        // Now, cancel running query.
+        // cancelQuery by time out
+        StmtExecutor executorRef = executor;
+        if (executorRef != null) {
+            executorRef.cancel(new Status(TStatusCode.TIMEOUT,
+                    "query is timeout, killed by timeout checker"));
+        }
+    }
+
     public void cancelQuery() {
         StmtExecutor executorRef = executor;
         if (executorRef != null) {
@@ -931,7 +949,7 @@ public class ConnectContext {
         }
 
         if (killFlag) {
-            kill(killConnection);
+            killByTimeout(killConnection);
         }
     }
 
@@ -994,7 +1012,7 @@ public class ConnectContext {
     public class ThreadInfo {
         public boolean isFull;
 
-        public List<String> toRow(int connId, long nowMs, boolean showFe) {
+        public List<String> toRow(int connId, long nowMs) {
             List<String> row = Lists.newArrayList();
             if (connId == connectionId) {
                 row.add("Yes");
@@ -1023,10 +1041,8 @@ public class ConnectContext {
                 row.add("");
             }
 
-            if (showFe) {
-                row.add(Env.getCurrentEnv().getSelfNode().getHost());
-            }
-
+            row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            row.add(cloudCluster);
             return row;
         }
     }
@@ -1095,6 +1111,29 @@ public class ConnectContext {
         }
     }
 
+    public static String cloudNoBackendsReason() {
+        StringBuilder sb = new StringBuilder();
+        if (ConnectContext.get() != null) {
+            String clusterName = ConnectContext.get().getCloudCluster();
+            String hits = "or you may not have permission to access the current cluster = ";
+            sb.append(" ");
+            if (Strings.isNullOrEmpty(clusterName)) {
+                return sb.append(hits).append("cluster name empty").toString();
+            }
+            String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getCloudStatusByName(clusterName);
+            if (!Strings.isNullOrEmpty(clusterStatus)
+                    && Cloud.ClusterStatus.valueOf(clusterStatus)
+                        == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
+                LOG.warn("auto start cluster {} in manual shutdown status", clusterName);
+                sb.append("cluster ").append(clusterName)
+                    .append(" is shutdown manually, please start it first");
+            } else {
+                sb.append(hits).append(clusterName);
+            }
+        }
+        return sb.toString();
+    }
 
     // can't get cluster from context, use the following strategy to obtain the cluster name
     // 当用户有多个集群的权限时，会按照如下策略进行拉取：
@@ -1150,13 +1189,14 @@ public class ConnectContext {
     }
 
     /**
-     * @param updateErr whether set this connect state to error when the returned cluster is null or empty.
+     * Tries to choose an available cluster in the following order
+     * 1. Do nothing if a cluster has been chosen for current session. It may be
+     *    chosen explicitly by `use @` command or setCloudCluster() or this method
+     * 2. Tries to choose a default cluster if current mysql user has been set any
+     * 3. Tries to choose an authorized cluster if all preceeding conditions failed
      *
-     * @return Returns an available cluster in the following order
-     *         1 Use an explicitly specified cluster
-     *         2 If no cluster is specified, the user's default cluster is used
-     *         3 If the user does not have a default cluster, select a cluster with permissions for the user
-     *         Returns null when there is no available cluster
+     * @param updateErr whether set the connect state to error if the returned cluster is null or empty
+     * @return non-empty cluster name if a cluster has been chosen otherwise null or empty string
      */
     public String getCloudCluster(boolean updateErr) {
         if (!Config.isCloudMode()) {

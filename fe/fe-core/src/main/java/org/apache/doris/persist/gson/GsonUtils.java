@@ -22,10 +22,45 @@ import org.apache.doris.alter.CloudRollupJobV2;
 import org.apache.doris.alter.CloudSchemaChangeJobV2;
 import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.alter.SchemaChangeJobV2;
+import org.apache.doris.analysis.ArithmeticExpr;
+import org.apache.doris.analysis.ArrayLiteral;
+import org.apache.doris.analysis.BetweenPredicate;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CaseExpr;
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.EncryptKeyRef;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.IPv4Literal;
+import org.apache.doris.analysis.IPv6Literal;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.InformationFunction;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.JsonLiteral;
+import org.apache.doris.analysis.LambdaFunctionCallExpr;
+import org.apache.doris.analysis.LambdaFunctionExpr;
+import org.apache.doris.analysis.LargeIntLiteral;
+import org.apache.doris.analysis.LikePredicate;
+import org.apache.doris.analysis.MapLiteral;
+import org.apache.doris.analysis.MatchPredicate;
+import org.apache.doris.analysis.MaxLiteral;
+import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.StructLiteral;
+import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -57,6 +92,7 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -102,8 +138,13 @@ import org.apache.doris.job.extensions.cdc.CdcTableJob;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
+import org.apache.doris.load.loadv2.LoadJobFinalOperation;
+import org.apache.doris.load.loadv2.MiniLoadTxnCommitAttachment;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
+import org.apache.doris.load.routineload.KafkaProgress;
+import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
+import org.apache.doris.load.routineload.RoutineLoadProgress;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
@@ -118,6 +159,7 @@ import org.apache.doris.system.BackendHbResponse;
 import org.apache.doris.system.BrokerHbResponse;
 import org.apache.doris.system.FrontendHbResponse;
 import org.apache.doris.system.HeartbeatResponse;
+import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -145,15 +187,19 @@ import com.google.gson.ReflectionAccessFilter;
 import com.google.gson.TypeAdapter;
 import com.google.gson.TypeAdapterFactory;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.internal.Streams;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import org.apache.commons.lang3.reflect.TypeUtils;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -186,6 +232,44 @@ public class GsonUtils {
             .registerSubtype(MapType.class, MapType.class.getSimpleName())
             .registerSubtype(StructType.class, StructType.class.getSimpleName())
             .registerSubtype(AggStateType.class, AggStateType.class.getSimpleName());
+
+    // runtime adapter for class "Expr"
+    private static final RuntimeTypeAdapterFactory<org.apache.doris.analysis.Expr> exprAdapterFactory
+            = RuntimeTypeAdapterFactory
+            .of(Expr.class, "clazz")
+            .registerSubtype(FunctionCallExpr.class, FunctionCallExpr.class.getSimpleName())
+            .registerSubtype(LambdaFunctionCallExpr.class, LambdaFunctionCallExpr.class.getSimpleName())
+            .registerSubtype(CastExpr.class, CastExpr.class.getSimpleName())
+            .registerSubtype(TimestampArithmeticExpr.class, TimestampArithmeticExpr.class.getSimpleName())
+            .registerSubtype(IsNullPredicate.class, IsNullPredicate.class.getSimpleName())
+            .registerSubtype(BetweenPredicate.class, BetweenPredicate.class.getSimpleName())
+            .registerSubtype(BinaryPredicate.class, BinaryPredicate.class.getSimpleName())
+            .registerSubtype(LikePredicate.class, LikePredicate.class.getSimpleName())
+            .registerSubtype(MatchPredicate.class, MatchPredicate.class.getSimpleName())
+            .registerSubtype(InPredicate.class, InPredicate.class.getSimpleName())
+            .registerSubtype(CompoundPredicate.class, CompoundPredicate.class.getSimpleName())
+            .registerSubtype(BoolLiteral.class, BoolLiteral.class.getSimpleName())
+            .registerSubtype(MaxLiteral.class, MaxLiteral.class.getSimpleName())
+            .registerSubtype(StringLiteral.class, StringLiteral.class.getSimpleName())
+            .registerSubtype(IntLiteral.class, IntLiteral.class.getSimpleName())
+            .registerSubtype(LargeIntLiteral.class, LargeIntLiteral.class.getSimpleName())
+            .registerSubtype(DecimalLiteral.class, DecimalLiteral.class.getSimpleName())
+            .registerSubtype(FloatLiteral.class, FloatLiteral.class.getSimpleName())
+            .registerSubtype(NullLiteral.class, NullLiteral.class.getSimpleName())
+            .registerSubtype(MapLiteral.class, MapLiteral.class.getSimpleName())
+            .registerSubtype(DateLiteral.class, DateLiteral.class.getSimpleName())
+            .registerSubtype(IPv6Literal.class, IPv6Literal.class.getSimpleName())
+            .registerSubtype(IPv4Literal.class, IPv4Literal.class.getSimpleName())
+            .registerSubtype(JsonLiteral.class, JsonLiteral.class.getSimpleName())
+            .registerSubtype(ArrayLiteral.class, ArrayLiteral.class.getSimpleName())
+            .registerSubtype(StructLiteral.class, StructLiteral.class.getSimpleName())
+            .registerSubtype(CaseExpr.class, CaseExpr.class.getSimpleName())
+            .registerSubtype(LambdaFunctionExpr.class, LambdaFunctionExpr.class.getSimpleName())
+            .registerSubtype(EncryptKeyRef.class, EncryptKeyRef.class.getSimpleName())
+            .registerSubtype(ArithmeticExpr.class, ArithmeticExpr.class.getSimpleName())
+            .registerSubtype(SlotRef.class, SlotRef.class.getSimpleName())
+            .registerSubtype(VirtualSlotRef.class, VirtualSlotRef.class.getSimpleName())
+            .registerSubtype(InformationFunction.class, InformationFunction.class.getSimpleName());
 
     // runtime adapter for class "DistributionInfo"
     private static RuntimeTypeAdapterFactory<DistributionInfo> distributionInfoTypeAdapterFactory
@@ -333,14 +417,31 @@ public class GsonUtils {
             .registerSubtype(Partition.class, Partition.class.getSimpleName())
             .registerSubtype(CloudPartition.class, CloudPartition.class.getSimpleName());
 
+    // runtime adapter for class "TxnCommitAttachment".
+    private static RuntimeTypeAdapterFactory<TxnCommitAttachment> txnCommitAttachmentTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(TxnCommitAttachment.class, "clazz")
+            .registerDefaultSubtype(TxnCommitAttachment.class)
+            .registerSubtype(LoadJobFinalOperation.class, LoadJobFinalOperation.class.getSimpleName())
+            .registerSubtype(MiniLoadTxnCommitAttachment.class, MiniLoadTxnCommitAttachment.class.getSimpleName())
+            .registerSubtype(RLTaskTxnCommitAttachment.class, RLTaskTxnCommitAttachment.class.getSimpleName());
+
+    // runtime adapter for class "RoutineLoadProgress".
+    private static RuntimeTypeAdapterFactory<RoutineLoadProgress> routineLoadTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(RoutineLoadProgress.class, "clazz")
+            .registerDefaultSubtype(RoutineLoadProgress.class)
+            .registerSubtype(KafkaProgress.class, KafkaProgress.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
                     new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
+            // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
+            .registerTypeAdapterFactory(new ExprAdapterFactory())
+            .registerTypeAdapterFactory(exprAdapterFactory)
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
             .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(resourceTypeAdapterFactory)
@@ -358,6 +459,8 @@ public class GsonUtils {
             .registerTypeAdapterFactory(jobExecutorRuntimeTypeAdapterFactory)
             .registerTypeAdapterFactory(mtmvSnapshotTypeAdapterFactory)
             .registerTypeAdapterFactory(constraintTypeAdapterFactory)
+            .registerTypeAdapterFactory(txnCommitAttachmentTypeAdapterFactory)
+            .registerTypeAdapterFactory(routineLoadTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
@@ -505,6 +608,39 @@ public class GsonUtils {
                 table.put(rowKey, columnKey, value);
             }
             return table;
+        }
+    }
+
+    private static class ExprAdapterFactory implements TypeAdapterFactory {
+
+        private static final String EXPR_PROP = "expr";
+
+        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
+
+            final Class<T> rawType = (Class<T>) type.getRawType();
+            final TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
+
+            return new TypeAdapter<T>() {
+                public void write(JsonWriter out, T value) throws IOException {
+                    delegate.write(out, value);
+                }
+
+                public T read(JsonReader in) throws IOException {
+                    if (Expr.class.isAssignableFrom(rawType)
+                            && Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_133) {
+                        JsonElement json = Streams.parse(in);
+                        String base64Str = json.getAsJsonObject().get(EXPR_PROP).getAsString();
+                        try (DataInputStream dataInputStream = new DataInputStream(
+                                new ByteArrayInputStream(Base64.getDecoder().decode(base64Str)))) {
+                            return (T) Expr.readIn(dataInputStream);
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    } else {
+                        return delegate.read(in);
+                    }
+                }
+            };
         }
     }
 

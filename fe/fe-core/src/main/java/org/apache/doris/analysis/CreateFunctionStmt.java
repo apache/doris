@@ -27,6 +27,7 @@ import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -104,6 +105,7 @@ public class CreateFunctionStmt extends DdlStmt {
     private final FunctionName functionName;
     private final boolean isAggregate;
     private final boolean isAlias;
+    private boolean isTableFunction;
     private final FunctionArgsDef argsDef;
     private final TypeDef returnType;
     private TypeDef intermediateType;
@@ -140,8 +142,16 @@ public class CreateFunctionStmt extends DdlStmt {
             this.properties = ImmutableSortedMap.copyOf(properties, String.CASE_INSENSITIVE_ORDER);
         }
         this.isAlias = false;
+        this.isTableFunction = false;
         this.parameters = ImmutableList.of();
         this.originFunction = null;
+    }
+
+    public CreateFunctionStmt(SetType type, boolean ifNotExists, FunctionName functionName,
+            FunctionArgsDef argsDef,
+            TypeDef returnType, TypeDef intermediateType, Map<String, String> properties) {
+        this(type, ifNotExists, false, functionName, argsDef, returnType, intermediateType, properties);
+        this.isTableFunction = true;
     }
 
     public CreateFunctionStmt(SetType type, boolean ifNotExists, FunctionName functionName, FunctionArgsDef argsDef,
@@ -158,6 +168,7 @@ public class CreateFunctionStmt extends DdlStmt {
         }
         this.originFunction = originFunction;
         this.isAggregate = false;
+        this.isTableFunction = false;
         this.returnType = new TypeDef(Type.VARCHAR);
         this.properties = ImmutableSortedMap.of();
     }
@@ -197,6 +208,8 @@ public class CreateFunctionStmt extends DdlStmt {
                     analyzeUda();
                 } else if (isAlias) {
                     analyzeAliasFunction();
+                } else if (isTableFunction) {
+                    analyzeTableFunction();
                 } else {
                     analyzeUdf();
                 }
@@ -208,6 +221,8 @@ public class CreateFunctionStmt extends DdlStmt {
                 analyzeUda();
             } else if (isAlias) {
                 analyzeAliasFunction();
+            } else if (isTableFunction) {
+                analyzeTableFunction();
             } else {
                 analyzeUdf();
             }
@@ -299,6 +314,27 @@ public class CreateFunctionStmt extends DdlStmt {
 
             checksum = Hex.encodeHexString(digest.digest());
         }
+    }
+
+    private void analyzeTableFunction() throws AnalysisException {
+        String symbol = properties.get(SYMBOL_KEY);
+        if (Strings.isNullOrEmpty(symbol)) {
+            throw new AnalysisException("No 'symbol' in properties");
+        }
+        if (!returnType.getType().isArrayType()) {
+            throw new AnalysisException("JAVA_UDF OF UDTF return type must be array type");
+        }
+        analyzeJavaUdf(symbol);
+        URI location = URI.create(userFile);
+        function = ScalarFunction.createUdf(binaryType,
+                functionName, argsDef.getArgTypes(),
+                ((ArrayType) (returnType.getType())).getItemType(), argsDef.isVariadic(),
+                location, symbol, null, null);
+        function.setChecksum(checksum);
+        function.setNullableMode(returnNullMode);
+        function.setUDTFunction(true);
+        // Todo: maybe in create tables function, need register two function, one is
+        // normal and one is outer as those have different result when result is NULL.
     }
 
     private void analyzeUda() throws AnalysisException {
@@ -605,6 +641,9 @@ public class CreateFunctionStmt extends DdlStmt {
         } else if (expType instanceof MapType) {
             MapType mapType = (MapType) expType;
             javaTypes = Type.PrimitiveTypeToJavaClassType.get(mapType.getPrimitiveType());
+        } else if (expType instanceof StructType) {
+            StructType structType = (StructType) expType;
+            javaTypes = Type.PrimitiveTypeToJavaClassType.get(structType.getPrimitiveType());
         } else {
             throw new AnalysisException(
                     String.format("Method '%s' in class '%s' does not support type '%s'",

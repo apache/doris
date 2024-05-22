@@ -1080,6 +1080,8 @@ visible_functions = {
         [['weeks_sub'], 'DATEV2', ['DATEV2', 'INT'], ''],
         [['days_add', 'date_add', 'adddate'], 'DATEV2', ['DATEV2', 'INT'], ''],
         [['days_sub', 'date_sub', 'subdate'], 'DATEV2', ['DATEV2', 'INT'], ''],
+        [['days_add', 'date_add', 'adddate'], 'DATE', ['DATE', 'INT'], ''],
+        [['days_sub', 'date_sub', 'subdate'], 'DATE', ['DATE', 'INT'], ''],
         [['hours_add'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
         [['hours_sub'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
         [['minutes_add'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
@@ -1576,6 +1578,7 @@ visible_functions = {
         [['char_length', 'character_length'], 'INT', ['VARCHAR'], ''],
         [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'], ''],
         [['upper', 'ucase'], 'VARCHAR', ['VARCHAR'], ''],
+        [['quote'], 'VARCHAR', ['VARCHAR'], ''],
         [['initcap'], 'VARCHAR', ['VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR','VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR'], ''],
@@ -1618,6 +1621,7 @@ visible_functions = {
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
 
         [['char'], 'VARCHAR', ['VARCHAR', 'INT', '...'], 'ALWAYS_NULLABLE'],
+        [['strcmp'], 'INT', ['VARCHAR', 'VARCHAR'], 'DEPEND_ON_ARGUMENT'],
 
         [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
@@ -1638,6 +1642,7 @@ visible_functions = {
         [['char_length', 'character_length'], 'INT', ['STRING'], ''],
         [['lower', 'lcase'], 'STRING', ['STRING'], ''],
         [['upper', 'ucase'], 'STRING', ['STRING'], ''],
+        [['quote'], 'STRING', ['STRING'], ''],
         [['trim'], 'STRING', ['STRING'], ''],
         [['trim'], 'STRING', ['STRING','STRING'], ''],
         [['ltrim'], 'STRING', ['STRING'], ''],
@@ -1668,7 +1673,8 @@ visible_functions = {
         [['split_part'], 'STRING', ['STRING', 'STRING', 'INT'], 'ALWAYS_NULLABLE'],
         [['substring_index'], 'STRING', ['STRING', 'STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['url_decode'], 'STRING', ['STRING'], ''],
-        [['random_bytes'], 'STRING', ['INT'], '']
+        [['random_bytes'], 'STRING', ['INT'], ''],
+        [['strcmp'], 'INT', ['STRING', 'STRING'], 'DEPEND_ON_ARGUMENT']
     ],
 
 
@@ -1819,9 +1825,12 @@ visible_functions = {
     #hll function
     "Hll": [
         [['hll_cardinality'], 'BIGINT', ['HLL'], 'ALWAYS_NOT_NULLABLE'],
-        [['hll_hash'], 'HLL', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['hll_empty'], 'HLL', [], 'ALWAYS_NOT_NULLABLE'],
-        [['hll_hash'], 'HLL', ['STRING'], 'ALWAYS_NOT_NULLABLE']
+        [['hll_from_base64'], 'HLL', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['hll_from_base64'], 'HLL', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['hll_hash'], 'HLL', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['hll_hash'], 'HLL', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['hll_to_base64'], 'STRING', ['HLL'], '']
     ],
 
 
@@ -2243,6 +2252,7 @@ null_result_with_one_null_param_functions = [
     'fmod',
     'substr',
     'substring',
+    'strcmp'
     'append_trailing_char_if_absent',
     'ST_X',
     'ST_Y',

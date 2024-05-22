@@ -25,22 +25,28 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
@@ -48,6 +54,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -56,6 +63,7 @@ import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.LocationUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -63,8 +71,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Iceberg utils
@@ -78,7 +85,6 @@ public class IcebergUtils {
         }
     };
     static long MILLIS_TO_NANO_TIME = 1000;
-    private static final Pattern PARTITION_REG = Pattern.compile("(\\w+)\\((\\d+)?,?(\\w+)\\)");
     // https://iceberg.apache.org/spec/#schemas-and-data-types
     // All time and timestamp values are stored with microsecond precision
     private static final int ICEBERG_DATETIME_SCALE_MS = 6;
@@ -86,6 +92,13 @@ public class IcebergUtils {
     public static final String TOTAL_RECORDS = "total-records";
     public static final String TOTAL_POSITION_DELETES = "total-position-deletes";
     public static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
+
+    // nickname in flink and spark
+    public static final String WRITE_FORMAT = "write-format";
+    public static final String COMPRESSION_CODEC = "compression-codec";
+
+    // nickname in spark
+    public static final String SPARK_SQL_COMPRESSION_CODEC = "spark.sql.iceberg.compression-codec";
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
@@ -415,57 +428,51 @@ public class IcebergUtils {
         return slotRef;
     }
 
-    // "partition"="c1;day(c1);bucket(4,c3)"
-    public static PartitionSpec solveIcebergPartitionSpec(Map<String, String> properties, Schema schema)
+    public static PartitionSpec solveIcebergPartitionSpec(PartitionDesc partitionDesc, Schema schema)
             throws UserException {
-        if (properties.containsKey("partition")) {
-            PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
-            String par = properties.get("partition").replaceAll(" ", "");
-            String[] pars = par.split(";");
-            for (String func : pars) {
-                if (func.contains("(")) {
-                    Matcher matcher = PARTITION_REG.matcher(func);
-                    if (matcher.matches()) {
-                        switch (matcher.group(1).toLowerCase()) {
-                            case "bucket":
-                                builder.bucket(matcher.group(3), Integer.parseInt(matcher.group(2)));
-                                break;
-                            case "year":
-                            case "years":
-                                builder.year(matcher.group(3));
-                                break;
-                            case "month":
-                            case "months":
-                                builder.month(matcher.group(3));
-                                break;
-                            case "date":
-                            case "day":
-                            case "days":
-                                builder.day(matcher.group(3));
-                                break;
-                            case "date_hour":
-                            case "hour":
-                            case "hours":
-                                builder.hour(matcher.group(3));
-                                break;
-                            case "truncate":
-                                builder.truncate(matcher.group(3), Integer.parseInt(matcher.group(2)));
-                                break;
-                            default:
-                                throw new UserException("unsupported partition for " + matcher.group(1));
-                        }
-                    } else {
-                        throw new UserException("failed to get partition info from " + func);
-                    }
-                } else {
-                    builder.identity(func);
-                }
-            }
-            properties.remove("partition");
-            return builder.build();
-        } else {
+        if (partitionDesc == null) {
             return PartitionSpec.unpartitioned();
         }
+
+        ArrayList<Expr> partitionExprs = partitionDesc.getPartitionExprs();
+        PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
+        for (Expr expr : partitionExprs) {
+            if (expr instanceof SlotRef) {
+                builder.identity(((SlotRef) expr).getColumnName());
+            } else if (expr instanceof FunctionCallExpr) {
+                String exprName = expr.getExprName();
+                List<Expr> params = ((FunctionCallExpr) expr).getParams().exprs();
+                switch (exprName.toLowerCase()) {
+                    case "bucket":
+                        builder.bucket(params.get(1).getExprName(), Integer.parseInt(params.get(0).getStringValue()));
+                        break;
+                    case "year":
+                    case "years":
+                        builder.year(params.get(0).getExprName());
+                        break;
+                    case "month":
+                    case "months":
+                        builder.month(params.get(0).getExprName());
+                        break;
+                    case "date":
+                    case "day":
+                    case "days":
+                        builder.day(params.get(0).getExprName());
+                        break;
+                    case "date_hour":
+                    case "hour":
+                    case "hours":
+                        builder.hour(params.get(0).getExprName());
+                        break;
+                    case "truncate":
+                        builder.truncate(params.get(1).getExprName(), Integer.parseInt(params.get(0).getStringValue()));
+                        break;
+                    default:
+                        throw new UserException("unsupported partition for " + exprName);
+                }
+            }
+        }
+        return builder.build();
     }
 
     private static Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive) {
@@ -510,8 +517,17 @@ public class IcebergUtils {
                 Types.ListType list = (Types.ListType) type;
                 return ArrayType.create(icebergTypeToDorisType(list.elementType()), true);
             case MAP:
+                Types.MapType map = (Types.MapType) type;
+                return new MapType(
+                    icebergTypeToDorisType(map.keyType()),
+                    icebergTypeToDorisType(map.valueType())
+                );
             case STRUCT:
-                return Type.UNSUPPORTED;
+                Types.StructType struct = (Types.StructType) type;
+                ArrayList<StructField> nestedTypes = struct.fields().stream().map(
+                        x -> new StructField(x.name(), icebergTypeToDorisType(x.type()))
+                ).collect(Collectors.toCollection(ArrayList::new));
+                return new StructType(nestedTypes);
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }
@@ -568,4 +584,50 @@ public class IcebergUtils {
         return -1;
     }
 
+    public static String getFileFormat(Table table) {
+        Map<String, String> properties = table.properties();
+        if (properties.containsKey(WRITE_FORMAT)) {
+            return properties.get(WRITE_FORMAT);
+        }
+        if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+            return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
+        }
+        return TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
+    }
+
+    public static String getFileCompress(Table table) {
+        Map<String, String> properties = table.properties();
+        if (properties.containsKey(COMPRESSION_CODEC)) {
+            return properties.get(COMPRESSION_CODEC);
+        } else if (properties.containsKey(SPARK_SQL_COMPRESSION_CODEC)) {
+            return properties.get(SPARK_SQL_COMPRESSION_CODEC);
+        }
+        String fileFormat = getFileFormat(table);
+        if (fileFormat.equalsIgnoreCase("parquet")) {
+            return properties.getOrDefault(
+                    TableProperties.PARQUET_COMPRESSION, TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0);
+        } else if (fileFormat.equalsIgnoreCase("orc")) {
+            return properties.getOrDefault(
+                    TableProperties.ORC_COMPRESSION, TableProperties.ORC_COMPRESSION_DEFAULT);
+        }
+        throw new NotSupportedException("Unsupported file format: " + fileFormat);
+    }
+
+    public static String dataLocation(Table table) {
+        Map<String, String> properties = table.properties();
+        if (properties.containsKey(TableProperties.WRITE_LOCATION_PROVIDER_IMPL)) {
+            throw new NotSupportedException(
+                "Table " + table.name() + " specifies " + properties.get(TableProperties.WRITE_LOCATION_PROVIDER_IMPL)
+                    + " as a location provider. "
+                    + "Writing to Iceberg tables with custom location provider is not supported.");
+        }
+        String dataLocation = properties.get(TableProperties.WRITE_DATA_LOCATION);
+        if (dataLocation == null) {
+            dataLocation = properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION);
+            if (dataLocation == null) {
+                dataLocation = String.format("%s/data", LocationUtil.stripTrailingSlash(table.location()));
+            }
+        }
+        return dataLocation;
+    }
 }

@@ -67,6 +67,7 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -120,7 +121,14 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
     init_profile(label);
 }
 
-Compaction::~Compaction() = default;
+Compaction::~Compaction() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    _output_rs_writer.reset();
+    _tablet.reset();
+    _input_rowsets.clear();
+    _output_rowset.reset();
+    _cur_tablet_schema.reset();
+}
 
 void Compaction::init_profile(const std::string& label) {
     _profile = std::make_unique<RuntimeProfile>(label);
@@ -476,7 +484,7 @@ Status Compaction::do_inverted_index_compaction() {
 
     if (!_allow_delete_in_cumu_compaction) {
         if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
-            _stats.merged_rows != missed_rows.size()) {
+            _stats.merged_rows != missed_rows.size() && _tablet->tablet_state() == TABLET_RUNNING) {
             std::string err_msg = fmt::format(
                     "cumulative compaction: the merged rows({}) is not equal to missed "
                     "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
@@ -521,11 +529,9 @@ Status Compaction::do_inverted_index_compaction() {
     // src index files
     // format: rowsetId_segmentId
     std::vector<std::string> src_index_files(src_segment_num);
-    std::vector<RowsetId> src_rowset_ids;
     for (const auto& m : src_seg_to_id_map) {
         std::pair<RowsetId, uint32_t> p = m.first;
         src_index_files[m.second] = p.first.to_string() + "_" + std::to_string(p.second);
-        src_rowset_ids.push_back(p.first);
     }
 
     // dest index files
@@ -663,9 +669,8 @@ Status Compaction::do_inverted_index_compaction() {
         // if index properties are different, index compaction maybe needs to be skipped.
         bool is_continue = false;
         std::optional<std::map<std::string, std::string>> first_properties;
-        for (const auto& rowset_id : src_rowset_ids) {
-            auto rowset_ptr = _tablet->get_rowset(rowset_id);
-            const auto* tablet_index = rowset_ptr->tablet_schema()->get_inverted_index(col);
+        for (const auto& rowset : _input_rowsets) {
+            const auto* tablet_index = rowset->tablet_schema()->get_inverted_index(col);
             const auto& properties = tablet_index->properties();
             if (!first_properties.has_value()) {
                 first_properties = properties;
@@ -863,6 +868,7 @@ Status CompactionMixin::modify_rowsets() {
         if (!_allow_delete_in_cumu_compaction) {
             missed_rows_size = missed_rows.size();
             if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                _tablet->tablet_state() == TABLET_RUNNING &&
                 _stats.merged_rows != missed_rows_size) {
                 std::string err_msg = fmt::format(
                         "cumulative compaction: the merged rows({}) is not equal to missed "
@@ -1108,6 +1114,13 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
+
+    auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
+    ctx.compaction_level =
+            _engine.cumu_compaction_policy(compaction_policy)->new_compaction_level(_input_rowsets);
+
+    ctx.write_file_cache = compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION;
+    ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get()));
     return Status::OK();

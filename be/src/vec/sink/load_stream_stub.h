@@ -104,7 +104,7 @@ private:
     std::weak_ptr<LoadStreamStub> _stub;
 };
 
-class LoadStreamStub {
+class LoadStreamStub : public std::enable_shared_from_this<LoadStreamStub> {
     friend class LoadStreamReplyHandler;
 
 public:
@@ -125,8 +125,7 @@ public:
             ~LoadStreamStub();
 
     // open_load_stream
-    Status open(std::shared_ptr<LoadStreamStub> self,
-                BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
+    Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
                 const std::vector<PTabletID>& tablets_for_schema, int total_streams,
                 int64_t idle_timeout_ms, bool enable_profile);
@@ -197,6 +196,20 @@ public:
     int64_t dst_id() const { return _dst_id; }
 
     friend std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub);
+
+    std::string to_string();
+
+    // for tests only
+    void add_success_tablet(int64_t tablet_id) {
+        std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
+        _success_tablets.push_back(tablet_id);
+    }
+
+    // for tests only
+    void add_failed_tablet(int64_t tablet_id, Status reason) {
+        std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
+        _failed_tablets[tablet_id] = reason;
+    }
 
 private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});

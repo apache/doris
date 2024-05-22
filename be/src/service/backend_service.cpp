@@ -23,6 +23,7 @@
 #include <gen_cpp/BackendService_types.h>
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/DorisExternalService_types.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Planner_types.h>
 #include <gen_cpp/Status_types.h>
@@ -104,7 +105,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     const auto& local_tablet_uid = local_tablet->tablet_uid();
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::SCHEMA_CHANGE, fmt::format("IngestBinlog#TxnId={}", txn_id));
+            MemTrackerLimiter::Type::OTHER, fmt::format("IngestBinlog#TxnId={}", txn_id));
     SCOPED_ATTACH_TASK(mem_tracker);
 
     auto& request = arg->request;
@@ -307,41 +308,81 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     std::vector<uint64_t> segment_index_file_sizes;
     std::vector<std::string> segment_index_file_names;
     auto tablet_schema = rowset_meta->tablet_schema();
-    for (const auto& index : tablet_schema->indexes()) {
-        if (index.index_type() != IndexType::INVERTED) {
-            continue;
-        }
-        auto index_id = index.index_id();
-        for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
-            auto get_segment_index_file_size_url = fmt::format(
-                    "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
-                    "}",
-                    binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
-                    remote_rowset_id, segment_index, index_id);
-            uint64_t segment_index_file_size;
-            auto get_segment_index_file_size_cb = [&get_segment_index_file_size_url,
-                                                   &segment_index_file_size](HttpClient* client) {
-                RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
-                client->set_timeout_ms(kMaxTimeoutMs);
-                RETURN_IF_ERROR(client->head());
-                return client->get_content_length(&segment_index_file_size);
-            };
-            auto index_file = InvertedIndexDescriptor::inverted_index_file_path(
-                    local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index, index_id,
-                    index.get_index_suffix());
-            segment_index_file_names.push_back(index_file);
-
-            status = HttpClient::execute_with_retry(max_retry, 1, get_segment_index_file_size_cb);
-            if (!status.ok()) {
-                LOG(WARNING) << "failed to get segment file size from "
-                             << get_segment_index_file_size_url
-                             << ", status=" << status.to_string();
-                status.to_thrift(&tstatus);
-                return;
+    if (tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+        for (const auto& index : tablet_schema->indexes()) {
+            if (index.index_type() != IndexType::INVERTED) {
+                continue;
             }
+            auto index_id = index.index_id();
+            for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+                auto get_segment_index_file_size_url = fmt::format(
+                        "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
+                        "}",
+                        binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
+                        remote_rowset_id, segment_index, index_id);
+                uint64_t segment_index_file_size;
+                auto get_segment_index_file_size_cb =
+                        [&get_segment_index_file_size_url,
+                         &segment_index_file_size](HttpClient* client) {
+                            RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
+                            client->set_timeout_ms(kMaxTimeoutMs);
+                            RETURN_IF_ERROR(client->head());
+                            return client->get_content_length(&segment_index_file_size);
+                        };
+                auto index_file = InvertedIndexDescriptor::inverted_index_file_path(
+                        local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index,
+                        index_id, index.get_index_suffix());
+                segment_index_file_names.push_back(index_file);
 
-            segment_index_file_sizes.push_back(segment_index_file_size);
-            segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
+                status = HttpClient::execute_with_retry(max_retry, 1,
+                                                        get_segment_index_file_size_cb);
+                if (!status.ok()) {
+                    LOG(WARNING) << "failed to get segment file size from "
+                                 << get_segment_index_file_size_url
+                                 << ", status=" << status.to_string();
+                    status.to_thrift(&tstatus);
+                    return;
+                }
+
+                segment_index_file_sizes.push_back(segment_index_file_size);
+                segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
+            }
+        }
+    } else {
+        for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+            if (tablet_schema->has_inverted_index()) {
+                auto get_segment_index_file_size_url = fmt::format(
+                        "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
+                        "}",
+                        binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
+                        remote_rowset_id, segment_index, -1);
+                uint64_t segment_index_file_size;
+                auto get_segment_index_file_size_cb =
+                        [&get_segment_index_file_size_url,
+                         &segment_index_file_size](HttpClient* client) {
+                            RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
+                            client->set_timeout_ms(kMaxTimeoutMs);
+                            RETURN_IF_ERROR(client->head());
+                            return client->get_content_length(&segment_index_file_size);
+                        };
+                auto local_segment_path = BetaRowset::segment_file_path(
+                        local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
+                auto index_file = InvertedIndexDescriptor::get_index_file_name(local_segment_path);
+                segment_index_file_names.push_back(index_file);
+
+                status = HttpClient::execute_with_retry(max_retry, 1,
+                                                        get_segment_index_file_size_cb);
+                if (!status.ok()) {
+                    LOG(WARNING) << "failed to get segment file size from "
+                                 << get_segment_index_file_size_url
+                                 << ", status=" << status.to_string();
+                    status.to_thrift(&tstatus);
+                    return;
+                }
+
+                segment_index_file_sizes.push_back(segment_index_file_size);
+                segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
+            }
         }
     }
 
@@ -548,8 +589,8 @@ Status BaseBackendService::start_plan_fragment_execution(
 void BaseBackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
                                               const TCancelPlanFragmentParams& params) {
     LOG(INFO) << "cancel_plan_fragment(): instance_id=" << print_id(params.fragment_instance_id);
-    _exec_env->fragment_mgr()->cancel_instance(params.fragment_instance_id,
-                                               PPlanFragmentCancelReason::INTERNAL_ERROR);
+    _exec_env->fragment_mgr()->cancel_instance(
+            params.fragment_instance_id, Status::InternalError("cancel message received from FE"));
 }
 
 void BaseBackendService::transmit_data(TTransmitDataResult& return_val,
@@ -803,11 +844,6 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
     } else {
         LOG(WARNING) << "stream_load_recorder is null.";
     }
-}
-
-void BackendService::clean_trash() {
-    static_cast<void>(_engine.start_trash_sweep(nullptr, true));
-    static_cast<void>(_engine.notify_listener("REPORT_DISK_STATE"));
 }
 
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
@@ -1067,10 +1103,6 @@ void BaseBackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo
     LOG(ERROR) << "get_disk_trash_used_capacity is not implemented";
 }
 
-void BaseBackendService::clean_trash() {
-    LOG(ERROR) << "clean_trash is not implemented";
-}
-
 void BaseBackendService::make_snapshot(TAgentResult& return_value,
                                        const TSnapshotRequest& snapshot_request) {
     LOG(ERROR) << "make_snapshot is not implemented";
@@ -1101,16 +1133,18 @@ void BaseBackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
     result.__set_err_msg("query_ingest_binlog is not implemented");
 }
 
-void BaseBackendService::pre_cache_async(TPreCacheAsyncResponse& response,
-                                         const TPreCacheAsyncRequest& request) {
-    LOG(ERROR) << "pre_cache_async is not implemented";
-    response.__set_status(Status::NotSupported("pre_cache_async is not implemented").to_thrift());
+void BaseBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
+                                             const TWarmUpCacheAsyncRequest& request) {
+    LOG(ERROR) << "warm_up_cache_async is not implemented";
+    response.__set_status(
+            Status::NotSupported("warm_up_cache_async is not implemented").to_thrift());
 }
 
-void BaseBackendService::check_pre_cache(TCheckPreCacheResponse& response,
-                                         const TCheckPreCacheRequest& request) {
-    LOG(ERROR) << "check_pre_cache is not implemented";
-    response.__set_status(Status::NotSupported("check_pre_cache is not implemented").to_thrift());
+void BaseBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncResponse& response,
+                                                   const TCheckWarmUpCacheAsyncRequest& request) {
+    LOG(ERROR) << "check_warm_up_cache_async is not implemented";
+    response.__set_status(
+            Status::NotSupported("check_warm_up_cache_async is not implemented").to_thrift());
 }
 
 void BaseBackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
@@ -1127,6 +1161,33 @@ void BaseBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
                                          const TWarmUpTabletsRequest& request) {
     LOG(ERROR) << "warm_up_tablets is not implemented";
     response.__set_status(Status::NotSupported("warm_up_tablets is not implemented").to_thrift());
+}
+
+void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse& response,
+                                                  const TGetRealtimeExecStatusRequest& request) {
+    if (!request.__isset.id) {
+        LOG_WARNING("Invalidate argument, id is empty");
+        response.__set_status(Status::InvalidArgument("id is empty").to_thrift());
+        return;
+    }
+
+    LOG_INFO("Getting realtime exec status of query {}", print_id(request.id));
+    std::unique_ptr<TReportExecStatusParams> report_exec_status_params =
+            std::make_unique<TReportExecStatusParams>();
+    Status st = ExecEnv::GetInstance()->fragment_mgr()->get_realtime_exec_status(
+            request.id, report_exec_status_params.get());
+
+    if (!st.ok()) {
+        response.__set_status(st.to_thrift());
+        return;
+    }
+
+    report_exec_status_params->__set_query_id(TUniqueId());
+    report_exec_status_params->__set_done(false);
+
+    response.__set_status(Status::OK().to_thrift());
+    response.__set_report_exec_status_params(*report_exec_status_params);
+    return;
 }
 
 } // namespace doris

@@ -228,14 +228,15 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
 
 Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                                   rapidjson::Document::AllocatorType& allocator,
-                                                  int row_num) const {
+                                                  Arena& mem_pool, int row_num) const {
     // Use allocator instead of stack memory, since rapidjson hold the reference of String value
     // otherwise causes stack use after free
     auto& column_array = static_cast<const ColumnArray&>(column);
     if (row_num > column_array.size()) {
         return Status::InternalError("row num {} out of range {}!", row_num, column_array.size());
     }
-    void* mem = allocator.Malloc(sizeof(vectorized::Field));
+    // void* mem = allocator.Malloc(sizeof(vectorized::Field));
+    void* mem = mem_pool.alloc(sizeof(vectorized::Field));
     if (!mem) {
         return Status::InternalError("Malloc failed");
     }
@@ -392,5 +393,35 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
     return Status::OK();
 }
 
+Status DataTypeArraySerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                              int end) const {
+    const auto& array_col = assert_cast<const ColumnArray&>(column);
+    auto* ptype = result.mutable_type();
+    ptype->set_id(PGenericType::LIST);
+    const IColumn& nested_column = array_col.get_data();
+    const auto& offsets = array_col.get_offsets();
+    auto* child_element = result.add_child_element();
+    for (size_t row_id = start; row_id < end; row_id++) {
+        size_t offset = offsets[row_id - 1];
+        size_t next_offset = offsets[row_id];
+        result.add_child_offset(next_offset);
+        RETURN_IF_ERROR(nested_serde->write_column_to_pb(nested_column, *child_element, offset,
+                                                         next_offset));
+    }
+    return Status::OK();
+}
+
+Status DataTypeArraySerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto& array_column = assert_cast<ColumnArray&>(column);
+    auto& offsets = array_column.get_offsets();
+    IColumn& nested_column = array_column.get_data();
+    for (int i = 0; i < arg.child_offset_size(); ++i) {
+        offsets.emplace_back(arg.child_offset(i));
+    }
+    for (int i = 0; i < arg.child_element_size(); ++i) {
+        RETURN_IF_ERROR(nested_serde->read_column_from_pb(nested_column, arg.child_element(i)));
+    }
+    return Status::OK();
+}
 } // namespace vectorized
 } // namespace doris

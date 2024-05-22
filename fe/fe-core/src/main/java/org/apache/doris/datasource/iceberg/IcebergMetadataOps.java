@@ -104,13 +104,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
         String dbName = stmt.getDbName();
-        if (dorisCatalog.getDbNameToId().containsKey(dbName)) {
-            Long aLong = dorisCatalog.getDbNameToId().get(dbName);
-            dorisCatalog.getIdToDb().remove(aLong);
-            dorisCatalog.getDbNameToId().remove(dbName);
-        }
         if (!databaseExist(dbName)) {
             if (stmt.isSetIfExists()) {
                 LOG.info("drop database[{}] which does not exist", dbName);
@@ -119,6 +113,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
             }
         }
+        SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
         nsCatalog.dropNamespace(Namespace.of(dbName));
         dorisCatalog.onRefresh(true);
     }
@@ -149,7 +144,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
         Map<String, String> properties = stmt.getProperties();
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
-        PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(properties, schema);
+        PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(stmt.getPartitionDesc(), schema);
         catalog.createTable(TableIdentifier.of(dbName, tableName), schema, partitionSpec, properties);
         db.setUnInitialized(true);
     }

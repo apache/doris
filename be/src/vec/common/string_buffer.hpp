@@ -30,20 +30,23 @@ public:
     explicit BufferWritable(ColumnString& vector)
             : _data(vector.get_chars()), _offsets(vector.get_offsets()) {}
 
-    inline void write(const char* data, int len) {
+    void write(const char* data, size_t len) {
         _data.insert(data, data + len);
         _now_offset += len;
     }
-    inline void write(char c) {
+
+    void write(char c) {
         const char* p = &c;
         _data.insert(p, p + 1);
         _now_offset += 1;
     }
 
-    inline void commit() {
-        ColumnString::check_chars_length(_offsets.back() + _now_offset, 0);
-        _offsets.push_back(_offsets.back() + _now_offset);
+    void commit() {
+        auto now_offset = _now_offset;
         _now_offset = 0;
+        // the following code may throw exception, and DCHECK in destructor will fail if _now_offset is not reset to 0
+        ColumnString::check_chars_length(_offsets.back() + now_offset, 0);
+        _offsets.push_back(_offsets.back() + now_offset);
     }
 
     ~BufferWritable() { DCHECK(_now_offset == 0); }
@@ -70,13 +73,13 @@ public:
     explicit BufferReadable(StringRef&& ref) : _data(ref.data) {}
     ~BufferReadable() = default;
 
-    inline StringRef read(int len) {
+    StringRef read(size_t len) {
         StringRef ref(_data, len);
         _data += len;
         return ref;
     }
 
-    inline void read(char* data, int len) {
+    void read(char* data, int len) {
         memcpy(data, _data, len);
         _data += len;
     }

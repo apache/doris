@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
+import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
@@ -94,6 +95,9 @@ public interface TableValuedFunctionVisitor<R, C> {
         return visitTableValuedFunction(s3, context);
     }
 
+    default R visitQuery(Query query, C context) {
+        return visitTableValuedFunction(query, context);
+    }
     default R visitCdc(Cdc cdc, C context) {
         return visitTableValuedFunction(cdc, context);
     }

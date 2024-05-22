@@ -33,10 +33,14 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
+#include "cloud/cloud_tablet_hotspot.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
@@ -107,6 +111,23 @@
 #include "runtime/memory/tcmalloc_hook.h"
 #endif
 
+// Used for unit test
+namespace {
+std::once_flag flag;
+std::unique_ptr<doris::ThreadPool> non_block_close_thread_pool;
+void init_threadpool_for_test() {
+    static_cast<void>(doris::ThreadPoolBuilder("NonBlockCloseThreadPool")
+                              .set_min_threads(12)
+                              .set_max_threads(48)
+                              .build(&non_block_close_thread_pool));
+}
+
+[[maybe_unused]] doris::ThreadPool* get_non_block_close_thread_pool() {
+    std::call_once(flag, init_threadpool_for_test);
+    return non_block_close_thread_pool.get();
+}
+} // namespace
+
 namespace doris {
 class PBackendService_Stub;
 class PFunctionService_Stub;
@@ -138,6 +159,25 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
 }
 
+// Used to calculate the num of min thread and max thread based on the passed config
+static pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
+    auto num_cores = doris::CpuInfo::num_cores();
+    min_num = (min_num == 0) ? num_cores : min_num;
+    max_num = (max_num == 0) ? num_cores : max_num;
+    auto factor = max_num / min_num;
+    min_num = std::min(num_cores * factor, min_num);
+    max_num = std::min(min_num * factor, max_num);
+    return {min_num, max_num};
+}
+
+ThreadPool* ExecEnv::non_block_close_thread_pool() {
+#ifdef BE_TEST
+    return get_non_block_close_thread_pool();
+#else
+    return _non_block_close_thread_pool.get();
+#endif
+}
+
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
                      const std::vector<StorePath>& spill_store_paths,
                      const std::set<std::string>& broken_paths) {
@@ -150,6 +190,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     //Only init once before be destroyed
     if (ready()) {
         return Status::OK();
+    }
+    std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> spill_store_map;
+    for (const auto& spill_path : spill_store_paths) {
+        spill_store_map.emplace(spill_path.path, std::make_unique<vectorized::SpillDataDir>(
+                                                         spill_path.path, spill_path.capacity_bytes,
+                                                         spill_path.storage_medium));
     }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
@@ -174,9 +220,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_queue_size(config::send_batch_thread_pool_queue_size)
                               .build(&_send_batch_thread_pool));
 
+    auto [buffered_reader_min_threads, buffered_reader_max_threads] =
+            get_num_threads(config::num_buffered_reader_prefetch_thread_pool_min_thread,
+                            config::num_buffered_reader_prefetch_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-                              .set_min_threads(16)
-                              .set_max_threads(64)
+                              .set_min_threads(buffered_reader_min_threads)
+                              .set_max_threads(buffered_reader_max_threads)
                               .build(&_buffered_reader_prefetch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
@@ -184,9 +233,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(32)
                               .build(&_send_table_stats_thread_pool));
 
+    auto [s3_file_upload_min_threads, s3_file_upload_max_threads] =
+            get_num_threads(config::num_s3_file_upload_thread_pool_min_thread,
+                            config::num_s3_file_upload_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
-                              .set_min_threads(16)
-                              .set_max_threads(64)
+                              .set_min_threads(s3_file_upload_min_threads)
+                              .set_max_threads(s3_file_upload_max_threads)
                               .build(&_s3_file_upload_thread_pool));
 
     // min num equal to fragment pool's min num
@@ -208,6 +260,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(1)
                               .set_max_queue_size(1000000)
                               .build(&_lazy_release_obj_pool));
+    static_cast<void>(ThreadPoolBuilder("NonBlockCloseThreadPool")
+                              .set_min_threads(config::min_nonblock_close_thread_num)
+                              .set_max_threads(config::max_nonblock_close_thread_num)
+                              .build(&_non_block_close_thread_pool));
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -246,7 +302,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
     _dns_cache = new DNSCache();
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
-    _spill_stream_mgr = new vectorized::SpillStreamManager(spill_store_paths);
+    _spill_stream_mgr = new vectorized::SpillStreamManager(std::move(spill_store_map));
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
@@ -302,7 +358,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _workload_sched_mgr->start(this);
 
     RETURN_IF_ERROR(_spill_stream_mgr->init());
-
+    _runtime_query_statistics_mgr->start_report_thread();
     _s_ready = true;
 
     return Status::OK();
@@ -317,15 +373,10 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     LOG_INFO("pipeline executors_size set ").tag("size", executors_size);
     // TODO pipeline workload group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
-    _without_group_block_scheduler =
-            std::make_shared<pipeline::BlockedTaskScheduler>("PipeNoGSchePool");
-    _without_group_task_scheduler = new pipeline::TaskScheduler(
-            this, _without_group_block_scheduler, t_queue, "PipeNoGSchePool", nullptr);
+    _without_group_task_scheduler =
+            new pipeline::TaskScheduler(this, t_queue, "PipeNoGSchePool", nullptr);
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
-    RETURN_IF_ERROR(_without_group_block_scheduler->start());
 
-    _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGBlockSche");
-    RETURN_IF_ERROR(_global_block_scheduler->start());
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
     _runtime_filter_timer_queue->run();
     return Status::OK();
@@ -388,7 +439,6 @@ Status ExecEnv::_init_mem_env() {
     // 1. init mem tracker
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
-    _env_thread_context = thread_context();
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
         !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     init_hook();
@@ -465,9 +515,18 @@ Status ExecEnv::_init_mem_env() {
     if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 2 / 5) {
         segment_cache_capacity = fd_number * 2 / 5;
     }
+
+    int64_t segment_cache_mem_limit =
+            MemInfo::mem_limit() / 100 * config::segment_cache_memory_percentage;
+    // config::segment_cache_memory_percentage;
+    int64_t min_segment_cache_mem_limit =
+            min(segment_cache_mem_limit, segment_cache_capacity *
+                                                 config::estimated_num_columns_per_segment *
+                                                 config::estimated_mem_per_column_reader);
+    _segment_loader = new SegmentLoader(min_segment_cache_mem_limit);
     LOG(INFO) << "segment_cache_capacity <= fd_number * 2 / 5, fd_number: " << fd_number
-              << " segment_cache_capacity: " << segment_cache_capacity;
-    _segment_loader = new SegmentLoader(segment_cache_capacity);
+              << " segment_cache_capacity: " << segment_cache_capacity
+              << " min_segment_cache_mem_limit " << min_segment_cache_mem_limit;
 
     _schema_cache = new SchemaCache(config::schema_cache_capacity);
 
@@ -481,8 +540,8 @@ Status ExecEnv::_init_mem_env() {
 
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
 
-    _lookup_connection_cache = LookupConnectionCache::create_global_instance(
-            config::lookup_connection_cache_bytes_limit);
+    _lookup_connection_cache =
+            LookupConnectionCache::create_global_instance(config::lookup_connection_cache_capacity);
 
     // use memory limit
     int64_t inverted_index_cache_limit =
@@ -532,6 +591,10 @@ void ExecEnv::init_mem_tracker() {
             std::make_shared<MemTracker>("IOBufBlockMemory", _details_mem_tracker_set.get());
     _segcompaction_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SegCompaction");
+    _point_query_executor_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "PointQueryExecutor");
+    _block_compression_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "BlockCompression");
     _rowid_storage_reader_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "RowIdStorageReader");
     _subcolumns_tree_tracker =
@@ -577,10 +640,8 @@ void ExecEnv::destroy() {
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
     // stop pipline step 1, non-cgroup execution
-    SAFE_SHUTDOWN(_without_group_block_scheduler.get());
     SAFE_STOP(_without_group_task_scheduler);
     // stop pipline step 2, cgroup execution
-    SAFE_SHUTDOWN(_global_block_scheduler.get());
     SAFE_STOP(_workload_group_manager);
 
     SAFE_STOP(_external_scan_context_mgr);
@@ -600,10 +661,14 @@ void ExecEnv::destroy() {
     _storage_engine.reset();
 
     SAFE_STOP(_spill_stream_mgr);
+    if (_runtime_query_statistics_mgr) {
+        _runtime_query_statistics_mgr->stop_report_thread();
+    }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
+    SAFE_SHUTDOWN(_non_block_close_thread_pool);
     SAFE_SHUTDOWN(_send_report_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
 
@@ -649,6 +714,7 @@ void ExecEnv::destroy() {
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _join_node_thread_pool.reset(nullptr);
     _lazy_release_obj_pool.reset(nullptr);
+    _non_block_close_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
@@ -690,6 +756,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_dns_cache);
 
     _s_tracking_memory = false;
+
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
 

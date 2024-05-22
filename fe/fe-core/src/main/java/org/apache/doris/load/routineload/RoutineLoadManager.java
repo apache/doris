@@ -42,6 +42,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -158,6 +159,7 @@ public class RoutineLoadManager implements Writable {
             throws UserException {
         // check load auth
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+                InternalCatalog.INTERNAL_CATALOG_NAME,
                 createRoutineLoadStmt.getDBName(),
                 createRoutineLoadStmt.getTableName(),
                 PrivPredicate.LOAD)) {
@@ -254,6 +256,7 @@ public class RoutineLoadManager implements Writable {
         }
         if (routineLoadJob.isMultiTable()) {
             if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                    InternalCatalog.INTERNAL_CATALOG_NAME,
                     dbFullName,
                     PrivPredicate.LOAD)) {
                 // todo add new error code
@@ -265,6 +268,7 @@ public class RoutineLoadManager implements Writable {
             return routineLoadJob;
         }
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+                InternalCatalog.INTERNAL_CATALOG_NAME,
                 dbFullName,
                 tableName,
                 PrivPredicate.LOAD)) {
@@ -294,7 +298,8 @@ public class RoutineLoadManager implements Writable {
                 if (!job.getState().isFinalState()) {
                     String tableName = job.getTableName();
                     if (!job.isMultiTable() && !Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.LOAD)) {
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                    tableName, PrivPredicate.LOAD)) {
                         continue;
                     }
                     result.add(job);
@@ -484,6 +489,7 @@ public class RoutineLoadManager implements Writable {
         readLock();
         try {
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
+            int previousBeIdleTaskNum = 0;
 
             // 1. Find if the given BE id has more than half of available slots
             if (previousBeId != -1L && availableBeIds.contains(previousBeId)) {
@@ -491,22 +497,22 @@ public class RoutineLoadManager implements Writable {
                 Backend previousBackend = Env.getCurrentSystemInfo().getBackend(previousBeId);
                 // check previousBackend is not null && load available
                 if (previousBackend != null && previousBackend.isLoadAvailable()) {
-                    int idleTaskNum = 0;
                     if (!beIdToMaxConcurrentTasks.containsKey(previousBeId)) {
-                        idleTaskNum = 0;
+                        previousBeIdleTaskNum = 0;
                     } else if (beIdToConcurrentTasks.containsKey(previousBeId)) {
-                        idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId)
+                        previousBeIdleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId)
                                 - beIdToConcurrentTasks.get(previousBeId);
                     } else {
-                        idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId);
+                        previousBeIdleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId);
                     }
-                    if (idleTaskNum > (Config.max_routine_load_task_num_per_be >> 1)) {
+                    if (previousBeIdleTaskNum == Config.max_routine_load_task_num_per_be) {
                         return previousBeId;
                     }
                 }
             }
 
-            // 2. The given BE id does not have available slots, find a BE with min tasks
+            // 2. we believe that the benefits of load balance outweigh the benefits of object pool cache,
+            //    so we try to find the one with the most idle slots as much as possible
             // 3. The previous BE is not in cluster && is not load available, find a new BE with min tasks
             int idleTaskNum = 0;
             long resultBeId = -1L;
@@ -525,6 +531,11 @@ public class RoutineLoadManager implements Writable {
                     resultBeId = maxIdleSlotNum < idleTaskNum ? beId : resultBeId;
                     maxIdleSlotNum = Math.max(maxIdleSlotNum, idleTaskNum);
                 }
+            }
+            // 4. on the basis of selecting the maximum idle slot be,
+            //    try to reuse the object cache as much as possible
+            if (previousBeIdleTaskNum == maxIdleSlotNum) {
+                return previousBeId;
             }
             return resultBeId;
         } finally {

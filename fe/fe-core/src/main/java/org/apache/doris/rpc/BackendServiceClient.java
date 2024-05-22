@@ -85,7 +85,8 @@ public class BackendServiceClient {
 
     public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
             InternalService.PCancelPlanFragmentRequest request) {
-        return stub.cancelPlanFragment(request);
+        return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
+                .cancelPlanFragment(request);
     }
 
     public Future<InternalService.PFetchDataResult> fetchDataAsync(InternalService.PFetchDataRequest request) {
@@ -104,6 +105,11 @@ public class BackendServiceClient {
     public Future<InternalService.PFetchArrowFlightSchemaResult> fetchArrowFlightSchema(
             InternalService.PFetchArrowFlightSchemaRequest request) {
         return stub.fetchArrowFlightSchema(request);
+    }
+
+    public Future<InternalService.POutfileWriteSuccessResult> outfileWriteSuccessAsync(
+            InternalService.POutfileWriteSuccessRequest request) {
+        return stub.outfileWriteSuccess(request);
     }
 
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
@@ -180,6 +186,11 @@ public class BackendServiceClient {
     public Future<InternalService.PGetWalQueueSizeResponse> getWalQueueSize(
             InternalService.PGetWalQueueSizeRequest request) {
         return stub.getWalQueueSize(request);
+    }
+
+    public Future<InternalService.PAlterVaultSyncResponse> alterVaultSync(
+            InternalService.PAlterVaultSyncRequest request) {
+        return stub.alterVaultSync(request);
     }
 
 

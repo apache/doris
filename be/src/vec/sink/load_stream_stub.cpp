@@ -141,8 +141,7 @@ LoadStreamStub::~LoadStreamStub() {
 }
 
 // open_load_stream
-Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
-                            BrpcClientCache<PBackendService_Stub>* client_cache,
+Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const NodeInfo& node_info, int64_t txn_id,
                             const OlapTableSchemaParam& schema,
                             const std::vector<PTabletID>& tablets_for_schema, int total_streams,
@@ -157,7 +156,7 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
     opt.max_buf_size = config::load_stream_max_buf_size;
     opt.idle_timeout_ms = idle_timeout_ms;
     opt.messages_in_batch = config::load_stream_messages_in_batch;
-    opt.handler = new LoadStreamReplyHandler(_load_id, _dst_id, self);
+    opt.handler = new LoadStreamReplyHandler(_load_id, _dst_id, shared_from_this());
     brpc::Controller cntl;
     if (int ret = brpc::StreamCreate(&_stream_id, cntl, &opt)) {
         delete opt.handler;
@@ -176,9 +175,9 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
         *request.add_tablets() = tablet;
     }
     POpenLoadStreamResponse response;
-    // use "pooled" connection to avoid conflicts between streaming rpc and regular rpc,
-    // see: https://github.com/apache/brpc/issues/392
-    const auto& stub = client_cache->get_new_client_no_cache(host_port, "baidu_std", "pooled");
+    // set connection_group "streaming" to distinguish with non-streaming connections
+    const auto& stub =
+            client_cache->get_new_client_no_cache(host_port, "baidu_std", "single", "streaming");
     stub->open_load_stream(&cntl, &request, &response, nullptr);
     for (const auto& resp : response.tablet_schemas()) {
         auto tablet_schema = std::make_unique<TabletSchema>();
@@ -291,13 +290,9 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
 }
 
 Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
-    DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", {
-        while (true) {
-        };
-    });
+    DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", DBUG_BLOCK);
     if (!_is_init.load()) {
-        return Status::InternalError("stream {} is not opened, load_id={}", _stream_id,
-                                     print_id(_load_id));
+        return Status::InternalError("stream {} is not opened, {}", _stream_id, to_string());
     }
     if (_is_closed.load()) {
         return _check_cancel();
@@ -308,19 +303,18 @@ Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
     while (!_is_closed.load() && !state->get_query_ctx()->is_cancelled()) {
         //the query maybe cancel, so need check after wait 1s
         timeout_sec = timeout_sec - 1;
+        LOG(INFO) << "close waiting, " << *this << ", timeout_sec=" << timeout_sec
+                  << ", is_closed=" << _is_closed.load()
+                  << ", is_cancelled=" << state->get_query_ctx()->is_cancelled();
         int ret = _close_cv.wait_for(lock, 1000000);
         if (ret != 0 && timeout_sec <= 0) {
-            return Status::InternalError(
-                    "stream close_wait timeout, error={}, timeout_ms={}, load_id={}, dst_id={}, "
-                    "stream_id={}",
-                    ret, timeout_ms, print_id(_load_id), _dst_id, _stream_id);
+            return Status::InternalError("stream close_wait timeout, error={}, timeout_ms={}, {}",
+                                         ret, timeout_ms, to_string());
         }
     }
     RETURN_IF_ERROR(_check_cancel());
     if (!_is_eos.load()) {
-        return Status::InternalError(
-                "stream closed without eos, load_id={}, dst_id={}, stream_id={}",
-                print_id(_load_id), _dst_id, _stream_id);
+        return Status::InternalError("stream closed without eos, {}", to_string());
     }
     return Status::OK();
 }
@@ -391,14 +385,21 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
             const timespec time = butil::seconds_from_now(config::load_stream_eagain_wait_seconds);
             int wait_ret = brpc::StreamWait(_stream_id, &time);
             if (wait_ret != 0) {
-                return Status::InternalError("StreamWait failed, err={}", wait_ret);
+                return Status::InternalError("StreamWait failed, err={}, {}", wait_ret,
+                                             to_string());
             }
             break;
         }
         default:
-            return Status::InternalError("StreamWrite failed, err={}", ret);
+            return Status::InternalError("StreamWrite failed, err={}, {}", ret, to_string());
         }
     }
+}
+
+std::string LoadStreamStub::to_string() {
+    std::ostringstream ss;
+    ss << *this;
+    return ss.str();
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub) {

@@ -30,10 +30,12 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
+import java.util.BitSet;
+
 class HyperGraphComparatorTest extends SqlTestBase {
     @Test
     void testInnerJoinAndLOJ() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 inner join T2 "
                         + "on T1.id = T2.id "
@@ -55,8 +57,8 @@ class HyperGraphComparatorTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
-        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+        HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertEquals(2, res.getViewNoNullableSlot().size());
@@ -64,7 +66,7 @@ class HyperGraphComparatorTest extends SqlTestBase {
 
     @Test
     void testIJAndLojAssoc() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 inner join T3 "
                         + "on T1.id = T3.id "
@@ -86,8 +88,8 @@ class HyperGraphComparatorTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
-        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+        HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertEquals(2, res.getViewNoNullableSlot().size());
@@ -95,7 +97,7 @@ class HyperGraphComparatorTest extends SqlTestBase {
 
     @Test
     void testIJAndLojAssocWithFilter() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 inner join T3 "
                         + "on T1.id = T3.id "
@@ -118,8 +120,8 @@ class HyperGraphComparatorTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
-        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+        HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertEquals(2, res.getViewNoNullableSlot().size());
@@ -128,7 +130,7 @@ class HyperGraphComparatorTest extends SqlTestBase {
     @Disabled
     @Test
     void testIJAndLojAssocWithJoinCond() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 inner join T3 "
                         + "on T1.id = T3.id "
@@ -153,8 +155,8 @@ class HyperGraphComparatorTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
-        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+        HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertEquals(2, res.getViewNoNullableSlot().size());
@@ -162,9 +164,9 @@ class HyperGraphComparatorTest extends SqlTestBase {
 
     LogicalCompatibilityContext constructContext(Plan p1, Plan p2) {
         StructInfo st1 = MaterializedViewUtils.extractStructInfo(p1,
-                null).get(0);
+                null, new BitSet()).get(0);
         StructInfo st2 = MaterializedViewUtils.extractStructInfo(p2,
-                null).get(0);
+                null, new BitSet()).get(0);
         RelationMapping rm = RelationMapping.generate(st1.getRelations(), st2.getRelations()).get(0);
         SlotMapping sm = SlotMapping.generate(rm);
         return LogicalCompatibilityContext.from(rm, sm, st1, st2);

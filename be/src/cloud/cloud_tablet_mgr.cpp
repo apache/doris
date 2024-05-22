@@ -327,6 +327,7 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
         if (t == nullptr) { continue; }
 
         int64_t s = score(t.get());
+        if (s <= 0) { continue; }
         if (s > *max_score) {
             max_score_tablet_id = t->tablet_id();
             *max_score = s;

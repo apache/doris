@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 #include <stdint.h>
@@ -33,6 +34,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
+#include "runtime/plan_fragment_executor.h"
 #include "runtime/query_context.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
@@ -49,7 +51,6 @@ extern bvar::Status<uint64_t> g_fragment_last_active_time;
 
 namespace pipeline {
 class PipelineFragmentContext;
-class PipelineXFragmentContext;
 } // namespace pipeline
 class QueryContext;
 class ExecEnv;
@@ -99,18 +100,13 @@ public:
                                            std::shared_ptr<pipeline::PipelineFragmentContext>&&);
 
     // Cancel instance (pipeline or nonpipeline).
-    void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
-                         const std::string& msg = "");
+    void cancel_instance(const TUniqueId instance_id, const Status reason);
     // Cancel fragment (only pipelineX).
-    // {query id fragment} -> PipelineXFragmentContext
-    void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
-                         const PPlanFragmentCancelReason& reason, const std::string& msg = "");
+    // {query id fragment} -> PipelineFragmentContext
+    void cancel_fragment(const TUniqueId query_id, int32_t fragment_id, const Status reason);
 
     // Can be used in both version.
-    void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
-                      const std::string& msg = "");
-
-    bool query_is_canceled(const TUniqueId& query_id);
+    void cancel_query(const TUniqueId query_id, const Status reason);
 
     void cancel_worker();
 
@@ -132,6 +128,10 @@ public:
     Status merge_filter(const PMergeFilterRequest* request,
                         butil::IOBufAsZeroCopyInputStream* attach_data);
 
+    Status send_filter_size(const PSendFilterSizeRequest* request);
+
+    Status sync_filter_size(const PSyncFilterSizeRequest* request);
+
     std::string to_http_path(const std::string& file_name);
 
     void coordinator_callback(const ReportStatusRequest& req);
@@ -149,10 +149,12 @@ public:
 
     void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
 
+    Status get_realtime_exec_status(const TUniqueId& query_id,
+                                    TReportExecStatusParams* exec_status);
+
 private:
-    void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
-                              const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
-                              const std::string& msg = "");
+    void cancel_unlocked_impl(const TUniqueId& id, const Status& reason,
+                              const std::unique_lock<std::mutex>& state_lock, bool is_pipeline);
 
     void _exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                       const FinishCallback& cb);

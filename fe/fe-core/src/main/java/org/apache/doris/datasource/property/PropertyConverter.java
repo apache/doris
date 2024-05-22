@@ -58,6 +58,9 @@ public class PropertyConverter {
 
     private static final Logger LOG = LogManager.getLogger(PropertyConverter.class);
     public static final String USE_PATH_STYLE = "use_path_style";
+    public static final String USE_PATH_STYLE_DEFAULT_VALUE = "false";
+    public static final String FORCE_PARSING_BY_STANDARD_URI = "force_parsing_by_standard_uri";
+    public static final String FORCE_PARSING_BY_STANDARD_URI_DEFAULT_VALUE = "false";
 
     /**
      * Convert properties defined at doris to metadata properties on Cloud
@@ -490,7 +493,7 @@ public class PropertyConverter {
     }
 
     private static String getOssEndpoint(String region, boolean publicAccess) {
-        String prefix = "http://oss-";
+        String prefix = "oss-";
         String suffix = ".aliyuncs.com";
         if (!publicAccess) {
             suffix = "-internal" + suffix;

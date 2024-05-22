@@ -30,6 +30,11 @@ set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export DORIS_HOME="${ROOT}"
+if [[ -z "${DORIS_THIRDPARTY}" ]]; then
+    export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
+fi
+export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
+export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 
 . "${DORIS_HOME}/env.sh"
 
@@ -159,6 +164,7 @@ if [[ "$#" == 1 ]]; then
     # default
     BUILD_FE=1
     BUILD_BE=1
+    BUILD_CLOUD=1
 
     BUILD_BROKER=1
     BUILD_META_TOOL='OFF'
@@ -353,8 +359,45 @@ if [[ -z "${USE_MEM_TRACKER}" ]]; then
         USE_MEM_TRACKER='OFF'
     fi
 fi
-if [[ -z "${USE_JEMALLOC}" ]]; then
+BUILD_TYPE_LOWWER=$(echo "${BUILD_TYPE}" | tr '[:upper:]' '[:lower:]')
+if [[ "${BUILD_TYPE_LOWWER}" == "asan" ]]; then
+    USE_JEMALLOC='OFF'
+elif [[ -z "${USE_JEMALLOC}" ]]; then
     USE_JEMALLOC='ON'
+fi
+if [[ ! -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
+    # compatible with old thirdparty
+    if [[ -z "${USE_JEMALLOC_HOOK}" ]]; then
+        USE_JEMALLOC_HOOK='ON'
+    fi
+else
+    if [[ -z "${USE_JEMALLOC_HOOK}" ]]; then
+        if [[ "$(uname -s)" != 'Darwin' ]]; then
+            USE_JEMALLOC_HOOK='OFF'
+        else
+            # compile jemalloc on mac have default prefix `je_`, so default use prefix jemalloc to ensure code uniformity.
+            USE_JEMALLOC_HOOK='ON'
+        fi
+    fi
+    # update jemalloc prefix
+    rm -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
+    rm -rf "${TP_LIB_DIR}/libjemalloc_doris.a"
+    rm -rf "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
+    rm -rf "${TP_INCLUDE_DIR}/rocksdb"
+    rm -rf "${TP_LIB_DIR}/librocksdb.a"
+    if [[ "${USE_JEMALLOC_HOOK}" == "ON" ]]; then
+        cp "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
+        cp "${TP_LIB_DIR}/libjemalloc_doris_with_prefix.a" "${TP_LIB_DIR}/libjemalloc_doris.a"
+        cp "${TP_LIB_DIR}/libjemalloc_doris_with_prefix_pic.a" "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
+        cp "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
+        cp -r "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix" "${TP_INCLUDE_DIR}/rocksdb"
+    else
+        cp "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_no_prefix.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
+        cp "${TP_LIB_DIR}/libjemalloc_doris_no_prefix.a" "${TP_LIB_DIR}/libjemalloc_doris.a"
+        cp "${TP_LIB_DIR}/libjemalloc_doris_no_prefix_pic.a" "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
+        cp "${TP_LIB_DIR}/librocksdb_jemalloc_no_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
+        cp -r "${TP_INCLUDE_DIR}/rocksdb_jemalloc_no_prefix" "${TP_INCLUDE_DIR}/rocksdb"
+    fi
 fi
 if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
@@ -461,6 +504,7 @@ echo "Get params:
     STRIP_DEBUG_INFO            -- ${STRIP_DEBUG_INFO}
     USE_MEM_TRACKER             -- ${USE_MEM_TRACKER}
     USE_JEMALLOC                -- ${USE_JEMALLOC}
+    USE_JEMALLOC_HOOK           -- ${USE_JEMALLOC_HOOK}
     USE_BTHREAD_SCANNER         -- ${USE_BTHREAD_SCANNER}
     ENABLE_STACKTRACE           -- ${ENABLE_STACKTRACE}
     ENABLE_INJECTION_POINT      -- ${ENABLE_INJECTION_POINT}
@@ -563,6 +607,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
+        -DUSE_JEMALLOC_HOOK="${USE_JEMALLOC_HOOK}" \
         -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
@@ -606,6 +651,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
+        -DUSE_JEMALLOC_HOOK="${USE_JEMALLOC_HOOK}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
         "${DORIS_HOME}/cloud/"

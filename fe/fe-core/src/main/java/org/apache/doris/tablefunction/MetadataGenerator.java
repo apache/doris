@@ -98,6 +98,8 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> ROUTINE_INFO_COLUMN_TO_INDEX;
 
+    private static final ImmutableMap<String, Integer> WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX;
+
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
         List<Column> activeQueriesColList = SchemaTable.TABLE_MAP.get("active_queries").getFullSchema();
@@ -117,10 +119,24 @@ public class MetadataGenerator {
             routineInfoBuilder.put(PlsqlManager.ROUTINE_INFO_TITLE_NAMES.get(i).toLowerCase(), i);
         }
         ROUTINE_INFO_COLUMN_TO_INDEX = routineInfoBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> policyBuilder = new ImmutableMap.Builder();
+        List<Column> policyColList = SchemaTable.TABLE_MAP.get("workload_policy").getFullSchema();
+        for (int i = 0; i < policyColList.size(); i++) {
+            policyBuilder.put(policyColList.get(i).getName().toLowerCase(), i);
+        }
+        WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX = policyBuilder.build();
+
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getMetadataTable() start.");
+        }
         if (!request.isSetMetadaTableParams() || !request.getMetadaTableParams().isSetMetadataType()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Metadata table params is not set.");
+            }
             return errorResult("Metadata table params is not set. ");
         }
         TFetchSchemaTableDataResult result;
@@ -150,14 +166,14 @@ public class MetadataGenerator {
             case TASKS:
                 result = taskMetadataResult(params);
                 break;
-            case WORKLOAD_SCHED_POLICY:
-                result = workloadSchedPolicyMetadataResult(params);
-                break;
             default:
                 return errorResult("Metadata table params is not set.");
         }
         if (result.getStatus().getStatusCode() == TStatusCode.OK) {
             filterColumns(result, params.getColumnsName(), params.getMetadataType(), params);
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getMetadataTable() end.");
         }
         return result;
     }
@@ -182,6 +198,10 @@ public class MetadataGenerator {
             case ROUTINES_INFO:
                 result = routineInfoMetadataResult(schemaTableParams);
                 columnIndex = ROUTINE_INFO_COLUMN_TO_INDEX;
+                break;
+            case WORKLOAD_SCHEDULE_POLICY:
+                result = workloadSchedPolicyMetadataResult(schemaTableParams);
+                columnIndex = WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -460,7 +480,7 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TFetchSchemaTableDataResult workloadSchedPolicyMetadataResult(TMetadataTableRequestParams params) {
+    private static TFetchSchemaTableDataResult workloadSchedPolicyMetadataResult(TSchemaTableRequestParams params) {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
         }
@@ -479,6 +499,7 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setIntVal(Integer.valueOf(policyRow.get(4)))); // priority
             trow.addToColumnValue(new TCell().setBoolVal(Boolean.valueOf(policyRow.get(5)))); // enabled
             trow.addToColumnValue(new TCell().setIntVal(Integer.valueOf(policyRow.get(6)))); // version
+            trow.addToColumnValue(new TCell().setStringVal(policyRow.get(7))); // workload group id
             dataBatch.add(trow);
         }
 
@@ -613,6 +634,9 @@ public class MetadataGenerator {
 
     private static void filterColumns(TFetchSchemaTableDataResult result,
             List<String> columnNames, TMetadataType type, TMetadataTableRequestParams params) throws TException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("filterColumns() start.");
+        }
         List<TRow> fullColumnsRow = result.getDataBatch();
         List<TRow> filterColumnsRows = Lists.newArrayList();
         for (TRow row : fullColumnsRow) {
@@ -628,6 +652,9 @@ public class MetadataGenerator {
             filterColumnsRows.add(filterRow);
         }
         result.setDataBatch(filterColumnsRows);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("filterColumns() end.");
+        }
     }
 
     private static void filterColumns(TFetchSchemaTableDataResult result,
@@ -658,14 +685,26 @@ public class MetadataGenerator {
     }
 
     private static TFetchSchemaTableDataResult mtmvMetadataResult(TMetadataTableRequestParams params) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmvMetadataResult() start");
+        }
         if (!params.isSetMaterializedViewsMetadataParams()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("MaterializedViews metadata params is not set.");
+            }
             return errorResult("MaterializedViews metadata params is not set.");
         }
 
         TMaterializedViewsMetadataParams mtmvMetadataParams = params.getMaterializedViewsMetadataParams();
         String dbName = mtmvMetadataParams.getDatabase();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("dbName: " + dbName);
+        }
         TUserIdentity currentUserIdent = mtmvMetadataParams.getCurrentUserIdent();
         UserIdentity userIdentity = UserIdentity.fromThrift(currentUserIdent);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("userIdentity: " + userIdentity);
+        }
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<Table> tables;
@@ -674,6 +713,7 @@ public class MetadataGenerator {
                     .getCatalogOrAnalysisException(InternalCatalog.INTERNAL_CATALOG_NAME)
                     .getDbOrAnalysisException(dbName).getTables();
         } catch (AnalysisException e) {
+            LOG.warn(e.getMessage());
             return errorResult(e.getMessage());
         }
 
@@ -686,6 +726,9 @@ public class MetadataGenerator {
                     continue;
                 }
                 MTMV mv = (MTMV) table;
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("mv: " + mv.toInfoString());
+                }
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setLongVal(mv.getId()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getName()));
@@ -699,11 +742,17 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setStringVal(mv.getMvProperties().toString()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getMvPartitionInfo().toNameString()));
                 trow.addToColumnValue(new TCell().setBoolVal(MTMVPartitionUtil.isMTMVSync(mv)));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("mvend: " + mv.getName());
+                }
                 dataBatch.add(trow);
             }
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmvMetadataResult() end");
+        }
         return result;
     }
 
@@ -760,7 +809,7 @@ public class MetadataGenerator {
             }
             List<AbstractTask> tasks = job.queryAllTasks();
             for (AbstractTask task : tasks) {
-                TRow tvfInfo = task.getTvfInfo();
+                TRow tvfInfo = task.getTvfInfo(job.getJobName());
                 if (tvfInfo != null) {
                     dataBatch.add(tvfInfo);
                 }

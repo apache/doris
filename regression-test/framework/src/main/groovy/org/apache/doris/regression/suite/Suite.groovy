@@ -43,6 +43,8 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.RunMode
+import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -55,7 +57,10 @@ import java.sql.PreparedStatement
 import java.sql.ResultSetMetaData
 import java.util.Map;
 import java.util.concurrent.Callable
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.ThreadFactory
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.stream.Collectors
 import java.util.stream.LongStream
@@ -75,12 +80,17 @@ class Suite implements GroovyInterceptable {
     final String name
     final String group
     final Logger logger = LoggerFactory.getLogger(this.class)
+    static final Logger staticLogger = LoggerFactory.getLogger(Suite.class)
+
+    // set this in suite to determine which hive docker to use
+    String hivePrefix = "hive2"
 
     final List<Closure> successCallbacks = new Vector<>()
     final List<Closure> failCallbacks = new Vector<>()
     final List<Closure> finishCallbacks = new Vector<>()
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
+    static Boolean isTrinoConnectorDownloaded = false
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -170,33 +180,63 @@ class Suite implements GroovyInterceptable {
         return SuiteUtils.timer(actionSupplier)
     }
 
-    public <T> ListenableFuture<T> thread(String threadName = null, Closure<T> actionSupplier) {
-        def connInfo = context.threadLocalConn.get()
-        return MoreExecutors.listeningDecorator(context.actionExecutors).submit((Callable<T>) {
-            long startTime = System.currentTimeMillis()
-            def originThreadName = Thread.currentThread().name
-            try {
-                Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
-                if (connInfo != null) {
-                    context.connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
-                }
-                context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
-
-                return actionSupplier.call()
-            } catch (Throwable t) {
-                context.scriptContext.eventListeners.each { it.onThreadFailed(context, t) }
-                throw t
-            } finally {
-                try {
-                    context.closeThreadLocal()
-                } catch (Throwable t) {
-                    logger.warn("Close thread local context failed", t)
-                }
-                long finishTime = System.currentTimeMillis()
-                context.scriptContext.eventListeners.each { it.onThreadFinished(context, finishTime - startTime) }
-                Thread.currentThread().setName(originThreadName)
+    public <T> ListenableFuture<T> extraThread(
+            String threadName = null, boolean daemon = false, Closure<T> actionSupplier) {
+        def executorService = Executors.newFixedThreadPool(1, new ThreadFactory() {
+            @Override
+            Thread newThread(@NotNull Runnable r) {
+                def thread = new Thread(r, name)
+                thread.setDaemon(daemon)
+                return thread
             }
         })
+
+        try {
+            def connInfo = context.threadLocalConn.get()
+            return MoreExecutors.listeningDecorator(executorService).submit(
+                    buildThreadCallable(threadName, connInfo, actionSupplier)
+            )
+        } finally {
+            executorService.shutdown()
+        }
+    }
+
+    public <T> ListenableFuture<T> thread(String threadName = null, Closure<T> actionSupplier) {
+        def connInfo = context.threadLocalConn.get()
+        return MoreExecutors.listeningDecorator(context.actionExecutors).submit(
+                buildThreadCallable(threadName, connInfo, actionSupplier)
+        )
+    }
+
+    private <T> Callable<T> buildThreadCallable(String threadName, ConnectionInfo connInfo, Closure<T> actionSupplier) {
+        return new Callable<T>() {
+            @Override
+            T call() throws Exception {
+                long startTime = System.currentTimeMillis()
+                def originThreadName = Thread.currentThread().name
+                try {
+                    Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
+                    if (connInfo != null) {
+                        context.connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
+                    }
+                    context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
+
+                    return actionSupplier.call()
+                } catch (Throwable t) {
+                    context.scriptContext.eventListeners.each { it.onThreadFailed(context, t) }
+                    throw t
+                } finally {
+                    try {
+                        context.closeThreadLocal()
+                    } catch (Throwable t) {
+                        logger.warn("Close thread local context failed", t)
+                    }
+                    long finishTime = System.currentTimeMillis()
+                    context.scriptContext.eventListeners.each { it.onThreadFinished(context, finishTime - startTime) }
+                    Thread.currentThread().setName(originThreadName)
+                }
+            }
+        };
     }
 
     public <T> ListenableFuture<T> lazyCheckThread(String threadName = null, Closure<T> actionSupplier) {
@@ -249,7 +289,16 @@ class Suite implements GroovyInterceptable {
                 }
                 Thread.sleep(1000)
             }
+
             assertNotNull(fe)
+            if (!dockerIsCloud) {
+                for (def be : cluster.getAllBackends()) {
+                    be_report_disk(be.host, be.httpPort)
+                }
+            }
+
+            // wait be report
+            Thread.sleep(5000)
             def url = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
@@ -262,7 +311,9 @@ class Suite implements GroovyInterceptable {
             logger.info("connect to docker cluster: suite={}, url={}", name, url)
             connect(user, password, url, actionSupplier)
         } finally {
-            cluster.destroy(context.config.dockerEndDeleteFiles)
+            if (!context.config.dockerEndNoKill) {
+                cluster.destroy(context.config.dockerEndDeleteFiles)
+            }
         }
     }
 
@@ -310,6 +361,17 @@ class Suite implements GroovyInterceptable {
         } else {
             return jdbc_sql(sqlStr, isOrder)
         }
+    }
+
+    List<List<Object>> multi_sql(String sqlStr, boolean isOrder = false) {
+        String[] sqls = sqlStr.split(";")
+        def result = new ArrayList<Object>();
+        for (String query : sqls) {
+            if (!query.trim().isEmpty()) {
+                result.add(sql(query, isOrder));
+            }
+        }
+        return result
     }
 
     List<List<Object>> arrow_flight_sql_no_prepared (String sqlStr, boolean isOrder = false){
@@ -567,6 +629,34 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null) {
+        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${fieldName}"
+        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${fieldName}"
+        List<Object> tbData1 = new ArrayList<Object>();
+        for (List<Object> items:tb1Result){
+            tbData1.add(items.get(0))
+        }
+        List<Object> tbData2 = new ArrayList<Object>();
+        for (List<Object> items:tb2Result){
+            tbData2.add(items.get(0))
+        }
+        for (int i =0; i<tbData1.size(); i++) {
+            if (ObjectUtils.notEqual(tbData1.get(i),tbData2.get(i)) ){
+                throw new RuntimeException("tbData should be same")
+            }
+        }
+    }
+
+    void expectExceptionLike(Closure userFunction, String errorMessage = null) {
+        try {
+            userFunction()
+        } catch (Exception e) {
+            if (!e.getMessage().contains(errorMessage)) {
+                throw e
+            }
+        }
+    }
+
     String getBrokerName() {
         String brokerName = context.config.otherConfigs.get("brokerName")
         return brokerName
@@ -575,6 +665,12 @@ class Suite implements GroovyInterceptable {
     String getHdfsFs() {
         String hdfsFs = context.config.otherConfigs.get("hdfsFs")
         return hdfsFs
+    }
+
+    String getHmsHdfsFs() {
+        String host = context.config.otherConfigs.get("extHiveHmsHost")
+        String port = context.config.otherConfigs.get("extHdfsPort")
+        return "hdfs://" + host + ":" + port;
     }
 
     String getHdfsUser() {
@@ -630,6 +726,11 @@ class Suite implements GroovyInterceptable {
         return (enableBrokerLoad != null && enableBrokerLoad.equals("true"));
     }
 
+    String getS3Provider() {
+        String s3Provider = context.config.otherConfigs.get("s3Provider");
+        return s3Provider
+    }
+
     String getS3Region() {
         String s3Region = context.config.otherConfigs.get("s3Region");
         return s3Region
@@ -662,15 +763,80 @@ class Suite implements GroovyInterceptable {
         return s3Url
     }
 
-    void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
+    static void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
         String cmd = "scp -o StrictHostKeyChecking=no -r ${username}@${host}:${files} ${filePath}"
         if (!fromDst) {
             cmd = "scp -o StrictHostKeyChecking=no -r ${files} ${username}@${host}:${filePath}"
         }
-        logger.info("Execute: ${cmd}".toString())
+        staticLogger.info("Execute: ${cmd}".toString())
         Process process = cmd.execute()
         def code = process.waitFor()
         Assert.assertEquals(0, code)
+    }
+
+    void dispatchTrinoConnectors(ArrayList host_ips)
+    {
+        def dir_download = context.config.otherConfigs.get("trinoPluginsPath")
+        def s3_url = getS3Url()
+        def url = "${s3_url}/regression/trino-connectors.tar.gz"
+        dispatchTrinoConnectors_impl(host_ips, dir_download, url)
+    }
+
+    /*
+     * download trino connectors, and sends to every fe and be.
+     * There are 3 configures to support this: trino_connectors in regression-conf.groovy, and trino_connector_plugin_dir in be and fe.
+     * fe and be's config must satisfy regression-conf.groovy's config.
+     * e.g. in regression-conf.groovy, trino_connectors = "/tmp/trino_connector", then in be.conf and fe.conf, must set trino_connector_plugin_dir="/tmp/trino_connector/connectors"
+     *
+     * this function must be not reentrant.
+     *
+     * If failed, will call assertTrue(false).
+     */
+    static synchronized void dispatchTrinoConnectors_impl(ArrayList host_ips, String dir_download, String url) {
+        if (isTrinoConnectorDownloaded == true) {
+            staticLogger.info("trino connector downloaded")
+            return
+        }
+
+        Assert.assertTrue(!dir_download.isEmpty())
+        def path_tar = "${dir_download}/trino-connectors.tar.gz"
+        // extract to a tmp direcotry, and then scp to every host_ips, including self.
+        def dir_connector_tmp = "${dir_download}/connectors_tmp"
+        def path_connector_tmp = "${dir_connector_tmp}/connectors"
+        def path_connector = "${dir_download}/connectors"
+
+        def executeCommand = { String cmd, Boolean mustSuc ->
+            try {
+                staticLogger.info("execute ${cmd}")
+                def proc = cmd.execute()
+                // if timeout, exception will be thrown
+                proc.waitForOrKill(900 * 1000)
+                staticLogger.info("execute result ${proc.getText()}.")
+                if (mustSuc == true) {
+                    Assert.assertEquals(0, proc.exitValue())
+                }
+            } catch (IOException e) {
+                Assert.assertTrue(false, "execute timeout")
+            }
+        }
+
+        executeCommand("mkdir -p ${dir_download}", false)
+        executeCommand("rm -rf ${path_tar}", false)
+        executeCommand("rm -rf ${dir_connector_tmp}", false)
+        executeCommand("mkdir -p ${dir_connector_tmp}", false)
+        executeCommand("/usr/bin/curl --max-time 600 ${url} --output ${path_tar}", true)
+        executeCommand("tar -zxvf ${path_tar} -C ${dir_connector_tmp}", true)
+
+        host_ips = host_ips.unique()
+        for (def ip in host_ips) {
+            staticLogger.info("scp to ${ip}")
+            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"mkdir -p ${dir_download}\"", false)
+            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"rm -rf ${path_connector}\"", false)
+            scpFiles("root", ip, path_connector_tmp, path_connector, false) // if failed, assertTrue(false) is executed.
+        }
+
+        isTrinoConnectorDownloaded = true
+        staticLogger.info("dispatch trino connector to ${dir_download} succeed")
     }
 
     void mkdirRemote(String username, String host, String path) {
@@ -699,7 +865,6 @@ class Suite implements GroovyInterceptable {
 
     void getBackendIpHttpPort(Map<String, String> backendId_to_backendIP, Map<String, String> backendId_to_backendHttpPort) {
         List<List<Object>> backends = sql("show backends");
-        String backend_id;
         for (List<Object> backend : backends) {
             backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
             backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
@@ -758,16 +923,21 @@ class Suite implements GroovyInterceptable {
         return JdbcUtils.prepareStatement(context.getConnection(), sql)
     }
 
-    List<List<Object>> hive_docker(String sqlStr, boolean isOrder = false){
+    void setHivePrefix(String hivePrefix) {
+        this.hivePrefix = hivePrefix
+    }
+
+    List<List<Object>> hive_docker(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute hive ql: ${sqlStr}".toString())
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
-        def (result, meta) = JdbcUtils.executeToList(context.getHiveDockerConnection(), cleanedSqlStr)
+        def (result, meta) = JdbcUtils.executeToList(context.getHiveDockerConnection(hivePrefix), cleanedSqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }
         return result
     }
 
-    List<List<Object>> hive_remote(String sqlStr, boolean isOrder = false){
+    List<List<Object>> hive_remote(String sqlStr, boolean isOrder = false) {
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getHiveRemoteConnection(), cleanedSqlStr)
         if (isOrder) {
@@ -776,12 +946,17 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
-    List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false){
+    List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false) {
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getDB2DockerConnection(), cleanedSqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }
+        return result
+    }
+    List<List<Object>> exec(Object stmt) {
+        logger.info("Execute sql: ${stmt}".toString())
+        def (result, meta )= JdbcUtils.executeToList(context.getConnection(),  (PreparedStatement) stmt)
         return result
     }
 
@@ -790,25 +965,27 @@ class Suite implements GroovyInterceptable {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
                 if (tag.contains("hive_docker")) {
-                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(),  (PreparedStatement) arg)
-                }else if (tag.contains("hive_remote")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(hivePrefix),  (PreparedStatement) arg)
+                } else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(),  (PreparedStatement) arg)
                 } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
                     tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(), (PreparedStatement) arg)
-                }
-                else{
+                } else if (tag.contains("target_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (PreparedStatement) arg)
+                } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
                 }
             } else {
                 if (tag.contains("hive_docker")) {
-                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(), (String) arg)
-                }else if (tag.contains("hive_remote")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(hivePrefix), (String) arg)
+                } else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
                 } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
                     tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(),
                             (String) ("USE ${context.dbName};" + (String) arg))
-                }
-                else{
+                } else if (tag.contains("target_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (String) arg)
+                } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
                 }
             }
@@ -833,25 +1010,27 @@ class Suite implements GroovyInterceptable {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
                 if (tag.contains("hive_docker")) {
-                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(),  (PreparedStatement) arg)
-                }else if (tag.contains("hive_remote")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(hivePrefix),  (PreparedStatement) arg)
+                } else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(),  (PreparedStatement) arg)
                 } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
                     tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(), (PreparedStatement) arg)
-                }
-                else{
+                } else if (tag.contains("target_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (PreparedStatement) arg)
+                } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
                 }
             } else {
                 if (tag.contains("hive_docker")) {
-                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(), (String) arg)
-                }else if (tag.contains("hive_remote")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(hivePrefix), (String) arg)
+                } else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
                 } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
                     tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(),
                             (String) ("USE ${context.dbName};" + (String) arg))
-                }
-                else{
+                } else if (tag.contains("target_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (String) arg)
+                } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
                 }
             }
@@ -1023,7 +1202,37 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isCloudMode() {
-        return !getFeConfig("cloud_unique_id").isEmpty()
+        return context.config.fetchRunMode()
+    }
+
+    boolean enableStoragevault() {
+        if (context.config.metaServiceHttpAddress == null || context.config.metaServiceHttpAddress.isEmpty() ||
+                context.config.metaServiceHttpAddress == null || context.config.metaServiceHttpAddress.isEmpty() ||
+                    context.config.instanceId == null || context.config.instanceId.isEmpty() ||
+                        context.config.metaServiceToken == null || context.config.metaServiceToken.isEmpty()) {
+            return false;
+        }
+        def getInstanceInfo = { check_func ->
+            httpTest {
+                endpoint context.config.metaServiceHttpAddress
+                uri "/MetaService/http/get_instance?token=${context.config.metaServiceToken}&instance_id=${context.config.instanceId}"
+                op "get"
+                check check_func
+            }
+        }
+        boolean enableStorageVault = false;
+        getInstanceInfo.call() {
+            respCode, body ->
+                String respCodeValue = "${respCode}".toString();
+                if (!respCodeValue.equals("200")) {
+                    return;
+                }
+                def json = parseJson(body)
+                if (json.result.containsKey("enable_storage_vault") && json.result.enable_storage_vault) {
+                    enableStorageVault = true;
+                }
+        }
+        return enableStorageVault;
     }
 
     String getFeConfig(String key) {
@@ -1379,5 +1588,55 @@ class Suite implements GroovyInterceptable {
 
     public void resetConnection() {
         context.resetConnection()
+    }
+
+    def get_be_param = { paramName ->
+        def ipList = [:]
+        def portList = [:]
+        def backendId_to_params = [:]
+        getBackendIpHttpPort(ipList, portList)
+        for (String id in ipList.keySet()) {
+            def beIp = ipList.get(id)
+            def bePort = portList.get(id)
+            // get the config value from be
+            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/show_config?conf_item=%s", beIp, bePort, paramName))
+            assertTrue(code == 0)
+            assertTrue(out.contains(paramName))
+            // parsing
+            def resultList = parseJson(out)[0]
+            assertTrue(resultList.size() == 4)
+            // get original value
+            def paramValue = resultList[2]
+            backendId_to_params.put(id, paramValue)
+        }
+        logger.info("backendId_to_params: ${backendId_to_params}".toString())
+        return backendId_to_params
+    }
+
+    def set_be_param = { paramName, paramValue ->
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHttpPort(ipList, portList)
+        for (String id in ipList.keySet()) {
+            def beIp = ipList.get(id)
+            def bePort = portList.get(id)
+            logger.info("set be_id ${id} ${paramName} to ${paramValue}".toString())
+            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            assertTrue(out.contains("OK"))
+        }
+    }
+
+    def set_original_be_param = { paramName, backendId_to_params ->
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHttpPort(ipList, portList)
+        for (String id in ipList.keySet()) {
+            def beIp = ipList.get(id)
+            def bePort = portList.get(id)
+            def paramValue = backendId_to_params.get(id)
+            logger.info("set be_id ${id} ${paramName} to ${paramValue}".toString())
+            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            assertTrue(out.contains("OK"))
+        }
     }
 }

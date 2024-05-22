@@ -49,18 +49,18 @@ private:
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
 
     void insert_string_to_res_column(const uint16_t* sel, size_t sel_size, ColumnString* res_ptr) {
-        StringRef refs[sel_size];
+        _refs.resize(sel_size);
         size_t length = 0;
         for (size_t i = 0; i < sel_size; i++) {
             uint16_t n = sel[i];
             auto& sv = reinterpret_cast<StringRef&>(data[n]);
-            refs[i].data = sv.data;
-            refs[i].size = sv.size;
+            _refs[i].data = sv.data;
+            _refs[i].size = sv.size;
             length += sv.size;
         }
         res_ptr->get_offsets().reserve(sel_size + res_ptr->get_offsets().size());
         res_ptr->get_chars().reserve(length + res_ptr->get_chars().size());
-        res_ptr->insert_many_strings_without_reserve(refs, sel_size);
+        res_ptr->insert_many_strings_without_reserve(_refs.data(), sel_size);
     }
 
     template <typename Y, template <typename> typename ColumnContainer>
@@ -115,33 +115,40 @@ public:
             return res;
         } else {
             LOG(FATAL) << "should not call get_data_at in predicate column except for string type";
+            __builtin_unreachable();
         }
     }
 
     void insert_from(const IColumn& src, size_t n) override {
         LOG(FATAL) << "insert_from not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
         LOG(FATAL) << "insert_range_from not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override {
         LOG(FATAL) << "insert_indices_from not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     void pop_back(size_t n) override {
         LOG(FATAL) << "pop_back not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         LOG(FATAL) << "update_hash_with_value not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         LOG(FATAL) << "get_indices_of_non_default_rows not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
@@ -305,6 +312,7 @@ public:
                     << "Copied size not equal to expected size";
         } else {
             LOG(FATAL) << "Method insert_many_binary_data is not supported";
+            __builtin_unreachable();
         }
     }
 
@@ -324,6 +332,7 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     void reserve(size_t n) override { data.reserve(n); }
@@ -337,6 +346,7 @@ public:
 
     void insert(const Field& x) override {
         LOG(FATAL) << "insert not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     [[noreturn]] Field operator[](size_t n) const override {
@@ -346,6 +356,7 @@ public:
 
     void get(size_t n, Field& res) const override {
         LOG(FATAL) << "get field not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     [[noreturn]] UInt64 get64(size_t n) const override {
@@ -432,6 +443,12 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         LOG(FATAL) << "append_data_by_selector is not supported in PredicateColumnType!";
+        __builtin_unreachable();
+    }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        LOG(FATAL) << "append_data_by_selector is not supported in PredicateColumnType!";
+        __builtin_unreachable();
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
@@ -448,16 +465,19 @@ public:
 
     void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "should not call replace_column_data in predicate column";
+        __builtin_unreachable();
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
         LOG(FATAL) << "should not call replace_column_data_default in predicate column";
+        __builtin_unreachable();
     }
 
 private:
     Container data;
     // manages the memory for slice's data(For string type)
     std::unique_ptr<Arena> _arena;
+    std::vector<StringRef> _refs;
 };
 
 } // namespace doris::vectorized

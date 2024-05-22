@@ -19,6 +19,7 @@
 
 #include <aws/core/Aws.h>
 #include <aws/core/client/ClientConfiguration.h>
+#include <aws/s3/S3Errors.h>
 #include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
@@ -32,6 +33,7 @@
 
 #include "common/status.h"
 #include "gutil/hash/hash.h"
+#include "util/s3_rate_limiter.h"
 
 namespace Aws {
 namespace S3 {
@@ -58,6 +60,25 @@ extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
 class S3URI;
+
+inline ::Aws::Client::AWSError<::Aws::S3::S3Errors> s3_error_factory() {
+    return {::Aws::S3::S3Errors::INTERNAL_FAILURE, "exceeds limit", "exceeds limit", false};
+}
+
+#define DO_S3_RATE_LIMIT(op, code)                                                  \
+    [&]() mutable {                                                                 \
+        if (!config::enable_s3_rate_limiter) {                                      \
+            return (code);                                                          \
+        }                                                                           \
+        auto sleep_duration = S3ClientFactory::instance().rate_limiter(op)->add(1); \
+        if (sleep_duration < 0) {                                                   \
+            using T = decltype((code));                                             \
+            return T(s3_error_factory());                                           \
+        }                                                                           \
+        return (code);                                                              \
+    }()
+
+#define DO_S3_GET_RATE_LIMIT(code) DO_S3_RATE_LIMIT(S3RateLimitType::GET, code)
 
 const static std::string S3_AK = "AWS_ACCESS_KEY";
 const static std::string S3_SK = "AWS_SECRET_KEY";
@@ -111,8 +132,8 @@ struct S3Conf {
     cloud::ObjectStoreInfoPB::Provider provider;
 
     std::string to_string() const {
-        return fmt::format("(bucket={}, prefix={}, client_conf={})", bucket, prefix,
-                           client_conf.to_string());
+        return fmt::format("(bucket={}, prefix={}, client_conf={}, sse_enabled={})", bucket, prefix,
+                           client_conf.to_string(), sse_enabled);
     }
 };
 
@@ -137,6 +158,8 @@ public:
         return instance;
     }
 
+    S3RateLimiterHolder* rate_limiter(S3RateLimitType type);
+
 private:
     S3ClientFactory();
     static std::string get_valid_ca_cert_path();
@@ -145,6 +168,7 @@ private:
     std::mutex _lock;
     std::unordered_map<uint64_t, std::shared_ptr<Aws::S3::S3Client>> _cache;
     std::string _ca_cert_file_path;
+    std::array<std::unique_ptr<S3RateLimiterHolder>, 2> _rate_limiters;
 };
 
 } // end namespace doris

@@ -136,7 +136,7 @@ function start_doris_be() {
     ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer)"
     if [[ -z "${ASAN_SYMBOLIZER_PATH}" ]]; then ASAN_SYMBOLIZER_PATH='/var/local/ldb-toolchain/bin/llvm-symbolizer'; fi
     export ASAN_SYMBOLIZER_PATH
-    export ASAN_OPTIONS="symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:use_sigaltstack=0:detect_leaks=0:fast_unwind_on_malloc=0"
+    export ASAN_OPTIONS="symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:use_sigaltstack=0:detect_leaks=0:fast_unwind_on_malloc=0:check_malloc_usable_size=0"
     export TCMALLOC_SAMPLE_PARAMETER=524288
     sysctl -w vm.max_map_count=2000000 &&
         ulimit -n 200000 &&
@@ -191,8 +191,7 @@ function stop_doris() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh; fi
     if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh; fi
-    if "${DORIS_HOME}"/fe/bin/stop_fe.sh &&
-        "${DORIS_HOME}"/be/bin/stop_be.sh; then
+    if "${DORIS_HOME}"/be/bin/stop_be.sh && "${DORIS_HOME}"/fe/bin/stop_fe.sh; then
         echo "INFO: normally stoped doris"
     else
         pgrep -fi doris | xargs kill -9 &>/dev/null
@@ -529,6 +528,11 @@ wait_coredump_file_ready() {
             initial_size=${current_size}
         fi
     done
+}
+
+clear_coredump() {
+    echo -e "INFO: clear coredump files \n$(ls /var/lib/apport/coredump/)"
+    rm -rf /var/lib/apport/coredump/*
 }
 
 archive_doris_coredump() {

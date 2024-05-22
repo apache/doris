@@ -78,13 +78,12 @@ Status VResultFileSink::prepare(RuntimeState* state) {
     if (_is_top_sink) {
         // create sender
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec(),
+                state->fragment_instance_id(), _buf_size, &_sender, false,
                 state->execution_timeout()));
         // create writer
         _writer.reset(new (std::nothrow) VFileResultWriter(
                 _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_vexpr_ctxs,
-                _sender.get(), nullptr, state->return_object_data_as_binary(),
-                _output_row_descriptor));
+                _sender, nullptr, state->return_object_data_as_binary(), _output_row_descriptor));
     } else {
         // init channel
         _output_block =
@@ -115,12 +114,7 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
     Status final_status = exec_status;
     Status writer_st = Status::OK();
     if (_writer) {
-        // For pipeline engine, the writer is always closed in async thread process_block
-        if (state->enable_pipeline_exec()) {
-            writer_st = _writer->get_writer_status();
-        } else {
-            writer_st = _writer->close(exec_status);
-        }
+        writer_st = _writer->close(exec_status);
     }
 
     if (!writer_st.ok() && exec_status.ok()) {

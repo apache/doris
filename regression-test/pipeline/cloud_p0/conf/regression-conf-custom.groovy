@@ -22,6 +22,7 @@ testGroups = "p0"
 // * sort lines in vim: select lines and then type :sort
 // * sort lines in vscode: https://ulfschneider.io/2023-09-01-sort-in-vscode/
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "mv_contain_external_table," + // run on external pipeline
     "set_replica_status," + // not a case for cloud mode, no need to run
     "test_be_inject_publish_txn_fail," + // not a case for cloud mode, no need to run
     "test_bitmap_filter," +
@@ -39,12 +40,15 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_set_partition_version," +
     "test_show_transaction," + // not supported yet
     "test_spark_load," +
-    "test_array_index1," +
-    "test_array_index2," +
     "test_index_lowercase_fault_injection," +
+    "test_partial_update_2pc_schema_change," + // mow 2pc
+    "test_query_sys_rowsets," + // rowsets sys table
+    "test_unique_table_debug_data," + // disable auto compaction
+    "test_insert," + // txn insert
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "external_table_p0," + // run on external pipeline
     "cloud/multi_cluster," + // run in specific regression pipeline
     "cloud_p0/cache," +
     "workload_manager_p1," +
@@ -55,6 +59,10 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "backup_restore," + // not a case for cloud mode, no need to run
     "cold_heat_separation," +
     "storage_medium_p0," +
+    "ccr_syncer_p0," +
+    "ccr_mow_syncer_p0," +
+    "hdfs_vault_p2," +
+    "inject_hdfs_vault_p0," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 max_failure_num = 100

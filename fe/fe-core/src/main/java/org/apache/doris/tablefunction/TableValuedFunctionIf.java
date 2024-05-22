@@ -74,6 +74,8 @@ public abstract class TableValuedFunctionIf {
                 return new GroupCommitTableValuedFunction(params);
             case WorkloadSchedPolicyTableValuedFunction.NAME:
                 return new WorkloadSchedPolicyTableValuedFunction(params);
+            case QueryTableValueFunction.NAME:
+                return QueryTableValueFunction.createQueryTableValueFunction(params);
             case CdcTableValuedFunction.NAME:
                 // return new CdcTableValuedFunction(params);
                 // use number tvf mock

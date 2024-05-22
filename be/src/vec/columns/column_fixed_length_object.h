@@ -164,10 +164,12 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                          char const*& begin) const override {
         LOG(FATAL) << "serialize_value_into_arena not supported";
+        __builtin_unreachable();
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
         LOG(FATAL) << "deserialize_and_insert_from_arena not supported";
+        __builtin_unreachable();
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
@@ -199,15 +201,18 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not supported";
+        __builtin_unreachable();
     }
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not supported";
+        __builtin_unreachable();
     }
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override {
@@ -238,6 +243,11 @@ public:
         this->template append_data_by_selector_impl<Self>(res, selector);
     }
 
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
+    }
+
     size_t byte_size() const override { return _data.size(); }
 
     size_t item_size() const { return _item_size; }
@@ -262,6 +272,7 @@ public:
 
     void replace_column_data_default(size_t self_row = 0) override {
         LOG(FATAL) << "replace_column_data_default not supported";
+        __builtin_unreachable();
     }
 
     void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,

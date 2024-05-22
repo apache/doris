@@ -60,14 +60,10 @@ suite("test_mow_backup_restore") {
             ON (${tableName})
             PROPERTIES ("type" = "full")
         """
-    while (syncer.checkSnapshotFinish() == false) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish()
     assertTrue(syncer.getSnapshot("${snapshotName}", "${tableName}"))
     assertTrue(syncer.restoreSnapshot(true))
-    while (syncer.checkRestoreFinish() == false) {
-        Thread.sleep(3000)
-    }
+    syncer.waitTargetRestoreFinish()
     target_sql " sync "
     res = target_sql "SELECT * FROM ${tableName}"
     assertEquals(res.size(), insert_num)

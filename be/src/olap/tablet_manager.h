@@ -73,7 +73,13 @@ public:
     // If `is_drop_table_or_partition` is true, we need to remove all remote rowsets in this tablet.
     Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool is_drop_table_or_partition);
 
-    TabletSharedPtr find_best_tablet_to_compaction(
+    // Find two tablets.
+    // One with the highest score to execute single compaction,
+    // the other with the highest score to execute cumu or base compaction.
+    // Single compaction needs to be completed successfully after the peer completes it.
+    // We need to generate two types of tasks separately to avoid continuously generating
+    // single compaction tasks for the tablet.
+    std::vector<TabletSharedPtr> find_best_tablets_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
             const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
             const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
@@ -143,6 +149,10 @@ public:
                                size_t* tablet_counter);
 
     void get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos);
+
+    void get_partitions_visible_version(std::map<int64_t, int64_t>* partitions_version);
+
+    void update_partitions_visible_version(const std::map<int64_t, int64_t>& partitions_version);
 
     void do_tablet_meta_checkpoint(DataDir* data_dir);
 
@@ -229,22 +239,27 @@ private:
         std::set<int64_t> tablets_under_clone;
     };
 
+    struct Partition {
+        std::set<TabletInfo> tablets;
+        std::shared_ptr<VersionWithTime> visible_version {new VersionWithTime};
+    };
+
     StorageEngine& _engine;
 
     // TODO: memory size of TabletSchema cannot be accurately tracked.
-    // trace the memory use by meta of tablet
     std::shared_ptr<MemTracker> _tablet_meta_mem_tracker;
 
     const int32_t _tablets_shards_size;
     const int32_t _tablets_shards_mask;
     std::vector<tablets_shard> _tablets_shards;
 
-    // Protect _partition_tablet_map, should not be obtained before _tablet_map_lock to avoid dead lock
-    std::shared_mutex _partition_tablet_map_lock;
+    // Protect _partitions, should not be obtained before _tablet_map_lock to avoid dead lock
+    std::shared_mutex _partitions_lock;
+    // partition_id => partition
+    std::map<int64_t, Partition> _partitions;
+
     // Protect _shutdown_tablets, should not be obtained before _tablet_map_lock to avoid dead lock
     std::shared_mutex _shutdown_tablets_lock;
-    // partition_id => tablet_info
-    std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
     // the delete tablets. notice only allow function `start_trash_sweep` can erase tablets in _shutdown_tablets
     std::list<TabletSharedPtr> _shutdown_tablets;
     std::mutex _gc_tablets_lock;

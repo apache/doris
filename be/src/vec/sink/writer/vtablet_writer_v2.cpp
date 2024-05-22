@@ -135,12 +135,8 @@ Status VTabletWriterV2::_init_row_distribution() {
     return _row_distribution.open(_output_row_desc);
 }
 
-Status VTabletWriterV2::init_properties(ObjectPool* pool) {
-    _pool = pool;
-    return Status::OK();
-}
-
 Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
+    _pool = state->obj_pool();
     auto& table_sink = _t_sink.olap_table_sink;
     _load_id.set_hi(table_sink.load_id.hi);
     _load_id.set_lo(table_sink.load_id.lo);
@@ -218,8 +214,10 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
-    _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(),
-                                        _state->batch_size());
+    _block_convertor->init_autoinc_info(
+            _schema->db_id(), _schema->table_id(), _state->batch_size(),
+            _schema->is_partial_update() && !_schema->auto_increment_coulumn().empty(),
+            _schema->auto_increment_column_unique_id());
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
     // add all counter
@@ -249,6 +247,8 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
 
 Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
     RETURN_IF_ERROR(_init(state, profile));
+    LOG(INFO) << "opening olap table sink, load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
+              << ", sink_id=" << _sender_id;
     _timeout_watch.start();
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
@@ -280,15 +280,15 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, Streams& stream
     // get tablet schema from each backend only in the 1st stream
     for (auto& stream : streams | std::ranges::views::take(1)) {
         const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
-        RETURN_IF_ERROR(stream->open(stream, _state->exec_env()->brpc_internal_client_cache(),
-                                     *node_info, _txn_id, *_schema, tablets_for_schema,
-                                     _total_streams, idle_timeout_ms, _state->enable_profile()));
+        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
+                                     _txn_id, *_schema, tablets_for_schema, _total_streams,
+                                     idle_timeout_ms, _state->enable_profile()));
     }
     // for the rest streams, open without getting tablet schema
     for (auto& stream : streams | std::ranges::views::drop(1)) {
-        RETURN_IF_ERROR(stream->open(stream, _state->exec_env()->brpc_internal_client_cache(),
-                                     *node_info, _txn_id, *_schema, {}, _total_streams,
-                                     idle_timeout_ms, _state->enable_profile()));
+        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
+                                     _txn_id, *_schema, {}, _total_streams, idle_timeout_ms,
+                                     _state->enable_profile()));
     }
     return Status::OK();
 }
@@ -459,13 +459,14 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
     }
     SCOPED_TIMER(_write_memtable_timer);
-    auto st = delta_writer->write(block.get(), rows.row_idxes, false);
+    auto st = delta_writer->write(block.get(), rows.row_idxes);
     return st;
 }
 
 Status VTabletWriterV2::_cancel(Status status) {
     LOG(INFO) << "canceled olap table sink. load_id=" << print_id(_load_id)
-              << ", txn_id=" << _txn_id << ", due to error: " << status;
+              << ", txn_id=" << _txn_id << ", sink_id=" << _sender_id
+              << ", due to error: " << status;
     if (_delta_writer_for_tablet) {
         _delta_writer_for_tablet->cancel(status);
         _delta_writer_for_tablet.reset();
@@ -506,6 +507,8 @@ Status VTabletWriterV2::close(Status exec_status) {
     if (_is_closed) {
         return _close_status;
     }
+    LOG(INFO) << "closing olap table sink, load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
+              << ", sink_id=" << _sender_id << ", status=" << exec_status.to_string();
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
 
@@ -546,9 +549,15 @@ Status VTabletWriterV2::close(Status exec_status) {
         LOG(INFO) << "sink " << _sender_id << " released streams, is_last=" << is_last_sink
                   << ", load_id=" << print_id(_load_id);
 
-        // send CLOSE_LOAD and close_wait on all streams
+        // send CLOSE_LOAD on all streams if this is the last sink
         if (is_last_sink) {
             RETURN_IF_ERROR(_load_stream_map->close_load());
+        }
+
+        // close_wait on all streams, even if this is not the last sink.
+        // because some per-instance data structures are now shared among all sinks
+        // due to sharing delta writers and load stream stubs.
+        {
             SCOPED_TIMER(_close_load_timer);
             RETURN_IF_ERROR(_load_stream_map->for_each_st([this](int64_t dst_id,
                                                                  const Streams& streams) -> Status {
@@ -568,39 +577,28 @@ Status VTabletWriterV2::close(Status exec_status) {
 
         // calculate and submit commit info
         if (is_last_sink) {
-            std::unordered_map<int64_t, int> failed_tablets;
-            std::unordered_map<int64_t, Status> failed_reason;
-            std::vector<TTabletCommitInfo> tablet_commit_infos;
-
-            _load_stream_map->for_each([&](int64_t dst_id, const Streams& streams) {
-                std::unordered_set<int64_t> known_tablets;
-                for (const auto& stream : streams) {
-                    for (auto [tablet_id, reason] : stream->failed_tablets()) {
-                        if (known_tablets.contains(tablet_id)) {
-                            continue;
-                        }
-                        known_tablets.insert(tablet_id);
-                        failed_tablets[tablet_id]++;
-                        failed_reason[tablet_id] = reason;
+            DBUG_EXECUTE_IF("VTabletWriterV2.close.add_failed_tablet", {
+                auto streams = _load_stream_map->at(_tablets_for_node.begin()->first);
+                int64_t tablet_id = -1;
+                for (auto& stream : *streams) {
+                    const auto& tablets = stream->success_tablets();
+                    if (tablets.size() > 0) {
+                        tablet_id = tablets[0];
+                        break;
                     }
-                    for (auto tablet_id : stream->success_tablets()) {
-                        if (known_tablets.contains(tablet_id)) {
-                            continue;
-                        }
-                        known_tablets.insert(tablet_id);
-                        TTabletCommitInfo commit_info;
-                        commit_info.tabletId = tablet_id;
-                        commit_info.backendId = dst_id;
-                        tablet_commit_infos.emplace_back(std::move(commit_info));
-                    }
+                }
+                if (tablet_id != -1) {
+                    LOG(INFO) << "fault injection: adding failed tablet_id: " << tablet_id;
+                    streams->front()->add_failed_tablet(tablet_id,
+                                                        Status::InternalError("fault injection"));
+                } else {
+                    LOG(INFO) << "fault injection: failed to inject failed tablet_id";
                 }
             });
 
-            for (auto [tablet_id, replicas] : failed_tablets) {
-                if (replicas > (_num_replicas - 1) / 2) {
-                    return failed_reason.at(tablet_id);
-                }
-            }
+            std::vector<TTabletCommitInfo> tablet_commit_infos;
+            RETURN_IF_ERROR(
+                    _create_commit_info(tablet_commit_infos, _load_stream_map, _num_replicas));
             _state->tablet_commit_infos().insert(
                     _state->tablet_commit_infos().end(),
                     std::make_move_iterator(tablet_commit_infos.begin()),
@@ -628,6 +626,8 @@ Status VTabletWriterV2::close(Status exec_status) {
 }
 
 void VTabletWriterV2::_calc_tablets_to_commit() {
+    LOG(INFO) << "saving close load info, load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
+              << ", sink_id=" << _sender_id;
     for (const auto& [dst_id, tablets] : _tablets_for_node) {
         std::vector<PTabletID> tablets_to_commit;
         std::vector<int64_t> partition_ids;
@@ -649,6 +649,45 @@ void VTabletWriterV2::_calc_tablets_to_commit() {
         }
         _load_stream_map->save_tablets_to_commit(dst_id, tablets_to_commit);
     }
+}
+
+Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
+                                            std::shared_ptr<LoadStreamMap> load_stream_map,
+                                            int num_replicas) {
+    std::unordered_map<int64_t, int> failed_tablets;
+    std::unordered_map<int64_t, Status> failed_reason;
+    load_stream_map->for_each([&](int64_t dst_id, const Streams& streams) {
+        std::unordered_set<int64_t> known_tablets;
+        for (const auto& stream : streams) {
+            for (auto [tablet_id, reason] : stream->failed_tablets()) {
+                if (known_tablets.contains(tablet_id)) {
+                    continue;
+                }
+                known_tablets.insert(tablet_id);
+                failed_tablets[tablet_id]++;
+                failed_reason[tablet_id] = reason;
+            }
+            for (auto tablet_id : stream->success_tablets()) {
+                if (known_tablets.contains(tablet_id)) {
+                    continue;
+                }
+                known_tablets.insert(tablet_id);
+                TTabletCommitInfo commit_info;
+                commit_info.tabletId = tablet_id;
+                commit_info.backendId = dst_id;
+                tablet_commit_infos.emplace_back(std::move(commit_info));
+            }
+        }
+    });
+
+    for (auto [tablet_id, replicas] : failed_tablets) {
+        if (replicas > (num_replicas - 1) / 2) {
+            LOG(INFO) << "tablet " << tablet_id
+                      << " failed on majority backends: " << failed_reason[tablet_id];
+            return failed_reason.at(tablet_id);
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

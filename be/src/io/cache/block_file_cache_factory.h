@@ -68,6 +68,8 @@ public:
      */
     std::string clear_file_caches(bool sync);
 
+    std::vector<std::string> get_base_paths();
+
     FileCacheFactory() = default;
     FileCacheFactory& operator=(const FileCacheFactory&) = delete;
     FileCacheFactory(const FileCacheFactory&) = delete;

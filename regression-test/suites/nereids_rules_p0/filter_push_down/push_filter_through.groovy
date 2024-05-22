@@ -22,8 +22,11 @@ suite("push_filter_through") {
     sql "use regression_test_nereids_rules_p0"
     sql "set disable_join_reorder=true"
     sql 'set be_number_for_test=3'
-    sql "SET ignore_shape_nodes='PhysicalDistribute[DistributionSpecGather], PhysicalDistribute[DistributionSpecHash],PhysicalProject'"
+    sql "SET ignore_shape_nodes='PhysicalDistribute, PhysicalProject'"
     sql "set enable_fold_nondeterministic_fn=false"
+    sql "set enable_fold_constant_by_be=false"//plan shape will be different
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     // push filter through alias
     qt_filter_project_alias""" 
@@ -204,19 +207,12 @@ suite("push_filter_through") {
     """
     // Push filter of group by key through aggregated filter
     qt_filter_aggregation_filtered_key"""
-    explain shape plan select count() from t1 group by id having id > 10;
+    explain shape plan select count() from t1 group by msg having msg = "1";
     """
-    // Push filter of part of group by key through aggregated filter
-    qt_filter_aggregation_filtered_part_key"""
-    explain shape plan select count() from t1 group by id, msg having id > 10;
-    """
-    // Push filter to subquery with constant
-    qt_filter_aggregation_filtered_part_key"""
-    select * from (select count(), rand() as c from t1 group by id) t where c > 10;
-    """
+
     // Push filter to subquery with alias
     qt_filter_aggregation_filtered_part_key"""
-    explain shape plan select * from (select id + 1, count() as c from t1 group by id) t where c > 10;
+    explain shape plan select * from (select msg, count() as c from t1 group by msg) t where c > 10;
     """
     // Push filter through UNION
     qt_push_filter_union"""

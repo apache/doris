@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.common.Config;
@@ -398,6 +399,11 @@ public class EditLog {
                 case OperationType.OP_UPDATE_REPLICA: {
                     ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
                     env.replayUpdateReplica(info);
+                    break;
+                }
+                case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
+                    CloudWarmUpJob cloudWarmUpJob = (CloudWarmUpJob) journal.getData();
+                    ((CloudEnv) env).getCacheHotspotMgr().replayCloudWarmUpJob(cloudWarmUpJob);
                     break;
                 }
                 case OperationType.OP_DELETE_REPLICA: {
@@ -950,7 +956,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshCatalog(log);
+                    env.getRefreshManager().replayRefreshCatalog(log);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
@@ -1016,7 +1022,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_DB: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalDb(log);
+                    env.getRefreshManager().replayRefreshDb(log);
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_DB: {
@@ -1026,7 +1032,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalTable(log);
+                    env.getRefreshManager().replayRefreshTable(log);
                     break;
                 }
                 case OperationType.OP_DROP_EXTERNAL_TABLE: {
@@ -1205,11 +1211,6 @@ public class EditLog {
                 case OperationType.OP_UPDATE_CLOUD_REPLICA: {
                     UpdateCloudReplicaInfo info = (UpdateCloudReplicaInfo) journal.getData();
                     ((CloudEnv) env).replayUpdateCloudReplica(info);
-                    break;
-                }
-                case OperationType.OP_MODIFY_TTL_SECONDS:
-                case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
-                    // TODO: support cloud replated operation type.
                     break;
                 }
                 default: {
@@ -1821,6 +1822,10 @@ public class EditLog {
 
     public void logModifyDistributionType(TableInfo tableInfo) {
         logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
+    }
+
+    public void logModifyCloudWarmUpJob(CloudWarmUpJob cloudWarmUpJob) {
+        logEdit(OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB, cloudWarmUpJob);
     }
 
     private long logModifyTableProperty(short op, ModifyTablePropertyOperationLog info) {

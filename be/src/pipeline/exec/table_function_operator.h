@@ -21,31 +21,13 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vtable_function_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
-
-class TableFunctionOperatorBuilder final : public OperatorBuilder<vectorized::VTableFunctionNode> {
-public:
-    TableFunctionOperatorBuilder(int32_t id, ExecNode* node);
-
-    OperatorPtr build_operator() override;
-};
-
-class TableFunctionOperator final : public StatefulOperator<vectorized::VTableFunctionNode> {
-public:
-    TableFunctionOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
-
-    Status prepare(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
-};
 
 class TableFunctionOperatorX;
 class TableFunctionLocalState final : public PipelineXLocalState<> {
@@ -55,7 +37,14 @@ public:
     TableFunctionLocalState(RuntimeState* state, OperatorXBase* parent);
     ~TableFunctionLocalState() override = default;
 
-    Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state) override {
+        for (auto* fn : _fns) {
+            RETURN_IF_ERROR(fn->close());
+        }
+        RETURN_IF_ERROR(PipelineXLocalState<>::close(state));
+        return Status::OK();
+    }
     void process_next_child_row();
     Status get_expanded_block(RuntimeState* state, vectorized::Block* output_block, bool* eos);
 
@@ -74,7 +63,7 @@ private:
 
     std::vector<vectorized::TableFunction*> _fns;
     vectorized::VExprContextSPtrs _vfn_ctxs;
-    int64_t _cur_child_offset = 0;
+    int64_t _cur_child_offset = -1;
     std::unique_ptr<vectorized::Block> _child_block;
     int _current_row_insert_times = 0;
     bool _child_eos = false;

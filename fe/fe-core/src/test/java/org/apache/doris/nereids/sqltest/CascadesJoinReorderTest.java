@@ -36,6 +36,7 @@ import org.junit.jupiter.api.Test;
 class CascadesJoinReorderTest extends SqlTestBase {
     @Test
     void testStartThreeJoin() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // Three join
         // (n-1)! * 2^(n-1) = 8
         String sql = "SELECT * FROM T1 "
@@ -56,6 +57,7 @@ class CascadesJoinReorderTest extends SqlTestBase {
 
     @Test
     void testStarFourJoinZigzag() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // Four join
         // (n-1)! * 2^(n-1) = 48
         String sql = "SELECT * FROM T1 "
@@ -81,6 +83,7 @@ class CascadesJoinReorderTest extends SqlTestBase {
 
     @Test
     void testStarFourJoinBushy() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // Four join
         // (n-1)! * 2^(n-1) = 48
         String sql = "SELECT * FROM T1 "
@@ -106,6 +109,7 @@ class CascadesJoinReorderTest extends SqlTestBase {
 
     @Test
     void testChainFourJoinBushy() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // Four join
         // 2^(n-1) * C(n-1) = 40
         String sql = "SELECT * FROM T1 "
@@ -131,6 +135,7 @@ class CascadesJoinReorderTest extends SqlTestBase {
 
     @Test
     void testChainFiveJoinBushy() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // Five join
         // 2^(n-1) * C(n-1) = 224
         String sql = "SELECT * FROM T1 "

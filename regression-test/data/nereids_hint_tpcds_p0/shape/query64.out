@@ -43,25 +43,25 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_cdemo_sk = cd1.cd_demo_sk)) otherCondition=(( not (cd_marital_status = cd_marital_status))) build RFs:RF6 cd_demo_sk->[ss_cdemo_sk]
 ----------------------------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF5 c_customer_sk->[ss_customer_sk]
+--------------------------------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk)) otherCondition=() build RFs:RF5 cd_demo_sk->[c_current_cdemo_sk]
 ----------------------------------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF5 RF6 RF8 RF9 RF10 RF11 RF12 RF16 RF17 RF18 RF19
-----------------------------------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk)) otherCondition=() build RFs:RF4 cd_demo_sk->[c_current_cdemo_sk]
+--------------------------------------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF4 c_customer_sk->[ss_customer_sk]
+----------------------------------------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------------------------------------------------------------PhysicalProject
+--------------------------------------------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF4 RF6 RF8 RF9 RF10 RF11 RF12 RF16 RF17 RF18 RF19
 ----------------------------------------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------------------------------------------------------------PhysicalProject
 --------------------------------------------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_first_sales_date_sk = d2.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[c_first_sales_date_sk]
 ----------------------------------------------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------------------------------------------PhysicalOlapScan[customer] apply RFs: RF3 RF4 RF7 RF13 RF14
+--------------------------------------------------------------------------------------------------------PhysicalOlapScan[customer] apply RFs: RF3 RF5 RF7 RF13 RF14
 ----------------------------------------------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------------------------------------------------------------------PhysicalProject
 --------------------------------------------------------------------------------------------------------PhysicalOlapScan[date_dim]
-----------------------------------------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------------------------------------PhysicalOlapScan[customer_demographics]
+----------------------------------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------------------------------------------------------PhysicalProject
+--------------------------------------------------------------------------------------------PhysicalOlapScan[customer_demographics]
 ----------------------------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------------------------------------------------PhysicalProject
 --------------------------------------------------------------------------------------PhysicalOlapScan[customer_demographics]

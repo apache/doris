@@ -40,6 +40,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/key_util.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_util.h"
@@ -47,7 +48,6 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/jsonb/serialize.h"
-#include "vec/sink/vmysql_result_writer.cpp"
 #include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
@@ -56,7 +56,6 @@ Reusable::~Reusable() {}
 constexpr static int s_preallocted_blocks_num = 32;
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       const TQueryOptions& query_options, size_t block_size) {
-    SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
     _runtime_state = RuntimeState::create_unique();
     _runtime_state->set_query_options(query_options);
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
@@ -110,10 +109,6 @@ void Reusable::return_block(std::unique_ptr<vectorized::Block>& block) {
     }
 }
 
-int64_t Reusable::mem_size() const {
-    return _mem_size;
-}
-
 LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capacity) {
     DCHECK(ExecEnv::GetInstance()->get_lookup_connection_cache() == nullptr);
     auto* res = new LookupConnectionCache(capacity);
@@ -165,7 +160,8 @@ void RowCache::erase(const RowCacheKey& key) {
 }
 
 PointQueryExecutor::~PointQueryExecutor() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            ExecEnv::GetInstance()->point_query_executor_mem_tracker());
     _tablet.reset();
     _reusable.reset();
     _result_block.reset();
@@ -179,10 +175,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     // using cache
     __int128_t uuid =
             static_cast<__int128_t>(request->uuid().uuid_high()) << 64 | request->uuid().uuid_low();
-    _mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::QUERY,
-            fmt::format("PointQueryExecutor:{}#{}", uuid, request->tablet_id()));
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->point_query_executor_mem_tracker());
     auto cache_handle = LookupConnectionCache::instance()->get(uuid);
     _binary_row_format = request->is_binary_row();
     if (cache_handle != nullptr) {
@@ -230,7 +223,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
 }
 
 Status PointQueryExecutor::lookup_up() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->point_query_executor_mem_tracker());
     RETURN_IF_ERROR(_lookup_row_key());
     RETURN_IF_ERROR(_lookup_row_data());
     RETURN_IF_ERROR(_output_data());

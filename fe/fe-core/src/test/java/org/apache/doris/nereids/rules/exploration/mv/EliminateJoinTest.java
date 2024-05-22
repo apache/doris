@@ -30,10 +30,12 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
+import java.util.BitSet;
+
 class EliminateJoinTest extends SqlTestBase {
     @Test
     void testLOJWithGroupBy() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1",
                 connectContext
@@ -62,9 +64,9 @@ class EliminateJoinTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
-        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
-        HyperGraph h3 = HyperGraph.builderForMv(p3).buildAll().get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+        HyperGraph h2 = HyperGraph.builderForMv(p2).build();
+        HyperGraph h3 = HyperGraph.builderForMv(p3).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertTrue(!HyperGraphComparator.isLogicCompatible(h1, h3, constructContext(p1, p2)).isInvalid());
@@ -73,7 +75,7 @@ class EliminateJoinTest extends SqlTestBase {
 
     @Test
     void testLOJWithUK() throws Exception {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1",
                 connectContext
@@ -93,8 +95,8 @@ class EliminateJoinTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
-        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+        HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertTrue(res.getViewExpressions().isEmpty());
@@ -103,7 +105,7 @@ class EliminateJoinTest extends SqlTestBase {
 
     @Test
     void testLOJWithPKFK() throws Exception {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1",
                 connectContext
@@ -134,9 +136,9 @@ class EliminateJoinTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
-        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
-        HyperGraph h3 = HyperGraph.builderForMv(p3).buildAll().get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+        HyperGraph h2 = HyperGraph.builderForMv(p2).build();
+        HyperGraph h3 = HyperGraph.builderForMv(p3).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertTrue(res.getViewExpressions().isEmpty());
@@ -147,7 +149,7 @@ class EliminateJoinTest extends SqlTestBase {
     @Disabled
     @Test
     void testLOJWithPKFKAndUK1() throws Exception {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1",
                 connectContext
@@ -169,8 +171,8 @@ class EliminateJoinTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
-        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+        HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertTrue(res.getViewExpressions().isEmpty());
@@ -180,7 +182,7 @@ class EliminateJoinTest extends SqlTestBase {
 
     @Test
     void testLOJWithPKFKAndUK2() throws Exception {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1",
                 connectContext
@@ -202,8 +204,8 @@ class EliminateJoinTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
-        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+        HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertTrue(res.getViewExpressions().isEmpty());
@@ -213,9 +215,9 @@ class EliminateJoinTest extends SqlTestBase {
 
     LogicalCompatibilityContext constructContext(Plan p1, Plan p2) {
         StructInfo st1 = MaterializedViewUtils.extractStructInfo(p1,
-                null).get(0);
+                null, new BitSet()).get(0);
         StructInfo st2 = MaterializedViewUtils.extractStructInfo(p2,
-                null).get(0);
+                null, new BitSet()).get(0);
         RelationMapping rm = RelationMapping.generate(st1.getRelations(), st2.getRelations()).get(0);
         SlotMapping sm = SlotMapping.generate(rm);
         return LogicalCompatibilityContext.from(rm, sm, st1, st2);

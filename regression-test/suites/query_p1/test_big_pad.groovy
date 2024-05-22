@@ -30,11 +30,18 @@ suite("test_big_pad") {
             distributed BY hash(k1) buckets 3
             properties("replication_num" = "1");
         """
+    test {
+        sql "select rpad('a',15000,'asd');" 
+        exception "rpad function the length argument is 15000 exceeded maximum default value"
+    }
+    sql """ set repeat_max_num = 2000000001 """ // default value is 10000
+    qt_sql_rpad"select length(rpad('a',15000,'asd'));"
 
     sql "insert into d_table values(1,2000000000,1,'a'),(1,2000000000,1,'a'),(1,2000000000,1,'a');"
     test {
         sql "select rpad('a',k2,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') from d_table;"
         exception "string column length is too large"
     }
+
 }
 

@@ -19,15 +19,14 @@
 
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <ostream>
 #include <vector>
 
 #include "common/status.h"
-#include "schema_desc.h"
 #include "util/rle_encoding.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
@@ -40,19 +39,13 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h" // IWYU pragma: keep
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/exec/format/format_common.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 
-namespace cctz {
-class time_zone;
-} // namespace cctz
-namespace doris {
-namespace vectorized {
-class ColumnString;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 
 class Decoder {
 public:
@@ -92,6 +85,7 @@ public:
 
     virtual MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
         LOG(FATAL) << "Method convert_dict_column_to_string_column is not supported";
+        __builtin_unreachable();
     }
 
 protected:
@@ -103,16 +97,16 @@ protected:
 class BaseDictDecoder : public Decoder {
 public:
     BaseDictDecoder() = default;
-    virtual ~BaseDictDecoder() override = default;
+    ~BaseDictDecoder() override = default;
 
     // Set the data to be decoded
-    virtual void set_data(Slice* data) override {
+    void set_data(Slice* data) override {
         _data = data;
         _offset = 0;
         uint8_t bit_width = *data->data;
-        _index_batch_decoder.reset(
-                new RleBatchDecoder<uint32_t>(reinterpret_cast<uint8_t*>(data->data) + 1,
-                                              static_cast<int>(data->size) - 1, bit_width));
+        _index_batch_decoder = std::make_unique<RleBatchDecoder<uint32_t>>(
+                reinterpret_cast<uint8_t*>(data->data) + 1, static_cast<int>(data->size) - 1,
+                bit_width);
     }
 
 protected:
@@ -133,7 +127,7 @@ protected:
         while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
-                uint32_t* start_index = &_indexes[0];
+                uint32_t* start_index = _indexes.data();
                 column_data.insert(start_index + dict_index, start_index + dict_index + run_length);
                 dict_index += run_length;
                 break;
@@ -156,7 +150,7 @@ protected:
 
     Status skip_values(size_t num_values) override {
         _indexes.resize(num_values);
-        _index_batch_decoder->GetBatch(&_indexes[0], num_values);
+        _index_batch_decoder->GetBatch(_indexes.data(), num_values);
         return Status::OK();
     }
 

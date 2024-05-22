@@ -342,7 +342,9 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         conf.set_fs_name("hdfs://127.0.0.1:8020");
         conf.set_user("test_user");
         hdfs.mutable_build_conf()->CopyFrom(conf);
-        req.mutable_hdfs_info()->CopyFrom(hdfs);
+        StorageVaultPB vault;
+        vault.mutable_hdfs_info()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(vault);
 
         auto sp = SyncPoint::get_instance();
         sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
@@ -4683,6 +4685,7 @@ TEST(MetaServiceTest, PartitionRequest) {
     req.set_table_id(table_id);
     req.add_index_ids(index_id);
     req.add_partition_ids(partition_id);
+    req.set_need_update_table_version(true);
     // Last state UNKNOWN
     res.Clear();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -4720,8 +4723,31 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
     val_int = *reinterpret_cast<const int64_t*>(val.data());
     ASSERT_EQ(val_int, 2);
+    // Last state PREPARED but drop an empty partition
+    req.set_need_update_table_version(false);
+    reset_meta_service();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->atomic_add(tbl_version_key, 1);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    partition_pb.set_state(RecyclePartitionPB::PREPARED);
+    val = partition_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(partition_key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    res.Clear();
+    meta_service->drop_partition(&ctrl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(partition_pb.ParseFromString(val));
+    ASSERT_EQ(partition_pb.state(), RecyclePartitionPB::DROPPED);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
+    val_int = *reinterpret_cast<const int64_t*>(val.data());
+    ASSERT_EQ(val_int, 1);
     // Last state DROPPED
     reset_meta_service();
+    req.set_need_update_table_version(true);
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->atomic_add(tbl_version_key, 1);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
@@ -5163,9 +5189,9 @@ TEST(MetaServiceTest, AddObjInfoTest) {
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ADD_OBJ_INFO);
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("create_instance_with_object_info",
+        sp->set_call_back("create_object_info_with_encrypt",
                           [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-        sp->set_call_back("create_instance_with_object_info::pred",
+        sp->set_call_back("create_object_info_with_encrypt::pred",
                           [](void* p) { *((bool*)p) = true; });
         sp->enable_processing();
 
@@ -5190,7 +5216,6 @@ TEST(MetaServiceTest, AddObjInfoTest) {
         get_test_instance(instance);
         const auto& obj = instance.obj_info().at(0);
         ASSERT_EQ(obj.id(), "1");
-        ASSERT_EQ(obj.name(), "built_in_storage_vault");
 
         sp->clear_all_call_backs();
         sp->clear_trace();
@@ -5265,7 +5290,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         HdfsVaultInfo params;
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5273,7 +5298,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         // Invalid fs name
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
-        req.mutable_hdfs()->mutable_hdfs_info()->mutable_build_conf()->set_fs_name(
+        req.mutable_vault()->mutable_hdfs_info()->mutable_build_conf()->set_fs_name(
                 "hdfs://ip:port");
         meta_service->alter_obj_store_info(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
@@ -5296,7 +5321,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         params.mutable_build_conf()->set_fs_name("hdfs://ip:port");
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5316,7 +5341,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         params.mutable_build_conf()->set_fs_name("hdfs://ip:port");
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5404,7 +5429,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         HdfsVaultInfo params;
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5424,7 +5449,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         HdfsVaultInfo params;
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5456,7 +5481,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5483,7 +5508,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5509,7 +5534,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5532,7 +5557,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         HdfsVaultInfo params;
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5570,7 +5595,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5614,12 +5639,14 @@ TEST(MetaServiceTest, GetDefaultVaultTest) {
         conf.set_fs_name("hdfs://127.0.0.1:8020");
         conf.set_user("test_user");
         hdfs.mutable_build_conf()->CopyFrom(conf);
-        req.mutable_hdfs_info()->CopyFrom(hdfs);
+        StorageVaultPB vault;
+        vault.mutable_hdfs_info()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(vault);
 
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("create_instance_with_object_info",
+        sp->set_call_back("create_object_info_with_encrypt",
                           [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-        sp->set_call_back("create_instance_with_object_info::pred",
+        sp->set_call_back("create_object_info_with_encrypt::pred",
                           [](void* p) { *((bool*)p) = true; });
         sp->enable_processing();
         CreateInstanceResponse res;
@@ -5628,8 +5655,11 @@ TEST(MetaServiceTest, GetDefaultVaultTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         InstanceInfoPB i;
         get_test_instance(i, instance_id);
-        ASSERT_EQ(i.default_storage_vault_id(), "1");
-        ASSERT_EQ(i.default_storage_vault_name(), "built_in_storage_vault");
+        // It wouldn't be set
+        ASSERT_EQ(i.default_storage_vault_id(), "");
+        ASSERT_EQ(i.default_storage_vault_name(), "");
+        ASSERT_EQ(i.resource_ids().at(0), "1");
+        ASSERT_EQ(i.storage_vault_names().at(0), "built_in_storage_vault");
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
@@ -5664,14 +5694,14 @@ TEST(MetaServiceTest, GetDefaultVaultTest) {
         req.mutable_obj_info()->CopyFrom(obj_info);
 
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("create_instance_with_object_info", [](void* p) {
+        sp->set_call_back("create_object_info_with_encrypt", [](void* p) {
             std::tuple<int*, MetaServiceCode*, std::string*>& ret_tuple =
                     *reinterpret_cast<std::tuple<int*, MetaServiceCode*, std::string*>*>(p);
             *std::get<0>(ret_tuple) = 0;
             *std::get<1>(ret_tuple) = MetaServiceCode::OK;
             *std::get<2>(ret_tuple) = "";
         });
-        sp->set_call_back("create_instance_with_object_info::pred",
+        sp->set_call_back("create_object_info_with_encrypt::pred",
                           [](void* p) { *((bool*)p) = true; });
         sp->enable_processing();
         CreateInstanceResponse res;
@@ -5680,9 +5710,6 @@ TEST(MetaServiceTest, GetDefaultVaultTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         InstanceInfoPB i;
         get_test_instance(i, instance_id);
-        ASSERT_EQ(i.default_storage_vault_id(), "1");
-        ASSERT_EQ(i.default_storage_vault_name(), "built_in_storage_vault");
-        ASSERT_EQ(i.obj_info().at(0).name(), "built_in_storage_vault");
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
@@ -5714,7 +5741,9 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
     conf.set_fs_name("hdfs://127.0.0.1:8020");
     conf.set_user("test_user");
     hdfs.mutable_build_conf()->CopyFrom(conf);
-    req.mutable_hdfs_info()->CopyFrom(hdfs);
+    StorageVaultPB vault;
+    vault.mutable_hdfs_info()->CopyFrom(hdfs);
+    req.mutable_vault()->CopyFrom(vault);
 
     auto sp = SyncPoint::get_instance();
     sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
@@ -5730,8 +5759,10 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     InstanceInfoPB i;
     get_test_instance(i);
-    ASSERT_EQ(i.default_storage_vault_id(), "1");
-    ASSERT_EQ(i.default_storage_vault_name(), "built_in_storage_vault");
+    ASSERT_EQ(i.default_storage_vault_id(), "");
+    ASSERT_EQ(i.default_storage_vault_name(), "");
+    ASSERT_EQ(i.resource_ids().at(0), "1");
+    ASSERT_EQ(i.storage_vault_names().at(0), "built_in_storage_vault");
 
     for (size_t i = 0; i < 20; i++) {
         AlterObjStoreInfoRequest req;
@@ -5746,7 +5777,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
         params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5757,7 +5788,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
         AlterObjStoreInfoRequest set_default_req;
         set_default_req.set_cloud_unique_id("test_cloud_unique_id");
         set_default_req.set_op(AlterObjStoreInfoRequest::SET_DEFAULT_VAULT);
-        set_default_req.mutable_hdfs()->CopyFrom(hdfs);
+        set_default_req.mutable_vault()->CopyFrom(hdfs);
         AlterObjStoreInfoResponse set_default_res;
         meta_service->alter_obj_store_info(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &set_default_req,
@@ -5781,7 +5812,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
         AlterObjStoreInfoRequest set_default_req;
         set_default_req.set_cloud_unique_id("test_cloud_unique_id");
         set_default_req.set_op(AlterObjStoreInfoRequest::SET_DEFAULT_VAULT);
-        set_default_req.mutable_hdfs()->CopyFrom(hdfs);
+        set_default_req.mutable_vault()->CopyFrom(hdfs);
         AlterObjStoreInfoResponse set_default_res;
         meta_service->alter_obj_store_info(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &set_default_req,
@@ -5857,7 +5888,7 @@ TEST(MetaServiceTest, GetObjStoreInfoTest) {
         params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5922,6 +5953,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
     instance_key(key_info, &key);
 
     InstanceInfoPB instance;
+    instance.set_enable_storage_vault(true);
     val = instance.SerializeAsString();
     txn->put(key, val);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
@@ -5971,12 +6003,12 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
         StorageVaultPB hdfs;
-        hdfs.set_name("test_alter_add_hdfs_info");
+        hdfs.set_name("built_in_storage_vault");
         HdfsVaultInfo params;
         params.mutable_build_conf()->set_fs_name("hdfs://ip:port");
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5986,8 +6018,31 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
 
         InstanceInfoPB i;
         get_test_instance(i);
-        ASSERT_EQ(i.default_storage_vault_id(), "1");
-        ASSERT_EQ(i.default_storage_vault_name(), "built_in_storage_vault");
+        ASSERT_EQ(i.default_storage_vault_id(), "");
+        ASSERT_EQ(i.default_storage_vault_name(), "");
+        ASSERT_EQ(i.resource_ids().at(0), "1");
+        ASSERT_EQ(i.storage_vault_names().at(0), "built_in_storage_vault");
+    }
+
+    // Try to set built_in_storage_vault vault as default
+    {
+        StorageVaultPB hdfs;
+        std::string name = "built_in_storage_vault";
+        hdfs.set_name(std::move(name));
+        HdfsVaultInfo params;
+
+        hdfs.mutable_hdfs_info()->CopyFrom(params);
+        AlterObjStoreInfoRequest set_default_req;
+        set_default_req.set_cloud_unique_id("test_cloud_unique_id");
+        set_default_req.set_op(AlterObjStoreInfoRequest::SET_DEFAULT_VAULT);
+        set_default_req.mutable_vault()->CopyFrom(hdfs);
+        AlterObjStoreInfoResponse set_default_res;
+        brpc::Controller cntl;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &set_default_req,
+                &set_default_res, nullptr);
+        ASSERT_EQ(set_default_res.status().code(), MetaServiceCode::OK)
+                << set_default_res.status().msg();
     }
 
     // try to use default vault

@@ -20,13 +20,13 @@ package org.apache.doris.nereids.trees.plans.visitor;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -73,17 +73,10 @@ public class TableCollector extends DefaultPlanVisitor<Plan, TableCollectorConte
         if (!context.isExpand()) {
             return;
         }
-        try {
-            MTMVCache expandedMv = MTMVCache.from(mtmv, MTMVPlanUtil.createMTMVContext(mtmv));
-            expandedMv.getLogicalPlan().accept(this, context);
-        } catch (AnalysisException e) {
-            LOG.error(String.format(
-                    "table collector expand fail, mtmv name is %s, targetTableTypes is %s",
-                    mtmv.getName(), context.targetTableTypes), e);
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    String.format("expand mv and collect table fail, mv name is %s, mv sql is %s",
-                            mtmv.getName(), mtmv.getQuerySql()), e);
-        }
+        // Make sure use only one connection context when in query to avoid ConnectionContext.get() wrong
+        MTMVCache expandedMv = MTMVCache.from(mtmv, context.getConnectContext() == null
+                ? MTMVPlanUtil.createMTMVContext(mtmv) : context.getConnectContext());
+        expandedMv.getLogicalPlan().accept(this, context);
     }
 
     /**
@@ -95,6 +88,7 @@ public class TableCollector extends DefaultPlanVisitor<Plan, TableCollectorConte
         private final Set<TableType> targetTableTypes;
         // if expand the mv or not
         private final boolean expand;
+        private ConnectContext connectContext;
 
         public TableCollectorContext(Set<TableType> targetTableTypes, boolean expand) {
             this.targetTableTypes = targetTableTypes;
@@ -111,6 +105,14 @@ public class TableCollector extends DefaultPlanVisitor<Plan, TableCollectorConte
 
         public boolean isExpand() {
             return expand;
+        }
+
+        public ConnectContext getConnectContext() {
+            return connectContext;
+        }
+
+        public void setConnectContext(ConnectContext connectContext) {
+            this.connectContext = connectContext;
         }
     }
 }

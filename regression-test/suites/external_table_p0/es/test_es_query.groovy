@@ -19,10 +19,12 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
     String enabled = context.config.otherConfigs.get("enableEsTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String es_5_port = context.config.otherConfigs.get("es_5_port")
         String es_6_port = context.config.otherConfigs.get("es_6_port")
         String es_7_port = context.config.otherConfigs.get("es_7_port")
         String es_8_port = context.config.otherConfigs.get("es_8_port")
 
+        sql """drop catalog if exists test_es_query_es5;"""
         sql """drop catalog if exists test_es_query_es6;"""
         sql """drop catalog if exists test_es_query_es7;"""
         sql """drop catalog if exists test_es_query_es8;"""
@@ -30,6 +32,15 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         sql """drop table if exists test_v2;"""
 
         // test old create-catalog syntax for compatibility
+        sql """
+            create catalog test_es_query_es5
+            properties (
+                "type"="es",
+                "elasticsearch.hosts"="http://${externalEnvIp}:$es_5_port",
+                "elasticsearch.nodes_discovery"="false",
+                "elasticsearch.keyword_sniff"="true"
+            );
+        """
         sql """
             create catalog test_es_query_es6
             properties (
@@ -159,6 +170,25 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql21 """select * from test_v2 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
         order_qt_sql22 """select test4,test5,test6,test7,test8 from test_v2 order by test8"""
 
+        sql """switch test_es_query_es5"""
+        order_qt_sql_5_02 """select * from test1 where test2='text#1'"""
+        order_qt_sql_5_03 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
+        order_qt_sql_5_04 """select * from test2_20220808 where substring(test2, 2) = 'ext2'"""
+        order_qt_sql_5_05 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test1"""
+        order_qt_sql_5_06 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test2_20220808"""
+        order_qt_sql_5_07 """select * from test1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
+        order_qt_sql_5_08 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test1"""
+        order_qt_sql_5_09 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2_20220808"""
+        order_qt_sql_5_10 """select * from test1 where test1='string1'"""
+        order_qt_sql_5_11 """select * from test1 where test1='string2'"""
+        order_qt_sql_5_12 """select * from test1 where test1='string3'"""
+        order_qt_sql_5_13 """select test6 from test1 where test1='string1'"""
+        order_qt_sql_5_14 """select test6 from test1 where test1='string2'"""
+        order_qt_sql_5_15 """select test6 from test1 where test1='string3'"""
+        order_qt_sql_5_16 """select message from test1 where message != ''"""
+        order_qt_sql_5_17 """select message from test1 where message is not null"""
+        order_qt_sql_5_18 """select message from test1 where not_null_or_empty(message)"""
+
         sql """switch test_es_query_es6"""
         // order_qt_sql_6_01 """show tables"""
         order_qt_sql_6_02 """select * from test1 where test2='text#1'"""
@@ -242,7 +272,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         }
         assertTrue(containeHide7)
 
-        order_qt_sql_7_19 """select * from test3_20231005"""
+        order_qt_sql_7_24 """select * from test3_20231005"""
 
         sql """switch test_es_query_es8"""
         order_qt_sql_8_01 """select * from test1 where test2='text#1'"""

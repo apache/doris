@@ -25,11 +25,13 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <memory>
 #include <ostream>
 #include <typeinfo>
 #include <utility>
@@ -91,10 +93,10 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _opened(false),
           _closed(false),
           _is_report_success(false),
-          _is_report_on_cancel(true),
-          _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {
+          _is_report_on_cancel(true) {
+    _cancel_reason = Status::InternalError("");
     _report_thread_future = _report_thread_promise.get_future();
-    _start_time = VecDateTimeValue::local_time();
+    _fragment_watcher.start();
     _query_statistics = std::make_shared<QueryStatistics>();
     _query_ctx->register_query_statistics(_query_statistics);
     _query_thread_context = {_query_ctx->query_id(), query_ctx->query_mem_tracker};
@@ -278,20 +280,10 @@ Status PlanFragmentExecutor::open() {
         // only retrieve the log.
         _runtime_state->log_error(status.to_string());
     }
-    if (status.is<CANCELLED>()) {
-        if (_cancel_reason == PPlanFragmentCancelReason::CALL_RPC_ERROR) {
-            status = Status::RuntimeError(_cancel_msg);
-        } else if (_cancel_reason == PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED) {
-            status = Status::MemoryLimitExceeded(_cancel_msg);
-        }
-    }
 
     {
         std::lock_guard<std::mutex> l(_status_lock);
         _status = status;
-        if (status.is<MEM_LIMIT_EXCEEDED>()) {
-            static_cast<void>(_runtime_state->set_mem_limit_exceeded(status.to_string()));
-        }
         if (_runtime_state->query_type() == TQueryType::EXTERNAL) {
             TUniqueId fragment_instance_id = _runtime_state->fragment_instance_id();
             _exec_env->result_queue_mgr()->update_queue_status(fragment_instance_id, status);
@@ -388,7 +380,7 @@ Status PlanFragmentExecutor::execute() {
         // if _need_wait_execution_trigger is true, which means this instance
         // is prepared but need to wait for the signal to do the rest execution.
         if (!_query_ctx->wait_for_start()) {
-            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "wait fragment start timeout");
+            cancel(Status::InternalError("wait fragment start timeout"));
             return Status::OK();
         }
     }
@@ -405,8 +397,8 @@ Status PlanFragmentExecutor::execute() {
                                               print_id(_fragment_instance_id),
                                               print_id(_query_ctx->query_id())));
         if (!st.ok()) {
-            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                   fmt::format("PlanFragmentExecutor open failed, reason: {}", st.to_string()));
+            cancel(Status::InternalError(
+                    fmt::format("PlanFragmentExecutor open failed, reason: {}", st.to_string())));
         }
         close();
     }
@@ -415,14 +407,11 @@ Status PlanFragmentExecutor::execute() {
     return Status::OK();
 }
 
-bool PlanFragmentExecutor::is_timeout(const VecDateTimeValue& now) const {
+bool PlanFragmentExecutor::is_timeout(timespec now) const {
     if (_timeout_second <= 0) {
         return false;
     }
-    if (now.second_diff(_start_time) > _timeout_second) {
-        return true;
-    }
-    return false;
+    return _fragment_watcher.elapsed_time_seconds(now) > _timeout_second;
 }
 
 void PlanFragmentExecutor::report_profile() {
@@ -513,9 +502,7 @@ void PlanFragmentExecutor::send_report(bool done) {
             _fragment_instance_id,
             _backend_num,
             _runtime_state.get(),
-            std::bind(&PlanFragmentExecutor::update_status, this, std::placeholders::_1),
-            std::bind(&PlanFragmentExecutor::cancel, this, std::placeholders::_1,
-                      std::placeholders::_2)};
+            std::bind(&PlanFragmentExecutor::cancel, this, std::placeholders::_1)};
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.
@@ -548,10 +535,10 @@ void PlanFragmentExecutor::stop_report_thread() {
     _report_thread_future.wait();
 }
 
-void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
+void PlanFragmentExecutor::cancel(const Status& reason) {
     std::lock_guard<std::mutex> l(_status_lock);
-    LOG_INFO("PlanFragmentExecutor::cancel {} reason {} error msg {}",
-             PrintInstanceStandardInfo(query_id(), fragment_instance_id()), reason, msg);
+    LOG_INFO("PlanFragmentExecutor::cancel {} reason {}",
+             PrintInstanceStandardInfo(query_id(), fragment_instance_id()), reason.to_string());
 
     // NOTE: Not need to check if already cancelled.
     // Bug scenario: test_array_map_function.groovy:
@@ -559,24 +546,23 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
 
     DCHECK(_prepared);
     _cancel_reason = reason;
-    if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+    if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
     }
-    _cancel_msg = msg;
-    _runtime_state->set_is_cancelled(msg);
+    _runtime_state->cancel(reason);
     // To notify wait_for_start()
-    _query_ctx->set_ready_to_execute(true);
+    _query_ctx->set_ready_to_execute(reason);
 
     // must close stream_mgr to avoid dead lock in Exchange Node
-    _exec_env->vstream_mgr()->cancel(_fragment_instance_id, Status::Cancelled(msg));
+    _exec_env->vstream_mgr()->cancel(_fragment_instance_id, reason);
     // Cancel the result queue manager used by spark doris connector
-    _exec_env->result_queue_mgr()->update_queue_status(_fragment_instance_id, Status::Aborted(msg));
+    _exec_env->result_queue_mgr()->update_queue_status(_fragment_instance_id, reason);
 #ifndef BE_TEST
     // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
     // For stream load the fragment's query_id == load id, it is set in FE.
     auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_ctx->query_id());
     if (stream_load_ctx != nullptr) {
-        stream_load_ctx->pipe->cancel(msg);
+        stream_load_ctx->pipe->cancel(reason.to_string());
     }
 #endif
     return;
@@ -638,10 +624,41 @@ void PlanFragmentExecutor::close() {
                 load_channel_profile()->pretty_print(&ss);
             }
             LOG(INFO) << ss.str();
+
+            _query_ctx->add_instance_profile(_fragment_instance_id,
+                                             collect_realtime_query_profile(),
+                                             collect_realtime_load_channel_profile());
         }
     }
 
     _closed = true;
+}
+
+std::shared_ptr<TRuntimeProfileTree> PlanFragmentExecutor::collect_realtime_query_profile() const {
+    std::shared_ptr<TRuntimeProfileTree> res = std::make_shared<TRuntimeProfileTree>();
+
+    if (_runtime_state != nullptr) {
+        _runtime_state->runtime_profile()->compute_time_in_profile();
+        _runtime_state->runtime_profile()->to_thrift(res.get());
+    } else {
+        return nullptr;
+    }
+
+    return res;
+}
+
+std::shared_ptr<TRuntimeProfileTree> PlanFragmentExecutor::collect_realtime_load_channel_profile()
+        const {
+    std::shared_ptr<TRuntimeProfileTree> res = std::make_shared<TRuntimeProfileTree>();
+
+    if (_runtime_state != nullptr) {
+        _runtime_state->load_channel_profile()->compute_time_in_profile();
+        _runtime_state->load_channel_profile()->to_thrift(res.get());
+    } else {
+        return nullptr;
+    }
+
+    return res;
 }
 
 } // namespace doris

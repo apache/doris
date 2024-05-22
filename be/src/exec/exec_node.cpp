@@ -43,7 +43,6 @@
 #include "util/uid_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
-#include "vec/exec/distinct_vaggregation_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/group_commit_scan_node.h"
@@ -90,10 +89,7 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
                 descs, std::vector {tnode.output_tuple_id}, std::vector {true});
     }
     if (!tnode.intermediate_output_tuple_id_list.empty()) {
-        DCHECK(tnode.__isset.output_tuple_id) << " no final output tuple id";
         // common subexpression elimination
-        DCHECK_EQ(tnode.intermediate_output_tuple_id_list.size(),
-                  tnode.intermediate_projections_list.size());
         _intermediate_output_row_descriptor.reserve(tnode.intermediate_output_tuple_id_list.size());
         for (auto output_tuple_id : tnode.intermediate_output_tuple_id_list) {
             _intermediate_output_row_descriptor.push_back(
@@ -108,6 +104,19 @@ ExecNode::~ExecNode() = default;
 
 Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     init_runtime_profile(get_name());
+    if (!tnode.intermediate_output_tuple_id_list.empty()) {
+        if (!tnode.__isset.output_tuple_id) {
+            return Status::InternalError("no final output tuple id");
+        }
+        if (tnode.intermediate_output_tuple_id_list.size() !=
+            tnode.intermediate_projections_list.size()) {
+            return Status::InternalError(
+                    "intermediate_output_tuple_id_list size:{} not match "
+                    "intermediate_projections_list size:{}",
+                    tnode.intermediate_output_tuple_id_list.size(),
+                    tnode.intermediate_projections_list.size());
+        }
+    }
 
     if (tnode.__isset.vconjunct) {
         vectorized::VExprContextSPtr context;
@@ -169,6 +178,11 @@ Status ExecNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, projections_row_desc()));
+
+    if (has_output_row_descriptor()) {
+        RETURN_IF_ERROR(
+                vectorized::VExpr::check_expr_output_type(_projections, *_output_row_descriptor));
+    }
 
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->prepare(state));
@@ -373,11 +387,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::AGGREGATION_NODE:
-        if (tnode.agg_node.aggregate_functions.empty() && state->enable_pipeline_exec()) {
-            *node = pool->add(new vectorized::DistinctAggregationNode(pool, tnode, descs));
-        } else {
-            *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
-        }
+        *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:
@@ -582,12 +592,7 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 
     auto& mutable_columns = mutable_block.mutable_columns();
 
-    if (mutable_columns.size() != _projections.size()) {
-        return Status::InternalError(
-                "Logical error during processing {}, output of projections {} mismatches with "
-                "exec node output {}",
-                this->get_name(), _projections.size(), mutable_columns.size());
-    }
+    DCHECK_EQ(mutable_columns.size(), _projections.size());
 
     for (int i = 0; i < mutable_columns.size(); ++i) {
         auto result_column_id = -1;

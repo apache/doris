@@ -226,9 +226,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     if (request->has_db_id() && request->has_is_new_table() && request->is_new_table()) {
         // init table version, for create and truncate table
         std::string key = table_version_key({instance_id, request->db_id(), request->table_id()});
-        std::string val(sizeof(int64_t), 0);
-        *reinterpret_cast<int64_t*>(val.data()) = (int64_t)1;
-        txn->put(key, val);
+        txn->atomic_add(key, 1);
         LOG_INFO("put table version").tag("key", hex(key));
     }
 
@@ -379,7 +377,7 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
     }
     if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
-        msg = "failed to check index existence";
+        msg = fmt::format("failed to check index existence, err={}", err);
         return;
     }
 
@@ -472,7 +470,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
                 }
                 if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
                     code = cast_as<ErrCategory::READ>(err);
-                    msg = "failed to check partition existence";
+                    msg = fmt::format("failed to check partition existence, err={}", err);
                     return;
                 }
             }
@@ -599,8 +597,9 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     }
     if (!need_commit) return;
 
-    // update table versions
-    if (request->has_db_id()) {
+    // Update table version only when deleting non-empty partitions
+    if (request->has_db_id() && request->has_need_update_table_version() &&
+        request->need_update_table_version()) {
         std::string ver_key =
                 table_version_key({instance_id, request->db_id(), request->table_id()});
         txn->atomic_add(ver_key, 1);

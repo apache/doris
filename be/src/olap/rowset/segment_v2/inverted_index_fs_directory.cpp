@@ -317,15 +317,7 @@ void DorisFSDirectory::FSIndexOutput::close() {
         _CLTHROWA(err.number(), err.what());
     }
     if (_writer) {
-        Status ret = _writer->finalize();
-        DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexOutput._set_writer_finalize_status_error",
-                        { ret = Status::Error<INTERNAL_ERROR>("writer finalize status error"); })
-        if (!ret.ok()) {
-            LOG(WARNING) << "FSIndexOutput close, file writer finalize error: " << ret.to_string();
-            _writer.reset(nullptr);
-            _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
-        }
-        ret = _writer->close();
+        auto ret = _writer->close();
         DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error",
                         { ret = Status::Error<INTERNAL_ERROR>("writer close status error"); })
         if (!ret.ok()) {

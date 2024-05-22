@@ -189,7 +189,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllFromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
@@ -316,6 +318,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Quote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RandomBytes;
@@ -381,6 +384,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
@@ -426,6 +430,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -1159,8 +1164,16 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(hllEmpty, context);
     }
 
+    default R visitHllFromBase64(HllFromBase64 hllFromBase64, C context) {
+        return visitScalarFunction(hllFromBase64, context);
+    }
+
     default R visitHllHash(HllHash hllHash, C context) {
         return visitScalarFunction(hllHash, context);
+    }
+
+    default R visitHllToBase64(HllToBase64 hllToBase64, C context) {
+        return visitScalarFunction(hllToBase64, context);
     }
 
     default R visitHour(Hour hour, C context) {
@@ -1987,6 +2000,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(upper, context);
     }
 
+    default R visitQuote(Quote quote, C context) {
+        return visitScalarFunction(quote, context);
+    }
+
     default R visitUser(User user, C context) {
         return visitScalarFunction(user, context);
     }
@@ -2009,6 +2026,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitInttoUuid(InttoUuid inttoUuid, C context) {
         return visitScalarFunction(inttoUuid, context);
+    }
+
+    default R visitStrcmp(Strcmp strcmp, C context) {
+        return visitScalarFunction(strcmp, context);
     }
 
     default R visitVersion(Version version, C context) {
@@ -2107,6 +2128,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMapValues(MapValues mapValues, C context) {
         return visitScalarFunction(mapValues, context);
+    }
+
+    default R visitXor(Xor xor, C context) {
+        return visitScalarFunction(xor, context);
     }
 
     // struct function

@@ -39,6 +39,7 @@ enum TDataSinkType {
     GROUP_COMMIT_OLAP_TABLE_SINK, // deprecated
     GROUP_COMMIT_BLOCK_SINK,
     HIVE_TABLE_SINK,
+    ICEBERG_TABLE_SINK,
 }
 
 enum TResultSinkType {
@@ -284,6 +285,8 @@ struct THiveLocationParams {
   1: optional string write_path
   2: optional string target_path
   3: optional Types.TFileType file_type
+  // Other object store will convert write_path to s3 scheme path for BE, this field keeps the original write path.
+  4: optional string original_write_path
 }
 
 struct TSortedColumn {
@@ -338,6 +341,13 @@ enum TUpdateMode {
     OVERWRITE = 2 // insert overwrite
 }
 
+struct TS3MPUPendingUpload {
+    1: optional string bucket
+    2: optional string key
+    3: optional string upload_id
+    4: optional map<i32, string> etags
+}
+
 struct THivePartitionUpdate {
     1: optional string name
     2: optional TUpdateMode update_mode
@@ -345,6 +355,44 @@ struct THivePartitionUpdate {
     4: optional list<string> file_names
     5: optional i64 row_count
     6: optional i64 file_size
+    7: optional list<TS3MPUPendingUpload> s3_mpu_pending_uploads
+}
+
+enum TFileContent {
+    DATA = 0,
+    POSITION_DELETES = 1,
+    EQUALITY_DELETES = 2
+}
+
+struct TIcebergCommitData {
+    1: optional string file_path
+    2: optional i64 row_count
+    3: optional i64 file_size
+    4: optional TFileContent file_content
+    5: optional list<string> partition_values 
+    6: optional list<string> referenced_data_files
+}
+
+struct TSortField {
+    1: optional i32 source_column_id
+    2: optional bool ascending
+    3: optional bool null_first
+}
+
+struct TIcebergTableSink {
+    1: optional string db_name
+    2: optional string tb_name
+    3: optional string schema_json
+    4: optional map<i32, string> partition_specs_json
+    5: optional i32 partition_spec_id
+    6: optional list<TSortField> sort_fields
+    7: optional PlanNodes.TFileFormatType file_format
+    8: optional string output_path
+    9: optional map<string, string> hadoop_config
+    10: optional bool overwrite
+    11: optional Types.TFileType file_type
+    12: optional string original_output_path
+    13: optional PlanNodes.TFileCompressType compression_type
 }
 
 struct TDataSink {
@@ -360,4 +408,5 @@ struct TDataSink {
   11: optional TJdbcTableSink jdbc_table_sink
   12: optional TMultiCastDataStreamSink multi_cast_stream_sink
   13: optional THiveTableSink hive_table_sink
+  14: optional TIcebergTableSink iceberg_table_sink
 }

@@ -255,5 +255,14 @@ TUniqueId StreamLoadPipe::calculate_pipe_id(const UniqueId& query_id, int32_t fr
     return pipe_id;
 }
 
+size_t StreamLoadPipe::current_capacity() {
+    std::unique_lock<std::mutex> l(_lock);
+    if (_use_proto) {
+        return _proto_buffered_bytes;
+    } else {
+        return _buffered_bytes;
+    }
+}
+
 } // namespace io
 } // namespace doris

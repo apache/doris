@@ -30,7 +30,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.TableFdItem;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -49,7 +48,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * abstract class catalog relation for logical relation
@@ -128,9 +126,8 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        Builder fdBuilder = new Builder();
-        Set<Slot> outputSet = Utils.fastToImmutableSet(outputSupplier.get());
+    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+        Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
             ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
             for (Slot slot : outputSet) {
@@ -154,13 +151,16 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
             Set<Column> columns = c.getUniqueKeys(table);
             fdBuilder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
         }
-        fdBuilder.addFdItems(computeFdItems(outputSet));
-        return fdBuilder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        return computeFdItems(Utils.fastToImmutableSet(outputSupplier.get()));
+    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        // No uniform slot for catalog relation
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems() {
+        return computeFdItems(Utils.fastToImmutableSet(getOutputSet()));
     }
 
     private ImmutableSet<FdItem> computeFdItems(Set<Slot> outputSet) {
@@ -205,5 +205,15 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
             }
         }
         return slotSet.build();
+    }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        // don't generate any equal pair
+    }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        // don't generate any equal pair
     }
 }

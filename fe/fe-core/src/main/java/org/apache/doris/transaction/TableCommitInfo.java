@@ -22,16 +22,22 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TPartitionVersionInfo;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class TableCommitInfo implements Writable {
+    private static final Logger LOG = LogManager.getLogger(TableCommitInfo.class);
 
     @SerializedName(value = "tableId")
     private long tableId;
@@ -94,10 +100,6 @@ public class TableCommitInfo implements Writable {
         this.idToPartitionCommitInfo.put(info.getPartitionId(), info);
     }
 
-    public void removePartition(long partitionId) {
-        this.idToPartitionCommitInfo.remove(partitionId);
-    }
-
     public PartitionCommitInfo getPartitionCommitInfo(long partitionId) {
         return this.idToPartitionCommitInfo.get(partitionId);
     }
@@ -116,5 +118,26 @@ public class TableCommitInfo implements Writable {
 
     public void setVersionTime(long versionTime) {
         this.versionTime = versionTime;
+    }
+
+    public List<TPartitionVersionInfo> generateTPartitionVersionInfos() {
+        return idToPartitionCommitInfo
+                .values().stream()
+                .map(commitInfo -> {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("try to publish version info partitionid [{}], version [{}]",
+                                commitInfo.getPartitionId(), commitInfo.getVersion());
+                    }
+                    return new TPartitionVersionInfo(commitInfo.getPartitionId(),
+                            commitInfo.getVersion(), 0);
+                }).collect(Collectors.toList());
+    }
+
+    @Override
+    public String toString() {
+        return new StringBuilder("TableCommitInfo{tableId=").append(tableId)
+                .append(", idToPartitionCommitInfo=").append(idToPartitionCommitInfo)
+                .append(", version=").append(version).append(", versionTime=").append(versionTime)
+                .append('}').toString();
     }
 }

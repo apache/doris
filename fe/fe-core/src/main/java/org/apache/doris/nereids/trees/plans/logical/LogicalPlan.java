@@ -24,9 +24,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
-import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
@@ -61,7 +62,42 @@ public interface LogicalPlan extends Plan {
      *   - BlockFDPropagation: clean the fd
      *   - PropagateFD: propagate the fd
      */
-    FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier);
+    default FunctionalDependencies computeFuncDeps() {
+        FunctionalDependencies.Builder fdBuilder = new FunctionalDependencies.Builder();
+        computeUniform(fdBuilder);
+        computeUnique(fdBuilder);
+        computeEqualSet(fdBuilder);
+        computeFd(fdBuilder);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
+        fdBuilder.addFdItems(fdItems);
 
-    ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier);
+        for (Slot slot : getOutput()) {
+            Set<Slot> o = ImmutableSet.of(slot);
+            // all slots dependent unique slot
+            for (Set<Slot> uniqueSlot : fdBuilder.getAllUniqueAndNotNull()) {
+                fdBuilder.addDeps(uniqueSlot, o);
+            }
+            // uniform slot dependents all slots
+            for (Set<Slot> uniformSlot : fdBuilder.getAllUniformAndNotNull()) {
+                fdBuilder.addDeps(o, uniformSlot);
+            }
+        }
+        for (Set<Slot> equalSet : fdBuilder.calEqualSetList()) {
+            Set<Slot> validEqualSet = Sets.intersection(getOutputSet(), equalSet);
+            fdBuilder.addDepsByEqualSet(validEqualSet);
+            fdBuilder.addUniformByEqualSet(validEqualSet);
+            fdBuilder.addUniqueByEqualSet(validEqualSet);
+        }
+        return fdBuilder.build();
+    }
+
+    ImmutableSet<FdItem> computeFdItems();
+
+    void computeUnique(FunctionalDependencies.Builder fdBuilder);
+
+    void computeUniform(FunctionalDependencies.Builder fdBuilder);
+
+    void computeEqualSet(FunctionalDependencies.Builder fdBuilder);
+
+    void computeFd(FunctionalDependencies.Builder fdBuilder);
 }

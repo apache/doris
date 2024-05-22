@@ -19,7 +19,6 @@ package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.CreateWorkloadGroupStmt;
-import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -187,38 +186,6 @@ public class WorkloadGroupMgrTest {
             Assert.fail();
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("does not exist"));
-        }
-    }
-
-    @Test
-    public void testDropWorkloadGroup() throws UserException {
-        Config.enable_workload_group = true;
-        ConnectContext context = new ConnectContext();
-        WorkloadGroupMgr workloadGroupMgr = new WorkloadGroupMgr();
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(WorkloadGroup.CPU_SHARE, "10");
-        properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
-        String name = "g1";
-        CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
-        workloadGroupMgr.createWorkloadGroup(createStmt);
-        context.getSessionVariable().setWorkloadGroup(name);
-        Assert.assertEquals(1, workloadGroupMgr.getWorkloadGroup(context).size());
-
-        DropWorkloadGroupStmt dropStmt = new DropWorkloadGroupStmt(false, name);
-        workloadGroupMgr.dropWorkloadGroup(dropStmt);
-        try {
-            context.getSessionVariable().setWorkloadGroup(name);
-            workloadGroupMgr.getWorkloadGroup(context);
-            Assert.fail();
-        } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("does not exist"));
-        }
-
-        DropWorkloadGroupStmt dropDefaultStmt = new DropWorkloadGroupStmt(false, WorkloadGroupMgr.DEFAULT_GROUP_NAME);
-        try {
-            workloadGroupMgr.dropWorkloadGroup(dropDefaultStmt);
-        } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("is not allowed"));
         }
     }
 

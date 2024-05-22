@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -37,6 +38,14 @@ import java.util.stream.Collectors;
 class StructInfoMapTest extends SqlTestBase {
     @Test
     void testTableMap() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        new MockUp<SessionVariable>() {
+            @Mock
+            public BitSet getDisableNereidsRules() {
+                return disableNereidsRules;
+            }
+        };
         CascadesContext c1 = createCascadesContext(
                 "select T1.id from T1 inner join T2 "
                         + "on T1.id = T2.id "
@@ -50,7 +59,7 @@ class StructInfoMapTest extends SqlTestBase {
         Group root = c1.getMemo().getRoot();
         Set<BitSet> tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertTrue(tableMaps.isEmpty());
-        root.getstructInfoMap().refresh(root);
+        root.getstructInfoMap().refresh(root, 1);
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
@@ -59,6 +68,8 @@ class StructInfoMapTest extends SqlTestBase {
             }
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
+        connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
+
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
@@ -76,7 +87,7 @@ class StructInfoMapTest extends SqlTestBase {
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
-        root.getstructInfoMap().refresh(root);
+        root.getstructInfoMap().refresh(root, 1);
         tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
         dropMvByNereids("drop materialized view mv1");
@@ -84,6 +95,14 @@ class StructInfoMapTest extends SqlTestBase {
 
     @Test
     void testLazyRefresh() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        new MockUp<SessionVariable>() {
+            @Mock
+            public BitSet getDisableNereidsRules() {
+                return disableNereidsRules;
+            }
+        };
         CascadesContext c1 = createCascadesContext(
                 "select T1.id from T1 inner join T2 "
                         + "on T1.id = T2.id "
@@ -97,10 +116,8 @@ class StructInfoMapTest extends SqlTestBase {
         Group root = c1.getMemo().getRoot();
         Set<BitSet> tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertTrue(tableMaps.isEmpty());
-        boolean refreshed = root.getstructInfoMap().refresh(root);
-        Assertions.assertTrue(refreshed);
-        refreshed = root.getstructInfoMap().refresh(root);
-        Assertions.assertFalse(refreshed);
+        root.getstructInfoMap().refresh(root, 1);
+        root.getstructInfoMap().refresh(root, 1);
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
@@ -109,6 +126,7 @@ class StructInfoMapTest extends SqlTestBase {
             }
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
+        connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
@@ -126,10 +144,8 @@ class StructInfoMapTest extends SqlTestBase {
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
-        refreshed = root.getstructInfoMap().refresh(root);
-        Assertions.assertTrue(refreshed);
-        refreshed = root.getstructInfoMap().refresh(root);
-        Assertions.assertFalse(refreshed);
+        root.getstructInfoMap().refresh(root, 1);
+        root.getstructInfoMap().refresh(root, 1);
         tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
         dropMvByNereids("drop materialized view mv1");
@@ -137,6 +153,14 @@ class StructInfoMapTest extends SqlTestBase {
 
     @Test
     void testTableChild() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        new MockUp<SessionVariable>() {
+            @Mock
+            public BitSet getDisableNereidsRules() {
+                return disableNereidsRules;
+            }
+        };
         CascadesContext c1 = createCascadesContext(
                 "select T1.id from T1 inner join T2 "
                         + "on T1.id = T2.id "
@@ -150,6 +174,7 @@ class StructInfoMapTest extends SqlTestBase {
             }
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
+        connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
@@ -166,13 +191,13 @@ class StructInfoMapTest extends SqlTestBase {
                 .rewrite()
                 .optimize();
         Group root = c1.getMemo().getRoot();
-        root.getstructInfoMap().refresh(root);
+        root.getstructInfoMap().refresh(root, 1);
         StructInfoMap structInfoMap = root.getstructInfoMap();
         Assertions.assertEquals(2, structInfoMap.getTableMaps().size());
         BitSet mvMap = structInfoMap.getTableMaps().stream()
                 .filter(b -> b.cardinality() == 2)
                 .collect(Collectors.toList()).get(0);
-        StructInfo structInfo = structInfoMap.getStructInfo(mvMap, mvMap, root);
+        StructInfo structInfo = structInfoMap.getStructInfo(c1.getMemo(), mvMap, root, null);
         System.out.println(structInfo.getOriginalPlan().treeString());
         BitSet bitSet = new BitSet();
         structInfo.getRelations().forEach(r -> bitSet.set((int) r.getTable().getId()));

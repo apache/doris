@@ -32,6 +32,7 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -46,14 +47,17 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class TransactionState implements Writable {
     private static final Logger LOG = LogManager.getLogger(TransactionState.class);
@@ -188,7 +192,6 @@ public class TransactionState implements Writable {
     @Setter
     @Getter
     private List<Long> tableIdList;
-    private int replicaNum = 0;
     @SerializedName(value = "txnId")
     private long transactionId;
     @SerializedName(value = "label")
@@ -222,7 +225,7 @@ public class TransactionState implements Writable {
     private CountDownLatch visibleLatch;
 
     // this state need not be serialized
-    private Map<Long, PublishVersionTask> publishVersionTasks;
+    private Map<Long, List<PublishVersionTask>> publishVersionTasks;
     private boolean hasSendTask;
     private TransactionStatus preStatus = null;
 
@@ -269,9 +272,9 @@ public class TransactionState implements Writable {
     private Map<Long, Set<Long>> loadedTblIndexes = Maps.newHashMap();
 
     /**
-     * the value is the num delta rows of all replicas in each table
+     * the value is the num delta rows of all replicas in each tablet
      */
-    private final Map<Long, Long> tableIdToTotalNumDeltaRows = Maps.newHashMap();
+    private final Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows = Maps.newHashMap();
 
     private String errorLogUrl = null;
 
@@ -297,6 +300,18 @@ public class TransactionState implements Writable {
     private boolean isPartialUpdate = false;
     // table id -> schema info
     private Map<Long, SchemaInfo> txnSchemas = new HashMap<>();
+
+    @Getter
+    private List<SubTransactionState> subTransactionStates;
+    @Getter
+    @SerializedName(value = "sti")
+    private List<Long> subTxnIds;
+    @Getter
+    @SerializedName(value = "stot")
+    private Map<Long, TableCommitInfo> subTxnIdToTableCommitInfo = new TreeMap<>();
+    @Getter
+    @Setter
+    private Set<Long> involvedBackends = Sets.newHashSet();
 
     public TransactionState() {
         this.dbId = -1;
@@ -358,12 +373,20 @@ public class TransactionState implements Writable {
         this.txnCommitAttachment = txnCommitAttachment;
     }
 
+    public void addSubTxnTableCommitInfo(SubTransactionState subTransactionState, TableCommitInfo tableCommitInfo) {
+        subTxnIdToTableCommitInfo.put(subTransactionState.getSubTransactionId(), tableCommitInfo);
+    }
+
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
         this.errorReplicas = newErrorReplicas;
     }
 
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {
-        this.publishVersionTasks.put(backendId, task);
+        if (this.subTxnIdToTableCommitInfo.isEmpty()) {
+            this.publishVersionTasks.put(backendId, Lists.newArrayList(task));
+        } else {
+            this.publishVersionTasks.computeIfAbsent(backendId, k -> Lists.newArrayList()).add(task);
+        }
     }
 
     public void setSendedTask() {
@@ -587,6 +610,19 @@ public class TransactionState implements Writable {
         return dbId;
     }
 
+    // TODO should we add a lock between addTableId, removeTableId and getTableIdList?
+    public void addTableId(long tableId) {
+        this.tableIdList.add(tableId);
+    }
+
+    public void removeTableId(long tableId) {
+        Preconditions.checkState(this.tableIdList.size() > 0, "table id list is empty");
+        Preconditions.checkState(this.tableIdList.get(this.tableIdList.size() - 1) == tableId,
+                "table id is not match, expect: %s, actual: %s", tableId,
+                this.tableIdList.get(this.tableIdList.size() - 1));
+        this.tableIdList.remove(this.tableIdList.size() - 1);
+    }
+
     public List<Long> getTableIdList() {
         return tableIdList;
     }
@@ -662,7 +698,10 @@ public class TransactionState implements Writable {
         sb.append(", finish time: ").append(finishTime);
         sb.append(", reason: ").append(reason);
         if (txnCommitAttachment != null) {
-            sb.append(" attactment: ").append(txnCommitAttachment);
+            sb.append(", attachment: ").append(txnCommitAttachment);
+        }
+        if (subTransactionStates != null) {
+            sb.append(", sub txn states: ").append(subTransactionStates);
         }
         return sb.toString();
     }
@@ -675,7 +714,7 @@ public class TransactionState implements Writable {
         return sourceType;
     }
 
-    public Map<Long, PublishVersionTask> getPublishVersionTasks() {
+    public Map<Long, List<PublishVersionTask>> getPublishVersionTasks() {
         return publishVersionTasks;
     }
 
@@ -695,41 +734,21 @@ public class TransactionState implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(transactionId);
-        Text.writeString(out, label);
-        out.writeLong(dbId);
-        out.writeInt(idToTableCommitInfos.size());
-        for (TableCommitInfo info : idToTableCommitInfos.values()) {
-            info.write(out);
-        }
-        out.writeInt(txnCoordinator.sourceType.value());
-        Text.writeString(out, txnCoordinator.ip);
-        out.writeInt(transactionStatus.value());
-        out.writeInt(sourceType.value());
-        out.writeLong(prepareTime);
-        out.writeLong(preCommitTime);
-        out.writeLong(commitTime);
-        out.writeLong(finishTime);
-        Text.writeString(out, reason);
-        out.writeInt(errorReplicas.size());
-        for (long errorReplciaId : errorReplicas) {
-            out.writeLong(errorReplciaId);
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
 
-        if (txnCommitAttachment == null) {
-            out.writeBoolean(false);
+    public static TransactionState read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_132) {
+            TransactionState transactionState = new TransactionState();
+            transactionState.readFields(in);
+            return transactionState;
         } else {
-            out.writeBoolean(true);
-            txnCommitAttachment.write(out);
-        }
-        out.writeLong(callbackId);
-        out.writeLong(timeoutMs);
-        out.writeInt(tableIdList.size());
-        for (Long aLong : tableIdList) {
-            out.writeLong(aLong);
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, TransactionState.class);
         }
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         transactionId = in.readLong();
         label = Text.readString(in);
@@ -766,12 +785,12 @@ public class TransactionState implements Writable {
         }
     }
 
-    public Map<Long, Long> getTableIdToTotalNumDeltaRows() {
-        return tableIdToTotalNumDeltaRows;
+    public Map<Long, Map<Long, Long>> getTableIdToTabletDeltaRows() {
+        return tableIdToTabletDeltaRows;
     }
 
-    public void setTableIdToTotalNumDeltaRows(Map<Long, Long> tableIdToTotalNumDeltaRows) {
-        this.tableIdToTotalNumDeltaRows.putAll(tableIdToTotalNumDeltaRows);
+    public void setTableIdToTabletDeltaRows(Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows) {
+        this.tableIdToTabletDeltaRows.putAll(tableIdToTabletDeltaRows);
     }
 
     public void setErrorMsg(String errMsg) {
@@ -789,7 +808,8 @@ public class TransactionState implements Writable {
     // reduce memory
     public void pruneAfterVisible() {
         publishVersionTasks.clear();
-        tableIdToTotalNumDeltaRows.clear();
+        tableIdToTabletDeltaRows.clear();
+        // TODO if subTransactionStates can be cleared?
     }
 
     public void setSchemaForPartialUpdate(OlapTable olapTable) {
@@ -833,5 +853,29 @@ public class TransactionState implements Writable {
             }
         }
         return true;
+    }
+
+    public void resetSubTransactionStates() {
+        this.subTransactionStates = new ArrayList<>();
+    }
+
+    public void resetSubTxnIds() {
+        this.subTxnIds = subTransactionStates.stream().map(SubTransactionState::getSubTransactionId)
+                .collect(Collectors.toList());
+    }
+
+    public TableCommitInfo getTableCommitInfoBySubTxnId(long subTxnId) {
+        return subTxnIdToTableCommitInfo.get(subTxnId);
+    }
+
+    public List<TableCommitInfo> getSubTxnTableCommitInfos() {
+        List<TableCommitInfo> tableCommitInfos = new ArrayList<>();
+        for (Long subTxnId : subTxnIds) {
+            TableCommitInfo tableCommitInfo = subTxnIdToTableCommitInfo.get(subTxnId);
+            if (tableCommitInfo != null) {
+                tableCommitInfos.add(tableCommitInfo);
+            }
+        }
+        return tableCommitInfos;
     }
 }

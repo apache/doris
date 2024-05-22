@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -50,10 +51,12 @@ import java.util.Set;
 public class CommonSubExpressionOpt extends PlanPostProcessor {
     @Override
     public PhysicalProject visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
-
-        List<List<NamedExpression>> multiLayers = computeMultiLayerProjections(
-                project.getInputSlots(), project.getProjects());
-        project.setMultiLayerProjects(multiLayers);
+        project.child().accept(this, ctx);
+        if (!project.hasPushedDownToProjectionFunctions()) {
+            List<List<NamedExpression>> multiLayers = computeMultiLayerProjections(
+                    project.getInputSlots(), project.getProjects());
+            project.setMultiLayerProjects(multiLayers);
+        }
         return project;
     }
 
@@ -65,15 +68,6 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
         for (Expression expr : projects) {
             expr.accept(collector, null);
         }
-        Map<Expression, Alias> commonExprToAliasMap = new HashMap<>();
-        collector.commonExprByDepth.values().stream().flatMap(expressions -> expressions.stream())
-                .forEach(expression -> {
-                    if (expression instanceof Alias) {
-                        commonExprToAliasMap.put(expression, (Alias) expression);
-                    } else {
-                        commonExprToAliasMap.put(expression, new Alias(expression));
-                    }
-                });
         Map<Expression, Alias> aliasMap = new HashMap<>();
         if (!collector.commonExprByDepth.isEmpty()) {
             for (int i = 1; i <= collector.commonExprByDepth.size(); i++) {
@@ -82,9 +76,17 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
                 Set<Expression> exprsInDepth = CommonSubExpressionCollector
                         .getExpressionsFromDepthMap(i, collector.commonExprByDepth);
                 exprsInDepth.forEach(expr -> {
-                    Expression rewritten = expr.accept(ExpressionReplacer.INSTANCE, aliasMap);
-                    Alias alias = new Alias(rewritten);
-                    aliasMap.put(expr, alias);
+                    if (!(expr instanceof WhenClause)) {
+                        // case whenClause1 whenClause2 END
+                        // whenClause should not be regarded as common-sub-expression, because
+                        // cse will be replaced by a slot, after rewrite the case clause becomes:
+                        // 'case slot whenClause2 END'
+                        // This is illegal.
+                        Expression rewritten = expr.accept(ExpressionReplacer.INSTANCE, aliasMap);
+                        // if rewritten is already alias, use it directly, because in materialized view rewriting
+                        // Should keep out slot immutably after rewritten successfully
+                        aliasMap.put(expr, rewritten instanceof Alias ? (Alias) rewritten : new Alias(rewritten));
+                    }
                 });
                 layer.addAll(aliasMap.values());
                 multiLayers.add(layer);

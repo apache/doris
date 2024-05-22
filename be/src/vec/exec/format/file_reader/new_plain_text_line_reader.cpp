@@ -143,13 +143,12 @@ void EncloseCsvLineReaderContext::_on_normal(const uint8_t* start, size_t& len) 
 }
 
 void EncloseCsvLineReaderContext::_on_pre_match_enclose(const uint8_t* start, size_t& len) {
-    bool should_escape = false;
     do {
         do {
             if (start[_idx] == _escape) [[unlikely]] {
-                should_escape = !should_escape;
-            } else if (should_escape) [[unlikely]] {
-                should_escape = false;
+                _should_escape = !_should_escape;
+            } else if (_should_escape) [[unlikely]] {
+                _should_escape = false;
             } else if (start[_idx] == _enclose) [[unlikely]] {
                 _state.forward_to(ReaderState::MATCH_ENCLOSE);
                 ++_idx;
@@ -445,7 +444,8 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                     std::stringstream ss;
                     ss << "decompress made no progress."
                        << " input_read_bytes: " << input_read_bytes
-                       << " decompressed_len: " << decompressed_len;
+                       << " decompressed_len: " << decompressed_len
+                       << " input len: " << (_input_buf_limit - _input_buf_pos);
                     LOG(WARNING) << ss.str();
                     return Status::InternalError(ss.str());
                 }

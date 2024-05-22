@@ -45,14 +45,12 @@ class DeltaWriterV2Pool;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
-class BlockedTaskScheduler;
 struct RuntimeFilterTimerQueue;
 } // namespace pipeline
 class WorkloadGroupMgr;
 struct WriteCooldownMetaExecutors;
 namespace io {
 class FileCacheFactory;
-class FDCache;
 } // namespace io
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
@@ -85,7 +83,6 @@ class RoutineLoadTaskExecutor;
 class SmallFileMgr;
 class BlockSpillManager;
 class BackendServiceClient;
-class ThreadContext;
 class TPaloBrokerServiceClient;
 class PBackendService_Stub;
 class PFunctionService_Stub;
@@ -164,7 +161,6 @@ public:
         return nullptr;
     }
 
-    ThreadContext* env_thread_context() { return _env_thread_context; }
     // Save all MemTrackerLimiters in use.
     // Each group corresponds to several MemTrackerLimiters and has a lock.
     // Multiple groups are used to reduce the impact of locks.
@@ -177,6 +173,12 @@ public:
     MemTracker* brpc_iobuf_block_memory_tracker() { return _brpc_iobuf_block_memory_tracker.get(); }
     std::shared_ptr<MemTrackerLimiter> segcompaction_mem_tracker() {
         return _segcompaction_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> point_query_executor_mem_tracker() {
+        return _point_query_executor_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> block_compression_mem_tracker() {
+        return _block_compression_mem_tracker;
     }
     std::shared_ptr<MemTrackerLimiter> rowid_storage_reader_tracker() {
         return _rowid_storage_reader_tracker;
@@ -195,6 +197,7 @@ public:
     ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
     ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
+    ThreadPool* non_block_close_thread_pool();
 
     Status init_pipeline_task_scheduler();
     void init_file_cache_factory();
@@ -290,10 +293,6 @@ public:
     }
     std::shared_ptr<DummyLRUCache> get_dummy_lru_cache() { return _dummy_lru_cache; }
 
-    std::shared_ptr<pipeline::BlockedTaskScheduler> get_global_block_scheduler() {
-        return _global_block_scheduler;
-    }
-
     pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
         return _runtime_filter_timer_queue;
     }
@@ -334,7 +333,6 @@ private:
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
 
-    ThreadContext* _env_thread_context = nullptr;
     // The default tracker consumed by mem hook. If the thread does not attach other trackers,
     // by default all consumption will be passed to the process tracker through the orphan tracker.
     // In real time, `consumption of all limiter trackers` + `orphan tracker consumption` = `process tracker consumption`.
@@ -348,6 +346,10 @@ private:
     std::shared_ptr<MemTracker> _brpc_iobuf_block_memory_tracker;
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTrackerLimiter> _segcompaction_mem_tracker;
+
+    // Tracking memory may be shared between multiple queries.
+    std::shared_ptr<MemTrackerLimiter> _point_query_executor_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _block_compression_mem_tracker;
 
     // TODO, looking forward to more accurate tracking.
     std::shared_ptr<MemTrackerLimiter> _rowid_storage_reader_tracker;
@@ -367,6 +369,7 @@ private:
     std::unique_ptr<ThreadPool> _join_node_thread_pool;
     // Pool to use a new thread to release object
     std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
+    std::unique_ptr<ThreadPool> _non_block_close_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
@@ -421,11 +424,6 @@ private:
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
     std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
-
-    // used for query with group cpu hard limit
-    std::shared_ptr<pipeline::BlockedTaskScheduler> _global_block_scheduler;
-    // used for query without workload group
-    std::shared_ptr<pipeline::BlockedTaskScheduler> _without_group_block_scheduler;
 
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 

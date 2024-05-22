@@ -62,14 +62,23 @@ VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
 
 VOrcOutputStream::~VOrcOutputStream() {
     if (!_is_closed) {
-        close();
+        try {
+            close();
+        } catch (...) {
+            /*
+         * Under normal circumstances, close() will be called first, and then the destructor will be called.
+         * If the task is canceled, close() will not be executed, but the destructor will be called directly,
+         * which will cause the be core.When the task is canceled, since the log file has been written during
+         * close(), no operation is performed here.
+         */
+        }
     }
 }
 
 void VOrcOutputStream::close() {
     if (!_is_closed) {
+        Defer defer {[this] { _is_closed = true; }};
         Status st = _file_writer->close();
-        _is_closed = true;
         if (!st.ok()) {
             LOG(WARNING) << "close orc output stream failed: " << st;
             throw std::runtime_error(st.to_string());
@@ -82,7 +91,10 @@ void VOrcOutputStream::write(const void* data, size_t length) {
         Status st = _file_writer->append({static_cast<const uint8_t*>(data), length});
         if (!st.ok()) {
             LOG(WARNING) << "Write to ORC file failed: " << st;
-            return;
+            // When a write error occurs,
+            // the error needs to be thrown to the upper layer.
+            // so that fe can get the exception.
+            throw std::runtime_error(st.to_string());
         }
         _cur_pos += length;
         _written_len += length;
@@ -139,9 +151,10 @@ Status VOrcTransformer::open() {
     }
 
     _output_stream = std::make_unique<VOrcOutputStream>(_file_writer);
-    _writer = orc::createWriter(*_schema, _output_stream.get(), *_write_options);
-    if (_writer == nullptr) {
-        return Status::InternalError("Failed to create file writer");
+    try {
+        _writer = orc::createWriter(*_schema, _output_stream.get(), *_write_options);
+    } catch (const std::exception& e) {
+        return Status::InternalError("failed to create writer: {}", e.what());
     }
     return Status::OK();
 }
@@ -158,6 +171,7 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(const TypeDescriptor
     case TYPE_SMALLINT: {
         return orc::createPrimitiveType(orc::SHORT);
     }
+    case TYPE_IPV4:
     case TYPE_INT: {
         return orc::createPrimitiveType(orc::INT);
     }
@@ -179,6 +193,7 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(const TypeDescriptor
     case TYPE_STRING: {
         return orc::createPrimitiveType(orc::STRING);
     }
+    case TYPE_IPV6:
     case TYPE_BINARY: {
         return orc::createPrimitiveType(orc::STRING);
     }

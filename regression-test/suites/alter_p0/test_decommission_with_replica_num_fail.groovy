@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_decommission_with_replica_num_fail') {
+suite('test_decommission_with_replica_num_fail', 'nonConcurrent') {
     if (isCloudMode()) {
         return
     }
@@ -47,6 +47,11 @@ suite('test_decommission_with_replica_num_fail') {
             "replication_num" = "${replicaNum}"
         );
     """
+
+    // fix set force_olap_table_replication_num
+    sql "ALTER TABLE ${tbl} SET ('default.replication_num' = '${replicaNum}')"
+    sql "ALTER TABLE ${tbl} MODIFY PARTITION (*) SET ('replication_num' = '${replicaNum}')"
+
     try {
         test {
             sql "ALTER SYSTEM DECOMMISSION BACKEND '${targetBackend.Host}:${targetBackend.HeartbeatPort}'"
@@ -54,6 +59,10 @@ suite('test_decommission_with_replica_num_fail') {
         }
     } finally {
         sql "CANCEL DECOMMISSION BACKEND '${targetBackend.Host}:${targetBackend.HeartbeatPort}'"
+        backends = sql_return_maparray('show backends')
+        for (def be : backends) {
+            logger.info("backend=${be}")
+        }
     }
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
 }

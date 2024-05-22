@@ -347,7 +347,7 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
             LOG(WARNING) << "failed to init txn";
             return false;
         }
-        if (elem.second.visible_version == 0) {
+        if (elem.second.visible_version == 0 || elem.second.visible_version == 1) {
             continue;
         }
 
@@ -391,20 +391,20 @@ void MetaChecker::do_check(const std::string& host, const std::string& port,
                            const std::string& instance_id, std::string& msg) {
     LOG(INFO) << "meta check begin";
     instance_id_ = instance_id;
-    MYSQL* conn;
-    conn = mysql_init(nullptr);
-    if (!conn) {
-        msg = "mysql init failed";
-        LOG(WARNING) << msg;
+
+    MYSQL conn;
+    mysql_init(&conn);
+    mysql_ssl_mode ssl_mode = SSL_MODE_DISABLED;
+    mysql_options(&conn, MYSQL_OPT_SSL_MODE, (void*)&ssl_mode);
+    if (!mysql_real_connect(&conn, host.c_str(), user.c_str(), password.c_str(), "", stol(port),
+                            nullptr, 0)) {
+        msg = "mysql conn failed ";
+        LOG(WARNING) << msg << mysql_error(&conn) << " host " << host << " port " << port
+                     << " user " << user << " password " << password << " instance_id "
+                     << instance_id;
         return;
     }
-    conn = mysql_real_connect(conn, host.c_str(), user.c_str(), password.c_str(), "", stol(port),
-                              nullptr, 0);
-    if (!conn) {
-        msg = "mysql init failed";
-        LOG(WARNING) << msg;
-        return;
-    }
+
     LOG(INFO) << "mysql conn succ ";
 
     using namespace std::chrono;
@@ -414,7 +414,7 @@ void MetaChecker::do_check(const std::string& host, const std::string& port,
     LOG(INFO) << "check_fe_meta_by_fdb begin";
     bool ret = false;
     do {
-        ret = check_fe_meta_by_fdb(conn);
+        ret = check_fe_meta_by_fdb(&conn);
         if (!ret) {
             std::this_thread::sleep_for(seconds(10));
         }
@@ -428,7 +428,7 @@ void MetaChecker::do_check(const std::string& host, const std::string& port,
     now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     LOG(INFO) << "check_fe_meta_by_fdb finish, cost(second): " << now - start;
 
-    ret = check_fdb_by_fe_meta(conn);
+    ret = check_fdb_by_fe_meta(&conn);
     if (!ret) {
         LOG(WARNING) << "check_fdb_by_fe_meta failed, there may be data loss";
         msg = "meta loss err";
@@ -437,7 +437,7 @@ void MetaChecker::do_check(const std::string& host, const std::string& port,
     now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     LOG(INFO) << "check_fdb_by_fe_meta finish, cost(second): " << now - start;
 
-    mysql_close(conn);
+    mysql_close(&conn);
 
     LOG(INFO) << "meta check finish";
 }

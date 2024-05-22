@@ -274,10 +274,12 @@ trigger_or_skip_build() {
     else
         skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
         if [[ ${COMMENT_TRIGGER_TYPE} == "compile" ]]; then
-            # skip compile 的时候，也把 p0 p1 external 都 skip 了
+            # skip compile 的时候，也把 p0 p1 external cloud_p0 cloud_p1 都 skip 了
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "p0"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "p1"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "external"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p0"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p1"
         fi
     fi
 }

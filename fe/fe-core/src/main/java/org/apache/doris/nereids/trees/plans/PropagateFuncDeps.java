@@ -19,20 +19,16 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableSet;
-
-import java.util.List;
-import java.util.function.Supplier;
 
 /**
  * Propagate fd, keep children's fd
  */
 public interface PropagateFuncDeps extends LogicalPlan {
     @Override
-    default FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    default FunctionalDependencies computeFuncDeps() {
         if (children().size() == 1) {
             // Note when changing function dependencies, we always clone it.
             // So it's safe to return a reference
@@ -42,13 +38,13 @@ public interface PropagateFuncDeps extends LogicalPlan {
         children().stream()
                 .map(p -> p.getLogicalProperties().getFunctionalDependencies())
                 .forEach(builder::addFunctionalDependencies);
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
         builder.addFdItems(fdItems);
         return builder.build();
     }
 
     @Override
-    default ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+    default ImmutableSet<FdItem> computeFdItems() {
         if (children().size() == 1) {
             // Note when changing function dependencies, we always clone it.
             // So it's safe to return a reference
@@ -59,5 +55,25 @@ public interface PropagateFuncDeps extends LogicalPlan {
                 .map(p -> p.getLogicalProperties().getFunctionalDependencies().getFdItems())
                 .forEach(builder::addAll);
         return builder.build();
+    }
+
+    @Override
+    default void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
+    default void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
+    default void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addEqualSet(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
+    default void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child(0).getLogicalProperties().getFunctionalDependencies());
     }
 }

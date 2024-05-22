@@ -97,8 +97,12 @@ public class PartitionExprUtil {
         switch (timeUnit) {
             case "year":
                 return beginTime.plusYears(interval);
+            case "quarter":
+                return beginTime.plusMonths(interval * 3);
             case "month":
                 return beginTime.plusMonths(interval);
+            case "week":
+                return beginTime.plusDays(interval * 7);
             case "day":
                 return beginTime.plusDays(interval);
             case "hour":

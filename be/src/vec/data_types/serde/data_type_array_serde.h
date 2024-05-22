@@ -64,19 +64,15 @@ public:
             int hive_text_complex_type_delimiter_level = 1) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
-                              int end) const override {
-        return Status::NotSupported("write_column_to_pb with type " + column.get_name());
-    }
+                              int end) const override;
 
-    Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
-        return Status::NotSupported("read_column_from_pb with type " + column.get_name());
-    }
+    Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
                                  int32_t col_id, int row_num) const override;
 
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator,
+                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
                                   int row_num) const override;
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 

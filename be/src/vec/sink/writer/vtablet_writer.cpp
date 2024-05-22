@@ -489,7 +489,7 @@ Status VNodeChannel::open_wait() {
     return status;
 }
 
-Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload, bool is_append) {
+Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     if (payload->second.empty()) {
         return Status::OK();
@@ -522,29 +522,12 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     }
 
     SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
-    if (is_append) {
-        // Do not split the data of the block by tablets but append it to a single delta writer.
-        // This is a faster way to send block than append_to_block_by_selector
-        // TODO: we could write to local delta writer if single_replica_load is true
-        VLOG_DEBUG << "send whole block by append block";
-        std::vector<int64_t> tablets(block->rows(), payload->second[0]);
-        vectorized::MutableColumns& columns = _cur_mutable_block->mutable_columns();
-        columns.clear();
-        columns.reserve(block->columns());
-        // Hold the reference of block columns to avoid copying
-        for (auto column : block->get_columns()) {
-            columns.push_back(std::move(*column).mutate());
-        }
-        *_cur_add_block_request->mutable_tablet_ids() = {tablets.begin(), tablets.end()};
-        _cur_add_block_request->set_is_single_tablet_block(true);
-    } else {
-        block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first));
-        for (auto tablet_id : payload->second) {
-            _cur_add_block_request->add_tablet_ids(tablet_id);
-        }
+    block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first));
+    for (auto tablet_id : payload->second) {
+        _cur_add_block_request->add_tablet_ids(tablet_id);
     }
 
-    if (is_append || _cur_mutable_block->rows() >= _batch_size ||
+    if (_cur_mutable_block->rows() >= _batch_size ||
         _cur_mutable_block->bytes() > config::doris_scanner_row_bytes) {
         {
             SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
@@ -863,6 +846,10 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     // we don't need to wait last rpc finished, cause closure's release/reset will join.
     // But do we need brpc::StartCancel(call_id)?
     _cancel_with_msg(cancel_msg);
+    // if not inited, _stub will be nullptr, skip sending cancel rpc
+    if (!_inited) {
+        return;
+    }
 
     auto request = std::make_shared<PTabletWriterCancelRequest>();
     request->set_allocated_id(&_parent->_load_id);
@@ -918,7 +905,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     _close_time_ms = UnixMillis() - _close_time_ms;
 
     if (_cancelled || state->is_cancelled()) {
-        cancel(state->cancel_reason());
+        cancel(state->cancel_reason().to_string());
     }
 
     if (_add_batches_finished) {
@@ -972,11 +959,6 @@ void VNodeChannel::mark_close() {
 VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
         : AsyncResultWriter(output_exprs), _t_sink(t_sink) {
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
-}
-
-Status VTabletWriter::init_properties(doris::ObjectPool* pool) {
-    _pool = pool;
-    return Status::OK();
 }
 
 void VTabletWriter::_send_batch_process() {
@@ -1125,6 +1107,7 @@ Status VTabletWriter::_init_row_distribution() {
 
 Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     DCHECK(_t_sink.__isset.olap_table_sink);
+    _pool = state->obj_pool();
     auto& table_sink = _t_sink.olap_table_sink;
     _load_id.set_hi(table_sink.load_id.hi);
     _load_id.set_lo(table_sink.load_id.lo);
@@ -1207,8 +1190,10 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
-    _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(),
-                                        _state->batch_size());
+    _block_convertor->init_autoinc_info(
+            _schema->db_id(), _schema->table_id(), _state->batch_size(),
+            _schema->is_partial_update() && !_schema->auto_increment_coulumn().empty(),
+            _schema->auto_increment_column_unique_id());
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
     // add all counter
@@ -1632,6 +1617,8 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
+    DCHECK(_state);
+    DCHECK(_state->query_options().__isset.dry_run_query);
     if (_state->query_options().dry_run_query) {
         return status;
     }
@@ -1651,6 +1638,12 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
     _number_input_rows += rows;
+    // update incrementally so that FE can get the progress.
+    // the real 'num_rows_load_total' will be set when sink being closed.
+    _state->update_num_rows_load_total(rows);
+    _state->update_num_bytes_load_total(bytes);
+    DorisMetrics::instance()->load_rows->increment(rows);
+    DorisMetrics::instance()->load_bytes->increment(bytes);
 
     _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
@@ -1663,41 +1656,12 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
     _row_distribution_watch.stop();
 
-    // update incrementally so that FE can get the progress.
-    // the real 'num_rows_load_total' will be set when sink being closed.
-    _state->update_num_rows_load_total(rows);
-    _state->update_num_bytes_load_total(bytes);
-    DorisMetrics::instance()->load_rows->increment(rows);
-    DorisMetrics::instance()->load_bytes->increment(bytes);
-    // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
-    // block into node channel.
-    bool load_block_to_single_tablet =
-            !_vpartition->is_auto_partition() && _tablet_finder->is_single_tablet();
-    if (load_block_to_single_tablet) {
-        SCOPED_RAW_TIMER(&_filter_ns);
-        // Filter block
-        if (has_filtered_rows) {
-            auto filter = vectorized::ColumnUInt8::create(block->rows(), 0);
-            vectorized::UInt8* filter_data =
-                    static_cast<vectorized::ColumnUInt8*>(filter.get())->get_data().data();
-            vectorized::IColumn::Filter& filter_col =
-                    static_cast<vectorized::ColumnUInt8*>(filter.get())->get_data();
-            for (size_t i = 0; i < filter_col.size(); ++i) {
-                filter_data[i] = !_block_convertor->filter_map()[i];
-            }
-            RETURN_IF_CATCH_EXCEPTION(vectorized::Block::filter_block_internal(
-                    block.get(), filter_col, block->columns()));
-        }
-    }
-
     // Add block to node channel
     for (size_t i = 0; i < _channels.size(); i++) {
         for (const auto& entry : channel_to_payload[i]) {
             // if this node channel is already failed, this add_row will be skipped
-            auto st = entry.first->add_block(
-                    block.get(), &entry.second, // entry.second is a [row -> tablet] mapping
-                    // if it is load single tablet, then append this whole block
-                    load_block_to_single_tablet);
+            // entry.second is a [row -> tablet] mapping
+            auto st = entry.first->add_block(block.get(), &entry.second);
             if (!st.ok()) {
                 _channels[i]->mark_as_failed(entry.first, st.to_string());
             }

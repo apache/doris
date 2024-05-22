@@ -239,6 +239,7 @@ public:
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    std::string to_string(const T& value) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeDecimalSerDe<T>>(scale, precision, nesting_level);
@@ -282,6 +283,7 @@ public:
     T scale_factor_for(const DataTypeDecimal<U>& x, bool) const {
         if (get_scale() < x.get_scale()) {
             LOG(FATAL) << "Decimal result's scale is less then argiment's one";
+            __builtin_unreachable();
         }
 
         UInt32 scale_delta = get_scale() - x.get_scale(); /// scale_delta >= 0
@@ -410,12 +412,16 @@ template <typename DataType>
 constexpr bool IsDataTypeDecimalOrNumber =
         IsDataTypeDecimal<DataType> || IsDataTypeNumber<DataType>;
 
+#define THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(value, from_type_name, to_type_name)              \
+    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,                                         \
+                    "Arithmetic overflow when converting value {} from type {} to type {}", value, \
+                    from_type_name, to_type_name)
 // only for casting between other integral types and decimals
-template <typename FromDataType, typename ToDataType, bool multiply_may_overflow,
-          bool narrow_integral, typename RealFrom, typename RealTo>
+template <typename FromDataType, typename OrigFromDataType, typename ToDataType,
+          bool multiply_may_overflow, bool narrow_integral, typename RealFrom, typename RealTo>
     requires IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>
-void convert_to_decimals(RealTo* dst, const RealFrom* src, UInt32 scale_from, UInt32 scale_to,
-                         const typename ToDataType::FieldType& min_result,
+void convert_to_decimals(RealTo* dst, const RealFrom* src, UInt32 scale_from, UInt32 precicion_to,
+                         UInt32 scale_to, const typename ToDataType::FieldType& min_result,
                          const typename ToDataType::FieldType& max_result, size_t size) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
@@ -427,18 +433,21 @@ void convert_to_decimals(RealTo* dst, const RealFrom* src, UInt32 scale_from, UI
     MaxFieldType multiplier =
             DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - scale_from);
     MaxFieldType tmp;
+    ToDataType to_data_type(precicion_to, scale_to);
+    auto from_type_name = OrigFromDataType {}.get_name();
     for (size_t i = 0; i < size; i++) {
         if constexpr (multiply_may_overflow) {
             if (common::mul_overflow(static_cast<MaxFieldType>(src[i]).value, multiplier.value,
                                      tmp.value)) {
-                throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+                auto value_str = OrigFromDataType {}.to_string(src[i]);
+                THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(value_str, from_type_name,
+                                                         to_data_type.get_name());
             }
             if constexpr (narrow_integral) {
                 if (tmp.value < min_result.value || tmp.value > max_result.value) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                    "Arithmetic overflow, convert failed from {}, "
-                                    "expected data is [{}, {}]",
-                                    tmp.value, min_result.value, max_result.value);
+                    auto value_str = OrigFromDataType {}.to_string(src[i]);
+                    THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(value_str, from_type_name,
+                                                             to_data_type.get_name());
                 }
             }
             dst[i].value = tmp.value;
@@ -450,21 +459,20 @@ void convert_to_decimals(RealTo* dst, const RealFrom* src, UInt32 scale_from, UI
     if constexpr (!multiply_may_overflow && narrow_integral) {
         for (size_t i = 0; i < size; i++) {
             if (dst[i].value < min_result.value || dst[i].value > max_result.value) {
-                throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                "Arithmetic overflow, convert failed from {}, "
-                                "expected data is [{}, {}]",
-                                dst[i].value, min_result.value, max_result.value);
+                auto value_str = OrigFromDataType {}.to_string(src[i]);
+                THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(value_str, from_type_name,
+                                                         to_data_type.get_name());
             }
         }
     }
 }
 
 // only for casting between other integral types and decimals
-template <typename FromDataType, typename ToDataType, bool narrow_integral, typename RealFrom,
-          typename RealTo>
+template <typename FromDataType, typename ToDataType, typename OrigToDataType, bool narrow_integral,
+          typename RealFrom, typename RealTo>
     requires IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>
-void convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 scale_from,
-                           const typename ToDataType::FieldType& min_result,
+void convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 precicion_from,
+                           UInt32 scale_from, const typename ToDataType::FieldType& min_result,
                            const typename ToDataType::FieldType& max_result, size_t size) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
@@ -473,20 +481,21 @@ void convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 scale_from,
 
     // from decimal to integer
     MaxFieldType multiplier = DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from);
+    FromDataType from_data_type(precicion_from, scale_from);
     for (size_t i = 0; i < size; i++) {
         auto tmp = static_cast<MaxFieldType>(src[i]).value / multiplier.value;
         if constexpr (narrow_integral) {
             if (tmp < min_result.value || tmp > max_result.value) {
-                throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                "Arithmetic overflow, convert failed from {}, "
-                                "expected data is [{}, {}]",
-                                tmp, min_result.value, max_result.value);
+                THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(from_data_type.to_string(src[i]),
+                                                         from_data_type.get_name(),
+                                                         OrigToDataType {}.get_name());
             }
         }
         dst[i] = tmp;
     }
 }
 
+// convert between decimal types
 template <typename FromDataType, typename ToDataType, bool multiply_may_overflow,
           bool narrow_integral>
 void convert_decimal_cols(
@@ -506,6 +515,8 @@ void convert_decimal_cols(
                                                   FromFieldType, ToFieldType>>;
     using MaxNativeType = typename MaxFieldType::NativeType;
 
+    FromDataType from_data_type(precision_from, scale_from);
+    ToDataType to_data_type(precision_to, scale_to);
     auto max_result = DataTypeDecimal<ToFieldType>::get_max_digits_number(precision_to);
     if (scale_to > scale_from) {
         const MaxNativeType multiplier =
@@ -515,13 +526,14 @@ void convert_decimal_cols(
             if constexpr (multiply_may_overflow) {
                 if (common::mul_overflow(static_cast<MaxNativeType>(vec_from[i].value), multiplier,
                                          res)) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+                    THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(from_data_type.to_string(vec_from[i]),
+                                                             from_data_type.get_name(),
+                                                             to_data_type.get_name());
                 } else {
                     if (UNLIKELY(res > max_result.value || res < -max_result.value)) {
-                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                        "Arithmetic overflow, convert failed from {}, "
-                                        "expected data is [{}, {}]",
-                                        res, -max_result.value, max_result.value);
+                        THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(
+                                from_data_type.to_string(vec_from[i]), from_data_type.get_name(),
+                                to_data_type.get_name());
                     } else {
                         vec_to[i] = ToFieldType(res);
                     }
@@ -530,10 +542,9 @@ void convert_decimal_cols(
                 res = vec_from[i].value * multiplier;
                 if constexpr (narrow_integral) {
                     if (UNLIKELY(res > max_result.value || res < -max_result.value)) {
-                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                        "Arithmetic overflow, convert failed from {}, "
-                                        "expected data is [{}, {}]",
-                                        res, -max_result.value, max_result.value);
+                        THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(
+                                from_data_type.to_string(vec_from[i]), from_data_type.get_name(),
+                                to_data_type.get_name());
                     }
                 }
                 vec_to[i] = ToFieldType(res);
@@ -544,10 +555,9 @@ void convert_decimal_cols(
             if constexpr (narrow_integral) {
                 if (UNLIKELY(vec_from[i].value > max_result.value ||
                              vec_from[i].value < -max_result.value)) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                    "Arithmetic overflow, convert failed from {}, "
-                                    "expected data is [{}, {}]",
-                                    vec_from[i].value, -max_result.value, max_result.value);
+                    THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(from_data_type.to_string(vec_from[i]),
+                                                             from_data_type.get_name(),
+                                                             to_data_type.get_name());
                 }
             }
             vec_to[i] = ToFieldType(vec_from[i].value);
@@ -561,10 +571,9 @@ void convert_decimal_cols(
                 if constexpr (narrow_integral) {
                     res = (vec_from[i].value + multiplier / 2) / multiplier;
                     if (UNLIKELY(res > max_result.value)) {
-                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                        "Arithmetic overflow, convert failed from {}, "
-                                        "expected data is [{}, {}]",
-                                        res, -max_result.value, max_result.value);
+                        THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(
+                                from_data_type.to_string(vec_from[i]), from_data_type.get_name(),
+                                to_data_type.get_name());
                     }
                     vec_to[i] = ToFieldType(res);
                 } else {
@@ -574,10 +583,9 @@ void convert_decimal_cols(
                 if constexpr (narrow_integral) {
                     res = (vec_from[i].value - multiplier / 2) / multiplier;
                     if (UNLIKELY(res < -max_result.value)) {
-                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                        "Arithmetic overflow, convert failed from {}, "
-                                        "expected data is [{}, {}]",
-                                        res, -max_result.value, max_result.value);
+                        THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(
+                                from_data_type.to_string(vec_from[i]), from_data_type.get_name(),
+                                to_data_type.get_name());
                     }
                     vec_to[i] = ToFieldType(res);
                 } else {
@@ -588,11 +596,12 @@ void convert_decimal_cols(
     }
 }
 
+// convert from decimal to non-decimal
 template <typename FromDataType, typename ToDataType, bool narrow_integral>
-    requires IsDataTypeDecimal<FromDataType>
+    requires IsDataTypeDecimal<FromDataType> && (!IsDataTypeDecimal<ToDataType>)
 void convert_from_decimal(typename ToDataType::FieldType* dst,
-                          const typename FromDataType::FieldType* src, UInt32 scale,
-                          const typename ToDataType::FieldType& min_result,
+                          const typename FromDataType::FieldType* src, UInt32 precision,
+                          UInt32 scale, const typename ToDataType::FieldType& min_result,
                           const typename ToDataType::FieldType& max_result, size_t size) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
@@ -608,28 +617,31 @@ void convert_from_decimal(typename ToDataType::FieldType* dst,
                 dst[i] = static_cast<ToFieldType>(src[i].value) / multiplier.value;
             }
         }
+        FromDataType from_data_type(precision, scale);
         if constexpr (narrow_integral) {
             for (size_t i = 0; i < size; i++) {
                 if (dst[i] < min_result || dst[i] > max_result) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                    "Arithmetic overflow, convert failed from {}, "
-                                    "expected data is [{}, {}]",
-                                    dst[i], min_result, max_result);
+                    THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(from_data_type.to_string(src[i]),
+                                                             from_data_type.get_name(),
+                                                             ToDataType {}.get_name());
                 }
             }
         }
     } else {
-        convert_from_decimals<FromDataType, FromDataType, narrow_integral>(
-                dst, src, scale, FromFieldType(min_result), FromFieldType(max_result), size);
+        convert_from_decimals<FromDataType, FromDataType, ToDataType, narrow_integral>(
+                dst, src, precision, scale, FromFieldType(min_result), FromFieldType(max_result),
+                size);
     }
 }
 
+// convert from non-decimal to decimal
 template <typename FromDataType, typename ToDataType, bool multiply_may_overflow,
           bool narrow_integral>
     requires IsDataTypeDecimal<ToDataType>
 void convert_to_decimal(typename ToDataType::FieldType* dst,
                         const typename FromDataType::FieldType* src, UInt32 from_scale,
-                        UInt32 to_scale, const typename ToDataType::FieldType& min_result,
+                        UInt32 to_precision, UInt32 to_scale,
+                        const typename ToDataType::FieldType& min_result,
                         const typename ToDataType::FieldType& max_result, size_t size) {
     using FromFieldType = typename FromDataType::FieldType;
 
@@ -644,11 +656,11 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
                 }
                 FromFieldType tmp = src[i] * multiplier;
                 if (tmp <= FromFieldType(min_result) || tmp >= FromFieldType(max_result)) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                    "Arithmetic overflow, convert failed from {}, "
-                                    "expected data is [{}, {}]",
-                                    FromFieldType(tmp), FromFieldType(min_result),
-                                    FromFieldType(max_result));
+                    ToDataType to_data_type(to_precision, to_scale);
+                    throw Exception(
+                            ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                            "Arithmetic overflow when converting value {} from type {} to type {}",
+                            src[i], FromDataType {}.get_name(), to_data_type.get_name());
                 }
             }
         }
@@ -661,9 +673,9 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
                 std::conditional_t<std::is_same_v<FromFieldType, Int128>, Decimal128V2,
                                    std::conditional_t<std::is_same_v<FromFieldType, wide::Int256>,
                                                       Decimal256, Decimal64>>;
-        convert_to_decimals<DataTypeDecimal<DecimalFrom>, ToDataType, multiply_may_overflow,
-                            narrow_integral>(dst, src, from_scale, to_scale, min_result, max_result,
-                                             size);
+        convert_to_decimals<DataTypeDecimal<DecimalFrom>, FromDataType, ToDataType,
+                            multiply_may_overflow, narrow_integral>(
+                dst, src, from_scale, to_precision, to_scale, min_result, max_result, size);
     }
 }
 

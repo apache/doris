@@ -37,11 +37,14 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayList;
+import java.util.BitSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * Logical Union.
@@ -187,20 +190,96 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        if (qualifier != Qualifier.DISTINCT) {
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
+    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+        if (qualifier == Qualifier.DISTINCT) {
+            fdBuilder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        builder.addFdItems(fdItems);
-        return builder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
+    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        // don't propagate uniform slots
+    }
+
+    private List<BitSet> mapSlotToIndex(Plan plan, List<Set<Slot>> equalSlotsList) {
+        Map<Slot, Integer> slotToIndex = new HashMap<>();
+        for (int i = 0; i < plan.getOutput().size(); i++) {
+            slotToIndex.put(plan.getOutput().get(i), i);
+        }
+        List<BitSet> equalSlotIndicesList = new ArrayList<>();
+        for (Set<Slot> equalSlots : equalSlotsList) {
+            BitSet equalSlotIndices = new BitSet();
+            for (Slot slot : equalSlots) {
+                if (slotToIndex.containsKey(slot)) {
+                    equalSlotIndices.set(slotToIndex.get(slot));
+                }
+            }
+            if (equalSlotIndices.cardinality() > 1) {
+                equalSlotIndicesList.add(equalSlotIndices);
+            }
+        }
+        return equalSlotIndicesList;
+    }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        if (children.isEmpty()) {
+            return;
+        }
+
+        // Get the list of equal slot sets and their corresponding index mappings for the first child
+        List<Set<Slot>> childEqualSlotsList = child(0).getLogicalProperties()
+                .getFunctionalDependencies().calAllEqualSet();
+        List<BitSet> childEqualSlotsIndicesList = mapSlotToIndex(child(0), childEqualSlotsList);
+        List<BitSet> unionEqualSlotIndicesList = new ArrayList<>(childEqualSlotsIndicesList);
+
+        // Traverse all children and find the equal sets that exist in all children
+        for (int i = 1; i < children.size(); i++) {
+            Plan child = children.get(i);
+
+            // Get the equal slot sets for the current child
+            childEqualSlotsList = child.getLogicalProperties().getFunctionalDependencies().calAllEqualSet();
+
+            // Map slots to indices for the current child
+            childEqualSlotsIndicesList = mapSlotToIndex(child, childEqualSlotsList);
+
+            // Only keep the equal pairs that exist in all children of the union
+            // This is done by calculating the intersection of all children's equal slot indices
+            for (BitSet unionEqualSlotIndices : unionEqualSlotIndicesList) {
+                BitSet intersect = new BitSet();
+                for (BitSet childEqualSlotIndices : childEqualSlotsIndicesList) {
+                    if (unionEqualSlotIndices.intersects(childEqualSlotIndices)) {
+                        intersect = childEqualSlotIndices;
+                        break;
+                    }
+                }
+                unionEqualSlotIndices.and(intersect);
+            }
+        }
+
+        // Build the functional dependencies for the output slots
+        List<Slot> outputList = getOutput();
+        for (BitSet equalSlotIndices : unionEqualSlotIndicesList) {
+            if (equalSlotIndices.cardinality() <= 1) {
+                continue;
+            }
+            int first = equalSlotIndices.nextSetBit(0);
+            int next = equalSlotIndices.nextSetBit(first + 1);
+            while (next > 0) {
+                fdBuilder.addEqualPair(outputList.get(first), outputList.get(next));
+                next = equalSlotIndices.nextSetBit(next + 1);
+            }
+        }
+    }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        // don't generate
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems() {
+        Set<NamedExpression> output = ImmutableSet.copyOf(getOutput());
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
         ImmutableSet<SlotReference> exprs = output.stream()

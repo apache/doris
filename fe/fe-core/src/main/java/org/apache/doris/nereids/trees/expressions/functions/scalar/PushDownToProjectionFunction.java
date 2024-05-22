@@ -60,6 +60,10 @@ public abstract class PushDownToProjectionFunction extends ScalarFunction {
      *         Otherwise, a new SlotReference is created and added to the context.
      */
     public static Expression rewriteToSlot(PushDownToProjectionFunction pushedFunction, SlotReference topColumnSlot) {
+        // push down could not work well with variant that not belong to table, so skip it.
+        if (!topColumnSlot.getColumn().isPresent() || !topColumnSlot.getTable().isPresent()) {
+            return pushedFunction;
+        }
         // rewrite to slotRef
         StatementContext ctx = ConnectContext.get().getStatementContext();
         List<String> fullPaths = pushedFunction.collectToList(node -> node instanceof VarcharLiteral).stream()
@@ -73,8 +77,8 @@ public abstract class PushDownToProjectionFunction extends ScalarFunction {
         boolean nullable = true; // always nullable at present
         SlotReference slotRef = new SlotReference(StatementScopeIdGenerator.newExprId(),
                 topColumnSlot.getName(), topColumnSlot.getDataType(),
-                nullable, topColumnSlot.getQualifier(), topColumnSlot.getTable().orElse(null),
-                topColumnSlot.getColumn().orElse(null), Optional.of(topColumnSlot.getInternalName()),
+                nullable, topColumnSlot.getQualifier(), topColumnSlot.getTable().get(),
+                topColumnSlot.getColumn().get(), Optional.of(topColumnSlot.getInternalName()),
                 fullPaths);
         ctx.addPathSlotRef(topColumnSlot, fullPaths, slotRef, pushedFunction);
         ctx.addSlotToRelation(slotRef, ctx.getRelationBySlot(topColumnSlot));

@@ -112,10 +112,12 @@ public class StreamLoadPlanner {
         return destTable;
     }
 
+    // the caller should get table read lock when call this method
     public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
         return this.plan(loadId, 1);
     }
 
+    // the caller should get table read lock when call this method
     // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
     public TExecPlanFragmentParams plan(TUniqueId loadId, int fragmentInstanceIdIndex) throws UserException {
         if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
@@ -219,8 +221,10 @@ public class StreamLoadPlanner {
 
         scanTupleDesc.setTable(destTable);
         analyzer.registerTupleDescriptor(scanTupleDesc);
+        Expr whereExpr = null;
         if (null != taskInfo.getWhereExpr()) {
-            taskInfo.getWhereExpr().analyze(analyzer);
+            whereExpr = taskInfo.getWhereExpr().clone();
+            whereExpr.analyze(analyzer);
         }
         // create scan node
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
@@ -228,6 +232,7 @@ public class StreamLoadPlanner {
         DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
         dataDescription.analyzeWithoutCheckPriv(db.getFullName());
         BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
+        fileGroup.setWhereExpr(whereExpr);
         fileGroup.parse(db, dataDescription);
         // 2. create dummy file status
         TBrokerFileStatus fileStatus = new TBrokerFileStatus();
@@ -257,15 +262,20 @@ public class StreamLoadPlanner {
             timeout *= 2;
         }
 
+        final boolean enableMemtableOnSinkNode =
+                destTable.getTableProperty().getUseSchemaLightChange()
+                ? taskInfo.isMemtableOnSinkNode() : false;
+        final boolean enableSingleReplicaLoad = enableMemtableOnSinkNode
+                ? false : Config.enable_single_replica_load;
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink;
         if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).getGroupCommit() != null) {
             olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
-                    Config.enable_single_replica_load, ((StreamLoadTask) taskInfo).getGroupCommit(),
+                    enableSingleReplicaLoad, ((StreamLoadTask) taskInfo).getGroupCommit(),
                     taskInfo.getMaxFilterRatio());
         } else {
-            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
+            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, enableSingleReplicaLoad);
         }
         int txnTimeout = timeout == 0 ? ConnectContext.get().getExecTimeout() : timeout;
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
@@ -319,12 +329,11 @@ public class StreamLoadPlanner {
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         //load
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
+        queryOptions.setEnablePipelineXEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        boolean isEnableMemtableOnSinkNode =
-                destTable.getTableProperty().getUseSchemaLightChange()
-                ? taskInfo.isMemtableOnSinkNode() : false;
-        queryOptions.setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
+        queryOptions.setEnableProfile(taskInfo.getEnableProfile());
+        queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
@@ -339,11 +348,13 @@ public class StreamLoadPlanner {
         return params;
     }
 
+    // the caller should get table read lock when call this method
     // single table plan fragmentInstanceIndex is 1(default value)
     public TPipelineFragmentParams planForPipeline(TUniqueId loadId) throws UserException {
         return this.planForPipeline(loadId, 1);
     }
 
+    // the caller should get table read lock when call this method
     public TPipelineFragmentParams planForPipeline(TUniqueId loadId, int fragmentInstanceIdIndex) throws UserException {
         if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
                 && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
@@ -445,8 +456,10 @@ public class StreamLoadPlanner {
         }
         scanTupleDesc.setTable(destTable);
         analyzer.registerTupleDescriptor(scanTupleDesc);
+        Expr whereExpr = null;
         if (null != taskInfo.getWhereExpr()) {
-            taskInfo.getWhereExpr().analyze(analyzer);
+            whereExpr = taskInfo.getWhereExpr().clone();
+            whereExpr.analyze(analyzer);
         }
         // create scan node
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
@@ -454,6 +467,7 @@ public class StreamLoadPlanner {
         DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
         dataDescription.analyzeWithoutCheckPriv(db.getFullName());
         BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
+        fileGroup.setWhereExpr(whereExpr);
         fileGroup.parse(db, dataDescription);
         // 2. create dummy file status
         TBrokerFileStatus fileStatus = new TBrokerFileStatus();
@@ -483,15 +497,20 @@ public class StreamLoadPlanner {
             timeout *= 2;
         }
 
+        final boolean enableMemtableOnSinkNode =
+                destTable.getTableProperty().getUseSchemaLightChange()
+                ? taskInfo.isMemtableOnSinkNode() : false;
+        final boolean enableSingleReplicaLoad = enableMemtableOnSinkNode
+                ? false : Config.enable_single_replica_load;
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink;
         if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).getGroupCommit() != null) {
             olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
-                    Config.enable_single_replica_load, ((StreamLoadTask) taskInfo).getGroupCommit(),
+                    enableSingleReplicaLoad, ((StreamLoadTask) taskInfo).getGroupCommit(),
                     taskInfo.getMaxFilterRatio());
         } else {
-            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
+            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, enableSingleReplicaLoad);
         }
         int txnTimeout = timeout == 0 ? ConnectContext.get().getExecTimeout() : timeout;
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
@@ -548,12 +567,11 @@ public class StreamLoadPlanner {
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         //load
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
+        queryOptions.setEnablePipelineXEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        boolean isEnableMemtableOnSinkNode =
-                destTable.getTableProperty().getUseSchemaLightChange()
-                ? taskInfo.isMemtableOnSinkNode() : false;
-        queryOptions.setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
+        queryOptions.setEnableProfile(taskInfo.getEnableProfile());
+        queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
 
         pipParams.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();

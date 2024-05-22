@@ -26,6 +26,7 @@
 #include <butil/iobuf.h>
 #include <fcntl.h>
 #include <fmt/core.h>
+#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -570,26 +571,39 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
         Status st = Status::OK();
 
         const bool has_cancel_reason = request->has_cancel_reason();
+        const bool has_cancel_status = request->has_cancel_status();
+        // During upgrade only LIMIT_REACH is used, other reason is changed to internal error
+        Status actual_cancel_status = Status::OK();
+        // Convert PPlanFragmentCancelReason to Status
+        if (has_cancel_status) {
+            // If fe set cancel status, then it is new FE now, should use cancel status.
+            actual_cancel_status = Status::create(request->cancel_status());
+        } else if (has_cancel_reason) {
+            // If fe not set cancel status, but set cancel reason, should convert cancel reason
+            // to cancel status here.
+            if (request->cancel_reason() == PPlanFragmentCancelReason::LIMIT_REACH) {
+                actual_cancel_status = Status::Error<ErrorCode::LIMIT_REACH>("limit reach");
+            } else {
+                // Use cancel reason as error message
+                actual_cancel_status = Status::InternalError(
+                        PPlanFragmentCancelReason_Name(request->cancel_reason()));
+            }
+        } else {
+            actual_cancel_status = Status::InternalError("unknown error");
+        }
+
         if (request->has_fragment_id()) {
             TUniqueId query_id;
             query_id.__set_hi(request->query_id().hi());
             query_id.__set_lo(request->query_id().lo());
-            LOG(INFO) << fmt::format(
-                    "Cancel query {}, reason: {}", print_id(query_id),
-                    has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
-                                      : "INTERNAL_ERROR");
-            _exec_env->fragment_mgr()->cancel_fragment(
-                    query_id, request->fragment_id(),
-                    has_cancel_reason ? request->cancel_reason()
-                                      : PPlanFragmentCancelReason::INTERNAL_ERROR);
+            LOG(INFO) << fmt::format("Cancel query {}, reason: {}", print_id(query_id),
+                                     actual_cancel_status.to_string());
+            _exec_env->fragment_mgr()->cancel_fragment(query_id, request->fragment_id(),
+                                                       actual_cancel_status);
         } else {
-            LOG(INFO) << fmt::format(
-                    "Cancel instance {}, reason: {}", print_id(tid),
-                    has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
-                                      : "INTERNAL_ERROR");
-            _exec_env->fragment_mgr()->cancel_instance(
-                    tid, has_cancel_reason ? request->cancel_reason()
-                                           : PPlanFragmentCancelReason::INTERNAL_ERROR);
+            LOG(INFO) << fmt::format("Cancel instance {}, reason: {}", print_id(tid),
+                                     actual_cancel_status.to_string());
+            _exec_env->fragment_mgr()->cancel_instance(tid, actual_cancel_status);
         }
 
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
@@ -608,6 +622,89 @@ void PInternalService::fetch_data(google::protobuf::RpcController* controller,
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
         _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
+    });
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
+        return;
+    }
+}
+
+void PInternalService::outfile_write_success(google::protobuf::RpcController* controller,
+                                             const POutfileWriteSuccessRequest* request,
+                                             POutfileWriteSuccessResult* result,
+                                             google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+        VLOG_RPC << "outfile write success file";
+        brpc::ClosureGuard closure_guard(done);
+        TResultFileSink result_file_sink;
+        Status st = Status::OK();
+        {
+            const uint8_t* buf = (const uint8_t*)(request->result_file_sink().data());
+            uint32_t len = request->result_file_sink().size();
+            st = deserialize_thrift_msg(buf, &len, false, &result_file_sink);
+            if (!st.ok()) {
+                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+        }
+
+        TResultFileSinkOptions file_options = result_file_sink.file_options;
+        std::stringstream ss;
+        ss << file_options.file_path << file_options.success_file_name;
+        std::string file_name = ss.str();
+        if (result_file_sink.storage_backend_type == TStorageBackendType::LOCAL) {
+            // For local file writer, the file_path is a local dir.
+            // Here we do a simple security verification by checking whether the file exists.
+            // Because the file path is currently arbitrarily specified by the user,
+            // Doris is not responsible for ensuring the correctness of the path.
+            // This is just to prevent overwriting the existing file.
+            bool exists = true;
+            st = io::global_local_filesystem()->exists(file_name, &exists);
+            if (!st.ok()) {
+                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+            if (exists) {
+                st = Status::InternalError("File already exists: {}", file_name);
+            }
+            if (!st.ok()) {
+                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+        }
+
+        auto&& res = FileFactory::create_file_writer(
+                FileFactory::convert_storage_type(result_file_sink.storage_backend_type),
+                ExecEnv::GetInstance(), file_options.broker_addresses,
+                file_options.broker_properties, file_name,
+                {
+                        .write_file_cache = false,
+                        .sync_file_data = false,
+                });
+        using T = std::decay_t<decltype(res)>;
+        if (!res.has_value()) [[unlikely]] {
+            st = std::forward<T>(res).error();
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+
+        std::unique_ptr<doris::io::FileWriter> _file_writer_impl = std::forward<T>(res).value();
+        // must write somthing because s3 file writer can not writer empty file
+        st = _file_writer_impl->append({"success"});
+        if (!st.ok()) {
+            LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        st = _file_writer_impl->close();
+        if (!st.ok()) {
+            LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
     });
     if (!ret) {
         offer_failed(result, done, _heavy_work_pool);
@@ -648,7 +745,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         const TFileScanRangeParams& params = file_scan_range.params;
 
         std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::SCHEMA_CHANGE,
+                MemTrackerLimiter::Type::OTHER,
                 fmt::format("{}#{}", params.format_type, params.file_type));
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
 
@@ -1078,14 +1175,32 @@ void PInternalService::get_info(google::protobuf::RpcController* controller,
         // Currently it supports 2 kinds of requests:
         // 1. get all kafka partition ids for given topic
         // 2. get all kafka partition offsets for given topic and timestamp.
+        int timeout_ms = request->has_timeout_secs() ? request->timeout_secs() * 1000 : 5 * 1000;
         if (request->has_kafka_meta_request()) {
             const PKafkaMetaProxyRequest& kafka_request = request->kafka_meta_request();
-            if (!kafka_request.partition_id_for_latest_offsets().empty()) {
+            if (!kafka_request.offset_flags().empty()) {
+                std::vector<PIntegerPair> partition_offsets;
+                Status st = _exec_env->routine_load_task_executor()
+                                    ->get_kafka_real_offsets_for_partitions(
+                                            request->kafka_meta_request(), &partition_offsets,
+                                            timeout_ms);
+                if (st.ok()) {
+                    PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
+                    for (const auto& entry : partition_offsets) {
+                        PIntegerPair* res = part_offsets->add_offset_times();
+                        res->set_key(entry.key());
+                        res->set_val(entry.val());
+                    }
+                }
+                st.to_protobuf(response->mutable_status());
+                return;
+            } else if (!kafka_request.partition_id_for_latest_offsets().empty()) {
                 // get latest offsets for specified partition ids
                 std::vector<PIntegerPair> partition_offsets;
                 Status st = _exec_env->routine_load_task_executor()
                                     ->get_kafka_latest_offsets_for_partitions(
-                                            request->kafka_meta_request(), &partition_offsets);
+                                            request->kafka_meta_request(), &partition_offsets,
+                                            timeout_ms);
                 if (st.ok()) {
                     PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
                     for (const auto& entry : partition_offsets) {
@@ -1101,7 +1216,8 @@ void PInternalService::get_info(google::protobuf::RpcController* controller,
                 std::vector<PIntegerPair> partition_offsets;
                 Status st = _exec_env->routine_load_task_executor()
                                     ->get_kafka_partition_offsets_for_times(
-                                            request->kafka_meta_request(), &partition_offsets);
+                                            request->kafka_meta_request(), &partition_offsets,
+                                            timeout_ms);
                 if (st.ok()) {
                     PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
                     for (const auto& entry : partition_offsets) {
@@ -1183,9 +1299,36 @@ void PInternalService::merge_filter(::google::protobuf::RpcController* controlle
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
         Status st = _exec_env->fragment_mgr()->merge_filter(request, &zero_copy_input_stream);
-        if (!st.ok()) {
-            LOG(WARNING) << "merge meet error" << st.to_string();
-        }
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::send_filter_size(::google::protobuf::RpcController* controller,
+                                        const ::doris::PSendFilterSizeRequest* request,
+                                        ::doris::PSendFilterSizeResponse* response,
+                                        ::google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        Status st = _exec_env->fragment_mgr()->send_filter_size(request);
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::sync_filter_size(::google::protobuf::RpcController* controller,
+                                        const ::doris::PSyncFilterSizeRequest* request,
+                                        ::doris::PSyncFilterSizeResponse* response,
+                                        ::google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        Status st = _exec_env->fragment_mgr()->sync_filter_size(request);
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1819,6 +1962,7 @@ void PInternalService::multiget_data(google::protobuf::RpcController* controller
         watch.start();
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
         Status st = RowIdStorageReader::read_by_rowids(*request, response);
         st.to_protobuf(response->mutable_status());
         LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;

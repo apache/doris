@@ -24,10 +24,12 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
 
 // DROP DB表达式
 public class DropDbStmt extends DdlStmt {
@@ -73,9 +75,12 @@ public class DropDbStmt extends DdlStmt {
                     analyzer.getQualifiedUser(), dbName);
         }
 
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.DROP)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(),
+                        StringUtils.isEmpty(ctlName) ? InternalCatalog.INTERNAL_CATALOG_NAME : ctlName, dbName,
+                        PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                                                ConnectContext.get().getQualifiedUser(), dbName);
+                    ConnectContext.get().getQualifiedUser(), dbName);
         }
     }
 

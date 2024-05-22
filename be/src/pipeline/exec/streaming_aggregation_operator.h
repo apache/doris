@@ -22,7 +22,7 @@
 #include <memory>
 
 #include "common/status.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 
@@ -42,6 +42,7 @@ public:
     ~StreamingAggLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
     void make_nullable_output_key(vectorized::Block* block);
@@ -62,7 +63,7 @@ private:
     Status _execute_with_serialized_key(vectorized::Block* block);
     Status _merge_with_serialized_key(vectorized::Block* block);
     void _update_memusage_with_serialized_key();
-    void _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
+    Status _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
     Status _get_without_key_result(RuntimeState* state, vectorized::Block* block, bool* eos);
     Status _serialize_without_key(RuntimeState* state, vectorized::Block* block, bool* eos);
     Status _get_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
@@ -182,25 +183,28 @@ private:
     bool _child_eos = false;
     std::unique_ptr<vectorized::Block> _pre_aggregated_block = nullptr;
     std::vector<vectorized::AggregateDataPtr> _values;
-    bool _init = false;
+    bool _opened = false;
 
     void _destroy_agg_status(vectorized::AggregateDataPtr data);
 
     void _close_with_serialized_key() {
         std::visit(
-                [&](auto&& agg_method) -> void {
-                    auto& data = *agg_method.hash_table;
-                    data.for_each_mapped([&](auto& mapped) {
-                        if (mapped) {
-                            _destroy_agg_status(mapped);
-                            mapped = nullptr;
-                        }
-                    });
-                    if (data.has_null_key_data()) {
-                        _destroy_agg_status(
-                                data.template get_null_key_data<vectorized::AggregateDataPtr>());
-                    }
-                },
+                vectorized::Overload {[&](std::monostate& arg) -> void {
+                                          // Do nothing
+                                      },
+                                      [&](auto& agg_method) -> void {
+                                          auto& data = *agg_method.hash_table;
+                                          data.for_each_mapped([&](auto& mapped) {
+                                              if (mapped) {
+                                                  _destroy_agg_status(mapped);
+                                                  mapped = nullptr;
+                                              }
+                                          });
+                                          if (data.has_null_key_data()) {
+                                              _destroy_agg_status(data.template get_null_key_data<
+                                                                  vectorized::AggregateDataPtr>());
+                                          }
+                                      }},
                 _agg_data->method_variant);
     }
 };
@@ -242,6 +246,7 @@ private:
     bool _can_short_circuit = false;
     std::vector<size_t> _make_nullable_keys;
     bool _have_conjuncts;
+    RowDescriptor _agg_fn_output_row_descriptor;
 };
 
 } // namespace pipeline

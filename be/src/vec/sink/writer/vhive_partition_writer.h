@@ -43,6 +43,7 @@ class VHivePartitionWriter {
 public:
     struct WriteInfo {
         std::string write_path;
+        std::string original_write_path;
         std::string target_path;
         TFileType::type file_type;
     };
@@ -72,6 +73,9 @@ public:
     inline size_t written_len() { return _file_format_transformer->written_len(); }
 
 private:
+    std::string _get_target_file_name();
+
+private:
     Status _projection_and_filter_block(doris::vectorized::Block& input_block,
                                         const vectorized::IColumn::Filter* filter,
                                         doris::vectorized::Block* output_block);
@@ -88,7 +92,6 @@ private:
     TUpdateMode::type _update_mode;
 
     size_t _row_count = 0;
-    size_t _input_size_in_bytes = 0;
 
     const VExprContextSPtrs& _vec_output_expr_ctxs;
     const VExprContextSPtrs& _write_output_expr_ctxs;

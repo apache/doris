@@ -47,6 +47,7 @@ public:
     Status init(PrimitiveType type, bool nulls_first, bool is_asc, const std::string& col_name);
 
     bool inited() const {
+        // when sort node and scan node are not in the same fragment, predicate will not be initialized
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         return _inited;
     }
@@ -58,7 +59,6 @@ public:
 
     Status set_tablet_schema(TabletSchemaSPtr tablet_schema) {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
-        // when sort node and scan node are not in the same backend, predicate will not be initialized
         if (_tablet_schema || !_inited) {
             return Status::OK();
         }
@@ -76,6 +76,24 @@ public:
 
     Status update(const Field& value);
 
+    bool has_value() const {
+        std::shared_lock<std::shared_mutex> rlock(_rwlock);
+        return _has_value;
+    }
+
+    Field get_value() const {
+        std::shared_lock<std::shared_mutex> rlock(_rwlock);
+        return _orderby_extrem;
+    }
+
+    std::string get_col_name() const { return _col_name; }
+
+    bool is_asc() const { return _is_asc; }
+
+    bool nulls_first() const { return _nulls_first; }
+
+    bool target_is_slot() const { return true; }
+
 private:
     mutable std::shared_mutex _rwlock;
     Field _orderby_extrem {Field::Types::Null};
@@ -90,6 +108,7 @@ private:
             _pred_constructor;
     bool _inited = false;
     std::string _col_name;
+    bool _has_value = false;
 
     template <PrimitiveType type>
     static std::string get_normal_value(const Field& field) {

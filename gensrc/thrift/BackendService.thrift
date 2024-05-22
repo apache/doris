@@ -24,6 +24,7 @@ include "PlanNodes.thrift"
 include "AgentService.thrift"
 include "PaloInternalService.thrift"
 include "DorisExternalService.thrift"
+include "FrontendService.thrift"
 
 struct TExportTaskRequest {
     1: required PaloInternalService.TExecPlanFragmentParams params
@@ -33,9 +34,10 @@ struct TTabletStat {
     1: required i64 tablet_id
     // local data size
     2: optional i64 data_size
-    3: optional i64 row_num
-    4: optional i64 version_count
+    3: optional i64 row_count
+    4: optional i64 total_version_count
     5: optional i64 remote_data_size
+    6: optional i64 visible_version_count
 }
 
 struct TTabletStatResult {
@@ -126,21 +128,21 @@ struct TCheckStorageFormatResult {
     2: optional list<i64> v2_tablets;
 }
 
-struct TPreCacheAsyncRequest {
+struct TWarmUpCacheAsyncRequest {
     1: required string host
     2: required i32 brpc_port
     3: required list<i64> tablet_ids
 }
 
-struct TPreCacheAsyncResponse {
+struct TWarmUpCacheAsyncResponse {
     1: required Status.TStatus status
 }
 
-struct TCheckPreCacheRequest {
+struct TCheckWarmUpCacheAsyncRequest {
     1: optional list<i64> tablets
 }
 
-struct TCheckPreCacheResponse {
+struct TCheckWarmUpCacheAsyncResponse {
     1: required Status.TStatus status
     2: optional map<i64, bool> task_done;
 }
@@ -304,6 +306,7 @@ struct TWorkloadSchedPolicy {
     5: optional bool enabled
     6: optional list<TWorkloadCondition> condition_list
     7: optional list<TWorkloadAction> action_list
+    8: optional list<i64> wg_id_list
 }
 
 struct TopicInfo {
@@ -317,6 +320,16 @@ struct TPublishTopicRequest {
 
 struct TPublishTopicResult {
     1: required Status.TStatus status
+}
+
+struct TGetRealtimeExecStatusRequest {
+    // maybe query id or other unique id
+    1: optional Types.TUniqueId id
+}
+
+struct TGetRealtimeExecStatusResponse {
+    1: optional Status.TStatus status
+    2: optional FrontendService.TReportExecStatusParams report_exec_status_params
 }
 
 service BackendService {
@@ -368,14 +381,12 @@ service BackendService {
 
     TStreamLoadRecordResult get_stream_load_record(1: i64 last_stream_record_time);
 
-    oneway void clean_trash();
-
     // check tablet rowset type
     TCheckStorageFormatResult check_storage_format();
 
-    TPreCacheAsyncResponse pre_cache_async(1: TPreCacheAsyncRequest request);
+    TWarmUpCacheAsyncResponse warm_up_cache_async(1: TWarmUpCacheAsyncRequest request);
 
-    TCheckPreCacheResponse check_pre_cache(1: TCheckPreCacheRequest request);
+    TCheckWarmUpCacheAsyncResponse check_warm_up_cache_async(1: TCheckWarmUpCacheAsyncRequest request);
 
     TSyncLoadForTabletsResponse sync_load_for_tablets(1: TSyncLoadForTabletsRequest request);
 
@@ -387,4 +398,6 @@ service BackendService {
     TQueryIngestBinlogResult query_ingest_binlog(1: TQueryIngestBinlogRequest query_ingest_binlog_request);
 
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
+
+    TGetRealtimeExecStatusResponse get_realtime_exec_status(1:TGetRealtimeExecStatusRequest request);
 }

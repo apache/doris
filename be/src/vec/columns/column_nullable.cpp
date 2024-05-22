@@ -44,6 +44,7 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
 
     if (is_column_const(*null_map)) {
         LOG(FATAL) << "ColumnNullable cannot have constant null map";
+        __builtin_unreachable();
     }
     _need_update_has_null = true;
 }
@@ -283,6 +284,17 @@ void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t 
     }
 }
 
+void ColumnNullable::insert_range_from_ignore_overflow(const doris::vectorized::IColumn& src,
+                                                       size_t start, size_t length) {
+    const auto& nullable_col = assert_cast<const ColumnNullable&>(src);
+    _get_null_map_column().insert_range_from(*nullable_col.null_map, start, length);
+    get_nested_column().insert_range_from_ignore_overflow(*nullable_col.nested_column, start,
+                                                          length);
+    const auto& src_null_map_data = nullable_col.get_null_map_data();
+    _has_null = has_null();
+    _has_null |= simd::contain_byte(src_null_map_data.data() + start, length, 1);
+}
+
 void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const auto& nullable_col = assert_cast<const ColumnNullable&>(src);
     _get_null_map_column().insert_range_from(*nullable_col.null_map, start, length);
@@ -410,6 +422,53 @@ int ColumnNullable::compare_at(size_t n, size_t m, const IColumn& rhs_,
     return get_nested_column().compare_at(n, m, nullable_rhs.get_nested_column(),
                                           null_direction_hint);
 }
+void ColumnNullable::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                                      int direction, std::vector<uint8>& cmp_res,
+                                      uint8* __restrict filter) const {
+    const auto& rhs_null_column = assert_cast<const ColumnNullable&>(rhs);
+    const bool right_is_null = rhs.is_null_at(rhs_row_id);
+    const bool left_contains_null = has_null();
+    if (!left_contains_null && !right_is_null) {
+        get_nested_column().compare_internal(rhs_row_id, rhs_null_column.get_nested_column(),
+                                             nan_direction_hint, direction, cmp_res, filter);
+    } else {
+        auto sz = this->size();
+        DCHECK(cmp_res.size() == sz);
+
+        size_t begin = simd::find_zero(cmp_res, 0);
+        while (begin < sz) {
+            size_t end = simd::find_one(cmp_res, begin + 1);
+            if (right_is_null) {
+                for (size_t row_id = begin; row_id < end; row_id++) {
+                    if (!is_null_at(row_id)) {
+                        if ((-nan_direction_hint * direction) < 0) {
+                            filter[row_id] = 1;
+                            cmp_res[row_id] = 1;
+                        } else if ((-nan_direction_hint * direction) > 0) {
+                            cmp_res[row_id] = 1;
+                        }
+                    }
+                }
+            } else {
+                for (size_t row_id = begin; row_id < end; row_id++) {
+                    if (is_null_at(row_id)) {
+                        if (nan_direction_hint * direction < 0) {
+                            filter[row_id] = 1;
+                            cmp_res[row_id] = 1;
+                        } else if (nan_direction_hint * direction > 0) {
+                            cmp_res[row_id] = 1;
+                        }
+                    }
+                }
+            }
+            begin = simd::find_zero(cmp_res, end + 1);
+        }
+        if (!right_is_null) {
+            get_nested_column().compare_internal(rhs_row_id, rhs_null_column.get_nested_column(),
+                                                 nan_direction_hint, direction, cmp_res, filter);
+        }
+    }
+}
 
 void ColumnNullable::get_permutation(bool reverse, size_t limit, int null_direction_hint,
                                      Permutation& res) const {
@@ -513,6 +572,7 @@ void ColumnNullable::apply_null_map_impl(const ColumnUInt8& map) {
 
     if (arr1.size() != arr2.size()) {
         LOG(FATAL) << "Inconsistent sizes of ColumnNullable objects";
+        __builtin_unreachable();
     }
 
     for (size_t i = 0, size = arr1.size(); i < size; ++i) {

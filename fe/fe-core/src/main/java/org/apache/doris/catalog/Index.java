@@ -148,6 +148,10 @@ public class Index implements Writable {
         return InvertedIndexUtil.getInvertedIndexCharFilter(properties);
     }
 
+    public boolean isLightIndexChangeSupported() {
+        return indexType == IndexDef.IndexType.INVERTED;
+    }
+
     public String getComment() {
         return comment;
     }

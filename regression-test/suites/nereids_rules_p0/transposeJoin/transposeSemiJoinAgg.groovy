@@ -25,6 +25,8 @@ suite("transposeSemiJoinAgg") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "set partition_pruning_expand_threshold=10;"
     sql "set ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     sql "drop table if exists T1;"
     sql """
         CREATE TABLE T1 (
@@ -78,6 +80,17 @@ suite("transposeSemiJoinAgg") {
     sql '''
     alter table T2 modify column a set stats ('ndv'='100', 'num_nulls'='0', 'row_count'='100');
     '''
+
+    sql "drop table if exists T3;"
+    sql """
+        CREATE TABLE T3 (
+        str varchar(100),
+        len  int
+        ) DUPLICATE KEY(str)
+        DISTRIBUTED BY HASH(str) BUCKETS 10
+        PROPERTIES("replication_num" = "1");
+        """
+
     // RULE: TransposeSemiJoinAggProject
     // 1. group-by(without grouping sets) 
     // agg-leftSemi => leftSemi-agg
@@ -145,5 +158,10 @@ suite("transposeSemiJoinAgg") {
         select T3.D
         from (select sum(C) as D from T1 group by grouping sets ((a, b), (a), ())) T3
         left semi join T2 on T3.D=T2.a;
+        """
+    // https://github.com/apache/doris/issues/31308
+    qt_groupby_negative_case3 """
+        explain shape plan
+        select case when len in (select len from T3) then 1 else 1 end c1 from T3 group by len;
         """
 }

@@ -96,7 +96,6 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -124,6 +123,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -169,6 +169,7 @@ import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.HiveTableSink;
+import org.apache.doris.planner.IcebergTableSink;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.MultiCastDataSink;
@@ -458,7 +459,28 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             slotDesc.setIsNullable(column.isAllowNull());
             slotDesc.setAutoInc(column.isAutoInc());
         }
-        HiveTableSink sink = new HiveTableSink(hiveTableSink.getTargetTable());
+        HiveTableSink sink = new HiveTableSink((HMSExternalTable) hiveTableSink.getTargetTable());
+        rootFragment.setSink(sink);
+        return rootFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalIcebergTableSink(PhysicalIcebergTableSink<? extends Plan> icebergTableSink,
+                                                      PlanTranslatorContext context) {
+        PlanFragment rootFragment = icebergTableSink.child().accept(this, context);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+
+        TupleDescriptor hiveTuple = context.generateTupleDesc();
+        List<Column> targetTableColumns = icebergTableSink.getTargetTable().getFullSchema();
+        for (Column column : targetTableColumns) {
+            SlotDescriptor slotDesc = context.addSlotDesc(hiveTuple);
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setType(column.getType());
+            slotDesc.setColumn(column);
+            slotDesc.setIsNullable(column.isAllowNull());
+            slotDesc.setAutoInc(column.isAutoInc());
+        }
+        IcebergTableSink sink = new IcebergTableSink((IcebergExternalTable) icebergTableSink.getTargetTable());
         rootFragment.setSink(sink);
         return rootFragment;
     }
@@ -594,6 +616,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, finalScanNode, context)
                 )
         );
+        if (context.getTopnFilterContext().isTopnFilterTarget(fileScan)) {
+            context.getTopnFilterContext().addLegacyTarget(fileScan, scanNode);
+        }
+
         Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         // Create PlanFragment
         DataPartition dataPartition = DataPartition.RANDOM;
@@ -638,6 +664,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, esScanNode, context)
                 )
         );
+        if (context.getTopnFilterContext().isTopnFilterTarget(esScan)) {
+            context.getTopnFilterContext().addLegacyTarget(esScan, esScanNode);
+        }
         Utils.execWithUncheckedException(esScanNode::finalizeForNereids);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), esScanNode, dataPartition);
@@ -662,6 +691,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, jdbcScanNode, context)
                 )
         );
+        if (context.getTopnFilterContext().isTopnFilterTarget(jdbcScan)) {
+            context.getTopnFilterContext().addLegacyTarget(jdbcScan, jdbcScanNode);
+        }
         Utils.execWithUncheckedException(jdbcScanNode::finalizeForNereids);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), jdbcScanNode, dataPartition);
@@ -686,6 +718,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, odbcScanNode, context)
                 )
         );
+        if (context.getTopnFilterContext().isTopnFilterTarget(odbcScan)) {
+            context.getTopnFilterContext().addLegacyTarget(odbcScan, odbcScanNode);
+        }
         Utils.execWithUncheckedException(odbcScanNode::finalizeForNereids);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), odbcScanNode, dataPartition);
@@ -764,7 +799,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         );
         olapScanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(olapScan.getRelationId()));
         if (context.getTopnFilterContext().isTopnFilterTarget(olapScan)) {
-            olapScanNode.setUseTopnOpt(true);
             context.getTopnFilterContext().addLegacyTarget(olapScan, olapScanNode);
         }
         // TODO: we need to remove all finalizeForNereids
@@ -791,7 +825,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment planFragment = visitPhysicalOlapScan(deferMaterializeOlapScan.getPhysicalOlapScan(), context);
         OlapScanNode olapScanNode = (OlapScanNode) planFragment.getPlanRoot();
         if (context.getTopnFilterContext().isTopnFilterTarget(deferMaterializeOlapScan)) {
-            olapScanNode.setUseTopnOpt(true);
             context.getTopnFilterContext().addLegacyTarget(deferMaterializeOlapScan, olapScanNode);
         }
         TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
@@ -1099,7 +1132,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
-    public PlanFragment visitPhysicalCTEConsumer(PhysicalCTEConsumer cteConsumer,
+        public PlanFragment visitPhysicalCTEConsumer(PhysicalCTEConsumer cteConsumer,
             PlanTranslatorContext context) {
         CTEId cteId = cteConsumer.getCteId();
 
@@ -1124,9 +1157,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // update expr to slot mapping
         TupleDescriptor tupleDescriptor = null;
         for (Slot producerSlot : cteProducer.getOutput()) {
-            Slot consumerSlot = cteConsumer.getProducerToConsumerSlotMap().get(producerSlot);
             SlotRef slotRef = context.findSlotRef(producerSlot.getExprId());
             tupleDescriptor = slotRef.getDesc().getParent();
+            Slot consumerSlot = cteConsumer.getProducerToConsumerSlotMap().get(producerSlot);
+            // consumerSlot could be null if we prune partial consumers' columns
+            if (consumerSlot == null) {
+                continue;
+            }
             context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
         }
         CTEScanNode cteScanNode = new CTEScanNode(tupleDescriptor);
@@ -1370,11 +1407,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(TupleDescriptor::getSlots)
                 .flatMap(Collection::stream)
                 .collect(Collectors.toList());
-        Map<ExprId, SlotReference> outputSlotReferenceMap = Maps.newHashMap();
-
-        hashJoin.getOutput().stream()
+        Map<ExprId, SlotReference> outputSlotReferenceMap = hashJoin.getOutput().stream()
                 .map(SlotReference.class::cast)
-                .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
+                .collect(Collectors.toMap(Slot::getExprId, s -> s, (existing, replacement) -> existing));
         List<SlotReference> outputSlotReferences = Stream.concat(leftTuples.stream(), rightTuples.stream())
                 .map(TupleDescriptor::getSlots)
                 .flatMap(Collection::stream)
@@ -1387,7 +1422,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         hashJoin.getOtherJoinConjuncts()
                 .stream()
-                .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
                 .flatMap(e -> e.getInputSlots().stream())
                 .map(SlotReference.class::cast)
                 .forEach(s -> hashOutputSlotReferenceMap.put(s.getExprId(), s));
@@ -1401,19 +1435,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .forEach(s -> hashOutputSlotReferenceMap.put(s.getExprId(), s));
         }
         hashJoin.getFilterConjuncts().stream()
-                .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
                 .flatMap(e -> e.getInputSlots().stream())
                 .map(SlotReference.class::cast)
                 .forEach(s -> hashOutputSlotReferenceMap.put(s.getExprId(), s));
 
-        Map<ExprId, SlotReference> leftChildOutputMap = Maps.newHashMap();
-        hashJoin.child(0).getOutput().stream()
+        Map<ExprId, SlotReference> leftChildOutputMap = hashJoin.left().getOutput().stream()
                 .map(SlotReference.class::cast)
-                .forEach(s -> leftChildOutputMap.put(s.getExprId(), s));
-        Map<ExprId, SlotReference> rightChildOutputMap = Maps.newHashMap();
-        hashJoin.child(1).getOutput().stream()
+                .collect(Collectors.toMap(Slot::getExprId, s -> s, (existing, replacement) -> existing));
+        Map<ExprId, SlotReference> rightChildOutputMap = hashJoin.right().getOutput().stream()
                 .map(SlotReference.class::cast)
-                .forEach(s -> rightChildOutputMap.put(s.getExprId(), s));
+                .collect(Collectors.toMap(Slot::getExprId, s -> s, (existing, replacement) -> existing));
 
         // translate runtime filter
         context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> physicalHashJoin.getRuntimeFilters()
@@ -1439,7 +1470,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     sd = context.getDescTable().copySlotDescriptor(intermediateDescriptor, leftSlotDescriptor);
                 } else {
                     sd = context.createSlotDesc(intermediateDescriptor, sf, leftSlotDescriptor.getParent().getTable());
-                    // sd = context.createSlotDesc(intermediateDescriptor, sf);
                     if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
                         hashJoinNode.addSlotIdToHashOutputSlotIds(leftSlotDescriptor.getId());
                         hashJoinNode.getHashOutputExprSlotIdMap().put(sf.getExprId(), leftSlotDescriptor.getId());
@@ -1460,7 +1490,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     sd = context.getDescTable().copySlotDescriptor(intermediateDescriptor, rightSlotDescriptor);
                 } else {
                     sd = context.createSlotDesc(intermediateDescriptor, sf, rightSlotDescriptor.getParent().getTable());
-                    // sd = context.createSlotDesc(intermediateDescriptor, sf);
                     if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
                         hashJoinNode.addSlotIdToHashOutputSlotIds(rightSlotDescriptor.getId());
                         hashJoinNode.getHashOutputExprSlotIdMap().put(sf.getExprId(), rightSlotDescriptor.getId());
@@ -1499,7 +1528,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     sd = context.getDescTable().copySlotDescriptor(intermediateDescriptor, rightSlotDescriptor);
                 } else {
                     sd = context.createSlotDesc(intermediateDescriptor, sf, rightSlotDescriptor.getParent().getTable());
-                    // sd = context.createSlotDesc(intermediateDescriptor, sf);
                     if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
                         hashJoinNode.addSlotIdToHashOutputSlotIds(rightSlotDescriptor.getId());
                         hashJoinNode.getHashOutputExprSlotIdMap().put(sf.getExprId(), rightSlotDescriptor.getId());
@@ -1529,16 +1557,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             leftIntermediateSlotDescriptor.forEach(sd -> sd.setIsNullable(true));
         }
 
+        // Constant expr will cause be crash.
+        // But EliminateJoinCondition and Expression Rewrite already eliminate true literal.
         List<Expr> otherJoinConjuncts = hashJoin.getOtherJoinConjuncts()
                 .stream()
-                // TODO add constant expr will cause be crash, currently we only handle true literal.
-                //  remove it after Nereids could ensure no constant expr in other join condition
-                .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
 
         hashJoin.getFilterConjuncts().stream()
-                .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .forEach(hashJoinNode::addConjunct);
 
@@ -1587,176 +1613,171 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<List<Expr>> distributeExprLists = getDistributeExprs(nestedLoopJoin.child(0), nestedLoopJoin.child(1));
         PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
-        if (JoinUtils.shouldNestedLoopJoin(nestedLoopJoin)) {
-            List<TupleDescriptor> leftTuples = context.getTupleDesc(leftFragmentPlanRoot);
-            List<TupleDescriptor> rightTuples = context.getTupleDesc(rightFragmentPlanRoot);
-            List<TupleId> tupleIds = Stream.concat(leftTuples.stream(), rightTuples.stream())
-                    .map(TupleDescriptor::getId)
-                    .collect(Collectors.toList());
 
-            JoinType joinType = nestedLoopJoin.getJoinType();
-
-            NestedLoopJoinNode nestedLoopJoinNode = new NestedLoopJoinNode(context.nextPlanNodeId(),
-                    leftFragmentPlanRoot, rightFragmentPlanRoot, tupleIds, JoinType.toJoinOperator(joinType),
-                    null, null, null, nestedLoopJoin.isMarkJoin());
-            nestedLoopJoinNode.setUseSpecificProjections(false);
-            nestedLoopJoinNode.setNereidsId(nestedLoopJoin.getId());
-            nestedLoopJoinNode.setChildrenDistributeExprLists(distributeExprLists);
-            if (nestedLoopJoin.getStats() != null) {
-                nestedLoopJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
-            }
-            nestedLoopJoinNode.setChild(0, leftFragment.getPlanRoot());
-            nestedLoopJoinNode.setChild(1, rightFragment.getPlanRoot());
-            setPlanRoot(leftFragment, nestedLoopJoinNode, nestedLoopJoin);
-            // TODO: what's this? do we really need to set this?
-            rightFragment.getPlanRoot().setCompactData(false);
-            context.mergePlanFragment(rightFragment, leftFragment);
-            for (PlanFragment rightChild : rightFragment.getChildren()) {
-                leftFragment.addChild(rightChild);
-            }
-            // translate runtime filter
-            context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
-                List<RuntimeFilter> filters = nestedLoopJoin.getRuntimeFilters();
-                filters.forEach(filter -> runtimeFilterTranslator
-                        .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));
-                if (filters.stream().anyMatch(filter -> filter.getType() == TRuntimeFilterType.BITMAP)) {
-                    nestedLoopJoinNode.setOutputLeftSideOnly(true);
-                }
-            });
-
-            Map<ExprId, SlotReference> leftChildOutputMap = Maps.newHashMap();
-            nestedLoopJoin.child(0).getOutput().stream()
-                    .map(SlotReference.class::cast)
-                    .forEach(s -> leftChildOutputMap.put(s.getExprId(), s));
-            Map<ExprId, SlotReference> rightChildOutputMap = Maps.newHashMap();
-            nestedLoopJoin.child(1).getOutput().stream()
-                    .map(SlotReference.class::cast)
-                    .forEach(s -> rightChildOutputMap.put(s.getExprId(), s));
-            // make intermediate tuple
-            List<SlotDescriptor> leftIntermediateSlotDescriptor = Lists.newArrayList();
-            List<SlotDescriptor> rightIntermediateSlotDescriptor = Lists.newArrayList();
-            TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
-
-            // Nereids does not care about output order of join,
-            // but BE need left child's output must be before right child's output.
-            // So we need to swap the output order of left and right child if necessary.
-            // TODO: revert this after Nereids could ensure the output order is correct.
-            List<SlotDescriptor> leftSlotDescriptors = leftTuples.stream()
-                    .map(TupleDescriptor::getSlots)
-                    .flatMap(Collection::stream)
-                    .collect(Collectors.toList());
-            List<SlotDescriptor> rightSlotDescriptors = rightTuples.stream()
-                    .map(TupleDescriptor::getSlots)
-                    .flatMap(Collection::stream)
-                    .collect(Collectors.toList());
-            Map<ExprId, SlotReference> outputSlotReferenceMap = Maps.newHashMap();
-
-            nestedLoopJoin.getOutput().stream()
-                    .map(SlotReference.class::cast)
-                    .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
-            nestedLoopJoin.getFilterConjuncts().stream()
-                    .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
-                    .flatMap(e -> e.getInputSlots().stream())
-                    .map(SlotReference.class::cast)
-                    .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
-            List<SlotReference> outputSlotReferences = Stream.concat(leftTuples.stream(), rightTuples.stream())
-                    .map(TupleDescriptor::getSlots)
-                    .flatMap(Collection::stream)
-                    .map(sd -> context.findExprId(sd.getId()))
-                    .map(outputSlotReferenceMap::get)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
-
-            // TODO: because of the limitation of be, the VNestedLoopJoinNode will output column from both children
-            // in the intermediate tuple, so fe have to do the same, if be fix the problem, we can change it back.
-            for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
-                if (!leftSlotDescriptor.isMaterialized()) {
-                    continue;
-                }
-                SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
-                SlotDescriptor sd;
-                if (sf == null && leftSlotDescriptor.getColumn().getName().equals(Column.ROWID_COL)) {
-                    // TODO: temporary code for two phase read, should remove it after refactor
-                    sd = context.getDescTable().copySlotDescriptor(intermediateDescriptor, leftSlotDescriptor);
-                } else {
-                    sd = context.createSlotDesc(intermediateDescriptor, sf, leftSlotDescriptor.getParent().getTable());
-                    // sd = context.createSlotDesc(intermediateDescriptor, sf);
-                }
-                leftIntermediateSlotDescriptor.add(sd);
-            }
-            for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
-                if (!rightSlotDescriptor.isMaterialized()) {
-                    continue;
-                }
-                SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
-                SlotDescriptor sd;
-                if (sf == null && rightSlotDescriptor.getColumn().getName().equals(Column.ROWID_COL)) {
-                    // TODO: temporary code for two phase read, should remove it after refactor
-                    sd = context.getDescTable().copySlotDescriptor(intermediateDescriptor, rightSlotDescriptor);
-                } else {
-                    sd = context.createSlotDesc(intermediateDescriptor, sf, rightSlotDescriptor.getParent().getTable());
-                    // sd = context.createSlotDesc(intermediateDescriptor, sf);
-                }
-                rightIntermediateSlotDescriptor.add(sd);
-            }
-
-            if (nestedLoopJoin.getMarkJoinSlotReference().isPresent()) {
-                outputSlotReferences.add(nestedLoopJoin.getMarkJoinSlotReference().get());
-                context.createSlotDesc(intermediateDescriptor, nestedLoopJoin.getMarkJoinSlotReference().get());
-            }
-
-            // set slots as nullable for outer join
-            if (joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
-                rightIntermediateSlotDescriptor.forEach(sd -> sd.setIsNullable(true));
-            }
-            if (joinType == JoinType.RIGHT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
-                leftIntermediateSlotDescriptor.forEach(sd -> sd.setIsNullable(true));
-            }
-
-            nestedLoopJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
-
-            List<Expr> joinConjuncts = nestedLoopJoin.getOtherJoinConjuncts().stream()
-                    .filter(e -> !nestedLoopJoin.isBitmapRuntimeFilterCondition(e))
-                    .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
-
-            if (!nestedLoopJoin.isBitMapRuntimeFilterConditionsEmpty() && joinConjuncts.isEmpty()) {
-                // left semi join need at least one conjunct. otherwise left-semi-join fallback to cross-join
-                joinConjuncts.add(new BoolLiteral(true));
-            }
-
-            nestedLoopJoinNode.setJoinConjuncts(joinConjuncts);
-
-            if (!nestedLoopJoin.getOtherJoinConjuncts().isEmpty()) {
-                List<Expr> markJoinConjuncts = nestedLoopJoin.getMarkJoinConjuncts().stream()
-                        .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
-                nestedLoopJoinNode.setMarkJoinConjuncts(markJoinConjuncts);
-            }
-
-            nestedLoopJoin.getFilterConjuncts().stream()
-                    .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
-                    .map(e -> ExpressionTranslator.translate(e, context))
-                    .forEach(nestedLoopJoinNode::addConjunct);
-
-            if (nestedLoopJoin.isShouldTranslateOutput()) {
-                // translate output expr on intermediate tuple
-                List<Expr> srcToOutput = outputSlotReferences.stream()
-                        .map(e -> ExpressionTranslator.translate(e, context))
-                        .collect(Collectors.toList());
-
-                TupleDescriptor outputDescriptor = context.generateTupleDesc();
-                outputSlotReferences.forEach(s -> context.createSlotDesc(outputDescriptor, s));
-
-                nestedLoopJoinNode.setOutputTupleDesc(outputDescriptor);
-                nestedLoopJoinNode.setProjectList(srcToOutput);
-            }
-            if (nestedLoopJoin.getStats() != null) {
-                nestedLoopJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
-            }
-            updateLegacyPlanIdToPhysicalPlan(leftFragment.getPlanRoot(), nestedLoopJoin);
-            return leftFragment;
-        } else {
+        if (!JoinUtils.shouldNestedLoopJoin(nestedLoopJoin)) {
             throw new RuntimeException("Physical nested loop join could not execute with equal join condition.");
         }
+
+        List<TupleDescriptor> leftTuples = context.getTupleDesc(leftFragmentPlanRoot);
+        List<TupleDescriptor> rightTuples = context.getTupleDesc(rightFragmentPlanRoot);
+        List<TupleId> tupleIds = Stream.concat(leftTuples.stream(), rightTuples.stream())
+                .map(TupleDescriptor::getId)
+                .collect(Collectors.toList());
+
+        JoinType joinType = nestedLoopJoin.getJoinType();
+
+        NestedLoopJoinNode nestedLoopJoinNode = new NestedLoopJoinNode(context.nextPlanNodeId(),
+                leftFragmentPlanRoot, rightFragmentPlanRoot, tupleIds, JoinType.toJoinOperator(joinType),
+                null, null, null, nestedLoopJoin.isMarkJoin());
+        nestedLoopJoinNode.setUseSpecificProjections(false);
+        nestedLoopJoinNode.setNereidsId(nestedLoopJoin.getId());
+        nestedLoopJoinNode.setChildrenDistributeExprLists(distributeExprLists);
+        if (nestedLoopJoin.getStats() != null) {
+            nestedLoopJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
+        }
+        nestedLoopJoinNode.setChild(0, leftFragment.getPlanRoot());
+        nestedLoopJoinNode.setChild(1, rightFragment.getPlanRoot());
+        setPlanRoot(leftFragment, nestedLoopJoinNode, nestedLoopJoin);
+        // TODO: what's this? do we really need to set this?
+        rightFragment.getPlanRoot().setCompactData(false);
+        context.mergePlanFragment(rightFragment, leftFragment);
+        for (PlanFragment rightChild : rightFragment.getChildren()) {
+            leftFragment.addChild(rightChild);
+        }
+        // translate runtime filter
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
+            List<RuntimeFilter> filters = nestedLoopJoin.getRuntimeFilters();
+            filters.forEach(filter -> runtimeFilterTranslator
+                    .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));
+            if (filters.stream().anyMatch(filter -> filter.getType() == TRuntimeFilterType.BITMAP)) {
+                nestedLoopJoinNode.setOutputLeftSideOnly(true);
+            }
+        });
+
+        Map<ExprId, SlotReference> leftChildOutputMap = nestedLoopJoin.child(0).getOutput().stream()
+                .map(SlotReference.class::cast)
+                .collect(Collectors.toMap(Slot::getExprId, s -> s, (existing, replacement) -> existing));
+        Map<ExprId, SlotReference> rightChildOutputMap = nestedLoopJoin.child(1).getOutput().stream()
+                .map(SlotReference.class::cast)
+                .collect(Collectors.toMap(Slot::getExprId, s -> s, (existing, replacement) -> existing));
+        // make intermediate tuple
+        List<SlotDescriptor> leftIntermediateSlotDescriptor = Lists.newArrayList();
+        List<SlotDescriptor> rightIntermediateSlotDescriptor = Lists.newArrayList();
+        TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
+
+        // Nereids does not care about output order of join,
+        // but BE need left child's output must be before right child's output.
+        // So we need to swap the output order of left and right child if necessary.
+        // TODO: revert this after Nereids could ensure the output order is correct.
+        List<SlotDescriptor> leftSlotDescriptors = leftTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+        List<SlotDescriptor> rightSlotDescriptors = rightTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+        Map<ExprId, SlotReference> outputSlotReferenceMap = Maps.newHashMap();
+
+        nestedLoopJoin.getOutput().stream()
+                .map(SlotReference.class::cast)
+                .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
+        nestedLoopJoin.getFilterConjuncts().stream()
+                .flatMap(e -> e.getInputSlots().stream())
+                .map(SlotReference.class::cast)
+                .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
+        List<SlotReference> outputSlotReferences = Stream.concat(leftTuples.stream(), rightTuples.stream())
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .map(sd -> context.findExprId(sd.getId()))
+                .map(outputSlotReferenceMap::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        // TODO: because of the limitation of be, the VNestedLoopJoinNode will output column from both children
+        // in the intermediate tuple, so fe have to do the same, if be fix the problem, we can change it back.
+        for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
+            if (!leftSlotDescriptor.isMaterialized()) {
+                continue;
+            }
+            SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
+            SlotDescriptor sd;
+            if (sf == null && leftSlotDescriptor.getColumn().getName().equals(Column.ROWID_COL)) {
+                // TODO: temporary code for two phase read, should remove it after refactor
+                sd = context.getDescTable().copySlotDescriptor(intermediateDescriptor, leftSlotDescriptor);
+            } else {
+                sd = context.createSlotDesc(intermediateDescriptor, sf, leftSlotDescriptor.getParent().getTable());
+            }
+            leftIntermediateSlotDescriptor.add(sd);
+        }
+        for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
+            if (!rightSlotDescriptor.isMaterialized()) {
+                continue;
+            }
+            SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
+            SlotDescriptor sd;
+            if (sf == null && rightSlotDescriptor.getColumn().getName().equals(Column.ROWID_COL)) {
+                // TODO: temporary code for two phase read, should remove it after refactor
+                sd = context.getDescTable().copySlotDescriptor(intermediateDescriptor, rightSlotDescriptor);
+            } else {
+                sd = context.createSlotDesc(intermediateDescriptor, sf, rightSlotDescriptor.getParent().getTable());
+            }
+            rightIntermediateSlotDescriptor.add(sd);
+        }
+
+        if (nestedLoopJoin.getMarkJoinSlotReference().isPresent()) {
+            outputSlotReferences.add(nestedLoopJoin.getMarkJoinSlotReference().get());
+            context.createSlotDesc(intermediateDescriptor, nestedLoopJoin.getMarkJoinSlotReference().get());
+        }
+
+        // set slots as nullable for outer join
+        if (joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
+            rightIntermediateSlotDescriptor.forEach(sd -> sd.setIsNullable(true));
+        }
+        if (joinType == JoinType.RIGHT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
+            leftIntermediateSlotDescriptor.forEach(sd -> sd.setIsNullable(true));
+        }
+
+        nestedLoopJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
+
+        List<Expr> joinConjuncts = nestedLoopJoin.getOtherJoinConjuncts().stream()
+                .filter(e -> !nestedLoopJoin.isBitmapRuntimeFilterCondition(e))
+                .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
+
+        if (!nestedLoopJoin.isBitMapRuntimeFilterConditionsEmpty() && joinConjuncts.isEmpty()) {
+            // left semi join need at least one conjunct. otherwise left-semi-join fallback to cross-join
+            joinConjuncts.add(new BoolLiteral(true));
+        }
+
+        nestedLoopJoinNode.setJoinConjuncts(joinConjuncts);
+
+        if (!nestedLoopJoin.getOtherJoinConjuncts().isEmpty()) {
+            List<Expr> markJoinConjuncts = nestedLoopJoin.getMarkJoinConjuncts().stream()
+                    .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
+            nestedLoopJoinNode.setMarkJoinConjuncts(markJoinConjuncts);
+        }
+
+        nestedLoopJoin.getFilterConjuncts().stream()
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .forEach(nestedLoopJoinNode::addConjunct);
+
+        if (nestedLoopJoin.isShouldTranslateOutput()) {
+            // translate output expr on intermediate tuple
+            List<Expr> srcToOutput = outputSlotReferences.stream()
+                    .map(e -> ExpressionTranslator.translate(e, context))
+                    .collect(Collectors.toList());
+
+            TupleDescriptor outputDescriptor = context.generateTupleDesc();
+            outputSlotReferences.forEach(s -> context.createSlotDesc(outputDescriptor, s));
+
+            nestedLoopJoinNode.setOutputTupleDesc(outputDescriptor);
+            nestedLoopJoinNode.setProjectList(srcToOutput);
+        }
+        if (nestedLoopJoin.getStats() != null) {
+            nestedLoopJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
+        }
+        updateLegacyPlanIdToPhysicalPlan(leftFragment.getPlanRoot(), nestedLoopJoin);
+        return leftFragment;
     }
 
     @Override
@@ -1841,7 +1862,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> projectionExprs = null;
         List<Expr> allProjectionExprs = Lists.newArrayList();
         List<Slot> slots = null;
-        if (project.hasMultiLayerProjection()) {
+        // TODO FE/BE do not support multi-layer-project on MultiDataSink now.
+        if (project.hasMultiLayerProjection() && !(inputFragment instanceof MultiCastPlanFragment)) {
             int layerCount = project.getMultiLayerProjects().size();
             for (int i = 0; i < layerCount; i++) {
                 List<NamedExpression> layer = project.getMultiLayerProjects().get(i);
@@ -2125,11 +2147,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (context.getTopnFilterContext().isTopnFilterSource(topN)) {
                 sortNode.setUseTopnOpt(true);
                 context.getTopnFilterContext().getTargets(topN).forEach(
-                        olapScan -> {
-                            Optional<OlapScanNode> legacyScan =
-                                    context.getTopnFilterContext().getLegacyScanNode(olapScan);
+                        relation -> {
+                            Optional<ScanNode> legacyScan =
+                                    context.getTopnFilterContext().getLegacyScanNode(relation);
                             Preconditions.checkState(legacyScan.isPresent(),
-                                    "cannot find OlapScanNode for topn filter");
+                                    "cannot find ScanNode for topn filter:\n"
+                                            + "relation: %s \n%s",
+                                    relation.toString(),
+                                    context.getTopnFilterContext().toString());
                             legacyScan.get().addTopnFilterSortNode(sortNode);
                         }
                 );
@@ -2185,11 +2210,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (context.getTopnFilterContext().isTopnFilterSource(topN)) {
                 sortNode.setUseTopnOpt(true);
                 context.getTopnFilterContext().getTargets(topN).forEach(
-                        olapScan -> {
-                            Optional<OlapScanNode> legacyScan =
-                                    context.getTopnFilterContext().getLegacyScanNode(olapScan);
+                        relation -> {
+                            Optional<ScanNode> legacyScan =
+                                    context.getTopnFilterContext().getLegacyScanNode(relation);
                             Preconditions.checkState(legacyScan.isPresent(),
-                                    "cannot find OlapScanNode for topn filter");
+                                    "cannot find ScanNode for topn filter");
                             legacyScan.get().addTopnFilterSortNode(sortNode);
                         }
                 );
@@ -2230,9 +2255,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(expr -> ExpressionTranslator.translate(expr, context)).collect(ImmutableList.toImmutableList());
 
         // outputSlots's order need same with preRepeatExprs
-        List<Slot> outputSlots = Stream.concat(
-                repeat.getOutputExpressions().stream().filter(output -> flattenGroupingSetExprs.contains(output)),
-                repeat.getOutputExpressions().stream().filter(output -> !flattenGroupingSetExprs.contains(output)))
+        List<Slot> outputSlots = Stream
+                .concat(repeat.getOutputExpressions().stream()
+                        .filter(output -> flattenGroupingSetExprs.contains(output)),
+                        repeat.getOutputExpressions().stream()
+                                .filter(output -> !flattenGroupingSetExprs.contains(output)).distinct())
                 .map(NamedExpression::toSlot).collect(ImmutableList.toImmutableList());
 
         // NOTE: we should first translate preRepeatExprs, then generate output tuple,

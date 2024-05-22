@@ -17,10 +17,21 @@
 
 #pragma once
 
+#include <exception>
+
 #include "vec/common/hash_table/hash_map_context.h"
 #include "vec/common/hash_table/ph_hash_map.h"
 
-namespace doris::vectorized {
+namespace doris {
+using vectorized::MethodKeysFixed;
+using vectorized::Sizes;
+using vectorized::UInt64;
+using vectorized::UInt128;
+using vectorized::UInt136;
+using vectorized::UInt256;
+using vectorized::DataTypePtr;
+using vectorized::VExprContextSPtrs;
+using vectorized::DataTypePtr;
 
 template <template <typename...> typename HashMap, template <typename> typename Hash, typename Key,
           typename... Mapped, typename Variant>
@@ -82,7 +93,7 @@ bool try_get_hash_map_context_fixed(Variant& variant, const std::vector<DataType
         key_byte_size += key_sizes.back();
     }
 
-    size_t bitmap_size = has_null ? get_bitmap_size(data_types.size()) : 0;
+    size_t bitmap_size = has_null ? vectorized::get_bitmap_size(data_types.size()) : 0;
     if (bitmap_size + key_byte_size > sizeof(UInt256)) {
         use_fixed_key = false;
     }
@@ -94,4 +105,79 @@ bool try_get_hash_map_context_fixed(Variant& variant, const std::vector<DataType
     return use_fixed_key;
 }
 
-} // namespace doris::vectorized
+template <typename DataVariants, typename Data>
+Status init_hash_method(DataVariants* agg_data, const vectorized::VExprContextSPtrs& probe_exprs,
+                        bool is_first_phase) {
+    using Type = DataVariants::Type;
+    Type t(Type::serialized);
+
+    try {
+        if (probe_exprs.size() == 1) {
+            auto is_nullable = probe_exprs[0]->root()->is_nullable();
+            PrimitiveType type = probe_exprs[0]->root()->result_type();
+            switch (type) {
+            case TYPE_TINYINT:
+            case TYPE_BOOLEAN:
+            case TYPE_SMALLINT:
+            case TYPE_INT:
+            case TYPE_FLOAT:
+            case TYPE_DATEV2:
+            case TYPE_BIGINT:
+            case TYPE_DOUBLE:
+            case TYPE_DATE:
+            case TYPE_DATETIME:
+            case TYPE_DATETIMEV2:
+            case TYPE_LARGEINT:
+            case TYPE_DECIMALV2:
+            case TYPE_DECIMAL32:
+            case TYPE_DECIMAL64:
+            case TYPE_DECIMAL128I: {
+                size_t size = get_primitive_type_size(type);
+                if (size == 1) {
+                    t = Type::int8_key;
+                } else if (size == 2) {
+                    t = Type::int16_key;
+                } else if (size == 4) {
+                    t = Type::int32_key;
+                } else if (size == 8) {
+                    t = Type::int64_key;
+                } else if (size == 16) {
+                    t = Type::int128_key;
+                } else {
+                    throw Exception(ErrorCode::INTERNAL_ERROR,
+                                    "meet invalid type size, size={}, type={}", size,
+                                    type_to_string(type));
+                }
+                break;
+            }
+            case TYPE_CHAR:
+            case TYPE_VARCHAR:
+            case TYPE_STRING: {
+                t = Type::string_key;
+                break;
+            }
+            default:
+                t = Type::serialized;
+            }
+
+            agg_data->init(get_hash_key_type_with_phase(t, !is_first_phase), is_nullable);
+        } else {
+            if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32, Data>(
+                        agg_data->method_variant, probe_exprs)) {
+                agg_data->init(Type::serialized);
+            }
+        }
+    } catch (const Exception& e) {
+        // method_variant may meet valueless_by_exception, so we set it to monostate
+        agg_data->method_variant.template emplace<std::monostate>();
+        return e.to_status();
+    }
+
+    CHECK(!agg_data->method_variant.valueless_by_exception());
+
+    if (agg_data->method_variant.index() == 0) { // index is 0 means variant is monostate
+        return Status::InternalError("agg_data->method_variant init failed");
+    }
+    return Status::OK();
+}
+} // namespace doris

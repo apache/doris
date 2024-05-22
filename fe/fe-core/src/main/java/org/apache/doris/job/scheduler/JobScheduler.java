@@ -209,7 +209,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     }
 
     private void clearEndJob(T job) {
-        if (job.getFinishTimeMs() + FINISHED_JOB_CLEANUP_THRESHOLD_TIME_MS < System.currentTimeMillis()) {
+        if (job.getFinishTimeMs() + FINISHED_JOB_CLEANUP_THRESHOLD_TIME_MS > System.currentTimeMillis()) {
             return;
         }
         try {

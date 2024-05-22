@@ -89,6 +89,9 @@ DEFINE_String(mem_limit, "90%");
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
+// Schema change memory limit as a fraction of soft memory limit.
+DEFINE_Double(schema_change_mem_limit_frac, "0.6");
+
 // Many modern allocators (for example, tcmalloc) do not do a mremap for
 // realloc, even in case of large enough chunks of memory. Although this allows
 // you to increase performance and reduce memory consumption during realloc.
@@ -241,6 +244,7 @@ DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> b
     }
     return true;
 });
+DEFINE_Int32(remote_split_source_batch_size, "1024");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
@@ -326,7 +330,7 @@ DEFINE_Int32(storage_page_cache_shard_size, "256");
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DEFINE_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
-DEFINE_Bool(disable_storage_page_cache, "false");
+DEFINE_mBool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 DEFINE_mBool(disable_storage_row_cache, "true");
 // whether to disable pk page cache feature in storage
@@ -356,7 +360,7 @@ DEFINE_mBool(enable_ordered_data_compaction, "true");
 // In vertical compaction, column number for every group
 DEFINE_mInt32(vertical_compaction_num_columns_per_group, "5");
 // In vertical compaction, max memory usage for row_source_buffer
-DEFINE_Int32(vertical_compaction_max_row_source_memory_mb, "200");
+DEFINE_Int32(vertical_compaction_max_row_source_memory_mb, "1024");
 // In vertical compaction, max dest segment file size
 DEFINE_mInt64(vertical_compaction_max_segment_size, "1073741824");
 
@@ -428,6 +432,13 @@ DEFINE_Validator(compaction_task_num_per_fast_disk,
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 DEFINE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
+
+// Not compact the invisible versions, but with some limitations:
+// if not timeout, keep no more than compaction_keep_invisible_version_max_count versions;
+// if timeout, keep no more than compaction_keep_invisible_version_min_count versions.
+DEFINE_mInt32(compaction_keep_invisible_version_timeout_sec, "1800");
+DEFINE_mInt32(compaction_keep_invisible_version_min_count, "50");
+DEFINE_mInt32(compaction_keep_invisible_version_max_count, "500");
 
 // Threshold to logging compaction trace, in seconds.
 DEFINE_mInt32(base_compaction_trace_threshold, "60");
@@ -662,6 +673,9 @@ DEFINE_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 DEFINE_Int32(flush_thread_num_per_store, "6");
 // number of thread for flushing memtable per store, for high priority load task
 DEFINE_Int32(high_priority_flush_thread_num_per_store, "6");
+// number of threads = min(flush_thread_num_per_store * num_store,
+//                         max_flush_thread_num_per_cpu * num_cpu)
+DEFINE_Int32(max_flush_thread_num_per_cpu, "4");
 
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -819,7 +833,7 @@ DEFINE_String(kafka_debug, "disable");
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
-DEFINE_Int32(routine_load_consumer_pool_size, "10");
+DEFINE_Int32(routine_load_consumer_pool_size, "1024");
 
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
@@ -978,6 +992,9 @@ DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
+DEFINE_mBool(enable_read_cache_file_directly, "false");
+DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "false");
+DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not checking
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1007,7 +1024,7 @@ DEFINE_mBool(inverted_index_compaction_enable, "false");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
-DEFINE_mBool(inverted_index_ram_dir_enable, "false");
+DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1025,9 +1042,10 @@ DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 DEFINE_mInt64(row_column_page_size, "4096");
 // it must be larger than or equal to 5MB
 DEFINE_mInt64(s3_write_buffer_size, "5242880");
-// The timeout config for S3 buffer allocation
-DEFINE_mInt32(s3_writer_buffer_allocation_timeout, "300");
+// Log interval when doing s3 upload task
+DEFINE_mInt32(s3_file_writer_log_interval_second, "60");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
+DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "1"); // 1MB
 
 //disable shrink memory by default
 DEFINE_mBool(enable_shrink_memory, "false");
@@ -1036,6 +1054,10 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
 DEFINE_mInt32(segment_cache_capacity, "-1");
+DEFINE_mInt32(estimated_num_columns_per_segment, "30");
+DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
+// The value is calculate by storage_page_cache_limit * index_page_cache_percentage
+DEFINE_mInt32(segment_cache_memory_percentage, "2");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
@@ -1059,6 +1081,7 @@ DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
+DEFINE_mBool(enable_address_sanitizers_with_stack_trace, "true");
 
 // the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
 DEFINE_mInt64(auto_inc_prefetch_size_ratio, "10");
@@ -1068,8 +1091,8 @@ DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
 
 // number of threads that fetch auto-inc ranges from FE
 DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
-// default 4GB
-DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
+// default max to 2048 connections
+DEFINE_mInt64(lookup_connection_cache_capacity, "2048");
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
@@ -1121,6 +1144,8 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 DEFINE_mString(doris_cgroup_cpu_path, "");
 DEFINE_mBool(enable_cgroup_cpu_soft_limit, "true");
 
+DEFINE_mBool(enable_workload_group_memory_gc, "true");
+
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
 // Dir of default timezone files
@@ -1153,24 +1178,33 @@ DEFINE_mInt32(report_query_statistics_interval_ms, "3000");
 // 30s
 DEFINE_mInt32(query_statistics_reserve_timeout_ms, "30000");
 
+DEFINE_mInt32(report_exec_status_thread_num, "5");
+
 // consider two high usage disk at the same available level if they do not exceed this diff.
 DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 
 // create tablet in partition random robin idx lru size, default 10000
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 // limit the storage space that query spill files can use
-DEFINE_String(spill_storage_root_path, "${DORIS_HOME}/storage");
-DEFINE_mInt64(spill_storage_limit, "10737418240"); // 10G
-DEFINE_mInt32(spill_gc_interval_ms, "2000");       // 2s
-DEFINE_Int32(spill_io_thread_pool_per_disk_thread_num, "2");
-DEFINE_Int32(spill_io_thread_pool_queue_size, "1024");
-DEFINE_Int32(spill_async_task_thread_pool_thread_num, "2");
-DEFINE_Int32(spill_async_task_thread_pool_queue_size, "1024");
-DEFINE_mInt32(spill_mem_warning_water_mark_multiplier, "2");
+DEFINE_String(spill_storage_root_path, "");
+DEFINE_String(spill_storage_limit, "20%");   // 20%
+DEFINE_mInt32(spill_gc_interval_ms, "2000"); // 2s
+DEFINE_mInt32(spill_gc_file_count, "2000");
+DEFINE_Int32(spill_io_thread_pool_thread_num, "-1");
+DEFINE_Validator(spill_io_thread_pool_thread_num, [](const int config) -> bool {
+    if (config == -1) {
+        CpuInfo::init();
+        spill_io_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 2);
+    }
+    return true;
+});
+DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
+
+DEFINE_mBool(enable_s3_rate_limiter, "false");
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
 
@@ -1181,14 +1215,15 @@ DEFINE_mString(ca_cert_file_paths,
                "/etc/ssl/ca-bundle.pem");
 
 /** Table sink configurations(currently contains only external table types) **/
-// Minimum data processed to scale writers when non partition writing
+// Minimum data processed to scale writers in exchange when non partition writing
 DEFINE_mInt64(table_sink_non_partition_write_scaling_data_processed_threshold,
-              "125829120"); // 120MB
-// Minimum data processed to start rebalancing in exchange when partition writing
-DEFINE_mInt64(table_sink_partition_write_data_processed_threshold, "209715200"); // 200MB
+              "26214400"); // 25MB
 // Minimum data processed to trigger skewed partition rebalancing in exchange when partition writing
-DEFINE_mInt64(table_sink_partition_write_skewed_data_processed_rebalance_threshold,
-              "209715200"); // 200MB
+DEFINE_mInt64(table_sink_partition_write_min_data_processed_rebalance_threshold,
+              "26214400"); // 25MB
+// Minimum partition data processed to rebalance writers in exchange when partition writing
+DEFINE_mInt64(table_sink_partition_write_min_partition_data_processed_rebalance_threshold,
+              "15728640"); // 15MB
 // Maximum processed partition nums of per writer when partition writing
 DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
 
@@ -1199,8 +1234,43 @@ DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
 DEFINE_Bool(enable_index_compaction, "false");
 
+// http scheme in S3Client to use. E.g. http or https
+DEFINE_String(s3_client_http_scheme, "http");
+DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
+    return config == "http" || config == "https";
+});
+
 // enable injection point in regression-test
 DEFINE_mBool(enable_injection_point, "false");
+
+DEFINE_mBool(ignore_schema_change_check, "false");
+
+DEFINE_mInt64(string_overflow_size, "4294967295"); // std::numic_limits<uint32_t>::max()
+
+// The min thread num for BufferedReaderPrefetchThreadPool
+DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread, "16");
+// The max thread num for BufferedReaderPrefetchThreadPool
+DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
+// The min thread num for S3FileUploadThreadPool
+DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
+// The max thread num for S3FileUploadThreadPool
+DEFINE_Int64(num_s3_file_upload_thread_pool_max_thread, "64");
+// The max ratio for ttl cache's size
+DEFINE_mInt64(max_ttl_cache_ratio, "90");
+// The maximum jvm heap usage ratio for hdfs write workload
+DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
+// The sleep milliseconds duration when hdfs write exceeds the maximum usage
+DEFINE_mInt64(hdfs_jni_write_sleep_milliseconds, "300");
+// The max retry times when hdfs write failed
+DEFINE_mInt64(hdfs_jni_write_max_retry_time, "3");
+
+// The min thread num for NonBlockCloseThreadPool
+DEFINE_Int64(min_nonblock_close_thread_num, "12");
+// The max thread num for NonBlockCloseThreadPool
+DEFINE_Int64(max_nonblock_close_thread_num, "64");
+// The possibility that mem allocator throws an exception during memory allocation
+// This config is for test usage, be careful when changing it.
+DEFINE_mDouble(mem_alloc_fault_probability, "0.0");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1640,6 +1710,8 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_shrink_memory"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["string_overflow_size"] =
+            ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
 
     fmt::memory_buffer buf;
     for (auto& it : fuzzy_field_and_value) {
@@ -1669,11 +1741,18 @@ std::vector<std::vector<std::string>> get_config_info() {
         std::vector<std::string> _config;
         _config.push_back(it.first);
 
+        std::string config_val = it.second;
+        // For compatibility, this PR #32933 change the log dir's config logic,
+        // and deprecate the `sys_log_dir` config.
+        if (it.first == "sys_log_dir" && config_val == "") {
+            config_val = fmt::format("{}/log", std::getenv("DORIS_HOME"));
+        }
+
         _config.emplace_back(field_it->second.type);
         if (0 == strcmp(field_it->second.type, "bool")) {
-            _config.emplace_back(it.second == "1" ? "true" : "false");
+            _config.emplace_back(config_val == "1" ? "true" : "false");
         } else {
-            _config.push_back(it.second);
+            _config.push_back(config_val);
         }
         _config.emplace_back(field_it->second.valmutable ? "true" : "false");
 

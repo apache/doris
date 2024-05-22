@@ -560,6 +560,10 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _column_path->from_protobuf(column.column_path_info());
         _parent_col_unique_id = column.column_path_info().parrent_column_unique_id();
     }
+    if (is_variant_type() && !column.has_column_path_info()) {
+        // set path info for variant root column, to prevent from missing
+        _column_path = std::make_shared<vectorized::PathInData>(_col_name_lower_case);
+    }
     for (auto& column_pb : column.sparse_columns()) {
         TabletColumn column;
         column.init_from_pb(column_pb);
@@ -1291,7 +1295,7 @@ bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
     return false;
 }
 
-bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id,
+bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id,
                                                     const std::string& suffix_name) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED &&
@@ -1303,7 +1307,7 @@ bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id,
 }
 
 const TabletIndex* TabletSchema::get_inverted_index_with_index_id(
-        int32_t index_id, const std::string& suffix_name) const {
+        int64_t index_id, const std::string& suffix_name) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED &&
             _indexes[i].get_index_suffix() == suffix_name && _indexes[i].index_id() == index_id) {

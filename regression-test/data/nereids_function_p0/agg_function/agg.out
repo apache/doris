@@ -1410,6 +1410,148 @@
 -- !sql_count_AnyData_agg_phase_4_notnull --
 12	12
 
+-- !sql_group_array_intersect_array_bool --
+[0]
+
+-- !sql_group_array_intersect_array_tinyint --
+[1]
+
+-- !sql_group_array_intersect_array_smallint --
+[]
+
+-- !sql_group_array_intersect_array_int --
+[]
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[10]
+[11]
+[12]
+
+-- !sql_group_array_intersect_array_bigint --
+[]
+
+-- !sql_group_array_intersect_array_largeint --
+[8]
+
+-- !sql_group_array_intersect_array_float --
+[5]
+
+-- !sql_group_array_intersect_array_double --
+[0.2]
+
+-- !sql_group_array_intersect_array_date --
+["2012-03-03"]
+
+-- !sql_group_array_intersect_array_datetime --
+["2012-03-04 04:03:04"]
+
+-- !sql_group_array_intersect_array_datev2 --
+["2012-03-06"]
+
+-- !sql_group_array_intersect_array_datetimev2 --
+["2012-03-09 09:08:09.000000"]
+
+-- !sql_group_array_intersect_array_char --
+["char21", "char11", "char31"]
+
+-- !sql_group_array_intersect_array_varchar --
+["varchar11", "char11", "varchar31", "char31", "varchar21", "char21"]
+
+-- !sql_group_array_intersect_array_string --
+["varchar11", "string1", "varchar31", "char31", "varchar21", "char21"]
+
+-- !sql_group_array_intersect_array_decimal --
+[]
+[0.100000000]
+[0.200000000]
+[0.300000000]
+[0.400000000]
+[0.500000000]
+[0.600000000]
+[0.700000000]
+[0.800000000]
+[0.900000000]
+[1.000000000]
+[1.100000000]
+[1.200000000]
+
+-- !sql_group_array_intersect_array_bool_notnull --
+[0]
+
+-- !sql_group_array_intersect_array_tinyint_notnull --
+[1]
+
+-- !sql_group_array_intersect_array_smallint_notnull --
+[]
+
+-- !sql_group_array_intersect_array_int_notnull --
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[10]
+[11]
+[12]
+
+-- !sql_group_array_intersect_array_bigint_notnull --
+[]
+
+-- !sql_group_array_intersect_array_largeint_notnull --
+[8]
+
+-- !sql_group_array_intersect_array_float_notnull --
+[5]
+
+-- !sql_group_array_intersect_array_double_notnull --
+[0.2]
+
+-- !sql_group_array_intersect_array_date_notnull --
+["2012-03-03"]
+
+-- !sql_group_array_intersect_array_datetime_notnull --
+["2012-03-04 04:03:04"]
+
+-- !sql_group_array_intersect_array_datev2_notnull --
+["2012-03-06"]
+
+-- !sql_group_array_intersect_array_datetimev2_notnull --
+["2012-03-09 09:08:09.000000"]
+
+-- !sql_group_array_intersect_array_char_notnull --
+["char21", "char11", "char31"]
+
+-- !sql_group_array_intersect_array_varchar_notnull --
+["varchar11", "char11", "varchar31", "char31", "varchar21", "char21"]
+
+-- !sql_group_array_intersect_array_string_notnull --
+["varchar11", "string1", "varchar31", "char31", "varchar21", "char21"]
+
+-- !sql_group_array_intersect_array_decimal_notnull --
+[0.100000000]
+[0.200000000]
+[0.300000000]
+[0.400000000]
+[0.500000000]
+[0.600000000]
+[0.700000000]
+[0.800000000]
+[0.900000000]
+[1.000000000]
+[1.100000000]
+[1.200000000]
+
 -- !sql_group_bit_and_TinyInt_gb --
 \N
 0

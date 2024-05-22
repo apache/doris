@@ -89,7 +89,7 @@ public class Profile {
     }
 
     // This API will also add the profile to ProfileManager, so that we could get the profile from ProfileManager.
-    // isFinished ONLY means the cooridnator or stmtexecutor is finished.
+    // isFinished ONLY means the coordinator or stmtexecutor is finished.
     public synchronized void updateSummary(long startTime, Map<String, String> summaryInfo, boolean isFinished,
             Planner planner) {
         try {

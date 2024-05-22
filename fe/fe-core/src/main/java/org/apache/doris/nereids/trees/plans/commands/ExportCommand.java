@@ -129,8 +129,9 @@ public class ExportCommand extends Command implements ForwardWithSync {
                 qualifiedTableName.get(2));
 
         // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tblName.getDb(), tblName.getTbl(),
-                PrivPredicate.SELECT)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ctx, tblName.getCtl(), tblName.getDb(), tblName.getTbl(),
+                        PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "EXPORT",
                     ctx.getQualifiedUser(),
                     ctx.getRemoteIP(),
@@ -248,9 +249,6 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setTableName(tblName);
         exportJob.setExportTable(table);
         exportJob.setTableId(table.getId());
-        if (ctx.getExecutor() != null) {
-            exportJob.setOrigStmt(ctx.getExecutor().getOriginStmt());
-        }
         // set partitions
         exportJob.setPartitionNames(this.partitionsNames);
         // set where expression

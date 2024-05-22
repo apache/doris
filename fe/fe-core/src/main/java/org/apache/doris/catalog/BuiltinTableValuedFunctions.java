@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
+import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
 
@@ -57,6 +58,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(MvInfos.class, "mv_infos"),
             tableValued(Jobs.class, "jobs"),
             tableValued(Tasks.class, "tasks"),
+            tableValued(Query.class, "query"),
             tableValued(Cdc.class, "cdc")
     );
 

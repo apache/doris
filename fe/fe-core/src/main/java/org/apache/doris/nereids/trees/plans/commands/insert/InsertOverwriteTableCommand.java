@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -116,7 +117,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         executor.checkBlockRules();
-        if (ctx.getMysqlChannel() != null) {
+        if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
         }
 
@@ -131,7 +132,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     .checkDatabase(((OlapTable) targetTable).getQualifiedDbName(), ConnectContext.get());
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), ((OlapTable) targetTable).getQualifiedDbName(),
+                    .checkTblPriv(ConnectContext.get(), targetTable.getDatabase().getCatalog().getName(),
+                            ((OlapTable) targetTable).getQualifiedDbName(),
                             targetTable.getName(), PrivPredicate.LOAD)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                         ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),

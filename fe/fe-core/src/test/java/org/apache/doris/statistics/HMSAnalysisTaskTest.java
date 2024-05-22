@@ -249,10 +249,10 @@ public class HMSAnalysisTaskTest {
         AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
         analysisInfoBuilder.setColName("hour");
         analysisInfoBuilder.setJobType(AnalysisInfo.JobType.MANUAL);
-        analysisInfoBuilder.setUsingSqlForPartitionColumn(true);
+        analysisInfoBuilder.setUsingSqlForExternalTable(true);
         task.info = analysisInfoBuilder.build();
 
-        task.getColumnStats();
+        task.doExecute();
     }
 
 
@@ -306,9 +306,9 @@ public class HMSAnalysisTaskTest {
         AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
         analysisInfoBuilder.setColName("hour");
         analysisInfoBuilder.setJobType(AnalysisInfo.JobType.MANUAL);
-        analysisInfoBuilder.setUsingSqlForPartitionColumn(false);
+        analysisInfoBuilder.setUsingSqlForExternalTable(false);
         task.info = analysisInfoBuilder.build();
 
-        task.getColumnStats();
+        task.doExecute();
     }
 }

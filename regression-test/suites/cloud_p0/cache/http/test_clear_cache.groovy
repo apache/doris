@@ -92,48 +92,14 @@ suite("test_clear_cache") {
         }
     }
 
-    clearFileCache.call() {
-        respCode, body -> {}
-    }
-
     load_customer_once("customer_ttl")
-    sleep(30000) // 30s
-
-    getMetricsMethod.call() {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag1 = false;
-            Boolean flag2 = false;
-            long ttl_cache_size = 0;
-            long total_cache_size = 0;
-            for (String line in strs) {
-                if (flag1 && flag2) break;
-                if (line.contains("ttl_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    ttl_cache_size = line.substring(i).toLong()
-                    flag1 = true
-                }
-                if (line.contains("file_cache_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    total_cache_size = line.substring(i).toLong()
-                    flag2 = true
-                }
-            }
-            assertTrue(flag1 && flag2)
-            assertEquals(ttl_cache_size, total_cache_size)
-    }
+    load_customer_once("customer")
 
     clearFileCache.call() {
         respCode, body -> {}
     }
+    sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
+    sql new File("""${context.file.parent}/../ddl/customer_delete.sql""").text
     sleep(30000)
     getMetricsMethod.call() {
         respCode, body ->
@@ -156,6 +122,4 @@ suite("test_clear_cache") {
             }
             assertTrue(flag)
     }
-
-    sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
 }

@@ -36,6 +36,7 @@ suite("agg_window_project") {
 
     sql """insert into test_window_table values("1", 1);"""
 
+    sql """sync"""
 
     order_qt_select1 """
         SELECT `owner`,
@@ -94,14 +95,18 @@ suite("agg_window_project") {
 
     sql """insert into test_window_table2 values("1", 1, 1),("1", 1, 2),("1", 2, 1),("1", 2, 2),("2", 11, 1),("2", 11, 2),("2", 12, 1),("2", 12, 2);"""
 
-    order_qt_select4 """select a, c, sum(sum(b)) over(partition by c order by c rows between unbounded preceding and current row) from test_window_table2 group by a, c having a > 1;"""
+    sql """sync"""
+    
+    order_qt_select4 """select a, c, sum(sum(b)) over(partition by c order by a, c rows between unbounded preceding and current row) from test_window_table2 group by a, c having a > 1;"""
 
-    order_qt_select5 """select a, c, sum(sum(b)) over(partition by c order by c rows between unbounded preceding and current row) dd from test_window_table2 group by a, c having dd < 4;"""
+    order_qt_select5 """select a, c, sum(sum(b)) over(partition by c order by a, c rows between unbounded preceding and current row) dd from test_window_table2 group by a, c having dd < 4;"""
     
     explain {
         sql("select a, c, sum(sum(b)) over(partition by c order by c rows between unbounded preceding and current row) from test_window_table2 group by a, c having a > 1;")
         contains "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
     }
+
+    sql """select a, a aa, row_number() over (partition by b) from test_window_table2;"""
 
     sql "DROP TABLE IF EXISTS test_window_table2;"
 }

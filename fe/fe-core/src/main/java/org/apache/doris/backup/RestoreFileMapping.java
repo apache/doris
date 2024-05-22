@@ -156,6 +156,11 @@ public class RestoreFileMapping implements Writable {
         return mapping;
     }
 
+    public void clear() {
+        mapping.clear();
+        overwriteMap.clear();
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeInt(mapping.size());

@@ -617,12 +617,12 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_pushfront_DateV2_notnull "select array_pushfront(kadtv2, kdtv2) from fn_test_not_nullable"
 
     // array_range
-    order_qt_sql_array_range_one_param "select array_range(kint) from fn_test"
-    order_qt_sql_array_range_one_param_notnull "select array_range(kint) from fn_test_not_nullable"
-    order_qt_sql_array_range_two_param "select array_range(kint, 1000) from fn_test"
-    order_qt_sql_array_range_two_param_notnull "select array_range(kint, 1000) from fn_test_not_nullable"
-    order_qt_sql_array_range_three_param "select array_range(kint, 10000, ktint) from fn_test"
-    order_qt_sql_array_range_three_param_notnull "select array_range(kint, 10000, ktint) from fn_test_not_nullable"
+    order_qt_sql_array_range_one_param "select array_range(kint) from fn_test order by id"
+    order_qt_sql_array_range_one_param_notnull "select array_range(kint) from fn_test_not_nullable order by id"
+    order_qt_sql_array_range_two_param "select array_range(kint, 1000) from fn_test order by id"
+    order_qt_sql_array_range_two_param_notnull "select array_range(kint, 1000) from fn_test_not_nullable order by id"
+    order_qt_sql_array_range_three_param "select array_range(kint, 10000, ktint) from fn_test order by id"
+    order_qt_sql_array_range_three_param_notnull "select array_range(kint, 10000, ktint) from fn_test_not_nullable order by id"
 
     // array_remove
     order_qt_sql_array_remove_Double "select array_remove(kadbl, kdbl) from fn_test"
@@ -1005,6 +1005,8 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_map_TinyInt_notnull "select array_map(x -> x is not null, katint) from fn_test_not_nullable"
     order_qt_sql_array_map_DecimalV3 "select array_map(x -> x is not null, kadcml) from fn_test"
     order_qt_sql_array_map_DecimalV3_notnull "select array_map(x -> x is not null, kadcml) from fn_test_not_nullable"
+    order_qt_sql_array_map_lambda_agg "select array_map(x->(x+100), collect_list(ktint)) from fn_test group by id;"
+
     // test array_exists
     order_qt_sql_array_exists_Double "select array_exists(x -> x > 1, kadbl) from fn_test"
     order_qt_sql_array_exists_Double_notnull "select array_exists(x -> x > 1, kadbl) from fn_test_not_nullable"

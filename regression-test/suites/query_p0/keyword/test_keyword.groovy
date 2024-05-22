@@ -105,7 +105,7 @@ suite("test_keyword", "query,p0") {
     qt_alias18 "select k1 as a, k2 as b, k3 as c from baseall t group by a, b, c order by a, b, c;"
     qt_alias19 "select k1 as a, k2 as b, k3 as c from baseall t group by a, b, c having a > 5 order by a, b, c;"
     qt_alias20 "select * from (select 1 as a) b  right join (select 2 as a) c using(a);"
-    qt_alias21 "select * from (select 1 as a) b  full join (select 2 as a) c using(a);"
+    qt_alias21 "select * from (select 1 as a) b  full join (select 2 as a) c using(a) order by 1, 2;"
     try_sql "select k1 as k7, k2 as k8, k3 as k9 from baseall t group by k7, k8, k9 having k7 > 5 \
             order by k7;"
     try_sql "select k1 as k7, k2 as k8, k3 as k9 from baseall t where k8 > 0 group by k7, k8, k9 having k7 > 5 order by k7;"

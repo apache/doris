@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -44,10 +45,11 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
         // Rewrite top projects, represent the query projects by view
         List<Expression> expressionsRewritten = rewriteExpression(
                 queryStructInfo.getExpressions(),
-                queryStructInfo.getOriginalPlan(),
+                queryStructInfo.getTopPlan(),
                 materializationContext.getMvExprToMvScanExprMapping(),
                 targetToSourceMapping,
-                true
+                true,
+                queryStructInfo.getTableBitSet()
         );
         // Can not rewrite, bail out
         if (expressionsRewritten.isEmpty()) {
@@ -73,7 +75,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
      * Join condition should be slot reference equals currently.
      */
     @Override
-    protected boolean checkPattern(StructInfo structInfo) {
+    protected boolean checkPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
                 && !checkContext.isContainsTopAggregate();

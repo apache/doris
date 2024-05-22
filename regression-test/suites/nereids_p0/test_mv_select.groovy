@@ -18,6 +18,8 @@
 suite("test_mv_select") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     sql "DROP TABLE IF EXISTS mv_test_table_t"
     sql """
@@ -56,7 +58,11 @@ suite("test_mv_select") {
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1"
             );"""
+
+    def timeout = 60000
     def delta_time = 1000
+    def alter_res = "null"
+    def useTime = 0
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""

@@ -82,7 +82,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
     private List<FieldSchema> checkedHiveCols;
 
     private final Set<String> createdDbs = new HashSet<>();
-    private final Set<String> createdTables = new HashSet<>();
+    private final Set<Table> createdTables = new HashSet<>();
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -142,7 +142,12 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
 
             @Mock
             public boolean tableExists(String dbName, String tblName) {
-                return createdTables.contains(tblName);
+                for (Table table : createdTables) {
+                    if (table.getDbName().equals(dbName) && table.getTableName().equals(tblName)) {
+                        return true;
+                    }
+                }
+                return false;
             }
 
             @Mock
@@ -154,7 +159,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
             public void createTable(TableMetadata tbl, boolean ignoreIfExists) {
                 if (tbl instanceof HiveTableMetadata) {
                     Table table = HiveUtil.toHiveTable((HiveTableMetadata) tbl);
-                    createdTables.add(table.getTableName());
+                    createdTables.add(table);
                     if (checkedHiveCols == null) {
                         // if checkedHiveCols is null, skip column check
                         return;
@@ -169,6 +174,16 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                     }
                 }
             }
+
+            @Mock
+            public Table getTable(String dbName, String tblName) {
+                for (Table createdTable : createdTables) {
+                    if (createdTable.getDbName().equals(dbName) && createdTable.getTableName().equals(tblName)) {
+                        return createdTable;
+                    }
+                }
+                return null;
+            }
         };
         CreateDbStmt createDbStmt = new CreateDbStmt(true, new DbName("hive", mockedDbName), dbProps);
         Env.getCurrentEnv().createDb(createDbStmt);
@@ -182,7 +197,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  `col2` STRING COMMENT 'col2'\n"
                 + ")  ENGINE=hive\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='parquet')";
         createTable(createSourceExtUTable, true);
         // partitioned table
@@ -193,7 +208,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + ")  ENGINE=hive\n"
                 + "PARTITION BY LIST (pt1, pt2) ()\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createSourceExtTable, true);
 
@@ -213,8 +228,10 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
             // mock after ThriftHMSCachedClient is mocked
             @Mock
             HMSExternalTable getTableNullable(String tableName) {
-                if (createdTables.contains(tableName)) {
-                    return new HMSExternalTable(0, tableName, mockedDbName, hmsExternalCatalog);
+                for (Table table : createdTables) {
+                    if (table.getTableName().equals(tableName)) {
+                        return new HMSExternalTable(0, tableName, mockedDbName, hmsExternalCatalog);
+                    }
                 }
                 return null;
             }
@@ -258,7 +275,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  `col2` INT COMMENT 'col2'"
                 + ")  ENGINE=hive\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createTableIfNotExists, true);
         createTable(createTableIfNotExists, true);
@@ -288,7 +305,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  `pt2` STRING COMMENT 'pt2'\n"
                 + ")  ENGINE=hive\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createUnPartTable, true);
         dropTable("unpart_tbl", true);
@@ -305,7 +322,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + ")  ENGINE=hive\n"
                 + "PARTITION BY LIST (pt1, pt2) ()\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='parquet')";
         createTable(createPartTable, true);
         // check IF NOT EXISTS
@@ -320,7 +337,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + ")  ENGINE=hive\n"
                 + "DISTRIBUTED BY HASH (col2) BUCKETS 16\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 "errCode = 2, detailMessage = errCode = 2,"
@@ -336,7 +353,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + ")  ENGINE=hive\n"
                 + "DISTRIBUTED BY HASH (col2) BUCKETS 16\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createBucketedTableOk1, true);
         dropTable("buck_tbl", true);
@@ -352,7 +369,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "PARTITION BY LIST (pt2) ()\n"
                 + "DISTRIBUTED BY HASH (col2) BUCKETS 16\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createBucketedTableOk2, true);
         dropTable("part_buck_tbl", true);
@@ -430,15 +447,15 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         createTable(createOlapSrc, true);
         switchHive();
         useDatabase(mockedDbName);
-        String olapCtasErr = "CREATE TABLE no_buck_olap AS SELECT * FROM internal.mockedDb.olap_src";
+        String olapCtasErr = "CREATE TABLE no_buck_olap ENGINE=olap AS SELECT * FROM internal.mockedDb.olap_src";
         LogicalPlan olapCtasErrPlan = nereidsParser.parseSingle(olapCtasErr);
         Assertions.assertTrue(olapCtasErrPlan instanceof CreateTableCommand);
         ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 "Cannot create olap table out of internal catalog."
-                        + "Make sure 'engine' type is specified when use the catalog: hive",
+                        + " Make sure 'engine' type is specified when use the catalog: hive",
                 () -> ((CreateTableCommand) olapCtasErrPlan).run(connectContext, null));
 
-        String olapCtasOk = "CREATE TABLE internal.mockedDb.no_buck_olap"
+        String olapCtasOk = "CREATE TABLE internal.mockedDb.no_buck_olap ENGINE=olap"
                 + " PROPERTIES('replication_num' = '1')"
                 + " AS SELECT * FROM internal.mockedDb.olap_src";
         LogicalPlan olapCtasOkPlan = createTablesAndReturnPlans(true, olapCtasOk).get(0);

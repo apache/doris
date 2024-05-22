@@ -63,6 +63,8 @@ github:
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
           - Need_2_Approval
+          - Cloud UT (Doris Cloud UT)
+          - performance (Doris Performance)
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
@@ -110,8 +112,8 @@ github:
     - shuke987
     - wm1581066
     - KassieZ
-    - gavinchou
     - yujun777
+    - gavinchou
 
 notifications:
     pullrequests_status:  commits@doris.apache.org
