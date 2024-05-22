@@ -86,7 +86,7 @@ public class EliminateGroupByKey implements RewriteRuleFactory {
         }
 
         FuncDeps funcDeps = agg.child().getLogicalProperties()
-                .getFunctionalDependencies().getAllValidFuncDeps(validSlots);
+                .getTrait().getAllValidFuncDeps(validSlots);
         if (funcDeps.isEmpty()) {
             return null;
         }
