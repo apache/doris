@@ -3378,8 +3378,9 @@ public class Coordinator implements CoordInterface {
             }
 
             if (this.hasCancelled || this.cancelInProcess) {
-                LOG.info("Frangment has already been cancelled. Query {} backend: {}, fragment id={}",
-                        DebugUtil.printId(queryId), backend.getId(), this.fragmentId);
+                LOG.info("Frangment has already been cancelled. Query {} backend: {}, fragment id={},"
+                        + "stack trace={}", DebugUtil.printId(queryId), backend.getId(), this.fragmentId,
+                        Thread.currentThread().getStackTrace());
                 return;
             }
             try {
