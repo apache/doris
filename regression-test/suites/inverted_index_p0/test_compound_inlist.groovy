@@ -117,7 +117,7 @@ suite("test_compound_inlist", "p0"){
         qt_sql """ select /*+ SET_VAR(inverted_index_skip_threshold = 0) */ count() from ${indexTbName2} where (((request match_phrase 'images' and clientip match_phrase '3') or (request match_phrase 'english' and clientip match_phrase '4')) and status not in (1, 2, 200)); """
 
         qt_sql """ select /*+ SET_VAR(inverted_index_skip_threshold = 0) */ count() from ${indexTbName1} where (((request match_phrase 'images' and clientip match_phrase '3') or (request match_phrase 'english' and clientip match_phrase '4')) or status in (1, 2, 304)); """
-        qt_sql """ select /*+ SET_VAR(inverted_index_skip_threshold = 0) */ count() from ${indexTbName2} where (((request match_phrase 'images' and clientip match_phrase '3') or (request match_phrase 'english' and clientip match_phrase '4')) or status in (1, 2, 304)); """
+        qt_sql """ select /*+ SET_VAR(inverted_index_skip_threshold = 0, enable_common_expr_pushdown = true) */ count() from ${indexTbName2} where (((request match_phrase 'images' and clientip match_phrase '3') or (request match_phrase 'english' and clientip match_phrase '4')) or status in (1, 2, 304)); """
 
         qt_sql """ select /*+ SET_VAR(inverted_index_skip_threshold = 0) */ count() from ${indexTbName1} where (((request match_phrase 'images' and clientip match_phrase '3') or (request match_phrase 'english' and clientip match_phrase '4')) or status in (1, 2, 200)); """
         qt_sql """ select /*+ SET_VAR(inverted_index_skip_threshold = 0) */ count() from ${indexTbName2} where (((request match_phrase 'images' and clientip match_phrase '3') or (request match_phrase 'english' and clientip match_phrase '4')) or status in (1, 2, 200)); """
