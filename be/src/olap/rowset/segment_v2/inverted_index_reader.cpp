@@ -280,6 +280,8 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
     if (std::string(dir->getObjectName()) == "DorisCompoundReader") {
         static_cast<DorisCompoundReader*>(dir)->getDorisIndexInput()->setIdxFileCache(false);
     }
+    // NOTE: before mem_tracker hook becomes active, we caculate reader memory size by hand.
+    mem_tracker->consume(index_searcher_builder->get_reader_size());
     return Status::OK();
 };
 
