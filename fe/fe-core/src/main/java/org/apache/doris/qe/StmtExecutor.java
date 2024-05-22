@@ -1837,6 +1837,7 @@ public class StmtExecutor {
         } else {
             coord =  EnvFactory.getInstance().createCoordinator(context, analyzer,
                 planner, context.getStatsErrorEstimator());
+            coord.setExecPipEngineForLoading(true);
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
@@ -2302,6 +2303,7 @@ public class StmtExecutor {
             try {
                 coord = EnvFactory.getInstance().createCoordinator(context, analyzer,
                         planner, context.getStatsErrorEstimator());
+                coord.setExecPipEngineForLoading(true);
                 coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
                 coord.setQueryType(TQueryType.LOAD);
                 profile.addExecutionProfile(coord.getExecutionProfile());
