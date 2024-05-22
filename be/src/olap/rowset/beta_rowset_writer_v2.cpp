@@ -93,7 +93,6 @@ Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, const SegmentStatist
 
 Status BetaRowsetWriterV2::flush_memtable(vectorized::Block* block, int32_t segment_id,
                                           int64_t* flush_size) {
-    SCOPED_SKIP_MEMORY_CHECK();
     if (block->rows() == 0) {
         return Status::OK();
     }
