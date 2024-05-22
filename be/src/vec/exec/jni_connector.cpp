@@ -65,10 +65,6 @@ namespace doris::vectorized {
     M(TypeIndex::DateTime, ColumnVector<Int64>, Int64)                 \
     M(TypeIndex::DateTimeV2, ColumnVector<UInt64>, UInt64)
 
-JniConnector::~JniConnector() {
-    static_cast<void>(close());
-}
-
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
     _profile = profile;

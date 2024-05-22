@@ -865,7 +865,7 @@ Status OrcReader::set_fill_columns(
         _batch = _row_reader->createRowBatch(_batch_size);
         auto& selected_type = _row_reader->getSelectedType();
         int idx = 0;
-        static_cast<void>(_init_select_types(selected_type, idx));
+        RETURN_IF_ERROR(_init_select_types(selected_type, idx));
 
         _remaining_rows = _row_reader->getNumberOfRows();
 
@@ -909,7 +909,7 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
         const orc::Type* sub_type = type.getSubtype(i);
         _col_orc_type.push_back(sub_type);
         if (_is_acid && sub_type->getKind() == orc::TypeKind::STRUCT) {
-            static_cast<void>(_init_select_types(*sub_type, idx));
+            RETURN_IF_ERROR(_init_select_types(*sub_type, idx));
         }
     }
     return Status::OK();
@@ -1530,6 +1530,17 @@ std::string OrcReader::get_field_name_lower_case(const orc::Type* orc_type, int 
 }
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    RETURN_IF_ERROR(get_next_block_impl(block, read_rows, eof));
+    if (_orc_filter) {
+        RETURN_IF_ERROR(_orc_filter->get_status());
+    }
+    if (_string_dict_filter) {
+        RETURN_IF_ERROR(_string_dict_filter->get_status());
+    }
+    return Status::OK();
+}
+
+Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof) {
     if (_io_ctx && _io_ctx->should_stop) {
         *eof = true;
         *read_rows = 0;
@@ -1605,7 +1616,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
-            static_cast<void>(_convert_dict_cols_to_string_cols(block, nullptr));
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
             *eof = true;
             *read_rows = 0;
             return Status::OK();
@@ -1617,14 +1628,14 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                     Block::filter_block_internal(block, columns_to_filter, *_filter));
         }
         if (!_not_single_slot_filter_conjuncts.empty()) {
-            static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
                             _not_single_slot_filter_conjuncts, nullptr, block, columns_to_filter,
                             column_to_keep)));
         } else {
             Block::erase_useless_column(block, column_to_keep);
-            static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
         }
         *read_rows = block->rows();
     } else {
@@ -1697,7 +1708,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
-            static_cast<void>(_convert_dict_cols_to_string_cols(block, nullptr));
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
             *eof = true;
             *read_rows = 0;
             return Status::OK();
@@ -1738,8 +1749,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                     std::move(*block->get_by_position(col).column).assume_mutable()->clear();
                 }
                 Block::erase_useless_column(block, column_to_keep);
-                static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
-                return Status::OK();
+                return _convert_dict_cols_to_string_cols(block, &batch_vec);
             }
             _execute_filter_position_delete_rowids(result_filter);
             {
@@ -1748,14 +1758,14 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                         Block::filter_block_internal(block, columns_to_filter, result_filter));
             }
             if (!_not_single_slot_filter_conjuncts.empty()) {
-                static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
+                RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
                 RETURN_IF_CATCH_EXCEPTION(
                         RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
                                 _not_single_slot_filter_conjuncts, nullptr, block,
                                 columns_to_filter, column_to_keep)));
             } else {
                 Block::erase_useless_column(block, column_to_keep);
-                static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
+                RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
             }
         } else {
             if (_delete_rows_filter_ptr) {
@@ -1771,7 +1781,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                         Block::filter_block_internal(block, columns_to_filter, (*filter)));
             }
             Block::erase_useless_column(block, column_to_keep);
-            static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
         }
         *read_rows = block->rows();
     }
@@ -1912,7 +1922,7 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
             block->get_by_name(col.first).column->assume_mutable()->clear();
         }
         Block::erase_useless_column(block, origin_column_num);
-        static_cast<void>(_convert_dict_cols_to_string_cols(block, nullptr));
+        RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
     }
 
     uint16_t new_size = 0;
@@ -2148,7 +2158,7 @@ Status OrcReader::on_string_dicts_loaded(
         }
 
         // 4. Rewrite conjuncts.
-        static_cast<void>(_rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable()));
+        RETURN_IF_ERROR(_rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable()));
         ++it;
     }
     return Status::OK();
