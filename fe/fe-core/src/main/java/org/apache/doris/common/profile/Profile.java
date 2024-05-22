@@ -140,6 +140,7 @@ public class Profile {
             }
         }
         try {
+            // For load task, they will have multiple execution_profiles.
             for (ExecutionProfile executionProfile : executionProfiles) {
                 builder.append("\n");
                 executionProfile.getRoot().prettyPrint(builder, "");
