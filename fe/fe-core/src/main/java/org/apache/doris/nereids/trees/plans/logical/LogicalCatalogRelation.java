@@ -30,7 +30,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.TableFdItem;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -124,14 +123,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      */
     public String qualifiedName() {
         return Utils.qualifiedName(qualifier, table.getName());
-    }
-
-    @Override
-    public FunctionalDependencies computeFuncDeps() {
-        Builder fdBuilder = new Builder();
-        computeUnique(fdBuilder);
-        fdBuilder.addFdItems(computeFdItems(Utils.fastToImmutableSet(getOutputSet())));
-        return fdBuilder.build();
     }
 
     @Override
