@@ -51,8 +51,11 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.PartitionsTable;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
@@ -69,6 +72,7 @@ import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.StructProjection;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -558,7 +562,7 @@ public class IcebergUtils {
         });
     }
 
-    public static List<String> getPartitions(ExternalCatalog catalog, String dbName, String name) {
+    public static List<String> getPartitions1(ExternalCatalog catalog, String dbName, String name) {
         return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
             org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
             Set<String> partitionNames = Sets.newHashSet();
@@ -584,6 +588,61 @@ public class IcebergUtils {
             }
 
             return new ArrayList<>(partitionNames);
+        });
+    }
+
+    public static List<String> getPartitions(ExternalCatalog catalog, String dbName, String name) {
+        return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
+            List<String> res = Lists.newArrayList();
+            org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
+            if (icebergTable.specs().values().stream().allMatch(PartitionSpec::isUnpartitioned)) {
+                return res;
+            }
+            PartitionsTable partitionsTable = (PartitionsTable) MetadataTableUtils.
+                    createMetadataTableInstance(icebergTable, MetadataTableType.PARTITIONS);
+            // For partition table, we need to get all partitions from PartitionsTable.
+            try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().planFiles()) {
+                for (FileScanTask task : tasks) {
+                    // partitionsTable Table schema :
+                    // partition,
+                    // spec_id,
+                    // record_count,
+                    // file_count,
+                    // total_data_file_size_in_bytes,
+                    // position_delete_record_count,
+                    // position_delete_file_count,
+                    // equality_delete_record_count,
+                    // equality_delete_file_count,
+                    // last_updated_at,
+                    // last_updated_snapshot_id
+                    CloseableIterable<StructLike> rows = task.asDataTask().rows();
+                    for (StructLike row : rows) {
+                        // Get the partition data/spec id/last updated time according to the table schema
+                        StructProjection partitionData = row.get(0, StructProjection.class);
+                        int specId = row.get(1, Integer.class);
+                        PartitionSpec spec = icebergTable.specs().get(specId);
+                        String partitionName =
+                                convertIcebergPartitionToPartitionName(spec, partitionData);
+
+                        long lastUpdated = -1;
+                        try {
+                            lastUpdated = row.get(9, Long.class);
+                        } catch (NullPointerException e) {
+                            LOG.error("The table  snapshot has been expired", e);
+                        }
+                        long lastSnapshotId = -1;
+                        try {
+                            lastSnapshotId = row.get(10, Long.class);
+                        } catch (NullPointerException e) {
+                            LOG.error("The table  snapshot has been expired", e);
+                        }
+                        res.add(partitionName);
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return res;
         });
     }
 
