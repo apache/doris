@@ -53,6 +53,7 @@ import com.google.common.collect.Sets;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionsTable;
@@ -72,7 +73,6 @@ import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
-import org.apache.iceberg.util.StructProjection;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -580,7 +580,7 @@ public class IcebergUtils {
                 while (fileScanTaskIterator.hasNext()) {
                     FileScanTask scanTask = fileScanTaskIterator.next();
                     StructLike partition = scanTask.file().partition();
-                    String partitionName = convertIcebergPartitionToPartitionName(scanTask.spec(), partition);
+                    String partitionName = "convertIcebergPartitionToPartitionName(scanTask.spec(), partition)";
                     partitionNames.add(partitionName);
                 }
             } catch (IOException e) {
@@ -618,7 +618,7 @@ public class IcebergUtils {
                     CloseableIterable<StructLike> rows = task.asDataTask().rows();
                     for (StructLike row : rows) {
                         // Get the partition data/spec id/last updated time according to the table schema
-                        StructProjection partitionData = row.get(0, StructProjection.class);
+                        PartitionData partitionData = row.get(0, PartitionData.class);
                         int specId = row.get(1, Integer.class);
                         PartitionSpec spec = icebergTable.specs().get(specId);
                         String partitionName =
@@ -652,7 +652,14 @@ public class IcebergUtils {
     // if the partition field is explicitly named, use this name without change
     // if the partition field is not identity transform, column name is appended by its transform name (e.g. col1_hour)
     // if all partition fields are no longer active (dropped by partition evolution), return "ICEBERG_DEFAULT_PARTITION"
-    public static String convertIcebergPartitionToPartitionName(PartitionSpec partitionSpec, StructLike partition) {
+    public static String convertIcebergPartitionToPartitionName(PartitionSpec partitionSpec, PartitionData partition) {
+        int size = partition.size();
+        for (int i = 0; i < size; i++) {
+            org.apache.iceberg.types.Type type = partition.getType(i);
+            partition.getPartitionType();
+            partition.toString();
+
+        }
         StringBuilder sb = new StringBuilder();
         for (int index = 0; index < partitionSpec.fields().size(); ++index) {
             PartitionField partitionField = partitionSpec.fields().get(index);
