@@ -440,7 +440,7 @@ Status BrokerFileSystem::download_impl(const Path& remote_file, const Path& loca
         write_offset += read_len;
     } // file_handler should be closed before calculating checksum
 
-    return Status::OK();
+    return local_writer->close();
 }
 
 Status BrokerFileSystem::direct_download_impl(const Path& remote_file, std::string* content) {
