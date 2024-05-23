@@ -207,16 +207,6 @@ public class CreateTableInfo {
             throw new AnalysisException("table should contain at least one column");
         }
 
-        partitionTableInfo.extractPartitionColumns();
-        columns.stream()
-                .filter(column -> partitionTableInfo.inIdentifierPartitions(column.getName()))
-                .filter(column -> column.getType().isStringType())
-                .forEach(column -> {
-                    LOG.warn("Doris currently does not support using string as a partition field,"
-                            + " so [{}] is automatically converted to varchar(65533) type here.", column.getName());
-                    column.setType(VarcharType.MAX_VARCHAR_TYPE);
-                });
-
         // analyze catalog name
         if (Strings.isNullOrEmpty(ctlName)) {
             if (ctx.getCurrentCatalog() != null) {
@@ -232,7 +222,21 @@ public class CreateTableInfo {
             properties = Maps.newHashMap();
         }
 
+        // solve partitions
+        partitionTableInfo.extractPartitionColumns();
+
         if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
+
+            // convert string type partition into varchar(65533)
+            columns.stream()
+                    .filter(column -> partitionTableInfo.inIdentifierPartitions(column.getName()))
+                    .filter(column -> column.getType().isStringType())
+                    .forEach(column -> {
+                        LOG.warn("Doris currently does not support using string as a partition field,"
+                                + " so [{}] is automatically converted to varchar(65533) type here.", column.getName());
+                        column.setType(VarcharType.MAX_VARCHAR_TYPE);
+                    });
+
             if (distribution == null) {
                 distribution = new DistributionDescriptor(false, true, FeConstants.default_bucket_num, null);
             }
