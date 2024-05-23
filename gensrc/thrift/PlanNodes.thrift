@@ -904,7 +904,7 @@ struct TAggregationNode {
   7: optional list<TSortInfo> agg_sort_infos
   8: optional bool is_first_phase
   9: optional bool is_colocate
-  // 9: optional bool use_fixed_length_serialization_opt
+  10: optional TSortInfo agg_sort_info_by_group_key
 }
 
 struct TRepeatNode {
@@ -1228,7 +1228,7 @@ struct TRuntimeFilterDesc {
   // for bitmap filter
   11: optional bool bitmap_filter_not_in
 
-  12: optional bool opt_remote_rf;
+  12: optional bool opt_remote_rf; // Deprecated
   
   // for min/max rf
   13: optional TMinMaxRuntimeFilterType min_max_type;

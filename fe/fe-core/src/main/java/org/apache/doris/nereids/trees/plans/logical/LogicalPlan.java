@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -57,13 +57,13 @@ public interface LogicalPlan extends Plan {
     }
 
     /**
-     * Compute FunctionalDependencies for different plan
+     * Compute DataTrait for different plan
      * Note: Unless you really know what you're doing, please use the following interface.
      *   - BlockFDPropagation: clean the fd
      *   - PropagateFD: propagate the fd
      */
-    default FunctionalDependencies computeFuncDeps() {
-        FunctionalDependencies.Builder fdBuilder = new FunctionalDependencies.Builder();
+    default DataTrait computeFuncDeps() {
+        DataTrait.Builder fdBuilder = new DataTrait.Builder();
         computeUniform(fdBuilder);
         computeUnique(fdBuilder);
         computeEqualSet(fdBuilder);
@@ -93,11 +93,11 @@ public interface LogicalPlan extends Plan {
 
     ImmutableSet<FdItem> computeFdItems();
 
-    void computeUnique(FunctionalDependencies.Builder fdBuilder);
+    void computeUnique(DataTrait.Builder builder);
 
-    void computeUniform(FunctionalDependencies.Builder fdBuilder);
+    void computeUniform(DataTrait.Builder builder);
 
-    void computeEqualSet(FunctionalDependencies.Builder fdBuilder);
+    void computeEqualSet(DataTrait.Builder builder);
 
-    void computeFd(FunctionalDependencies.Builder fdBuilder);
+    void computeFd(DataTrait.Builder builder);
 }

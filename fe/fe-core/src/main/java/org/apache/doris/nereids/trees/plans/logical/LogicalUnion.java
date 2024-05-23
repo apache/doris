@@ -18,10 +18,10 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -190,14 +190,14 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     }
 
     @Override
-    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+    public void computeUnique(DataTrait.Builder builder) {
         if (qualifier == Qualifier.DISTINCT) {
-            fdBuilder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
+            builder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
     }
 
     @Override
-    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+    public void computeUniform(DataTrait.Builder builder) {
         // don't propagate uniform slots
     }
 
@@ -222,14 +222,14 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     }
 
     @Override
-    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+    public void computeEqualSet(DataTrait.Builder builder) {
         if (children.isEmpty()) {
             return;
         }
 
         // Get the list of equal slot sets and their corresponding index mappings for the first child
         List<Set<Slot>> childEqualSlotsList = child(0).getLogicalProperties()
-                .getFunctionalDependencies().calAllEqualSet();
+                .getTrait().calAllEqualSet();
         List<BitSet> childEqualSlotsIndicesList = mapSlotToIndex(child(0), childEqualSlotsList);
         List<BitSet> unionEqualSlotIndicesList = new ArrayList<>(childEqualSlotsIndicesList);
 
@@ -238,7 +238,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
             Plan child = children.get(i);
 
             // Get the equal slot sets for the current child
-            childEqualSlotsList = child.getLogicalProperties().getFunctionalDependencies().calAllEqualSet();
+            childEqualSlotsList = child.getLogicalProperties().getTrait().calAllEqualSet();
 
             // Map slots to indices for the current child
             childEqualSlotsIndicesList = mapSlotToIndex(child, childEqualSlotsList);
@@ -266,14 +266,14 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
             int first = equalSlotIndices.nextSetBit(0);
             int next = equalSlotIndices.nextSetBit(first + 1);
             while (next > 0) {
-                fdBuilder.addEqualPair(outputList.get(first), outputList.get(next));
+                builder.addEqualPair(outputList.get(first), outputList.get(next));
                 next = equalSlotIndices.nextSetBit(next + 1);
             }
         }
     }
 
     @Override
-    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+    public void computeFd(DataTrait.Builder builder) {
         // don't generate
     }
 
