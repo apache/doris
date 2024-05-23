@@ -51,11 +51,9 @@ struct FunctionFakeBaseImpl {
 
 struct FunctionExplode {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        auto remove_nullable_arg = remove_nullable(arguments[0]);
-        DCHECK(is_array(remove_nullable_arg))
-                << remove_nullable_arg->get_name() << " not supported";
-        return make_nullable(check_and_get_data_type<DataTypeArray>(remove_nullable_arg.get())
-                                     ->get_nested_type());
+        DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
+        return make_nullable(
+                check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
     }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
 };
@@ -63,13 +61,10 @@ struct FunctionExplode {
 // explode map: make map k,v as struct field
 struct FunctionExplodeMap {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        auto remove_nullable_arg = remove_nullable(arguments[0]);
-        DCHECK(is_map(remove_nullable_arg)) << remove_nullable_arg->get_name() << " not supported";
+        DCHECK(is_map(arguments[0])) << arguments[0]->get_name() << " not supported";
         DataTypes fieldTypes(2);
-        fieldTypes[0] =
-                check_and_get_data_type<DataTypeMap>(remove_nullable_arg.get())->get_key_type();
-        fieldTypes[1] =
-                check_and_get_data_type<DataTypeMap>(remove_nullable_arg.get())->get_value_type();
+        fieldTypes[0] = check_and_get_data_type<DataTypeMap>(arguments[0].get())->get_key_type();
+        fieldTypes[1] = check_and_get_data_type<DataTypeMap>(arguments[0].get())->get_value_type();
         return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
     }
     static std::string get_error_msg() { return "Fake function do not support execute"; }

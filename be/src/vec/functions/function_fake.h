@@ -36,6 +36,16 @@ class Block;
 } // namespace doris
 
 namespace doris::vectorized {
+
+struct UDTFImpl {
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeUInt8>(); //just fake return uint8
+    }
+    static std::string get_error_msg() {
+        return "UDTF function do not support this, it's should execute with lateral view.";
+    }
+};
+
 // FunctionFake is use for some function call expr only work at prepare/open phase, do not support execute().
 template <typename Impl>
 class FunctionFake : public IFunction {
@@ -54,22 +64,18 @@ public:
         return Impl::get_return_type_impl(arguments);
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_nulls() const override {
+        if constexpr (std::is_same_v<Impl, UDTFImpl>) {
+            return false;
+        }
+        return true;
+    }
 
     bool use_default_implementation_for_constants() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         return Status::NotSupported(Impl::get_error_msg());
-    }
-};
-
-struct UDTFImpl {
-    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return std::make_shared<DataTypeUInt8>(); //just fake return uint8
-    }
-    static std::string get_error_msg() {
-        return "UDTF function do not support this, it's should execute with lateral view.";
     }
 };
 
