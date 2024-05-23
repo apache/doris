@@ -88,8 +88,8 @@ suite("test_hive_write_different_path", "p0,external,hive,external_docker,extern
             sql """ insert into ${catalog2}.write_test.tb_with_hdfs3 values (5,'e','a',1) """
             sql """ insert into ${catalog3}.write_test.tb_with_hdfs3 values (6,'f','a',1) """
 
-            qt_q01 """ select * from ${catalog1}.write_test.tb_with_hdfs2 order by col_bigint_undef_signed """
-            qt_q02 """ select * from ${catalog1}.write_test.tb_with_hdfs3 order by col_bigint_undef_signed """
+            order_qt_q001 """ select * from ${catalog1}.write_test.tb_with_hdfs2 order by col_bigint_undef_signed """
+            order_qt_q002 """ select * from ${catalog1}.write_test.tb_with_hdfs3 order by col_bigint_undef_signed """
 
             sql """drop catalog if exists ${catalog1}"""
             sql """drop catalog if exists ${catalog2}"""
