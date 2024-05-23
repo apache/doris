@@ -560,7 +560,7 @@ message PMergeFilterRequest {
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
-    optional bool opt_remote_rf = 9;
+    optional bool opt_remote_rf = 9; // Deprecated
     optional PColumnType column_type = 10;
     optional bool contain_null = 11;
     optional bool ignored = 12;
