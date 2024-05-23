@@ -1513,13 +1513,17 @@ void FragmentMgr::get_runtime_query_info(std::vector<WorkloadQueryInfo>* query_i
     {
         std::lock_guard<std::mutex> lock(_lock);
         for (const auto& iter : _query_ctx_map) {
-            if (auto q_ctx = _get_or_erase_query_ctx(iter.first)) {
+            if (auto q_ctx = iter->second.lock()) {
                 WorkloadQueryInfo workload_query_info;
                 workload_query_info.query_id = print_id(iter.first);
                 workload_query_info.tquery_id = iter.first;
                 workload_query_info.wg_id =
                         q_ctx->workload_group() == nullptr ? -1 : q_ctx->workload_group()->id();
                 query_info_list->push_back(workload_query_info);
+            } else {
+                LOG_WARNING("Query context for {} is released, just erase it from _query_ctx_map",
+                            print_id(iter->first));
+                iter = _query_ctx_map.erase(iter);
             }
         }
     }
