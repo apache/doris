@@ -359,15 +359,15 @@ public:
 
     double get_ratio_of_default_rows(double sample_ratio) const override {
         if (sample_ratio <= 0.0 || sample_ratio > 1.0) {
-            LOG(FATAL) << "Value of 'sample_ratio' must be in interval (0.0; 1.0], but got: "
-                       << sample_ratio;
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "invalid sample_ratio {}",
+                                   sample_ratio);
         }
-        static constexpr auto max_number_of_rows_for_full_search = 1000;
+        static constexpr auto MAX_NUMBER_OF_ROWS_FOR_FULL_SEARCH = 1000;
         size_t num_rows = size();
         size_t num_sampled_rows = std::min(static_cast<size_t>(num_rows * sample_ratio), num_rows);
         size_t num_checked_rows = 0;
         size_t res = 0;
-        if (num_sampled_rows == num_rows || num_rows <= max_number_of_rows_for_full_search) {
+        if (num_sampled_rows == num_rows || num_rows <= MAX_NUMBER_OF_ROWS_FOR_FULL_SEARCH) {
             for (size_t i = 0; i < num_rows; ++i) {
                 res += is_null_at(i);
             }

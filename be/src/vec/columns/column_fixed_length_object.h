@@ -161,7 +161,10 @@ public:
         memset(&_data[old_size * _item_size], 0, _item_size);
     }
 
-    void pop_back(size_t n) override { resize(_item_count - n); }
+    void pop_back(size_t n) override {
+        DCHECK_GE(_item_count, n);
+        resize(_item_count - n);
+    }
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                          char const*& begin) const override {
