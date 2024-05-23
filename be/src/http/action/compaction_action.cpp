@@ -109,7 +109,8 @@ static Status _check_param(HttpRequest* req, uint64_t* id_param, const std::stri
 // for viewing the compaction status
 Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY), "check param failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY),
+                                   "check param failed");
     if (tablet_id == 0) {
         return Status::InternalError("check param failed: missing tablet_id");
     }
@@ -194,7 +195,8 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
 
 Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY), "check param failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY),
+                                   "check param failed");
 
     if (tablet_id == 0) {
         // overall compaction status
