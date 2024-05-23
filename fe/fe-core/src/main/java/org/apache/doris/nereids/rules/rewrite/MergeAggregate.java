@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
+import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -86,6 +87,15 @@ public class MergeAggregate implements RewriteRuleFactory {
      * LogicalProject (projects = [a as col2, sum(col1) as sum(col1)]
      *   +--LogicalAggregate (outputExpression = [a, sum(c) as sum(col1)], groupByKeys = [a])
      */
+    /**
+     * before:
+     * LogicalAggregate (outputExpressions = [col2, col3, sum(col1)], groupByKeys = [col2, col3])
+     *   +--LogicalProject (projects = [a as col2, a as col3, col1])
+     *     +--LogicalAggregate (outputExpressions = [a, b, sum(c) as col1], groupByKeys = [a,b])
+     * after:
+     * LogicalProject (projects = [a as col2, a as col3, sum(col1) as sum(col1)]
+     *   +--LogicalAggregate (outputExpression = [a, sum(c) as sum(col1)], groupByKeys = [a, a])
+     */
     private Plan mergeAggProjectAgg(LogicalAggregate<LogicalProject<LogicalAggregate<Plan>>> outerAgg) {
         LogicalProject<LogicalAggregate<Plan>> project = outerAgg.child();
         LogicalAggregate<Plan> innerAgg = project.child();
@@ -110,8 +120,21 @@ public class MergeAggregate implements RewriteRuleFactory {
         // construct upper project
         Map<SlotReference, Alias> childToAlias = project.getProjects().stream()
                 .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof SlotReference))
-                .collect(Collectors.toMap(alias -> (SlotReference) alias.child(0), alias -> (Alias) alias));
-        List<Expression> projectGroupBy = ExpressionUtils.replace(replacedGroupBy, childToAlias);
+                .collect(Collectors.toMap(alias -> (SlotReference) alias.child(0), alias -> (Alias) alias,
+                        (existValue, newValue) -> existValue));
+
+        Map<ExprId, NamedExpression> exprIdToNameExpressionMap = new HashMap<>();
+        for (NamedExpression pro : project.getProjects()) {
+            exprIdToNameExpressionMap.put(pro.getExprId(), pro);
+        }
+        List<Expression> originOuterAggGroupBy = outerAgg.getGroupByExpressions();
+        List<Expression> projectGroupBy = Lists.newArrayList();
+        for (int i = 0; i < replacedGroupBy.size(); i++) {
+            ExprId exprId = ((NamedExpression) (originOuterAggGroupBy.get(i))).getExprId();
+            NamedExpression namedExpression = exprIdToNameExpressionMap.get(exprId);
+            projectGroupBy.add(namedExpression);
+        }
+        // List<Expression> projectGroupBy = ExpressionUtils.replace(replacedGroupBy, childToAlias);
         List<NamedExpression> upperProjects = ImmutableList.<NamedExpression>builder()
                 .addAll(projectGroupBy.stream().map(namedExpr -> (NamedExpression) namedExpr).iterator())
                 .addAll(replacedAggFunc.stream().map(expr -> ((NamedExpression) expr).toSlot()).iterator())
