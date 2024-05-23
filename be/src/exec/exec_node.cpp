@@ -58,6 +58,7 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
@@ -822,7 +823,13 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
             RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
             auto column_ptr = origin_block->get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
-            mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+
+            if (column_ptr->is_nullable() ^ mutable_columns[i]->is_nullable()) {
+                auto nullable_column = reinterpret_cast<ColumnNullable*>(mutable_columns[i].get());
+                nullable_column->insert_range_from_not_nullable(*column_ptr, 0, rows);
+            } else {
+                mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+            }
         }
 
         if (!is_mem_reuse) output_block->swap(mutable_block.to_block());
