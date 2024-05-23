@@ -187,10 +187,6 @@ export ODBCSYSINI="${DORIS_HOME}/conf"
 # support utf8 for oracle database
 export NLS_LANG='AMERICAN_AMERICA.AL32UTF8'
 
-# filter known leak
-export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/lsan_suppr.conf"
-export ASAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
-
 while read -r line; do
     envline="$(echo "${line}" |
         sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
@@ -251,9 +247,13 @@ fi
 
 export AWS_MAX_ATTEMPTS=2
 
+# filter known leak
+export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/lsan_suppr.conf
+export ASAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
+
 ## set asan and ubsan env to generate core file
 ## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
-export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0:${ASAN_OPTIONS}
 export UBSAN_OPTIONS=print_stacktrace=1
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
@@ -346,9 +346,11 @@ fi
 
 if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then
     export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:"
+    export MALLOC_CONF="${JEMALLOC_CONF},prof_prefix:"
 else
     JEMALLOC_PROF_PRFIX="${DORIS_HOME}/log/${JEMALLOC_PROF_PRFIX}"
     export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
+    export MALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
 fi
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then

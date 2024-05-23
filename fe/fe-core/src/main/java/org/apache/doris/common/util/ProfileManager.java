@@ -17,17 +17,28 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.MultiProfileTreeBuilder;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.qe.CoordInterface;
+import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TGetRealtimeExecStatusRequest;
+import org.apache.doris.thrift.TGetRealtimeExecStatusResponse;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
@@ -36,13 +47,18 @@ import com.google.common.collect.Maps;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
@@ -110,6 +126,8 @@ public class ProfileManager {
     // execution profile's query id is not related with Profile's query id.
     private Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
 
+    private final ExecutorService fetchRealTimeProfileExecutor;
+
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
             synchronized (ProfileManager.class) {
@@ -128,6 +146,8 @@ public class ProfileManager {
         queryIdDeque = new LinkedList<>();
         queryIdToProfileMap = new ConcurrentHashMap<>();
         queryIdToExecutionProfiles = Maps.newHashMap();
+        fetchRealTimeProfileExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                10, 100, "fetch-realtime-profile-pool", true);
     }
 
     private ProfileElement createElement(Profile profile) {
@@ -263,13 +283,146 @@ public class ProfileManager {
         return result;
     }
 
-    public String getProfile(String queryID) {
+    private static TGetRealtimeExecStatusResponse getRealtimeQueryProfile(
+            TUniqueId queryID, TNetworkAddress targetBackend) {
+        TGetRealtimeExecStatusResponse resp = null;
+        BackendService.Client client = null;
+
+        try {
+            client = ClientPool.backendPool.borrowObject(targetBackend);
+        } catch (Exception e) {
+            LOG.warn("Fetch a agent client failed, address: {}", targetBackend.toString());
+            return resp;
+        }
+
+        try {
+            TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
+            req.setId(queryID);
+            resp = client.getRealtimeExecStatus(req);
+        } catch (TException e) {
+            LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}",
+                    DebugUtil.printId(queryID), targetBackend.toString(), e);
+            ClientPool.backendPool.invalidateObject(targetBackend, client);
+        } finally {
+            ClientPool.backendPool.returnObject(targetBackend, client);
+        }
+
+        if (!resp.isSetStatus()) {
+            LOG.warn("Broken GetRealtimeExecStatusResponse response, query {}",
+                    DebugUtil.printId(queryID));
+            return null;
+        }
+
+        if (resp.getStatus().status_code != TStatusCode.OK) {
+            LOG.warn("Failed to get realtime query exec status, query {} error msg {}",
+                    DebugUtil.printId(queryID), resp.getStatus().toString());
+            return null;
+        }
+
+        if (!resp.isSetReportExecStatusParams()) {
+            LOG.warn("Invalid GetRealtimeExecStatusResponse, query {}",
+                    DebugUtil.printId(queryID));
+            return null;
+        }
+
+        return resp;
+    }
+
+    private List<Future<TGetRealtimeExecStatusResponse>> createFetchRealTimeProfileTasks(String id) {
+        // For query, id is queryId, for load, id is LoadLoadingTaskId
+        class QueryIdAndAddress {
+            public TUniqueId id;
+            public TNetworkAddress beAddress;
+        }
+
+        List<Future<TGetRealtimeExecStatusResponse>> futures = Lists.newArrayList();
+        TUniqueId queryId = Util.parseTUniqueIdFromString(id);
+        List<QueryIdAndAddress> involvedBackends = Lists.newArrayList();
+
+        if (queryId != null) {
+            CoordInterface coor = QeProcessorImpl.INSTANCE.getCoordinator(queryId);
+
+            if (coor != null) {
+                for (TNetworkAddress addr : coor.getInvolvedBackends()) {
+                    QueryIdAndAddress tmp = new QueryIdAndAddress();
+                    tmp.id = queryId;
+                    tmp.beAddress = addr;
+                    involvedBackends.add(tmp);
+                }
+            }
+        } else {
+            Long loadJobId = (long) -1;
+            try {
+                loadJobId = Long.parseLong(id);
+            } catch (Exception e) {
+                throw new IllegalArgumentException("Invalid profile id: " + id);
+            }
+
+            LoadJob loadJob = Env.getCurrentEnv().getLoadManager().getLoadJob(loadJobId);
+            if (loadJob == null) {
+                throw new RuntimeException("Profile " + id + " not found");
+            }
+
+            if (loadJob.getLoadTaskIds() == null) {
+                LOG.warn("Load job {} has no task ids", loadJobId);
+                return futures;
+            }
+
+            for (TUniqueId taskId : loadJob.getLoadTaskIds()) {
+                CoordInterface coor = QeProcessorImpl.INSTANCE.getCoordinator(taskId);
+                if (coor != null) {
+                    if (coor.getInvolvedBackends() != null) {
+                        for (TNetworkAddress beAddress : coor.getInvolvedBackends()) {
+                            QueryIdAndAddress tmp = new QueryIdAndAddress();
+                            tmp.id = taskId;
+                            tmp.beAddress = beAddress;
+                            involvedBackends.add(tmp);
+                        }
+                    } else {
+                        LOG.warn("Involved backends is null, load job {}, task {}", id, DebugUtil.printId(taskId));
+                    }
+                }
+            }
+        }
+
+        for (QueryIdAndAddress idAndAddress : involvedBackends) {
+            Callable<TGetRealtimeExecStatusResponse> task = () -> {
+                return getRealtimeQueryProfile(idAndAddress.id, idAndAddress.beAddress);
+            };
+            Future<TGetRealtimeExecStatusResponse> future = fetchRealTimeProfileExecutor.submit(task);
+            futures.add(future);
+        }
+
+        return futures;
+    }
+
+    public String getProfile(String id) {
+        List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(id);
+        // beAddr of reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
+        // to avoid compile failing.
+        TNetworkAddress dummyAddr = new TNetworkAddress();
+        for (Future<TGetRealtimeExecStatusResponse> future : futures) {
+            try {
+                TGetRealtimeExecStatusResponse resp = future.get(5, TimeUnit.SECONDS);
+                if (resp != null) {
+                    QeProcessorImpl.INSTANCE.reportExecStatus(resp.getReportExecStatusParams(), dummyAddr);
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to get real-time profile, id {}, error: {}", id, e.getMessage(), e);
+            }
+        }
+
+        if (!futures.isEmpty()) {
+            LOG.info("Get real-time exec status finished, id {}", id);
+        }
+
         readLock.lock();
         try {
-            ProfileElement element = queryIdToProfileMap.get(queryID);
+            ProfileElement element = queryIdToProfileMap.get(id);
             if (element == null) {
                 return null;
             }
+
             return element.getProfileContent();
         } finally {
             readLock.unlock();

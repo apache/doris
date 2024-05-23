@@ -22,7 +22,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
@@ -35,6 +34,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ResultRow;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -46,7 +46,7 @@ import java.util.stream.Collectors;
 
 public class ShowColumnStatsStmt extends ShowStmt {
 
-    private static final ImmutableList<String> TITLE_NAMES =
+    private static final ImmutableList<String> TABLE_COLUMN_TITLE_NAMES =
             new ImmutableList.Builder<String>()
                     .add("column_name")
                     .add("index_name")
@@ -62,6 +62,24 @@ public class ShowColumnStatsStmt extends ShowStmt {
                     .add("trigger")
                     .add("query_times")
                     .add("updated_time")
+                    .add("update_rows")
+                    .add("last_analyze_row_count")
+                    .build();
+
+    private static final ImmutableList<String> PARTITION_COLUMN_TITLE_NAMES =
+            new ImmutableList.Builder<String>()
+                    .add("column_name")
+                    .add("partition_name")
+                    .add("index_name")
+                    .add("count")
+                    .add("ndv")
+                    .add("num_null")
+                    .add("min")
+                    .add("max")
+                    .add("data_size")
+                    .add("updated_time")
+                    .add("update_rows")
+                    .add("trigger")
                     .build();
 
     private final TableName tableName;
@@ -90,9 +108,6 @@ public class ShowColumnStatsStmt extends ShowStmt {
         tableName.analyze(analyzer);
         if (partitionNames != null) {
             partitionNames.analyze(analyzer);
-            if (partitionNames.getPartitionNames().size() > 1) {
-                throw new AnalysisException("Only one partition name could be specified");
-            }
         }
         CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalog == null) {
@@ -127,8 +142,8 @@ public class ShowColumnStatsStmt extends ShowStmt {
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-
-        for (String title : TITLE_NAMES) {
+        ImmutableList<String> titles = partitionNames == null ? TABLE_COLUMN_TITLE_NAMES : PARTITION_COLUMN_TITLE_NAMES;
+        for (String title : titles) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
@@ -162,6 +177,29 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.jobType));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.queriedTimes));
             row.add(String.valueOf(p.second.updatedTime));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.updatedRows));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.rowCount));
+            result.add(row);
+        });
+        return new ShowResultSet(getMetaData(), result);
+    }
+
+    public ShowResultSet constructPartitionResultSet(List<ResultRow> resultRows, TableIf tableIf) {
+        List<List<String>> result = Lists.newArrayList();
+        resultRows.forEach(r -> {
+            List<String> row = Lists.newArrayList();
+            row.add(r.get(0));
+            row.add(r.get(1));
+            row.add(r.get(2)); // TODO: Get index name.
+            row.add(r.get(3));
+            row.add(r.get(4));
+            row.add(r.get(5));
+            row.add(r.get(6));
+            row.add(r.get(7));
+            row.add(r.get(8));
+            row.add(r.get(9));
+            row.add("N/A");
+            row.add("Manual");
             result.add(row);
         });
         return new ShowResultSet(getMetaData(), result);

@@ -77,6 +77,7 @@
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/debug_points.h"
@@ -185,11 +186,17 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
-                            config::memory_limitation_per_thread_for_schema_change_bytes));
+                            engine.memory_limitation_bytes_per_thread_for_schema_change()));
         SCOPED_ATTACH_TASK(mem_tracker);
         DorisMetrics::instance()->create_rollup_requests_total->increment(1);
         Status res = Status::OK();
         try {
+            LOG_INFO("start {}", process_name)
+                    .tag("signature", agent_task_req.signature)
+                    .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                    .tag("new_tablet_id", new_tablet_id)
+                    .tag("mem_limit",
+                         engine.memory_limitation_bytes_per_thread_for_schema_change());
             DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
             SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2,
                                 std::to_string(agent_task_req.alter_tablet_req_v2.job_id));
@@ -254,11 +261,17 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
-                            config::memory_limitation_per_thread_for_schema_change_bytes));
+                            engine.memory_limitation_bytes_per_thread_for_schema_change()));
         SCOPED_ATTACH_TASK(mem_tracker);
         DorisMetrics::instance()->create_rollup_requests_total->increment(1);
         Status res = Status::OK();
         try {
+            LOG_INFO("start {}", process_name)
+                    .tag("signature", agent_task_req.signature)
+                    .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                    .tag("new_tablet_id", new_tablet_id)
+                    .tag("mem_limit",
+                         engine.memory_limitation_bytes_per_thread_for_schema_change());
             DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
             CloudSchemaChangeJob job(engine,
                                      std::to_string(agent_task_req.alter_tablet_req_v2.job_id),
@@ -426,6 +439,7 @@ bvar::Adder<uint64_t> ALTER_count("task", "ALTER_TABLE");
 bvar::Adder<uint64_t> CLONE_count("task", "CLONE");
 bvar::Adder<uint64_t> STORAGE_MEDIUM_MIGRATE_count("task", "STORAGE_MEDIUM_MIGRATE");
 bvar::Adder<uint64_t> GC_BINLOG_count("task", "GC_BINLOG");
+bvar::Adder<uint64_t> UPDATE_VISIBLE_VERSION_count("task", "UPDATE_VISIBLE_VERSION");
 
 void add_task_count(const TAgentTaskRequest& task, int n) {
     // clang-format off
@@ -452,6 +466,7 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     ADD_TASK_COUNT(CLONE)
     ADD_TASK_COUNT(STORAGE_MEDIUM_MIGRATE)
     ADD_TASK_COUNT(GC_BINLOG)
+    ADD_TASK_COUNT(UPDATE_VISIBLE_VERSION)
     #undef ADD_TASK_COUNT
     case TTaskType::REALTIME_PUSH:
     case TTaskType::PUSH:
@@ -522,7 +537,7 @@ Status TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 }
 
 PriorTaskWorkerPool::PriorTaskWorkerPool(
-        std::string_view name, int normal_worker_count, int high_prior_worker_conut,
+        std::string_view name, int normal_worker_count, int high_prior_worker_count,
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
     auto st = ThreadPoolBuilder(fmt::format("TaskWP_.{}", name))
@@ -535,8 +550,8 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
     CHECK(st.ok()) << name << ": " << st;
 
     st = ThreadPoolBuilder(fmt::format("HighPriorPool.{}", name))
-                 .set_min_threads(high_prior_worker_conut)
-                 .set_max_threads(high_prior_worker_conut)
+                 .set_min_threads(high_prior_worker_count)
+                 .set_max_threads(high_prior_worker_count)
                  .build(&_high_prior_pool);
     CHECK(st.ok()) << name << ": " << st;
 
@@ -1077,6 +1092,11 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
         DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
         return;
     }
+
+    std::map<int64_t, int64_t> partitions_version;
+    engine.tablet_manager()->get_partitions_visible_version(&partitions_version);
+    request.__set_partitions_version(std::move(partitions_version));
+
     int64_t max_compaction_score =
             std::max(DorisMetrics::instance()->tablet_cumulative_max_compaction_score->value(),
                      DorisMetrics::instance()->tablet_base_max_compaction_score->value());
@@ -1365,6 +1385,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
                         .region = param.s3_storage_param.region,
                         .ak = param.s3_storage_param.ak,
                         .sk = param.s3_storage_param.sk,
+                        .token = param.s3_storage_param.token,
                         .max_connections = param.s3_storage_param.max_conn,
                         .request_timeout_ms = param.s3_storage_param.request_timeout_ms,
                         .connect_timeout_ms = param.s3_storage_param.conn_timeout_ms,
@@ -1384,6 +1405,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         S3ClientConf conf {
                 .ak = param.s3_storage_param.ak,
                 .sk = param.s3_storage_param.sk,
+                .token = param.s3_storage_param.token,
         };
         st = client->reset(conf);
         fs = std::move(existed_fs);
@@ -1700,17 +1722,17 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     std::map<TTabletId, TVersion> succ_tablets;
     // partition_id, tablet_id, publish_version
     std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
-    std::map<TTableId, int64_t> table_id_to_num_delta_rows;
+    std::map<TTableId, std::map<TTabletId, int64_t>> table_id_to_tablet_id_to_num_delta_rows;
     uint32_t retry_time = 0;
     Status status;
     constexpr uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
     while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
         succ_tablets.clear();
         error_tablet_ids.clear();
-        table_id_to_num_delta_rows.clear();
+        table_id_to_tablet_id_to_num_delta_rows.clear();
         EnginePublishVersionTask engine_task(_engine, publish_version_req, &error_tablet_ids,
                                              &succ_tablets, &discontinuous_version_tablets,
-                                             &table_id_to_num_delta_rows);
+                                             &table_id_to_tablet_id_to_num_delta_rows);
         SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
         if (status.ok()) {
@@ -1771,7 +1793,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 .error(status);
     } else {
         if (!config::disable_auto_compaction &&
-            !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+            !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
@@ -1813,7 +1835,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     finish_task_request.__set_succ_tablets(succ_tablets);
     finish_task_request.__set_error_tablet_ids(
             std::vector<TTabletId>(error_tablet_ids.begin(), error_tablet_ids.end()));
-    finish_task_request.__set_table_id_to_delta_num_rows(table_id_to_num_delta_rows);
+    finish_task_request.__set_table_id_to_tablet_id_to_delta_num_rows(
+            table_id_to_tablet_id_to_num_delta_rows);
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);
 }
@@ -1925,6 +1948,12 @@ void gc_binlog_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     engine.gc_binlogs(gc_tablet_infos);
 }
 
+void visible_version_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
+    const TVisibleVersionReq& visible_version_req = req.visible_version_req;
+    engine.tablet_manager()->update_partitions_visible_version(
+            visible_version_req.partition_version);
+}
+
 void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
                     const TAgentTaskRequest& req) {
     const auto& clone_req = req.clone_req;
@@ -1998,7 +2027,7 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
     remove_task_info(req.task_type, req.signature);
 }
 
-void calc_delete_bimtap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
     std::vector<TTabletId> error_tablet_ids;
     std::vector<TTabletId> succ_tablet_ids;
     Status status;

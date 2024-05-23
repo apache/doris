@@ -18,7 +18,7 @@
 #pragma once
 
 #include <concurrentqueue.h>
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 #include <parallel_hashmap/phmap.h>
 
@@ -39,20 +39,18 @@ struct ScheduleRecord {
     uint64_t thread_id;
     uint64_t start_time;
     uint64_t end_time;
-    std::string state_name;
 
     bool operator<(const ScheduleRecord& rhs) const { return start_time < rhs.start_time; }
     std::string to_string(uint64_t append_value) const {
-        return fmt::format("{}|{}|{}|{}|{}|{}|{}|{}\n", doris::to_string(query_id), task_id,
-                           core_id, thread_id, start_time, end_time, state_name, append_value);
+        return fmt::format("{}|{}|{}|{}|{}|{}|{}\n", doris::to_string(query_id), task_id, core_id,
+                           thread_id, start_time, end_time, append_value);
     }
 };
 
 // all tracing datas of ONE specific query
 using OneQueryTraces = moodycamel::ConcurrentQueue<ScheduleRecord>;
 
-// belongs to exec_env, for all query, if enable
-// curl http://{host}:{web_server_port}/api/running_pipeline_tasks
+// belongs to exec_env, for all query, if enabled
 class PipelineTracerContext {
 public:
     enum class RecordType {
@@ -68,12 +66,17 @@ public:
     bool enabled() const { return !(_dump_type == RecordType::None); }
 
 private:
-    void _dump(TUniqueId query_id); // dump data to disk. one query or all.
+    // dump data to disk. one query or all.
+    void _dump_query(TUniqueId query_id);
+    void _dump_timeslice();
+
+    std::filesystem::path _log_dir = fmt::format("{}/pipe_tracing", getenv("LOG_DIR"));
 
     std::mutex _data_lock; // lock for map, not map items.
     phmap::flat_hash_map<TUniqueId, OneQueryTraces> _datas;
     std::mutex _tg_lock; //TODO: use an lockfree DS
-    phmap::flat_hash_map<TUniqueId, uint64_t> _id_to_workload_group;
+    phmap::flat_hash_map<TUniqueId, uint64_t>
+            _id_to_workload_group; // save query's workload group number
 
     RecordType _dump_type = RecordType::None;
     decltype(MonotonicSeconds()) _last_dump_time;

@@ -48,4 +48,11 @@ public class MTMVTimestampSnapshot implements MTMVSnapshotIf {
     public int hashCode() {
         return Objects.hashCode(timestamp);
     }
+
+    @Override
+    public String toString() {
+        return "MTMVTimestampSnapshot{"
+                + "timestamp=" + timestamp
+                + '}';
+    }
 }

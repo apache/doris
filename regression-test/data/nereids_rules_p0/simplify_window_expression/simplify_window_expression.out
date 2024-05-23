@@ -119,28 +119,28 @@
 -- !select_avg --
 \N	\N	\N
 \N	\N	\N
-1	1	1
-1	1	1
-2	2	2
-3	3	3
-3	3	3
-4	4	4
-5	5	5
-5	5	5
-7	7	7
+1	1.0	1.0
+1	1.0	1.0
+2	2.0	2.0
+3	3.0	3.0
+3	3.0	3.0
+4	4.0	4.0
+5	5.0	5.0
+5	5.0	5.0
+7	7.0	7.0
 
 -- !more_than_pk --
 \N	\N	\N
 \N	\N	\N
-1	1	1
-1	1	1
-2	2	2
-3	3	3
-3	3	3
-4	4	4
-5	5	5
-5	5	5
-7	7	7
+1	1.0	1.0
+1	1.0	1.0
+2	2.0	2.0
+3	3.0	3.0
+3	3.0	3.0
+4	4.0	4.0
+5	5.0	5.0
+5	5.0	5.0
+7	7.0	7.0
 
 -- !select_last_value_shape --
 PhysicalResultSink
@@ -163,18 +163,31 @@ PhysicalResultSink
 ------filter((mal_test_simplify_window.__DORIS_DELETE_SIGN__ = 0))
 --------PhysicalOlapScan[mal_test_simplify_window]
 
+-- !select_count_star_col1 --
+\N	1	1
+1	1	1
+1	1	1
+2	1	1
+2	1	1
+2	1	1
+3	1	1
+3	1	1
+4	1	1
+6	1	1
+6	1	1
+
 -- !select_upper_plan_use_all_rewrite --
 \N	\N
 \N	\N
-1	1
-1	1
-2	2
-3	3
-3	3
-4	4
-5	5
-5	5
-7	7
+1	1.0
+1	1.0
+2	2.0
+3	3.0
+3	3.0
+4	4.0
+5	5.0
+5	5.0
+7	7.0
 
 -- !select_upper_plan_use_rewrite_and_not_rewrite --
 \N	\N	\N

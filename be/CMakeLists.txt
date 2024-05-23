@@ -284,8 +284,7 @@ if (COMPILER_CLANG)
                         -Wunused-member-function
                         -Wunused-macros
                         -Wconversion)
-    add_compile_options(-Wno-vla-extension
-                        -Wno-gnu-statement-expression
+    add_compile_options( -Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
                         -Wno-implicit-int-conversion
                         -Wno-sign-conversion

@@ -31,8 +31,6 @@ suite('test_alias_function', "arrow_flight_sql") {
         result([['20230327:01']])
     }
 
-    sql "set enable_nereids_planner=false"
-
     sql '''
         DROP FUNCTION IF EXISTS legacy_f4()
     '''
@@ -40,12 +38,6 @@ suite('test_alias_function', "arrow_flight_sql") {
     sql '''
         CREATE ALIAS FUNCTION legacy_f4() WITH PARAMETER() AS now()
     '''
-
-    sql '''
-        SELECT legacy_f4(), now()
-    '''
-
-    sql "set enable_nereids_planner=true"
 
     sql '''
         SELECT legacy_f4(), now()

@@ -52,12 +52,10 @@ public class InternalSchemaAlterTest extends TestWithFeService {
     public void testModifyTblReplicaCount() throws AnalysisException {
         Database db = Env.getCurrentEnv().getCatalogMgr()
                 .getInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
-        InternalSchemaInitializer.modifyTblReplicaCount(db, StatisticConstants.STATISTIC_TBL_NAME);
-        InternalSchemaInitializer.modifyTblReplicaCount(db, StatisticConstants.HISTOGRAM_TBL_NAME);
+        InternalSchemaInitializer.modifyTblReplicaCount(db, StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         InternalSchemaInitializer.modifyTblReplicaCount(db, AuditLoaderPlugin.AUDIT_LOG_TABLE);
 
-        checkReplicationNum(db, StatisticConstants.STATISTIC_TBL_NAME);
-        checkReplicationNum(db, StatisticConstants.HISTOGRAM_TBL_NAME);
+        checkReplicationNum(db, StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         checkReplicationNum(db, AuditLoaderPlugin.AUDIT_LOG_TABLE);
     }
 

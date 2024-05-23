@@ -10,12 +10,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=()
---------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[inv_date_sk]
-----------------------PhysicalOlapScan[inventory] apply RFs: RF0
-----------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------PhysicalProject
---------------------------filter((date_dim.d_year = 1998) and d_moy IN (1, 2))
-----------------------------PhysicalOlapScan[date_dim]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[inv_date_sk]
+------------------------PhysicalOlapScan[inventory] apply RFs: RF0
+------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------PhysicalProject
+----------------------------filter((date_dim.d_year = 1998) and d_moy IN (1, 2))
+------------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[item]
@@ -28,11 +29,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------hashJoin[INNER_JOIN] hashCondition=((inv1.i_item_sk = inv2.i_item_sk) and (inv1.w_warehouse_sk = inv2.w_warehouse_sk)) otherCondition=()
 ------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------filter((inv1.d_moy = 1))
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------filter((inv1.d_moy = 1))
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------filter((inv2.d_moy = 2))
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------filter((inv2.d_moy = 2))
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

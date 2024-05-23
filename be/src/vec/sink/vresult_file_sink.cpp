@@ -83,8 +83,7 @@ Status VResultFileSink::prepare(RuntimeState* state) {
         // create writer
         _writer.reset(new (std::nothrow) VFileResultWriter(
                 _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_vexpr_ctxs,
-                _sender.get(), nullptr, state->return_object_data_as_binary(),
-                _output_row_descriptor));
+                _sender, nullptr, state->return_object_data_as_binary(), _output_row_descriptor));
     } else {
         // init channel
         _output_block =

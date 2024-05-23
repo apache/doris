@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.planner.Planner;
 
 import com.google.common.collect.Lists;
@@ -96,6 +97,11 @@ public class Profile {
             if (this.isFinished) {
                 return;
             }
+            if (planner instanceof NereidsPlanner) {
+                summaryInfo.put(SummaryProfile.PHYSICAL_PLAN,
+                        ((NereidsPlanner) planner).getPhysicalPlan()
+                                .treeString().replace("\n", "\n     "));
+            }
             summaryProfile.update(summaryInfo);
             for (ExecutionProfile executionProfile : executionProfiles) {
                 // Tell execution profile the start time
@@ -134,6 +140,7 @@ public class Profile {
             }
         }
         try {
+            // For load task, they will have multiple execution_profiles.
             for (ExecutionProfile executionProfile : executionProfiles) {
                 builder.append("\n");
                 executionProfile.getRoot().prettyPrint(builder, "");

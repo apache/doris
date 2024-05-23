@@ -24,38 +24,16 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
 #include "vec/exec/scan/vscan_node.h"
 
-namespace doris {
-class ExecNode;
-} // namespace doris
 namespace doris::vectorized {
 class ScannerDelegate;
 }
 
 namespace doris::pipeline {
 class PipScannerContext;
-
-class ScanOperatorBuilder : public OperatorBuilder<vectorized::VScanNode> {
-public:
-    ScanOperatorBuilder(int32_t id, ExecNode* exec_node);
-    bool is_source() const override { return true; }
-    OperatorPtr build_operator() override;
-};
-
-class ScanOperator : public SourceOperator<vectorized::VScanNode> {
-public:
-    ScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
-
-    bool can_read() override; // for source
-
-    bool runtime_filters_are_ready_or_timeout() override;
-
-    std::string debug_string() const override;
-};
 
 class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
 public:
@@ -180,8 +158,18 @@ class ScanLocalState : public ScanLocalStateBase {
 
     std::vector<Dependency*> dependencies() const override { return {_scan_dependency.get()}; }
 
-    std::vector<int> get_topn_filter_source_node_ids() {
-        return _parent->cast<typename Derived::Parent>().topn_filter_source_node_ids;
+    std::vector<int> get_topn_filter_source_node_ids(RuntimeState* state, bool push_down) {
+        std::vector<int> result;
+        for (int id : _parent->cast<typename Derived::Parent>().topn_filter_source_node_ids) {
+            const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
+            if (!pred.inited()) {
+                continue;
+            }
+            if (_push_down_topn(pred) == push_down) {
+                result.push_back(id);
+            }
+        }
+        return result;
     }
 
 protected:
@@ -198,7 +186,7 @@ protected:
     virtual bool _should_push_down_common_expr() { return false; }
 
     virtual bool _storage_no_merge() { return false; }
-    virtual bool _push_down_topn() { return false; }
+    virtual bool _push_down_topn(const vectorized::RuntimePredicate& predicate) { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
     virtual vectorized::VScanNode::PushDownType _should_push_down_bloom_filter() {
         return vectorized::VScanNode::PushDownType::UNACCEPTABLE;
@@ -418,7 +406,7 @@ public:
     }
 
     int64_t get_push_down_count() const { return _push_down_count; }
-    using OperatorX<LocalStateType>::id;
+    using OperatorX<LocalStateType>::node_id;
     using OperatorX<LocalStateType>::operator_id;
     using OperatorX<LocalStateType>::get_local_state;
 

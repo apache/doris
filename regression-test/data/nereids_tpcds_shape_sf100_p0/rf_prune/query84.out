@@ -25,11 +25,12 @@ PhysicalResultSink
 --------------------------------filter((customer_address.ca_city = 'Oakwood'))
 ----------------------------------PhysicalOlapScan[customer_address]
 ------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------hashJoin[INNER_JOIN] hashCondition=((income_band.ib_income_band_sk = household_demographics.hd_income_band_sk)) otherCondition=() build RFs:RF0 ib_income_band_sk->[hd_income_band_sk]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF0
-----------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN] hashCondition=((income_band.ib_income_band_sk = household_demographics.hd_income_band_sk)) otherCondition=() build RFs:RF0 ib_income_band_sk->[hd_income_band_sk]
 ------------------------------PhysicalProject
---------------------------------filter((cast(ib_upper_bound as BIGINT) <= 55806) and (income_band.ib_lower_bound >= 5806))
-----------------------------------PhysicalOlapScan[income_band]
+--------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF0
+------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------PhysicalProject
+----------------------------------filter((cast(ib_upper_bound as BIGINT) <= 55806) and (income_band.ib_lower_bound >= 5806))
+------------------------------------PhysicalOlapScan[income_band]
 

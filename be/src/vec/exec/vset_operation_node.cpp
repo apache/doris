@@ -24,10 +24,8 @@
 
 #include <ostream>
 #include <string>
-#include <type_traits>
 #include <utility>
 
-#include "runtime/define_primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/hash_table/hash_table_set_build.h"
@@ -35,7 +33,6 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/materialize_block.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/join/join_op.h"
 #include "vec/exprs/vexpr.h"
@@ -155,21 +152,20 @@ Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     auto column_nums = _child_expr_lists[0].size();
     DCHECK_EQ(output_data_types.size(), column_nums)
             << output_data_types.size() << " " << column_nums;
-    // the nullable is not depend on child, it's should use _row_descriptor from FE plan
-    // some case all not nullable column from children, but maybe need output nullable.
-    vector<bool> nullable_flags(column_nums, false);
-    for (int i = 0; i < column_nums; ++i) {
-        nullable_flags[i] = output_data_types[i]->is_nullable();
-    }
-
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
     for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
         const auto& ctx = _child_expr_lists[0][i];
-        _build_not_ignore_null.push_back(ctx->root()->is_nullable());
-        _left_table_data_types.push_back(nullable_flags[i] ? make_nullable(ctx->root()->data_type())
-                                                           : ctx->root()->data_type());
+        // the nullable is not depend on child, it's should use _row_descriptor from FE plan
+        // some case all not nullable column from children, but maybe need output nullable.
+        if (output_data_types[i]->is_nullable()) {
+            _build_not_ignore_null.push_back(true);
+            _left_table_data_types.push_back(make_nullable(ctx->root()->data_type()));
+        } else {
+            _build_not_ignore_null.push_back(false);
+            _left_table_data_types.push_back(ctx->root()->data_type());
+        }
     }
     hash_table_init();
 
@@ -213,7 +209,7 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
         return;
     }
     if (!try_get_hash_map_context_fixed<NormalHashMap, HashCRC32, RowRefListWithFlags>(
-                *_hash_table_variants, _child_expr_lists[0])) {
+                *_hash_table_variants, _left_table_data_types)) {
         _hash_table_variants->emplace<SetSerializedHashTableContext>();
     }
 }
@@ -310,9 +306,8 @@ Status VSetOperationNode<is_intersect>::process_build_block(Block& block, Runtim
         return Status::OK();
     }
 
-    vectorized::materialize_block_inplace(block);
     ColumnRawPtrs raw_ptrs(_child_expr_lists[0].size());
-    RETURN_IF_ERROR(extract_build_column(block, raw_ptrs));
+    RETURN_IF_ERROR(extract_build_column(block, raw_ptrs, rows));
     auto st = Status::OK();
     std::visit(
             [&](auto&& arg) {
@@ -337,14 +332,7 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
     auto it = value.begin();
     for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
         const auto& column = *_build_block.get_by_position(idx->first).column;
-        if (_mutable_cols[idx->second]->is_nullable() ^ column.is_nullable()) {
-            DCHECK(_mutable_cols[idx->second]->is_nullable());
-            ((ColumnNullable*)(_mutable_cols[idx->second].get()))
-                    ->insert_from_not_nullable(column, it->row_num);
-
-        } else {
-            _mutable_cols[idx->second]->insert_from(column, it->row_num);
-        }
+        _mutable_cols[idx->second]->insert_from(column, it->row_num);
     }
     block_size++;
 }
@@ -419,27 +407,32 @@ bool VSetOperationNode<is_intersect>::is_child_finished(int child_id) const {
 }
 
 template <bool is_intersect>
-Status VSetOperationNode<is_intersect>::extract_build_column(Block& block,
-                                                             ColumnRawPtrs& raw_ptrs) {
+Status VSetOperationNode<is_intersect>::extract_build_column(Block& block, ColumnRawPtrs& raw_ptrs,
+                                                             size_t& rows) {
+    std::vector<int> result_locs(_child_expr_lists[0].size(), -1);
+    bool is_all_const = true;
+
     for (size_t i = 0; i < _child_expr_lists[0].size(); ++i) {
-        int result_col_id = -1;
-        RETURN_IF_ERROR(_child_expr_lists[0][i]->execute(&block, &result_col_id));
+        RETURN_IF_ERROR(_child_expr_lists[0][i]->execute(&block, &result_locs[i]));
+        is_all_const &= is_column_const(*block.get_by_position(result_locs[i]).column);
+    }
+    rows = is_all_const ? 1 : rows;
 
-        block.get_by_position(result_col_id).column =
-                block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        const auto* column = block.get_by_position(result_col_id).column.get();
-
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
-            const auto& col_nested = nullable->get_nested_column();
-            if (_build_not_ignore_null[i]) {
-                raw_ptrs[i] = nullable;
-            } else {
-                raw_ptrs[i] = &col_nested;
-            }
-
+    for (size_t i = 0; i < result_locs.size(); ++i) {
+        int result_col_id = result_locs[i];
+        if (is_all_const) {
+            block.get_by_position(result_col_id).column =
+                    assert_cast<const ColumnConst&>(*block.get_by_position(result_col_id).column)
+                            .get_data_column_ptr();
         } else {
-            raw_ptrs[i] = column;
+            block.get_by_position(result_col_id).column =
+                    block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         }
+        if (_build_not_ignore_null[i]) {
+            block.get_by_position(result_col_id).column =
+                    make_nullable(block.get_by_position(result_col_id).column);
+        }
+        raw_ptrs[i] = block.get_by_position(result_col_id).column.get();
         DCHECK_GE(result_col_id, 0);
         _build_col_idx.insert({result_col_id, i});
     }

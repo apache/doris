@@ -42,9 +42,10 @@ import com.google.common.collect.ImmutableList;
  */
 public class MTMVCache {
 
-    // the materialized view plan which should be optimized by the same rules to query
+    // The materialized view plan which should be optimized by the same rules to query
+    // and will remove top sink and unused sort
     private final Plan logicalPlan;
-    // for stable output order, we should use original plan
+    // The original plan of mv def sql
     private final Plan originalPlan;
 
     public MTMVCache(Plan logicalPlan, Plan originalPlan) {

@@ -31,7 +31,6 @@ import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.ImmutableList;
@@ -120,7 +119,11 @@ public interface TableIf {
 
     List<Column> getBaseSchema();
 
-    List<Column> getSchemaAllIndexes(boolean full);
+    default Set<Column> getSchemaAllIndexes(boolean full) {
+        Set<Column> ret = Sets.newHashSet();
+        ret.addAll(getBaseSchema());
+        return ret;
+    }
 
     default List<Column> getBaseSchemaOrEmpty() {
         try {
@@ -188,13 +191,11 @@ public interface TableIf {
 
     Optional<ColumnStatistic> getColumnStatistic(String colName);
 
-    boolean needReAnalyzeTable(TableStatsMeta tblStats);
-
     /**
      * @param columns Set of column names.
-     * @return List of pairs. Each pair is <IndexName, ColumnName>. For external table, index name is table name.
+     * @return Set of pairs. Each pair is <IndexName, ColumnName>. For external table, index name is table name.
      */
-    List<Pair<String, String>> getColumnIndexPairs(Set<String> columns);
+    Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns);
 
     // Get all the chunk sizes of this table. Now, only HMS external table implemented this interface.
     // For HMS external table, the return result is a list of all the files' size.
@@ -558,5 +559,9 @@ public interface TableIf {
 
     default Set<String> getDistributionColumnNames() {
         return Sets.newHashSet();
+    }
+
+    default boolean isPartitionedTable() {
+        return false;
     }
 }

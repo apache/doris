@@ -23,6 +23,7 @@ import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -248,7 +249,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      *
      * @return
      */
-    abstract Set<String> getTableNames() throws MetaNotFoundException;
+    public abstract Set<String> getTableNames() throws MetaNotFoundException;
 
     // return true if the corresponding transaction is done(COMMITTED, FINISHED, CANCELLED, RETRY)
     public boolean isTxnDone() {
@@ -697,6 +698,22 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         finishTimestamp = loadJobFinalOperation.getFinishTimestamp();
         state = loadJobFinalOperation.getJobState();
         failMsg = loadJobFinalOperation.getFailMsg();
+    }
+
+    public List<TUniqueId> getLoadTaskIds() {
+        readLock();
+        try {
+            List<TUniqueId> res = Lists.newArrayList();
+            for (LoadTask task : idToTasks.values()) {
+                if (task instanceof LoadLoadingTask) {
+                    LoadLoadingTask loadLoadingTask = (LoadLoadingTask) task;
+                    res.add(loadLoadingTask.getLoadId());
+                }
+            }
+            return res;
+        } finally {
+            readUnlock();
+        }
     }
 
     public List<Comparable> getShowInfo() throws DdlException {
@@ -1156,7 +1173,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return (long) jobProperties.get(LoadStmt.TIMEOUT_PROPERTY);
     }
 
-    protected void setTimeout(long timeout) {
+    public void setTimeout(long timeout) {
         jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, timeout);
     }
 

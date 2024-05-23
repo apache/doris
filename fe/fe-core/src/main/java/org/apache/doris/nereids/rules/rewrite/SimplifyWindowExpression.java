@@ -27,10 +27,12 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -79,7 +81,7 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             // after normalize window, partition key must be slot
             List<Slot> partitionSlots = (List<Slot>) (List) windowExpression.getPartitionKeys();
             Set<Slot> partitionSlotSet = new HashSet<>(partitionSlots);
-            if (!window.getLogicalProperties().getFunctionalDependencies().isUnique(partitionSlotSet)) {
+            if (!window.getLogicalProperties().getTrait().isUnique(partitionSlotSet)) {
                 remainWindowExpression.add(expr);
                 continue;
             }
@@ -87,11 +89,13 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             if (function instanceof BoundFunction) {
                 BoundFunction boundFunction = (BoundFunction) function;
                 String name = ((BoundFunction) function).getName();
-                if ((name.equals(COUNT) && boundFunction.child(0).notNullable())
+                if ((name.equals(COUNT) && checkCount((Count) boundFunction))
                         || REWRRITE_TO_CONST_WINDOW_FUNCTIONS.contains(name)) {
                     projectionsBuilder.add(new Alias(alias.getExprId(), new TinyIntLiteral((byte) 1), alias.getName()));
                 } else if (REWRRITE_TO_SLOT_WINDOW_FUNCTIONS.contains(name)) {
-                    projectionsBuilder.add(new Alias(alias.getExprId(), boundFunction.child(0), alias.getName()));
+                    projectionsBuilder.add(new Alias(alias.getExprId(),
+                            TypeCoercionUtils.castIfNotSameType(boundFunction.child(0), boundFunction.getDataType()),
+                            alias.getName()));
                 } else {
                     remainWindowExpression.add(expr);
                 }
@@ -119,5 +123,9 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             return new LogicalProject(finalProjections, window.withExpression(remainWindows,
                     window.child(0)));
         }
+    }
+
+    private boolean checkCount(Count count) {
+        return count.isCountStar() || count.child(0).notNullable();
     }
 }

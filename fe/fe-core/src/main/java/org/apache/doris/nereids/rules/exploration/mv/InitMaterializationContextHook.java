@@ -20,7 +20,9 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
@@ -29,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,6 +63,9 @@ public class InitMaterializationContextHook implements PlannerHook {
         }
         Plan rewritePlan = cascadesContext.getRewritePlan();
         TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), true);
+        // Keep use one connection context when in query, if new connect context,
+        // the ConnectionContext.get() will change
+        collectorContext.setConnectContext(cascadesContext.getConnectContext());
         rewritePlan.accept(TableCollector.INSTANCE, collectorContext);
         Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         if (collectedTables.isEmpty()) {
@@ -75,10 +81,18 @@ public class InitMaterializationContextHook implements PlannerHook {
             return;
         }
         for (MTMV materializedView : availableMTMVs) {
-            cascadesContext.addMaterializationContext(
-                    MaterializationContext.fromMaterializedView(materializedView,
-                            MaterializedViewUtils.generateMvScanPlan(materializedView, cascadesContext),
-                            cascadesContext));
+            MTMVCache mtmvCache = null;
+            try {
+                mtmvCache = materializedView.getOrGenerateCache(cascadesContext.getConnectContext());
+            } catch (AnalysisException e) {
+                LOG.warn("MaterializationContext init mv cache generate fail", e);
+            }
+            if (mtmvCache == null) {
+                continue;
+            }
+            cascadesContext.addMaterializationContext(new AsyncMaterializationContext(materializedView,
+                    mtmvCache.getLogicalPlan(), mtmvCache.getOriginalPlan(), ImmutableList.of(), ImmutableList.of(),
+                    cascadesContext));
         }
     }
 }

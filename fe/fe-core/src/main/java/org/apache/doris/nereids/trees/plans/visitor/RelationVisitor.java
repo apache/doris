@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
@@ -91,20 +93,24 @@ public interface RelationVisitor<R, C> {
         return visitLogicalRelation(emptyRelation, context);
     }
 
+    default R visitLogicalExternalRelation(LogicalExternalRelation relation, C context) {
+        return visitLogicalCatalogRelation(relation, context);
+    }
+
     default R visitLogicalEsScan(LogicalEsScan esScan, C context) {
-        return visitLogicalCatalogRelation(esScan, context);
+        return visitLogicalExternalRelation(esScan, context);
     }
 
     default R visitLogicalFileScan(LogicalFileScan fileScan, C context) {
-        return visitLogicalCatalogRelation(fileScan, context);
+        return visitLogicalExternalRelation(fileScan, context);
     }
 
     default R visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, C context) {
-        return visitLogicalCatalogRelation(jdbcScan, context);
+        return visitLogicalExternalRelation(jdbcScan, context);
     }
 
     default R visitLogicalOdbcScan(LogicalOdbcScan odbcScan, C context) {
-        return visitLogicalCatalogRelation(odbcScan, context);
+        return visitLogicalExternalRelation(odbcScan, context);
     }
 
     default R visitLogicalOlapScan(LogicalOlapScan olapScan, C context) {
@@ -175,5 +181,9 @@ public interface RelationVisitor<R, C> {
 
     default R visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, C context) {
         return visitPhysicalRelation(tvfRelation, context);
+    }
+
+    default R visitPhysicalCTEConsumer(PhysicalCTEConsumer consumer, C context) {
+        return visitPhysicalRelation(consumer, context);
     }
 }

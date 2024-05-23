@@ -38,6 +38,10 @@ public interface FileSystem {
 
     Status exists(String remotePath);
 
+    default Status directoryExists(String dir) {
+        return exists(dir);
+    }
+
     Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize);
 
     Status upload(String localPath, String remotePath);
@@ -57,6 +61,10 @@ public interface FileSystem {
     }
 
     Status delete(String remotePath);
+
+    default Status deleteDirectory(String dir) {
+        return delete(dir);
+    }
 
     Status makeDir(String remotePath);
 

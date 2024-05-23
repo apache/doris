@@ -54,6 +54,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
                 + ")ENGINE=OLAP\n"
                 + "DISTRIBUTED BY HASH(`a`) BUCKETS 3\n"
                 + "PROPERTIES (\"replication_num\"= \"1\");");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
     @Test

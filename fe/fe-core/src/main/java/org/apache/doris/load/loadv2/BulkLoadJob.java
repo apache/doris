@@ -32,8 +32,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
@@ -97,12 +95,6 @@ public abstract class BulkLoadJob extends LoadJob {
     // we persist these sessionVariables due to the session is not available when replaying the job.
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
-    private static final String CLUSTER_ID = "clusterId";
-    protected String clusterId;
-
-    // retry 3 times is enough
-    protected int retryTimes = 3;
-
     public BulkLoadJob(EtlJobType jobType) {
         super(jobType);
     }
@@ -114,36 +106,9 @@ public abstract class BulkLoadJob extends LoadJob {
         this.authorizationInfo = gatherAuthInfo();
         this.userInfo = userInfo;
 
-        if (Config.isCloudMode()) {
-            ConnectContext context = ConnectContext.get();
-            if (context != null) {
-                String clusterName = context.getCloudCluster();
-                if (Strings.isNullOrEmpty(clusterName)) {
-                    LOG.warn("cluster name is empty");
-                    throw new MetaNotFoundException("cluster name is empty");
-                }
-
-                this.clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                                    .getCloudClusterIdByName(clusterName);
-                if (!Strings.isNullOrEmpty(context.getSessionVariable().getCloudCluster())) {
-                    clusterName = context.getSessionVariable().getCloudCluster();
-                    this.clusterId =
-                            ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                            .getCloudClusterIdByName(clusterName);
-                }
-                if (Strings.isNullOrEmpty(this.clusterId)) {
-                    LOG.warn("cluster id is empty, cluster name {}", clusterName);
-                    throw new MetaNotFoundException("cluster id is empty, cluster name: " + clusterName);
-                }
-            }
-        }
-
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
-            if (Config.isCloudMode()) {
-                sessionVariables.put(CLUSTER_ID, clusterId);
-            }
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -184,7 +149,7 @@ public abstract class BulkLoadJob extends LoadJob {
         }
     }
 
-    protected void checkAndSetDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
+    public void checkAndSetDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
         // check data source info
         db.readLock();
         try {
@@ -305,9 +270,6 @@ public abstract class BulkLoadJob extends LoadJob {
         fileGroupAggInfo = new BrokerFileGroupAggInfo();
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt.originStmt),
                 Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
-        if (Config.isCloudMode()) {
-            clusterId = sessionVariables.get("clusterId");
-        }
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
             analyzeStmt(SqlParserUtils.getStmt(parser, originStmt.idx), db);

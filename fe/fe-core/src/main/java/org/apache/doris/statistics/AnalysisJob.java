@@ -75,23 +75,15 @@ public class AnalysisJob {
         markOneTaskDone();
     }
 
-    public synchronized void rowCountDone(BaseAnalysisTask task) {
-        queryingTask.remove(task);
-        queryFinished.add(task);
-        markOneTaskDone();
-    }
-
     protected void markOneTaskDone() {
         if (queryingTask.isEmpty()) {
             try {
-                writeBuf();
-                updateTaskState(AnalysisState.FINISHED, "Cost time in sec: "
-                        + (System.currentTimeMillis() - start) / 1000);
+                flushBuffer();
             } finally {
                 deregisterJob();
             }
         } else if (buf.size() >= StatisticsUtil.getInsertMergeCount()) {
-            writeBuf();
+            flushBuffer();
         }
     }
 
@@ -115,7 +107,7 @@ public class AnalysisJob {
         }
     }
 
-    protected void writeBuf() {
+    protected void flushBuffer() {
         if (killed) {
             return;
         }

@@ -25,16 +25,10 @@ import org.apache.doris.meta.MetaContext;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -45,9 +39,6 @@ public class VirtualSlotRefTest {
     private List<Expr> slots;
     private TupleDescriptor virtualTuple;
     private VirtualSlotRef virtualSlot;
-    DataOutputStream dos;
-    File file;
-    DataInputStream dis;
 
     @Before
     public void setUp() throws IOException, AnalysisException {
@@ -78,25 +69,6 @@ public class VirtualSlotRefTest {
         }
         virtualTuple = analyzer.getDescTbl().createTupleDescriptor("VIRTUAL_TUPLE");
         virtualSlot = new VirtualSlotRef("colName", Type.BIGINT, virtualTuple, slots);
-        file = new File("./virtualSlot");
-        file.createNewFile();
-        dos = new DataOutputStream(new FileOutputStream(file));
-        dis = new DataInputStream(new FileInputStream(file));
-    }
-
-    @After
-    public void tearDown() throws Exception {
-        dis.close();
-        dos.close();
-        file.delete();
-    }
-
-    @Test
-    public void read() throws IOException {
-        virtualSlot.write(dos);
-        virtualSlot.setRealSlots(slots);
-        VirtualSlotRef v = VirtualSlotRef.read(dis);
-        Assert.assertEquals(3, v.getRealSlots().size());
     }
 
     @Test

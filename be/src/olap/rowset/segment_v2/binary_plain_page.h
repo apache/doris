@@ -77,7 +77,9 @@ public:
             }
             size_t offset = _buffer.size();
             _offsets.push_back(offset);
-            _buffer.append(src->data, src->size);
+            // This may need a large memory, should return error if could not allocated
+            // successfully, to avoid BE OOM.
+            RETURN_IF_CATCH_EXCEPTION(_buffer.append(src->data, src->size));
 
             _last_value_size = src->size;
             _size_estimate += src->size;
@@ -220,12 +222,12 @@ public:
         const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
         uint32_t last_offset = guarded_offset(_cur_idx);
-        uint32_t offsets[max_fetch + 1];
-        offsets[0] = last_offset;
+        _offsets.resize(max_fetch + 1);
+        _offsets[0] = last_offset;
         for (int i = 0; i < max_fetch - 1; i++, _cur_idx++) {
             const uint32_t start_offset = last_offset;
             last_offset = guarded_offset(_cur_idx + 1);
-            offsets[i + 1] = last_offset;
+            _offsets[i + 1] = last_offset;
             if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + start_offset)));
@@ -233,13 +235,13 @@ public:
             }
         }
         _cur_idx++;
-        offsets[max_fetch] = offset(_cur_idx);
+        _offsets[max_fetch] = offset(_cur_idx);
         if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
             if (_options.need_check_bitmap) {
                 RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + last_offset)));
             }
         }
-        dst->insert_many_continuous_binary_data(_data.data, offsets, max_fetch);
+        dst->insert_many_continuous_binary_data(_data.data, _offsets.data(), max_fetch);
 
         *n = max_fetch;
         return Status::OK();
@@ -255,8 +257,8 @@ public:
 
         auto total = *n;
         size_t read_count = 0;
-        uint32_t len_array[total];
-        uint32_t start_offset_array[total];
+        _len_array.resize(total);
+        _start_offset_array.resize(total);
         for (size_t i = 0; i < total; ++i) {
             ordinal_t ord = rowids[i] - page_first_ordinal;
             if (UNLIKELY(ord >= _num_elems)) {
@@ -264,14 +266,15 @@ public:
             }
 
             const uint32_t start_offset = offset(ord);
-            start_offset_array[read_count] = start_offset;
-            len_array[read_count] = offset(ord + 1) - start_offset;
+            _start_offset_array[read_count] = start_offset;
+            _len_array[read_count] = offset(ord + 1) - start_offset;
             read_count++;
         }
 
-        if (LIKELY(read_count > 0))
-            dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array,
-                                         read_count);
+        if (LIKELY(read_count > 0)) {
+            dst->insert_many_binary_data(_data.mutable_data(), _len_array.data(),
+                                         _start_offset_array.data(), read_count);
+        }
 
         *n = read_count;
         return Status::OK();
@@ -347,6 +350,10 @@ private:
 
     uint32_t _num_elems;
     uint32_t _offsets_pos;
+
+    std::vector<uint32_t> _offsets;
+    std::vector<uint32_t> _len_array;
+    std::vector<uint32_t> _start_offset_array;
 
     // Index of the currently seeked element in the page.
     uint32_t _cur_idx;

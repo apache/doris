@@ -45,39 +45,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(ScanOperator, SourceOperator)
-
-bool ScanOperator::can_read() {
-    if (!_node->_opened) {
-        return _node->_should_create_scanner || _node->ready_to_open();
-    } else {
-        // If scanner meet any error, done == true
-        if (_node->_eos || _node->_scanner_ctx->done()) {
-            // _eos: need eos
-            // _scanner_ctx->done(): need finish
-            // _scanner_ctx->no_schedule(): should schedule _scanner_ctx
-            return true;
-        } else {
-            return _node->ready_to_read(); // there are some blocks to process
-        }
-    }
-}
-
-bool ScanOperator::runtime_filters_are_ready_or_timeout() {
-    return _node->runtime_filters_are_ready_or_timeout();
-}
-
-std::string ScanOperator::debug_string() const {
-    fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}, scanner_ctx is null: {} ",
-                   SourceOperator::debug_string(), _node->_scanner_ctx == nullptr);
-    if (_node->_scanner_ctx) {
-        fmt::format_to(debug_string_buffer, ", scanner ctx detail = {}",
-                       _node->_scanner_ctx->debug_string());
-    }
-    return fmt::to_string(debug_string_buffer);
-}
-
 #define RETURN_IF_PUSH_DOWN(stmt, status)                           \
     if (pdt == vectorized::VScanNode::PushDownType::UNACCEPTABLE) { \
         status = stmt;                                              \
@@ -101,9 +68,8 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 template <typename Derived>
 Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
-    _scan_dependency =
-            Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                      _parent->get_name() + "_DEPENDENCY", state->get_query_ctx());
+    _scan_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                 _parent->get_name() + "_DEPENDENCY");
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
             _runtime_profile, "WaitForDependency[" + _scan_dependency->name() + "]Time", 1);
     SCOPED_TIMER(exec_time_counter());
@@ -223,9 +189,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
         init_value_range(_slot_id_to_slot_desc[_colname_to_slot_id[colname]], type);
     }
 
-    if (!_push_down_topn()) {
-        RETURN_IF_ERROR(_get_topn_filters(state));
-    }
+    RETURN_IF_ERROR(_get_topn_filters(state));
 
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
         auto& conjunct = *it;
@@ -803,7 +767,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
 
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
-        if (!is_fixed_range && state->hybrid_set->contain_null()) {
+        if (state->hybrid_set->contain_null()) {
             _eos = true;
             _scan_dependency->set_ready();
         }
@@ -1303,11 +1267,8 @@ Status ScanLocalState<Derived>::_init_profile() {
 
 template <typename Derived>
 Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
-    for (auto id : get_topn_filter_source_node_ids()) {
+    for (auto id : get_topn_filter_source_node_ids(state, false)) {
         const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
-        if (!pred.inited()) {
-            continue;
-        }
         SlotDescriptor* slot_desc = _slot_id_to_slot_desc[_colname_to_slot_id[pred.get_col_name()]];
 
         vectorized::VExprSPtr topn_pred;

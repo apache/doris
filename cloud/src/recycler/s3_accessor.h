@@ -27,6 +27,10 @@ class S3Client;
 
 namespace doris::cloud {
 
+enum class S3RateLimitType;
+extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
+                                 size_t limit);
+
 struct S3Conf {
     std::string ak;
     std::string sk;

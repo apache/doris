@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.cost;
 
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
@@ -33,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
@@ -97,8 +100,17 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, PlanContext context) {
+        OlapTable table = physicalOlapScan.getTable();
         Statistics statistics = context.getStatisticsWithCheck();
-        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
+        double rows = statistics.getRowCount();
+        double aggMvBonus = 0.0;
+        if (table.getBaseIndexId() != physicalOlapScan.getSelectedIndexId()) {
+            if (table.getIndexMetaByIndexId(physicalOlapScan.getSelectedIndexId())
+                    .getKeysType().equals(KeysType.AGG_KEYS)) {
+                aggMvBonus = rows > 1.0 ? 1.0 : rows * 0.5;
+            }
+        }
+        return CostV1.ofCpu(context.getSessionVariable(), rows - aggMvBonus);
     }
 
     @Override
@@ -371,6 +383,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
                 0
         );
+    }
+
+    @Override
+    public Cost visitPhysicalIntersect(PhysicalIntersect physicalIntersect, PlanContext context) {
+        double cpuCost = 0.0;
+        for (int i = 0; i < physicalIntersect.children().size(); i++) {
+            cpuCost += context.getChildStatistics(i).getRowCount();
+        }
+        double memoryCost = context.getChildStatistics(0).computeSize();
+        return CostV1.of(context.getSessionVariable(), cpuCost, memoryCost, 0);
     }
 
     @Override
