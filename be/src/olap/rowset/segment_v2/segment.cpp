@@ -285,6 +285,15 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
 }
 
 Status Segment::_load_pk_bloom_filter() {
+#ifdef BE_TEST
+    if (_pk_index_meta == nullptr) {
+        // for BE UT "segment_cache_test"
+        return _load_pk_bf_once.call([this] {
+            _meta_mem_usage += 100;
+            return Status::OK();
+        });
+    }
+#endif
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS);
     DCHECK(_pk_index_meta != nullptr);
     DCHECK(_pk_index_reader != nullptr);
@@ -314,6 +323,7 @@ Status Segment::load_pk_index_and_bf() {
     RETURN_IF_ERROR(_load_pk_bloom_filter());
     return Status::OK();
 }
+
 Status Segment::load_index() {
     auto status = [this]() { return _load_index_impl(); }();
     if (!status.ok()) {
