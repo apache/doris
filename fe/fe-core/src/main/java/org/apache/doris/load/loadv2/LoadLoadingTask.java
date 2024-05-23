@@ -147,13 +147,12 @@ public class LoadLoadingTask extends LoadTask {
                 loadId, planner.getDescTable(),
                 planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
                 enabelProfile);
-        curCoordinator.setExecPipEngineForLoading(Config.enable_pipeline_load);
         if (enabelProfile) {
             this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
         }
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
-        curCoordinator.setExecPipEngine(Config.enable_pipeline_load);
+        curCoordinator.setExecPipEngine();
 
         /*
          * For broker load job, user only need to set mem limit by 'exec_mem_limit' property.
