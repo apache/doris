@@ -179,7 +179,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (properties.containsKey("resource")) {
             Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(properties.get("resource"));
             if (resource == null) {
-                throw new AnalysisException("Can not find resource: " + properties.containsKey("resource"));
+                throw new AnalysisException("Can not find resource: " + properties.get("resource"));
             }
             mergedProperties = resource.getCopiedProperties();
         }
