@@ -62,16 +62,16 @@ TEST(function_money_format_test, money_format_with_decimalV2) {
     Block block;
     ColumnNumbers arguments = {0};
     size_t result_idx = 1;
-    auto col_dec_v2 = ColumnDecimal<Decimal128V2>::create(0, 9);
+    auto col_dec_v2 = ColumnDecimal<Decimal128>::create(0, 9);
     auto col_res_expected = ColumnString::create();
     for (const auto& input_and_expected : input_dec_str_and_expected_str) {
         DecimalV2Value dec_v2_value(input_and_expected.first);
-        col_dec_v2->insert_value(Decimal128V2(dec_v2_value.value()));
+        col_dec_v2->insert_value(Decimal128(dec_v2_value.value()));
         col_res_expected->insert_data(input_and_expected.second.c_str(),
                                       input_and_expected.second.size());
     }
 
-    block.insert({std::move(col_dec_v2), std::make_shared<DataTypeDecimal<Decimal128V2>>(10, 1),
+    block.insert({std::move(col_dec_v2), std::make_shared<DataTypeDecimal<Decimal128>>(10, 1),
                   "col_dec_v2"});
     block.insert({nullptr, std::make_shared<DataTypeString>(), "col_res"});
 
