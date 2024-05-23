@@ -279,7 +279,7 @@ suite("nested_mtmv") {
         """
     explain {
         sql("${query_stmt_2}")
-        contains "${mv_level3_name}(${mv_level3_name})"
+        contains "${mv_level4_name}(${mv_level4_name})"
     }
     compare_res(query_stmt_2 + " order by 1,2,3,4,5,6,7")
 
