@@ -264,8 +264,8 @@ public class Coordinator implements CoordInterface {
 
     private boolean enableShareHashTableForBroadcastJoin = false;
 
-    private boolean enablePipelineEngine = false;
-    private boolean enablePipelineXEngine = false;
+    private boolean enablePipelineEngine = true;
+    private boolean enablePipelineXEngine = true;
     private boolean useNereids = false;
 
     // Runtime filter merge instance address and ID
@@ -333,11 +333,6 @@ public class Coordinator implements CoordInterface {
 
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
-        // Only enable pipeline query engine in query, not load
-        this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
-                && (fragments.size() > 0);
-        this.enablePipelineXEngine = context.getSessionVariable().getEnablePipelineXEngine()
-                && (fragments.size() > 0);
 
         initQueryOptions(context);
         useNereids = planner instanceof NereidsPlanner;
@@ -420,8 +415,8 @@ public class Coordinator implements CoordInterface {
 
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
-        this.queryOptions.setEnablePipelineEngine(SessionVariable.enablePipelineEngine());
-        this.queryOptions.setEnablePipelineXEngine(SessionVariable.enablePipelineEngine());
+        this.queryOptions.setEnablePipelineEngine(true);
+        this.queryOptions.setEnablePipelineXEngine(true);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
@@ -463,9 +458,9 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setQueryType(type);
     }
 
-    public void setExecPipEngine(boolean vec) {
-        this.queryOptions.setEnablePipelineEngine(vec);
-        this.queryOptions.setEnablePipelineXEngine(vec);
+    public void setExecPipEngine() {
+        this.queryOptions.setEnablePipelineEngine(true);
+        this.queryOptions.setEnablePipelineXEngine(true);
     }
 
     public Status getExecStatus() {
@@ -621,7 +616,7 @@ public class Coordinator implements CoordInterface {
     }
 
 
-    public TExecPlanFragmentParams getStreamLoadPlan() throws Exception {
+    public TPipelineFragmentParams getStreamLoadPlan() throws Exception {
         processFragmentAssignmentAndParams();
 
         // This is a load process.
@@ -631,9 +626,9 @@ public class Coordinator implements CoordInterface {
         Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
         LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
 
-        List<TExecPlanFragmentParams> tExecPlanFragmentParams
-                = ((FragmentExecParams) this.fragmentExecParamsMap.values().toArray()[0]).toThrift(0);
-        TExecPlanFragmentParams fragmentParams = tExecPlanFragmentParams.get(0);
+        Map<TNetworkAddress, TPipelineFragmentParams> tExecPlanFragmentParams
+                = ((FragmentExecParams) this.fragmentExecParamsMap.values().toArray()[0]).toTPipelineParams(0);
+        TPipelineFragmentParams fragmentParams = tExecPlanFragmentParams.values().stream().findFirst().get();
         return fragmentParams;
     }
 

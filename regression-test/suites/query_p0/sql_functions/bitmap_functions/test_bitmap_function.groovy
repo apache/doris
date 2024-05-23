@@ -744,7 +744,6 @@ suite("test_bitmap_function") {
         select count(distinct if(type=1, id,null)) as count1,
             intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
     """
-    sql """ set experimental_enable_pipeline_engine=false; """
     qt_sql_bitmap_intersect_nereids1 """
         select count(distinct if(type=1, id,null)) as count1,
             intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;

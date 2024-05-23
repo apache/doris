@@ -1618,7 +1618,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (Strings.isNullOrEmpty(request.getCluster())) {
                 dbName = request.getDb();
             }
-            throw new UserException("unknown database, database=" + dbName);
+            throw new UserException("unknown database, database=" + dbName + " request.isSetDbId(): "
+                    + request.isSetDbId() + " id: " + Long.toString(request.isSetDbId() ? request.getDbId() : 0)
+                    + " fullDbName: " + fullDbName);
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
         List<Table> tables = queryLoadCommitTables(request, db);
@@ -1947,7 +1949,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
                 httpStreamPutImpl(request, result);
                 if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
-                    result.params.setWorkloadGroups(tWorkloadGroupList);
+                    result.pipeline_params.setWorkloadGroups(tWorkloadGroupList);
                 }
                 return result;
             } else {
@@ -2103,11 +2105,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             httpStreamParams.getParams().setLoadStreamPerNode(loadStreamPerNode);
             httpStreamParams.getParams().setTotalLoadStreams(loadStreamPerNode);
             httpStreamParams.getParams().setNumLocalSink(1);
-            result.setParams(httpStreamParams.getParams());
-            result.getParams().setDbName(httpStreamParams.getDb().getFullName());
-            result.getParams().setTableName(httpStreamParams.getTable().getName());
-            result.getParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxnId()));
-            result.getParams().setImportLabel(httpStreamParams.getLabel());
+            result.setPipelineParams(httpStreamParams.getParams());
+            result.getPipelineParams().setDbName(httpStreamParams.getDb().getFullName());
+            result.getPipelineParams().setTableName(httpStreamParams.getTable().getName());
+            result.getPipelineParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxnId()));
+            result.getPipelineParams().setImportLabel(httpStreamParams.getLabel());
             result.setDbId(httpStreamParams.getDb().getId());
             result.setTableId(httpStreamParams.getTable().getId());
             result.setBaseSchemaVersion(((OlapTable) httpStreamParams.getTable()).getBaseSchemaVersion());
