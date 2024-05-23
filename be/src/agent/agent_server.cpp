@@ -161,7 +161,7 @@ void AgentServer::start_workers(ExecEnv* exec_env) {
     _report_tablet_workers = std::make_unique<ReportWorker>(
             "REPORT_OLAP_TABLE", _master_info, config::report_tablet_interval_seconds,[&engine, &master_info = _master_info] { report_tablet_callback(engine, master_info); });
 
-    _clean_trash_binlog_workers = std::make_unique<TaskWorkerPool>(
+    _clean_trash_workers = std::make_unique<TaskWorkerPool>(
             "CLEAN_TRASH", 1, [&engine](auto&& task) {return clean_trash_callback(engine, task); });
     // clang-format on
 }
@@ -268,6 +268,14 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
             } else {
                 ret_st = Status::InvalidArgument(
                         "task(signature={}) has wrong request member = gc_binlog_req", signature);
+            }
+            break;
+        case TTaskType::CLEAN_TRASH:
+            if (task.__isset.clean_trash_req) {
+                _clean_trash_workers->submit_task(task);
+            } else {
+                ret_st = Status::InvalidArgument(
+                        "task(signature={}) has wrong request member = clean_trash_req", signature);
             }
             break;
         default:
