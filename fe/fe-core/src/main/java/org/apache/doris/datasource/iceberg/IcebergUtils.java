@@ -578,7 +578,7 @@ public class IcebergUtils {
                     CloseableIterator<FileScanTask> fileScanTaskIterator = fileScanTaskIterable.iterator()) {
 
                 while (fileScanTaskIterator.hasNext()) {
-                    FileScanTask scanTask = fileScanTaskIterator.next();
+                    // FileScanTask scanTask = fileScanTaskIterator.next();
                     // StructLike partition = scanTask.file().partition();
                     String partitionName = "convertIcebergPartitionToPartitionName(scanTask.spec(), partition)";
                     partitionNames.add(partitionName);
