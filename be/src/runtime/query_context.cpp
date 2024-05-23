@@ -245,7 +245,9 @@ Status QueryContext::cancel_pipeline_context(const int fragment_id,
                 }
             }
         }
-        ctx_to_cancel->cancel(reason, msg);
+        if (ctx_to_cancel) {
+            ctx_to_cancel->cancel(reason, msg);
+        }
     } else {
         std::weak_ptr<pipeline::PipelineFragmentContext> ctx_to_cancel;
         {
