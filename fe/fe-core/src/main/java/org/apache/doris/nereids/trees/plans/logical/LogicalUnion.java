@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.analysis.SetOperationStmt.Qualifier;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.ExprFdItem;
@@ -177,6 +178,13 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     public LogicalUnion withChildrenAndConstExprsList(List<Plan> children,
             List<List<SlotReference>> childrenOutputs, List<List<NamedExpression>> constantExprsList) {
         return new LogicalUnion(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter, children);
+    }
+
+    public LogicalUnion withNewOutputsChildrenAndConstExprsList(List<NamedExpression> newOutputs, List<Plan> children,
+                                                                List<List<SlotReference>> childrenOutputs,
+                                                                List<List<NamedExpression>> constantExprsList) {
+        return new LogicalUnion(qualifier, newOutputs, childrenOutputs, constantExprsList,
+                hasPushedFilter, Optional.empty(), Optional.empty(), children);
     }
 
     public LogicalUnion withAllQualifier() {
