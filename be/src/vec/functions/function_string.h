@@ -2595,7 +2595,7 @@ struct MoneyFormatDecimalImpl {
                         size_t input_rows_count) {
         if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128>>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
-                const Decimal128V2& dec128 = decimalv2_column->get_element(i);
+                const Decimal128& dec128 = decimalv2_column->get_element(i);
                 DecimalV2Value value = DecimalV2Value(dec128.value);
                 // unified_frac_value has 3 digits
                 auto unified_frac_value = value.frac_value() / 1000000;
