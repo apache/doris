@@ -60,7 +60,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadTaskInfo;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -943,7 +942,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 (OlapTable) db.getTableOrMetaException(this.tableId, Table.TableType.OLAP), this);
     }
 
-    public TExecPlanFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
+    public TPipelineFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
@@ -969,7 +968,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 }
             }
 
-            TExecPlanFragmentParams planParams = planner.plan(loadId);
+            TPipelineFragmentParams planParams = planner.plan(loadId);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
             if (txnState == null) {
