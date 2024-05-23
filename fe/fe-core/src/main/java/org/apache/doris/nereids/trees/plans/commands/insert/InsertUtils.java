@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -324,6 +325,12 @@ public class InsertUtils {
                             throw new AnalysisException("Unknown column '"
                                     + unboundLogicalSink.getColNames().get(i) + "' in target table.");
                         }
+                        if (sameNameColumn.getGeneratedColumnInfo() != null
+                                && !(values.get(i) instanceof DefaultValueSlot)) {
+                            throw new AnalysisException("The value specified for generated column '"
+                                    + sameNameColumn.getName()
+                                    + "' in table '" + table.getName() + "' is not allowed.");
+                        }
                         if (values.get(i) instanceof DefaultValueSlot) {
                             constantExprs.add(generateDefaultExpression(sameNameColumn));
                         } else {
@@ -336,6 +343,12 @@ public class InsertUtils {
                         throw new AnalysisException("Column count doesn't match value count");
                     }
                     for (int i = 0; i < columns.size(); i++) {
+                        if (columns.get(i).getGeneratedColumnInfo() != null
+                                && !(values.get(i) instanceof DefaultValueSlot)) {
+                            throw new AnalysisException("The value specified for generated column '"
+                                    + columns.get(i).getName()
+                                    + "' in table '" + table.getName() + "' is not allowed.");
+                        }
                         if (values.get(i) instanceof DefaultValueSlot) {
                             constantExprs.add(generateDefaultExpression(columns.get(i)));
                         } else {
@@ -349,6 +362,31 @@ public class InsertUtils {
                     StatementScopeIdGenerator.newRelationId(), constantExprs.build()));
         }
         List<LogicalPlan> oneRowRelations = oneRowRelationBuilder.build();
+
+        // if (plan instanceof UnboundTableSink) {
+        //     List<String> newColNames = new ArrayList<>();
+        //     if (unboundLogicalSink.getColNames().isEmpty()) {
+        //         for (Column column : table.getBaseSchema(false)) {
+        //             if (column.getGeneratedColumnInfo() != null) {
+        //                 continue;
+        //             }
+        //             newColNames.add(column.getName());
+        //         }
+        //     } else {
+        //         for (String name : unboundLogicalSink.getColNames()) {
+        //             Column column = table.getColumn(name);
+        //             if (column.getGeneratedColumnInfo() != null) {
+        //                 continue;
+        //             }
+        //             newColNames.add(name);
+        //         }
+        //     }
+        //     if (!unboundLogicalSink.getColNames().isEmpty() && newColNames.isEmpty()) {
+        //
+        //     }
+        //     plan = ((UnboundTableSink) plan).withColNames(newColNames);
+        // }
+
         if (oneRowRelations.size() == 1) {
             return plan.withChildren(oneRowRelations.get(0));
         } else {
@@ -388,6 +426,10 @@ public class InsertUtils {
 
     private static NamedExpression generateDefaultExpression(Column column) {
         try {
+            GeneratedColumnInfo generatedColumnInfo = column.getGeneratedColumnInfo();
+            if (generatedColumnInfo != null) {
+                return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
+            }
             if (column.getDefaultValue() == null) {
                 throw new AnalysisException("Column has no default value, column=" + column.getName());
             }

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -35,6 +36,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.AutoBucketUtils;
+import org.apache.doris.common.util.GeneratedColumnUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
@@ -42,6 +44,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rewrite.ExprRewriteRule;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -53,11 +57,13 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -585,6 +591,7 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException("same index columns have multiple same type index is not allowed.");
             }
         }
+        generatedColumnCheck(analyzer);
     }
 
     private void analyzeEngineName() throws AnalysisException {
@@ -712,5 +719,156 @@ public class CreateTableStmt extends DdlStmt {
     @Override
     public boolean needAuditEncryption() {
         return !engineName.equals("olap");
+    }
+
+    private void generatedColumnCheck(Analyzer analyzer) throws AnalysisException {
+        genreatedColumnCommonCheck();
+        Map<String, Pair<ColumnDef, Integer>> nameToColumnDef = Maps.newHashMap();
+        for (int i = 0; i < columnDefs.size(); i++) {
+            ColumnDef columnDef = columnDefs.get(i);
+            nameToColumnDef.put(columnDef.getName(), Pair.of(columnDef, i));
+        }
+        SlotRefRewriteRule.initializeslotRefMap(nameToColumnDef);
+        List<GeneratedColumnUtil.ExprAndname> exprAndnames = Lists.newArrayList();
+        for (int i = 0; i < columnDefs.size(); i++) {
+            ColumnDef columnDef = columnDefs.get(i);
+            if (!columnDef.getGeneratedColumnInfo().isPresent()) {
+                continue;
+            }
+            SlotRefRewriteRule slotRefRewriteRule = new SlotRefRewriteRule(i);
+            ExprRewriter rewriter = new ExprRewriter(slotRefRewriteRule);
+            GeneratedColumnInfo generatedColumnInfo = columnDef.getGeneratedColumnInfo().get();
+            Expr expr = rewriter.rewrite(generatedColumnInfo.getExpr(), analyzer);
+            expr.foreach(e -> {
+                if (e instanceof LambdaFunctionCallExpr) {
+                    throw new AnalysisException("Generated column does not support lambda.");
+                } else if (e instanceof Subquery) {
+                    throw new AnalysisException("Generated column does not support subquery.");
+                }
+            });
+            expr.analyze(analyzer);
+            expr.foreach(e -> {
+                if (e instanceof VariableExpr) {
+                    throw new AnalysisException("Generated column expression cannot contain variable.");
+                } else if (e instanceof SlotRef && nameToColumnDef.containsKey(((SlotRef) e).getColumnName())) {
+                    ColumnDef refColumnDef = nameToColumnDef.get(((SlotRef) e).getColumnName()).first;
+                    if (refColumnDef.getAutoIncInitValue() != -1) {
+                        throw new AnalysisException("Generated column '" + columnDef.getName()
+                                + "' cannot refer to auto-increment column.");
+                    }
+                } else if (e instanceof FunctionCallExpr && !checkFunctionInGeneratedColumn((FunctionCallExpr) e)) {
+                    throw new AnalysisException(
+                            "Expression of generated column '"
+                                    + columnDef.getName() + "' contains a disallowed function:'"
+                                    + ((FunctionCallExpr) e).getFnName() + "'");
+                } else if (e instanceof AnalyticExpr) {
+                    throw new AnalysisException(
+                            "Expression of generated column '"
+                                    + columnDef.getName() + "' contains a disallowed expression:'"
+                                    + ((AnalyticExpr) e).toSqlWithoutTbl() + "'");
+                }
+            });
+            if (!Type.canCastTo(expr.getType(), columnDef.getType())) {
+                throw new AnalysisException("can not cast from origin type "
+                        + expr.getType() + " to target type=" + columnDef.getType());
+            }
+            exprAndnames.add(new GeneratedColumnUtil.ExprAndname(expr, columnDef.getName()));
+        }
+
+        // for alter drop column
+        Map<String, List<String>> columnToListOfGeneratedColumnsThatReferToThis = new HashMap<>();
+        for (ColumnDef column : columnDefs) {
+            Optional<GeneratedColumnInfo> info = column.getGeneratedColumnInfo();
+            if (!info.isPresent()) {
+                continue;
+            }
+            Expr generatedExpr = info.get().getExpr();
+            Set<Expr> slotRefsInGeneratedExpr = new HashSet<>();
+            generatedExpr.collect(e -> e instanceof SlotRef, slotRefsInGeneratedExpr);
+            for (Expr slotRefExpr : slotRefsInGeneratedExpr) {
+                String name = ((SlotRef) slotRefExpr).getColumnName();
+                columnToListOfGeneratedColumnsThatReferToThis
+                        .computeIfAbsent(name, k -> new ArrayList<>())
+                        .add(column.getName());
+            }
+        }
+        for (Map.Entry<String, List<String>> entry : columnToListOfGeneratedColumnsThatReferToThis.entrySet()) {
+            ColumnDef col = nameToColumnDef.get(entry.getKey()).first;
+            col.addGeneratedColumnsThatReferToThis(entry.getValue());
+        }
+
+        GeneratedColumnUtil.rewriteColumns(exprAndnames);
+        for (GeneratedColumnUtil.ExprAndname exprAndname : exprAndnames) {
+            if (nameToColumnDef.containsKey(exprAndname.getName())) {
+                ColumnDef columnDef = nameToColumnDef.get(exprAndname.getName()).first;
+                Optional<GeneratedColumnInfo> info = columnDef.getGeneratedColumnInfo();
+                info.ifPresent(columnInfo -> columnInfo.setExpandExprForLoad(exprAndname.getExpr()));
+            }
+        }
+    }
+
+    private boolean checkFunctionInGeneratedColumn(FunctionCallExpr funcExpr) {
+        if (!funcExpr.isScalarFunction()) {
+            return false;
+        }
+        if (funcExpr.fn.isUdf()) {
+            return false;
+        }
+        if (funcExpr instanceof GroupingFunctionCallExpr) {
+            return false;
+        }
+        return true;
+    }
+
+    public static final class SlotRefRewriteRule implements ExprRewriteRule {
+        private static Map<String, Pair<ColumnDef, Integer>> nameToColumnDefMap = new HashMap<>();
+        private final int index;
+
+        public SlotRefRewriteRule(int index) {
+            this.index = index;
+        }
+
+        public static void initializeslotRefMap(Map<String, Pair<ColumnDef, Integer>>  map) {
+            nameToColumnDefMap = map;
+        }
+
+        @Override
+        public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
+            if (!(expr instanceof SlotRef)) {
+                return expr;
+            }
+            SlotRef slotRef = (SlotRef) expr;
+            if (!nameToColumnDefMap.containsKey(slotRef.getColumnName())) {
+                throw new AnalysisException("Unknown column '" + slotRef.getColumnName()
+                        + "' in 'generated column function'");
+            }
+            Pair<ColumnDef, Integer> columnAndIdx = nameToColumnDefMap.get(slotRef.getColumnName());
+            ColumnDef columnDef = columnAndIdx.first;
+            if (columnDef.getGeneratedColumnInfo().isPresent() && columnAndIdx.second >= index) {
+                throw new AnalysisException(
+                        "Generated column can refer only to generated columns defined prior to it.");
+            }
+            slotRef.setType(columnDef.getType());
+            slotRef.setAnalyzed(true);
+            return slotRef;
+        }
+    }
+
+    private void genreatedColumnCommonCheck() throws AnalysisException {
+        boolean hasGeneratedCol = false;
+        for (ColumnDef column : columnDefs) {
+            if (column.getGeneratedColumnInfo().isPresent()) {
+                hasGeneratedCol = true;
+                break;
+            }
+        }
+        if (hasGeneratedCol && !engineName.equalsIgnoreCase("olap")) {
+            throw new AnalysisException(
+                    "Tables can only have generated columns if the olap engine is used");
+        }
+        if (hasGeneratedCol && keysDesc.getKeysType() == KeysType.AGG_KEYS) {
+            throw new AnalysisException(
+                    "Generated Column cannot be used in the aggregate table");
+        }
     }
 }

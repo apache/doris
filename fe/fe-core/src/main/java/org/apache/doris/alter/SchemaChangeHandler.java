@@ -28,6 +28,7 @@ import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
@@ -42,6 +43,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
@@ -377,6 +379,21 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
+        // generated column check
+        Map<String, Column> nameToColumn = new HashMap<>();
+        for (Column c : indexSchemaMap.get(baseIndexId)) {
+            nameToColumn.put(c.getName(), c);
+        }
+        if (nameToColumn.containsKey(dropColName)) {
+            Column column = nameToColumn.get(dropColName);
+            Set<String> generatedColumnsThatReferToThis = column.getGeneratedColumnsThatReferToThis();
+            if (!generatedColumnsThatReferToThis.isEmpty()) {
+                throw new DdlException(
+                        "Column '" + dropColName + "' has a generated column dependency on :"
+                                + generatedColumnsThatReferToThis);
+            }
+        }
+
         Iterator<Index> it = indexes.iterator();
         while (it.hasNext()) {
             Index index = it.next();
@@ -403,6 +420,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (column.getName().equalsIgnoreCase(dropColName)) {
                     baseIter.remove();
                     found = true;
+                    // find generated column referred column
+                    removeColumnWhenDropGeneratedColumn(column, nameToColumn);
                     break;
                 }
             }
@@ -3193,5 +3212,25 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         return false;
+    }
+
+    private void removeColumnWhenDropGeneratedColumn(Column dropColumn, Map<String, Column> nameToColumn) {
+        GeneratedColumnInfo generatedColumnInfo = dropColumn.getGeneratedColumnInfo();
+        if (generatedColumnInfo == null) {
+            return;
+        }
+        String dropColName = dropColumn.getName();
+        Expr expr = generatedColumnInfo.getExpr();
+        Set<Expr> slotRefsInGeneratedExpr = new HashSet<>();
+        expr.collect(e -> e instanceof SlotRef, slotRefsInGeneratedExpr);
+        for (Expr slotRef : slotRefsInGeneratedExpr) {
+            String name = ((SlotRef) slotRef).getColumnName();
+            if (!nameToColumn.containsKey(name)) {
+                continue;
+            }
+            Column c = nameToColumn.get(name);
+            Set<String> sets = c.getGeneratedColumnsThatReferToThis();
+            sets.remove(dropColName);
+        }
     }
 }
