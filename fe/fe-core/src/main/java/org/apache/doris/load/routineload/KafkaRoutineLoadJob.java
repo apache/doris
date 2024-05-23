@@ -57,6 +57,7 @@ import com.google.gson.GsonBuilder;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.BooleanUtils;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -139,6 +140,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     public Map<String, String> getConvertedCustomProperties() {
+        convertedCustomProperties.remove(ConsumerConfig.CLIENT_RACK_CONFIG);
         return convertedCustomProperties;
     }
 
@@ -797,7 +799,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             // all offsets to be consumed are newer than offsets in cachedPartitionWithLatestOffsets,
             // maybe the cached offset is out-of-date, fetch from kafka server again
             List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, getBrokerList(),
-                    getTopic(), getConvertedCustomProperties(), Lists.newArrayList(partitionIdToOffset.keySet()));
+                    getTopic(), getConvertedCustomProperties(),
+                    Lists.newArrayList(partitionIdToOffset.keySet()));
             for (Pair<Integer, Long> pair : tmp) {
                 cachedPartitionWithLatestOffsets.put(pair.first, pair.second);
             }

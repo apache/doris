@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
@@ -35,6 +36,7 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
 import com.google.gson.Gson;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -88,7 +90,14 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tKafkaLoadInfo.setTopic(routineLoadJob.getTopic());
         tKafkaLoadInfo.setBrokers(routineLoadJob.getBrokerList());
         tKafkaLoadInfo.setPartitionBeginOffset(partitionIdToOffset);
+        Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+        if (backend == null) {
+            throw new UserException("failed to get be:" + beId + " rack because not exist");
+        }
         tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties());
+        if (backend.getRack() != null) {
+            tKafkaLoadInfo.getProperties().put(ConsumerConfig.CLIENT_RACK_CONFIG, backend.getRack());
+        }
         tRoutineLoadTask.setKafkaLoadInfo(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
         tRoutineLoadTask.setIsMultiTable(isMultiTable);
