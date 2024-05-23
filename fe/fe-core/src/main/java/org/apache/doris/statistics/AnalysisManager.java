@@ -381,6 +381,7 @@ public class AnalysisManager implements Writable {
         TableStatsMeta tableStatsStatus = findTableStatsStatus(table.getId());
         infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
         infoBuilder.setPriority(JobPriority.MANUAL);
+        infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows);
         return infoBuilder.build();
     }
 
@@ -513,6 +514,9 @@ public class AnalysisManager implements Writable {
         }
         if (jobInfo.partitionNames != null) {
             jobInfo.partitionNames.clear();
+        }
+        if (jobInfo.partitionUpdateRows != null) {
+            jobInfo.partitionUpdateRows.clear();
         }
     }
 
