@@ -60,7 +60,7 @@ import java.util.stream.Collectors;
  */
 public abstract class AbstractMaterializedViewAggregateRule extends AbstractMaterializedViewRule {
 
-    public final static List<AggFunctionRollUpHandler> ROLL_UP_HANDLERS =
+    public static final List<AggFunctionRollUpHandler> ROLL_UP_HANDLERS =
             ImmutableList.of(DirectRollupHandler.INSTANCE,
                     MappingRollupHandler.INSTANCE,
                     SingleCombinatorRollupHandler.INSTANCE,
