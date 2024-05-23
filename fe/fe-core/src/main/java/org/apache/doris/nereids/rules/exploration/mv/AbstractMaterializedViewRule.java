@@ -33,7 +33,7 @@ import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
-import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PartitionModifier;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PartitionRemover;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
@@ -52,12 +52,10 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.qe.SessionVariable;
@@ -295,12 +293,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                             mtmv.getMvPartitionInfo().getPartitionCol(), cascadesContext);
                     if (finalInvalidPartitions.value().isEmpty() || originPlanWithFilter == null) {
                         // only need remove mv invalid partition
-                        rewrittenPlan = rewrittenPlan.accept(new PartitionModifier(),
-                                Pair.of(false, invalidPartitions.key()));
+                        rewrittenPlan = rewrittenPlan.accept(new PartitionRemover(), invalidPartitions.key());
                     } else {
                         // For rewrittenPlan which contains materialized view should remove invalid partition ids
                         List<Plan> children = Lists.newArrayList(
-                                rewrittenPlan.accept(new PartitionModifier(), Pair.of(false, invalidPartitions.key())),
+                                rewrittenPlan.accept(new PartitionRemover(), invalidPartitions.key()),
                                 originPlanWithFilter);
                         // Union query materialized view and source table
                         rewrittenPlan = new LogicalUnion(Qualifier.ALL,
@@ -398,7 +395,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         // Collect the mv related base table partitions which query used
         Map<BaseTableInfo, Set<Partition>> queryUsedBaseTablePartitions = new LinkedHashMap<>();
         queryUsedBaseTablePartitions.put(relatedPartitionTable, new HashSet<>());
-        queryPlan.accept(new QueryScanPartitionsCollector(), queryUsedBaseTablePartitions);
+        queryPlan.accept(new StructInfo.QueryScanPartitionsCollector(), queryUsedBaseTablePartitions);
         Set<String> queryUsedBaseTablePartitionNameSet = queryUsedBaseTablePartitions.get(relatedPartitionTable)
                 .stream()
                 .map(Partition::getName)
@@ -458,29 +455,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             baseTablePartitionNeedUnionNameMap.put(relatedPartitionTable, baseTableNeedUnionPartitionNameSet);
         }
         return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
-    }
-
-    private static class QueryScanPartitionsCollector extends DefaultPlanVisitor<Plan,
-            Map<BaseTableInfo, Set<Partition>>> {
-        @Override
-        public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation,
-                Map<BaseTableInfo, Set<Partition>> targetTablePartitionMap) {
-            TableIf table = catalogRelation.getTable();
-            BaseTableInfo relatedPartitionTable = new BaseTableInfo(table);
-            if (!targetTablePartitionMap.containsKey(relatedPartitionTable)) {
-                return catalogRelation;
-            }
-            // todo Support other type partition table
-            if (catalogRelation instanceof LogicalOlapScan) {
-                LogicalOlapScan logicalOlapScan = (LogicalOlapScan) catalogRelation;
-                for (Long partitionId : logicalOlapScan.getSelectedPartitionIds()) {
-                    Set<Partition> partitions = targetTablePartitionMap.computeIfAbsent(relatedPartitionTable,
-                            key -> new HashSet<>());
-                    partitions.add(logicalOlapScan.getTable().getPartition(partitionId));
-                }
-            }
-            return catalogRelation;
-        }
     }
 
     /**

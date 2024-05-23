@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -68,6 +66,7 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -673,58 +672,47 @@ public class StructInfo {
     /**
      * Add or remove partition on base table and mv when materialized view scan contains invalid partitions
      */
-    public static class PartitionModifier extends DefaultPlanRewriter<Pair<Boolean, Map<BaseTableInfo, Set<String>>>> {
+    public static class PartitionRemover extends DefaultPlanRewriter<Map<BaseTableInfo, Set<String>>> {
         @Override
         public Plan visitLogicalOlapScan(LogicalOlapScan olapScan,
-                Pair<Boolean, Map<BaseTableInfo, Set<String>>> context) {
+                Map<BaseTableInfo, Set<String>> context) {
             // todo Support other partition table
             BaseTableInfo tableInfo = new BaseTableInfo(olapScan.getTable());
-            if (context.value().containsKey(tableInfo)) {
-                Set<String> targetPartitionNameSet = context.value().get(tableInfo);
-                List<Long> selectedPartitionIds = new ArrayList<>(olapScan.getSelectedPartitionIds());
-                if (context.key()) {
-                    // need add partition
-                    for (String targetPartitionName : targetPartitionNameSet) {
-                        Partition partition = olapScan.getTable().getPartition(targetPartitionName);
-                        if (partition != null) {
-                            selectedPartitionIds.add(partition.getId());
-                        }
-                    }
-                } else {
-                    // need remove partition
-                    selectedPartitionIds = selectedPartitionIds.stream()
-                            .filter(partitionId -> !targetPartitionNameSet.contains(
-                                    olapScan.getTable().getPartition(partitionId).getName()))
-                            .collect(Collectors.toList());
-                }
-
-                return olapScan.withSelectedPartitionIds(selectedPartitionIds);
+            if (!context.containsKey(tableInfo)) {
+                return olapScan;
             }
-            return olapScan;
+            Set<String> targetPartitionNameSet = context.get(tableInfo);
+            List<Long> selectedPartitionIds = new ArrayList<>(olapScan.getSelectedPartitionIds());
+            // need remove partition
+            selectedPartitionIds = selectedPartitionIds.stream()
+                    .filter(partitionId -> !targetPartitionNameSet.contains(
+                            olapScan.getTable().getPartition(partitionId).getName()))
+                    .collect(Collectors.toList());
+            return olapScan.withSelectedPartitionIds(selectedPartitionIds);
         }
     }
 
     /**
-     * Collect partitions which scan used according to given table
+     * Collect partitions on base table
      */
-    public static class QueryScanPartitionsCollector extends DefaultPlanVisitor<Plan, Map<Long, Set<PartitionItem>>> {
+    public static class QueryScanPartitionsCollector extends DefaultPlanVisitor<Plan,
+            Map<BaseTableInfo, Set<Partition>>> {
         @Override
         public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation,
-                Map<Long, Set<PartitionItem>> context) {
+                Map<BaseTableInfo, Set<Partition>> targetTablePartitionMap) {
             TableIf table = catalogRelation.getTable();
-            if (!context.containsKey(table.getId())) {
+            BaseTableInfo relatedPartitionTable = new BaseTableInfo(table);
+            if (!targetTablePartitionMap.containsKey(relatedPartitionTable)) {
                 return catalogRelation;
             }
-            // Only support check olap partition currently
+            // todo Support other type partition table
             if (catalogRelation instanceof LogicalOlapScan) {
                 LogicalOlapScan logicalOlapScan = (LogicalOlapScan) catalogRelation;
-                PartitionInfo partitionInfo = logicalOlapScan.getTable().getPartitionInfo();
-                logicalOlapScan.getSelectedPartitionIds().stream()
-                        .map(partitionInfo::getItem)
-                        .forEach(partitionItem -> context.computeIfPresent(table.getId(), (key, oldValue) -> {
-                            oldValue.add(partitionItem);
-                            return oldValue;
-                        }));
+                for (Long partitionId : logicalOlapScan.getSelectedPartitionIds()) {
+                    Set<Partition> partitions = targetTablePartitionMap.computeIfAbsent(relatedPartitionTable,
+                            key -> new HashSet<>());
+                    partitions.add(logicalOlapScan.getTable().getPartition(partitionId));
+                }
             }
             return catalogRelation;
         }

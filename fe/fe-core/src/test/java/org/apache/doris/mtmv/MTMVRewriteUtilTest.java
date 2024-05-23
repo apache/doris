@@ -63,17 +63,9 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = Lists.newArrayList(p1);
 
-                mtmv.selectNonEmptyPartitionIds(Lists.newArrayList(10L));
-                minTimes = 0;
-                result = Lists.newArrayList(10L);
-
                 p1.getVisibleVersionTime();
                 minTimes = 0;
                 result = 1L;
-
-                p1.getId();
-                minTimes = 0;
-                result = 10;
 
                 mtmv.getGracePeriod();
                 minTimes = 0;
