@@ -124,7 +124,7 @@ suite("test_show_data", "p0") {
             if(alter_res.contains("FINISHED")) {
                 sleep(3000) // wait change table state to normal
                 logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
+                return
             }
             useTime = t
             Thread.sleep(delta_time)
@@ -294,7 +294,7 @@ suite("test_show_data_for_bkd", "p0") {
             if(alter_res.contains("FINISHED")) {
                 sleep(3000) // wait change table state to normal
                 logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
+                return
             }
             useTime = t
             Thread.sleep(delta_time)
@@ -466,7 +466,7 @@ suite("test_show_data_multi_add", "p0") {
             if(alter_res.contains("FINISHED")) {
                 sleep(3000) // wait change table state to normal
                 logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
+                return
             }
             useTime = t
             Thread.sleep(delta_time)
