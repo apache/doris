@@ -235,7 +235,7 @@ Status QueryContext::cancel_pipeline_context(const int fragment_id,
                                              const PPlanFragmentCancelReason& reason,
                                              const std::string& msg) {
     if (fragment_id == -1) {
-        std::shared_ptr<pipeline::PipelineFragmentContext> ctx_to_cancel;
+        std::shared_ptr<pipeline::PipelineFragmentContext> ctx_to_cancel = nullptr;
         {
             std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
             for (const auto& it : _fragment_id_to_pipeline_ctx) {
