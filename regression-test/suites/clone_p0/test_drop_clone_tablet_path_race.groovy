@@ -40,12 +40,10 @@ suite('test_drop_clone_tablet_path_race') {
                 if (result.size() == size) {
                     def version = result[0].Version
                     def state = result[0].State
-                    result.forEach {
-                         Assert.assertEquals(it.Version, version)
-                         Assert.assertEquals(it.State, state)
+                    succ = result.every { it.Version.equals(version) && it.State.equals(state) }
+                    if (succ) {
+                        break
                     }
-                    succ = true
-                    break
                 }
                 sleep(1000)
             }
