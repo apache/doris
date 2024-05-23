@@ -579,7 +579,7 @@ public class IcebergUtils {
 
                 while (fileScanTaskIterator.hasNext()) {
                     FileScanTask scanTask = fileScanTaskIterator.next();
-                    StructLike partition = scanTask.file().partition();
+                    // StructLike partition = scanTask.file().partition();
                     String partitionName = "convertIcebergPartitionToPartitionName(scanTask.spec(), partition)";
                     partitionNames.add(partitionName);
                 }
