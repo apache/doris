@@ -206,7 +206,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 }
                 PreAggStatus preAggStatus
                         = olapTable.getIndexMetaByIndexId(indexId).getKeysType().equals(KeysType.DUP_KEYS)
-                        ? PreAggStatus.on()
+                        ? PreAggStatus.unset()
                         : PreAggStatus.off("For direct index scan.");
 
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),

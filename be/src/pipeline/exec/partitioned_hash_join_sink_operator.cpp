@@ -203,7 +203,14 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
 
                 {
                     SCOPED_TIMER(_partition_shuffle_timer);
-                    partition_block->add_rows(&build_block, begin, end);
+                    Status st = partition_block->add_rows(&build_block, begin, end);
+                    if (!st.ok()) {
+                        std::unique_lock<std::mutex> lock(_spill_lock);
+                        _spill_status = st;
+                        _spill_status_ok = false;
+                        _dependency->set_ready();
+                        return;
+                    }
                     partitions_indexes[partition_idx].clear();
                 }
 
@@ -336,8 +343,8 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
             partitioned_blocks[i] =
                     vectorized::MutableBlock::create_unique(in_block->clone_empty());
         }
-        partitioned_blocks[i]->add_rows(in_block, &(partition_indexes[i][0]),
-                                        &(partition_indexes[i][count]));
+        RETURN_IF_ERROR(partitioned_blocks[i]->add_rows(in_block, &(partition_indexes[i][0]),
+                                                        &(partition_indexes[i][count])));
     }
 
     return Status::OK();

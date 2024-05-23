@@ -48,6 +48,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "util/brpc_client_cache.h"
 #include "util/mem_info.h"
 #include "util/ref_count_closure.h"
@@ -140,7 +141,7 @@ Status RowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context)
 
 Status RowsetBuilder::check_tablet_version_count() {
     if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
-        MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+        GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::OK();
     }
     //trigger compaction
@@ -377,7 +378,8 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
                                table_schema_param->partial_update_input_columns(),
                                table_schema_param->is_strict_mode(),
-                               table_schema_param->timestamp_ms(), table_schema_param->timezone());
+                               table_schema_param->timestamp_ms(), table_schema_param->timezone(),
+                               table_schema_param->auto_increment_coulumn());
 }
 
 } // namespace doris

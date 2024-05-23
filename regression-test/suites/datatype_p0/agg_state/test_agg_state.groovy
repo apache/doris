@@ -52,6 +52,8 @@ suite("test_agg_state") {
             properties("replication_num" = "1");
         """
 
+    qt_desc "desc a_table;"
+
     sql "insert into a_table select 1,max_by_state(1,3);"
     sql "insert into a_table select 1,max_by_state(2,2);"
     sql "insert into a_table values(1,max_by_state(3,1));"

@@ -702,14 +702,15 @@ bool ColumnValueRange<primitive_type>::convert_to_close_range(
         bool is_empty = false;
 
         if (!is_begin_include()) {
-            if (_low_value == TYPE_MIN) {
+            if (_low_value == TYPE_MAX) {
                 is_empty = true;
             } else {
                 ++_low_value;
             }
         }
+
         if (!is_end_include()) {
-            if (_high_value == TYPE_MAX) {
+            if (_high_value == TYPE_MIN) {
                 is_empty = true;
             } else {
                 --_high_value;

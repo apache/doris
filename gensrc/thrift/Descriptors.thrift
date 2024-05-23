@@ -245,6 +245,7 @@ struct TOlapTableSchemaParam {
     9: optional list<string> partial_update_input_columns
     10: optional bool is_strict_mode = false
     11: optional string auto_increment_column
+    12: optional i32 auto_increment_column_unique_id = -1
 }
 
 struct TTabletLocation {

@@ -62,6 +62,7 @@
 #include "vec/exec/format/table/hudi_jni_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/format/table/max_compute_jni_reader.h"
+#include "vec/exec/format/table/paimon_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
@@ -87,25 +88,23 @@ namespace doris::vectorized {
 using namespace ErrorCode;
 
 VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                           const TFileScanRange& scan_range, RuntimeProfile* profile,
-                           ShardedKVCache* kv_cache)
+                           std::shared_ptr<vectorized::SplitSourceConnector> split_source,
+                           RuntimeProfile* profile, ShardedKVCache* kv_cache)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
-          _ranges(scan_range.ranges),
-          _next_range(0),
+          _split_source(split_source),
           _cur_reader(nullptr),
           _cur_reader_eof(false),
           _kv_cache(kv_cache),
           _strict_mode(false) {
-    if (scan_range.params.__isset.strict_mode) {
-        _strict_mode = scan_range.params.strict_mode;
-    }
-
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.count(parent->id()) > 0) {
         _params = &(state->get_query_ctx()->file_scan_range_params_map[parent->id()]);
     } else {
-        CHECK(scan_range.__isset.params);
-        _params = &(scan_range.params);
+        // old fe thrift protocol
+        _params = _split_source->get_params();
+    }
+    if (_params->__isset.strict_mode) {
+        _strict_mode = _params->strict_mode;
     }
 
     // For load scanner, there are input and output tuple.
@@ -116,25 +115,24 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
 }
 
 VFileScanner::VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* local_state,
-                           int64_t limit, const TFileScanRange& scan_range, RuntimeProfile* profile,
-                           ShardedKVCache* kv_cache)
+                           int64_t limit,
+                           std::shared_ptr<vectorized::SplitSourceConnector> split_source,
+                           RuntimeProfile* profile, ShardedKVCache* kv_cache)
         : VScanner(state, local_state, limit, profile),
-          _ranges(scan_range.ranges),
-          _next_range(0),
+          _split_source(split_source),
           _cur_reader(nullptr),
           _cur_reader_eof(false),
           _kv_cache(kv_cache),
           _strict_mode(false) {
-    if (scan_range.params.__isset.strict_mode) {
-        _strict_mode = scan_range.params.strict_mode;
-    }
-
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.count(local_state->parent_id()) > 0) {
         _params = &(state->get_query_ctx()->file_scan_range_params_map[local_state->parent_id()]);
     } else {
-        CHECK(scan_range.__isset.params);
-        _params = &(scan_range.params);
+        // old fe thrift protocol
+        _params = _split_source->get_params();
+    }
+    if (_params->__isset.strict_mode) {
+        _strict_mode = _params->strict_mode;
     }
 
     // For load scanner, there are input and output tuple.
@@ -284,7 +282,13 @@ void VFileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
 Status VFileScanner::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VScanner::open(state));
-    RETURN_IF_ERROR(_init_expr_ctxes());
+    RETURN_IF_ERROR(_split_source->get_next(&_first_scan_range, &_current_range));
+    if (_first_scan_range) {
+        RETURN_IF_ERROR(_init_expr_ctxes());
+    } else {
+        // there's no scan range in split source. stop scanner directly.
+        _scanner_eof = true;
+    }
 
     return Status::OK();
 }
@@ -735,19 +739,21 @@ Status VFileScanner::_get_next_reader() {
         if (_cur_reader) {
             _cur_reader->collect_profile_before_close();
             RETURN_IF_ERROR(_cur_reader->close());
+            _state->update_num_finished_scan_range(1);
         }
         _cur_reader.reset(nullptr);
         _src_block_init = false;
-        if (_next_range >= _ranges.size() || _should_stop) {
+        bool has_next = _first_scan_range;
+        if (!_first_scan_range) {
+            RETURN_IF_ERROR(_split_source->get_next(&has_next, &_current_range));
+        }
+        _first_scan_range = false;
+        if (!has_next || _should_stop) {
             _scanner_eof = true;
-            _state->update_num_finished_scan_range(1);
             return Status::OK();
         }
-        if (_next_range != 0) {
-            _state->update_num_finished_scan_range(1);
-        }
 
-        const TFileRangeDesc& range = _ranges[_next_range++];
+        const TFileRangeDesc& range = _current_range;
         _current_range_path = range.path;
 
         // create reader for specific format
@@ -839,6 +845,19 @@ Status VFileScanner::_get_next_reader() {
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                         &_slot_id_to_filter_conjuncts);
                 _cur_reader = std::move(iceberg_reader);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "paimon") {
+                std::vector<std::string> place_holder;
+                init_status = parquet_reader->init_reader(
+                        _file_col_names, place_holder, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                        &_slot_id_to_filter_conjuncts);
+                std::unique_ptr<PaimonParquetReader> paimon_reader =
+                        PaimonParquetReader::create_unique(std::move(parquet_reader), _profile,
+                                                           _state, *_params);
+                RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
+                _cur_reader = std::move(paimon_reader);
             } else {
                 std::vector<std::string> place_holder;
                 init_status = parquet_reader->init_reader(
@@ -890,6 +909,16 @@ Status VFileScanner::_get_next_reader() {
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                         &_slot_id_to_filter_conjuncts);
                 _cur_reader = std::move(iceberg_reader);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "paimon") {
+                init_status = orc_reader->init_reader(
+                        &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
+                        _real_tuple_desc, _default_val_row_desc.get(),
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                std::unique_ptr<PaimonOrcReader> paimon_reader = PaimonOrcReader::create_unique(
+                        std::move(orc_reader), _profile, _state, *_params);
+                RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
+                _cur_reader = std::move(paimon_reader);
             } else {
                 init_status = orc_reader->init_reader(
                         &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
@@ -953,8 +982,7 @@ Status VFileScanner::_get_next_reader() {
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
         } else if (!init_status.ok()) {
-            return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
-                                         init_status.to_string());
+            return Status::InternalError("failed to init reader, err: {}", init_status.to_string());
         }
 
         _name_to_col_type.clear();
@@ -995,7 +1023,7 @@ Status VFileScanner::_generate_fill_columns() {
     _partition_col_descs.clear();
     _missing_col_descs.clear();
 
-    const TFileRangeDesc& range = _ranges.at(_next_range - 1);
+    const TFileRangeDesc& range = _current_range;
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
         for (const auto& slot_desc : _partition_slot_descs) {
             if (slot_desc) {
@@ -1038,8 +1066,6 @@ Status VFileScanner::_generate_fill_columns() {
 }
 
 Status VFileScanner::_init_expr_ctxes() {
-    DCHECK(!_ranges.empty());
-
     std::map<SlotId, int> full_src_index_map;
     std::map<SlotId, SlotDescriptor*> full_src_slot_map;
     std::map<std::string, int> partition_name_to_key_index_map;
@@ -1055,8 +1081,8 @@ Status VFileScanner::_init_expr_ctxes() {
     // All ranges in _ranges vector should have identical columns_from_path_keys
     // because they are all file splits for the same external table.
     // So here use the first element of _ranges to fill the partition_name_to_key_index_map
-    if (_ranges[0].__isset.columns_from_path_keys) {
-        std::vector<std::string> key_map = _ranges[0].columns_from_path_keys;
+    if (_current_range.__isset.columns_from_path_keys) {
+        std::vector<std::string> key_map = _current_range.columns_from_path_keys;
         if (!key_map.empty()) {
             for (size_t i = 0; i < key_map.size(); i++) {
                 partition_name_to_key_index_map.emplace(key_map[i], i);

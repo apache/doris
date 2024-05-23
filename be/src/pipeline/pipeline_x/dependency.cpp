@@ -125,6 +125,27 @@ Dependency* RuntimeFilterDependency::is_blocked_by(PipelineXTask* task) {
     return ready ? nullptr : this;
 }
 
+// should check rf timeout in two case:
+// 1. the rf is ready just remove the wait queue
+// 2. if the rf have local dependency, the rf should start wait when all local dependency is ready
+bool RuntimeFilterTimer::should_be_check_timeout() {
+    if (!_parent->ready() && !_local_runtime_filter_dependencies.empty()) {
+        bool all_ready = true;
+        for (auto& dep : _local_runtime_filter_dependencies) {
+            if (!dep->ready()) {
+                all_ready = false;
+                break;
+            }
+        }
+        if (all_ready) {
+            _local_runtime_filter_dependencies.clear();
+            _registration_time = MonotonicMillis();
+        }
+        return all_ready;
+    }
+    return true;
+}
+
 void RuntimeFilterTimer::call_timeout() {
     _parent->set_ready();
 }
@@ -192,6 +213,12 @@ Status AggSharedState::reset_hash_table() {
                         mapped = nullptr;
                     }
                 });
+
+                if (hash_table.has_null_key_data()) {
+                    auto st = _destroy_agg_status(
+                            hash_table.template get_null_key_data<vectorized::AggregateDataPtr>());
+                    RETURN_IF_ERROR(st);
+                }
 
                 aggregate_data_container.reset(new vectorized::AggregateDataContainer(
                         sizeof(typename HashTableType::key_type),

@@ -422,6 +422,53 @@ int ColumnNullable::compare_at(size_t n, size_t m, const IColumn& rhs_,
     return get_nested_column().compare_at(n, m, nullable_rhs.get_nested_column(),
                                           null_direction_hint);
 }
+void ColumnNullable::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                                      int direction, std::vector<uint8>& cmp_res,
+                                      uint8* __restrict filter) const {
+    const auto& rhs_null_column = assert_cast<const ColumnNullable&>(rhs);
+    const bool right_is_null = rhs.is_null_at(rhs_row_id);
+    const bool left_contains_null = has_null();
+    if (!left_contains_null && !right_is_null) {
+        get_nested_column().compare_internal(rhs_row_id, rhs_null_column.get_nested_column(),
+                                             nan_direction_hint, direction, cmp_res, filter);
+    } else {
+        auto sz = this->size();
+        DCHECK(cmp_res.size() == sz);
+
+        size_t begin = simd::find_zero(cmp_res, 0);
+        while (begin < sz) {
+            size_t end = simd::find_one(cmp_res, begin + 1);
+            if (right_is_null) {
+                for (size_t row_id = begin; row_id < end; row_id++) {
+                    if (!is_null_at(row_id)) {
+                        if ((-nan_direction_hint * direction) < 0) {
+                            filter[row_id] = 1;
+                            cmp_res[row_id] = 1;
+                        } else if ((-nan_direction_hint * direction) > 0) {
+                            cmp_res[row_id] = 1;
+                        }
+                    }
+                }
+            } else {
+                for (size_t row_id = begin; row_id < end; row_id++) {
+                    if (is_null_at(row_id)) {
+                        if (nan_direction_hint * direction < 0) {
+                            filter[row_id] = 1;
+                            cmp_res[row_id] = 1;
+                        } else if (nan_direction_hint * direction > 0) {
+                            cmp_res[row_id] = 1;
+                        }
+                    }
+                }
+            }
+            begin = simd::find_zero(cmp_res, end + 1);
+        }
+        if (!right_is_null) {
+            get_nested_column().compare_internal(rhs_row_id, rhs_null_column.get_nested_column(),
+                                                 nan_direction_hint, direction, cmp_res, filter);
+        }
+    }
+}
 
 void ColumnNullable::get_permutation(bool reverse, size_t limit, int null_direction_hint,
                                      Permutation& res) const {

@@ -44,7 +44,7 @@ public class FeServer {
 
     public void start() throws IOException {
         FrontendServiceImpl service = new FrontendServiceImpl(ExecuteEnv.getInstance());
-        Logger feServiceLogger = LogManager.getLogger(FrontendServiceImpl.class);
+        Logger feServiceLogger = LogManager.getLogger(FeServer.class);
         FrontendService.Iface instance = (FrontendService.Iface) Proxy.newProxyInstance(
                 FrontendServiceImpl.class.getClassLoader(),
                 FrontendServiceImpl.class.getInterfaces(),

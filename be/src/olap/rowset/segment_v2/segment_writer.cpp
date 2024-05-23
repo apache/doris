@@ -112,13 +112,6 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
             const auto& column = _tablet_schema->column(_tablet_schema->sequence_col_idx());
             _seq_coder = get_key_coder(column.type());
         }
-        if (!_tablet_schema->auto_increment_column().empty()) {
-            _auto_inc_id_buffer =
-                    vectorized::GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
-                            _tablet_schema->db_id(), _tablet_schema->table_id(),
-                            _tablet_schema->column(_tablet_schema->auto_increment_column())
-                                    .unique_id());
-        }
         // encode the rowid into the primary key index
         if (!_tablet_schema->cluster_key_idxes().empty()) {
             const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
@@ -559,7 +552,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     // read and fill block
     auto mutable_full_columns = full_block.mutate_columns();
     RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
-                                         has_default_or_nullable, segment_start_pos));
+                                         has_default_or_nullable, segment_start_pos, block));
     full_block.set_columns(std::move(mutable_full_columns));
     // row column should be filled here
     if (_tablet_schema->store_row_column()) {
@@ -618,7 +611,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
                                            const std::vector<bool>& use_default_or_null_flag,
                                            bool has_default_or_nullable,
-                                           const size_t& segment_start_pos) {
+                                           const size_t& segment_start_pos,
+                                           const vectorized::Block* block) {
     if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
         // TODO(plat1ko): cloud mode
         return Status::NotSupported("fill_missing_columns");
@@ -712,18 +706,6 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
         }
     }
 
-    // deal with partial update auto increment column when there no key in old block.
-    if (!_tablet_schema->auto_increment_column().empty()) {
-        if (_auto_inc_id_allocator.total_count < use_default_or_null_flag.size()) {
-            std::vector<std::pair<int64_t, size_t>> res;
-            RETURN_IF_ERROR(
-                    _auto_inc_id_buffer->sync_request_ids(use_default_or_null_flag.size(), &res));
-            for (auto [start, length] : res) {
-                _auto_inc_id_allocator.insert_ids(start, length);
-            }
-        }
-    }
-
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
         // `use_default_or_null_flag[idx] == true` doesn't mean that we should read values from the old row
@@ -751,7 +733,11 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                            FieldType::OLAP_FIELD_TYPE_BIGINT);
                     auto auto_inc_column = assert_cast<vectorized::ColumnInt64*>(
                             mutable_full_columns[cids_missing[i]].get());
-                    auto_inc_column->insert(_auto_inc_id_allocator.next_id());
+                    auto_inc_column->insert(
+                            (assert_cast<const vectorized::ColumnInt64*>(
+                                     block->get_by_name("__PARTIAL_UPDATE_AUTO_INC_COLUMN__")
+                                             .column.get()))
+                                    ->get_element(idx));
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value

@@ -357,11 +357,11 @@ struct TListTableStatusResult {
 
 struct TTableMetadataNameIds {
     1: optional string name
-    2: optional i64 id 
+    2: optional i64 id
 }
 
 struct TListTableMetadataNameIdsResult {
-    1: optional list<TTableMetadataNameIds> tables 
+    1: optional list<TTableMetadataNameIds> tables
 }
 
 // getTableNames returns a list of unqualified table names
@@ -484,6 +484,8 @@ struct TReportExecStatusParams {
   25: optional TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 
   26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
+
+  27: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
 }
 
 struct TFeResult {
@@ -1420,6 +1422,15 @@ struct TShowUserResult {
     1: optional list<list<string>> userinfo_list
 }
 
+struct TFetchSplitBatchRequest {
+    1: optional i64 split_source_id
+    2: optional i32 max_num_splits
+}
+
+struct TFetchSplitBatchResult {
+    1: optional list<Planner.TScanRangeLocations> splits
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1509,4 +1520,5 @@ service FrontendService {
 
     TShowProcessListResult showProcessList(1: TShowProcessListRequest request)
     TShowUserResult showUser(1: TShowUserRequest request)
+    TFetchSplitBatchResult fetchSplitBatch(1: TFetchSplitBatchRequest request)
 }

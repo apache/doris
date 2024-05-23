@@ -40,10 +40,12 @@ public:
         _now_offset += 1;
     }
 
-    inline void commit() {
-        ColumnString::check_chars_length(_offsets.back() + _now_offset, 0);
-        _offsets.push_back(_offsets.back() + _now_offset);
+    void commit() {
+        auto now_offset = _now_offset;
         _now_offset = 0;
+        // the following code may throw exception, and DCHECK in destructor will fail if _now_offset is not reset to 0
+        ColumnString::check_chars_length(_offsets.back() + now_offset, 0);
+        _offsets.push_back(_offsets.back() + now_offset);
     }
 
     ~BufferWritable() { DCHECK(_now_offset == 0); }

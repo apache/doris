@@ -305,6 +305,12 @@ struct TIcebergFileDesc {
     5: optional Exprs.TExpr file_select_conjunct;
 }
 
+struct TPaimonDeletionFileDesc {
+    1: optional string path;
+    2: optional i64 offset;
+    3: optional i64 length;
+}
+
 struct TPaimonFileDesc {
     1: optional string paimon_split
     2: optional string paimon_column_names
@@ -317,6 +323,7 @@ struct TPaimonFileDesc {
     9: optional i64 tbl_id
     10: optional i64 last_update_time
     11: optional string file_format
+    12: optional TPaimonDeletionFileDesc deletion_file;
 }
 
 struct TMaxComputeFileDesc {
@@ -432,6 +439,11 @@ struct TFileRangeDesc {
     12: optional string fs_name
 }
 
+struct TSplitSource {
+    1: optional i64 split_source_id
+    2: optional i32 num_splits
+}
+
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.
 //  TFileScanRangeParams: describe how to read and convert file
 //  list<TFileRangeDesc>: file location and range
@@ -442,12 +454,12 @@ struct TFileScanRange {
     // file_scan_params in TExecPlanFragmentParams will always be set in query request,
     // and TFileScanRangeParams here is used for some other request such as fetch table schema for tvf. 
     2: optional TFileScanRangeParams params
+    3: optional TSplitSource split_source
 }
 
 // Scan range for external datasource, such as file on hdfs, es datanode, etc.
 struct TExternalScanRange {
     1: optional TFileScanRange file_scan_range
-    // TODO: add more scan range type?
 }
 
 enum TDataGenFunctionName {

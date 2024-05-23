@@ -77,5 +77,6 @@ constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
 /// functional
 constexpr inline int BITMAP_SERDE = 3;
 constexpr inline int USE_NEW_SERDE = 4; // release on DORIS version 2.1
+constexpr inline int OLD_WAL_SERDE = 3; // use to solve compatibility issues, see pr #32299
 
 } // namespace doris
