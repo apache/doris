@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -31,7 +30,7 @@ import java.util.stream.Collectors;
 /**
  * Prepared Statement
  */
-public class ExecuteCommand extends LogicalPlanAdapter  {
+public class ExecuteCommand extends LogicalPlanAdapter {
     private final String stmtName;
     private final List<Expression> params;
 

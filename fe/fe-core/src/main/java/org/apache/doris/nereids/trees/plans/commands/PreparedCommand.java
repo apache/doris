@@ -71,6 +71,9 @@ public class PreparedCommand extends LogicalPlanAdapter {
         return inner;
     }
 
+    /**
+    *  assign real value to placeholders and return the assigned statement
+    */
     public StatementBase assignValues(List<Expression> values) {
         if (params == null) {
             return inner;
@@ -82,6 +85,9 @@ public class PreparedCommand extends LogicalPlanAdapter {
         return inner;
     }
 
+    /**
+     * return the labels of paramters
+     */
     public List<String> getLabels() {
         List<String> labels = new ArrayList<>();
         if (params == null) {

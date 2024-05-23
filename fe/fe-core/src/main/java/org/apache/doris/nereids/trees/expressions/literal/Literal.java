@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.mysql.MysqlProto;
@@ -38,7 +39,6 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
@@ -444,118 +444,109 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         }
     }
 
-    /** get related Literal from mysql type**/
-    public static Literal getLiteralByMysqlType(int mysqlType, ByteBuffer data) throws AnalysisException {
+    /**
+     * Retrieves a Literal object based on the MySQL type and the data provided.
+     *
+     * @param mysqlType the MySQL type identifier
+     * @param data      the ByteBuffer containing the data
+     * @return a Literal object corresponding to the MySQL type
+     * @throws AnalysisException if the MySQL type is unsupported or if data conversion fails
+     */
+    public static Literal getLiteralByMysqlType(MysqlColType mysqlType, ByteBuffer data) throws AnalysisException {
         switch (mysqlType) {
-            // MYSQL_TYPE_TINY
-            case 1:
+            case MYSQL_TYPE_TINY:
                 return new TinyIntLiteral(data.get());
-            // MYSQL_TYPE_SHORT
-            case 2:
+            case MYSQL_TYPE_SHORT:
                 return new SmallIntLiteral((short) data.getChar());
-            // MYSQL_TYPE_LONG
-            case 3:
+            case MYSQL_TYPE_LONG:
                 return new IntegerLiteral(data.getInt());
-            // MYSQL_TYPE_LONGLONG
-            case 8:
+            case MYSQL_TYPE_LONGLONG:
                 return new BigIntLiteral(data.getLong());
-            // MYSQL_TYPE_FLOAT
-            case 4:
+            case MYSQL_TYPE_FLOAT:
                 return new FloatLiteral(data.getFloat());
-            // MYSQL_TYPE_DOUBLE
-            case 5:
+            case MYSQL_TYPE_DOUBLE:
                 return new DoubleLiteral(data.getDouble());
-            // MYSQL_TYPE_DECIMAL
-            case 0:
-                // MYSQL_TYPE_NEWDECIMAL
-            case 246: {
-                int len = getParmLen(data);
-                try {
-                    byte[] bytes = new byte[len];
-                    data.get(bytes);
-                    String value = new String(bytes);
-                    BigDecimal v = new BigDecimal(value);
-                    return new DecimalLiteral(v);
-                } catch (NumberFormatException e) {
-                    throw new AnalysisException("Invalid floating-point literal: {}", e);
-                }
-            }
-            // MYSQL_TYPE_DATE
-            case 10: {
-                int len = getParmLen(data);
-                if (len >= 4) {
-                    int year = (int) data.getChar();
-                    int month = (int) data.get();
-                    int day = (int) data.get();
-                    return new DateLiteral(year, month, day);
-                } else {
-                    // MIN_DATE
-                    return new DateLiteral(0, 1, 1);
-                }
-            }
-            // MYSQL_TYPE_DATETIME
-            case 12:
-                // MYSQL_TYPE_TIMESTAMP
-            case 7:
-                // MYSQL_TYPE_TIMESTAMP2
-            case 17: {
-                int len = getParmLen(data);
-                if (len >= 4) {
-                    int year = (int) data.getChar();
-                    int month = (int) data.get();
-                    int day = (int) data.get();
-                    int hour = 0;
-                    int minute = 0;
-                    int second = 0;
-                    if (len > 4) {
-                        hour = (int) data.get();
-                        minute = (int) data.get();
-                        second = (int) data.get();
-                    }
-                    if (len > 7) {
-                        int microsecond = data.getInt();
-                        // choose highest scale to keep microsecond value
-                        return new DateTimeLiteral(DateTimeType.INSTANCE,
-                                        year, month, day, hour, minute, second, microsecond);
-                    }
-                    return new DateTimeLiteral(DateTimeType.INSTANCE, year, month, day, hour, minute, second);
-                } else {
-                    return new DateTimeLiteral(0000, 1, 1, 0, 0, 0);
-                }
-            }
-            // MYSQL_TYPE_STRING
-            case 254:
-            case 253: {
-                int strLen = getParmLen(data);
-                if (strLen > data.remaining()) {
-                    strLen = data.remaining();
-                }
-                byte[] bytes = new byte[strLen];
-                data.get(bytes);
-                String value = new String(bytes);
-                return new StringLiteral(value);
-            }
-            // MYSQL_TYPE_VARCHAR
-            case 15: {
-                int strLen = getParmLen(data);
-                if (strLen > data.remaining()) {
-                    strLen = data.remaining();
-                }
-                byte[] bytes = new byte[strLen];
-                data.get(bytes);
-                String value = new String(bytes);
-                return new VarcharLiteral(value);
-            }
+            case MYSQL_TYPE_DECIMAL:
+            case MYSQL_TYPE_NEWDECIMAL:
+                return handleDecimalLiteral(data);
+            case MYSQL_TYPE_DATE:
+                return handleDateLiteral(data);
+            case MYSQL_TYPE_DATETIME:
+            case MYSQL_TYPE_TIMESTAMP:
+            case MYSQL_TYPE_TIMESTAMP2:
+                return handleDateTimeLiteral(data);
+            case MYSQL_TYPE_STRING:
+            case MYSQL_TYPE_VARSTRING:
+                return handleStringLiteral(data);
+            case MYSQL_TYPE_VARCHAR:
+                return handleVarcharLiteral(data);
             default:
-                throw new AnalysisException("Not support type " + mysqlType);
+                throw new AnalysisException("Unsupported MySQL type: " + mysqlType);
         }
     }
 
-    // Parse from binary data, the format follows mysql binary protocal
-    // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.
-    // Return next offset
-    public void setupParamFromBinary(ByteBuffer data) {
-        Preconditions.checkState(false,
-                "should implement this in derived class. " + toSql());
+    private static DecimalLiteral handleDecimalLiteral(ByteBuffer data) throws AnalysisException {
+        int len = getParmLen(data);
+        byte[] bytes = new byte[len];
+        data.get(bytes);
+        try {
+            String value = new String(bytes);
+            BigDecimal v = new BigDecimal(value);
+            return new DecimalLiteral(v);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid decimal literal", e);
+        }
+    }
+
+    private static DateLiteral handleDateLiteral(ByteBuffer data) {
+        int len = getParmLen(data);
+        if (len >= 4) {
+            int year = (int) data.getChar();
+            int month = (int) data.get();
+            int day = (int) data.get();
+            return new DateLiteral(year, month, day);
+        } else {
+            return new DateLiteral(0, 1, 1);
+        }
+    }
+
+    private static DateTimeLiteral handleDateTimeLiteral(ByteBuffer data) {
+        int len = getParmLen(data);
+        if (len >= 4) {
+            int year = (int) data.getChar();
+            int month = (int) data.get();
+            int day = (int) data.get();
+            int hour = 0;
+            int minute = 0;
+            int second = 0;
+            int microsecond = 0;
+            if (len > 4) {
+                hour = (int) data.get();
+                minute = (int) data.get();
+                second = (int) data.get();
+            }
+            if (len > 7) {
+                microsecond = data.getInt();
+            }
+            return new DateTimeLiteral(DateTimeType.INSTANCE, year, month, day, hour, minute, second, microsecond);
+        } else {
+            return new DateTimeLiteral(0, 1, 1, 0, 0, 0);
+        }
+    }
+
+    private static StringLiteral handleStringLiteral(ByteBuffer data) {
+        int strLen = getParmLen(data);
+        strLen = Math.min(strLen, data.remaining());
+        byte[] bytes = new byte[strLen];
+        data.get(bytes);
+        return new StringLiteral(new String(bytes));
+    }
+
+    private static VarcharLiteral handleVarcharLiteral(ByteBuffer data) {
+        int strLen = getParmLen(data);
+        strLen = Math.min(strLen, data.remaining());
+        byte[] bytes = new byte[strLen];
+        data.get(bytes);
+        return new VarcharLiteral(new String(bytes));
     }
 }

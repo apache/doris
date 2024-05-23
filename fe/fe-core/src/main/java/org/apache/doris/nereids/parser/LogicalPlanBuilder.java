@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.parser;
 
-import org.antlr.v4.runtime.CommonToken;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;

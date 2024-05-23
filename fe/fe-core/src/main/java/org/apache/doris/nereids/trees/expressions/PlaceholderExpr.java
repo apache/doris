@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -28,7 +29,7 @@ public class PlaceholderExpr extends Expression {
     private final int exprId;
     private Expression expr;
 
-    private int mysqlTypeCode;
+    private MysqlColType mysqlTypeCode;
 
     public PlaceholderExpr(int exprId) {
         this.exprId = exprId;
@@ -57,10 +58,10 @@ public class PlaceholderExpr extends Expression {
     }
 
     public void setTypeCode(int mysqlTypeCode) {
-        this.mysqlTypeCode = mysqlTypeCode;
+        this.mysqlTypeCode = MysqlColType.fromCode(mysqlTypeCode);
     }
 
-    public int getMysqlTypeCode() {
+    public MysqlColType getMysqlTypeCode() {
         return mysqlTypeCode;
     }
 
