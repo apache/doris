@@ -2204,7 +2204,7 @@ public class ShowExecutor {
 
         backendInfos.sort(new Comparator<List<String>>() {
             @Override
-            public int compare(List<String> o1, List<String> o2) {
+            public long compare(List<String> o1, List<String> o2) {
                 return Long.parseLong(o1.get(0)) - Long.parseLong(o2.get(0));
             }
         });
