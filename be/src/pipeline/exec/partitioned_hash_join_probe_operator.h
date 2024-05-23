@@ -47,8 +47,7 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
-    Status spill_build_block(RuntimeState* state, uint32_t partition_index);
-    Status spill_probe_blocks(RuntimeState* state, uint32_t partition_index);
+    Status spill_probe_blocks(RuntimeState* state);
 
     Status recovery_build_blocks_from_disk(RuntimeState* state, uint32_t partition_index,
                                            bool& has_data);
@@ -180,7 +179,7 @@ public:
     }
 
 private:
-    Status _revoke_memory(RuntimeState* state, bool& wait_for_io);
+    Status _revoke_memory(RuntimeState* state);
 
     friend class PartitionedHashJoinProbeLocalState;
 

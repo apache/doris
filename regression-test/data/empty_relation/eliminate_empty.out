@@ -72,13 +72,11 @@ PhysicalResultSink
 
 -- !prune_partition1 --
 PhysicalResultSink
---PhysicalProject
-----PhysicalEmptyRelation
+--PhysicalEmptyRelation
 
 -- !prune_partition2 --
 PhysicalResultSink
---PhysicalProject
-----PhysicalEmptyRelation
+--PhysicalEmptyRelation
 
 -- !join_with_empty_child --
 2	8	e	v	3

@@ -228,7 +228,7 @@ under the License.
         <doris.home>${fe.dir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.hive.catalog.shade.version>2.0.2</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>2.1.0</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <!--plugin parameters-->
@@ -274,7 +274,7 @@ under the License.
         <!-- NOTE: Using grpc-java whose version is newer than 1.34.0 will break the build on CentOS 6 due to the obsolete GLIBC -->
         <grpc-java.version>1.34.0</grpc-java.version>
         <grpc.version>1.60.1</grpc.version>
-        <check.freamework.version>3.42.0</check.freamework.version>
+        <check.freamework.version>3.43.0</check.freamework.version>
         <protobuf.version>3.24.3</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
@@ -294,12 +294,13 @@ under the License.
         <zjsonpatch.version>0.2.3</zjsonpatch.version>
         <kafka-clients.version>3.4.0</kafka-clients.version>
         <oshi-core.version>6.4.5</oshi-core.version>
-        <xnio-nio.version>3.8.9.Final</xnio-nio.version>
+        <xnio-nio.version>3.8.14.Final</xnio-nio.version>
         <javax.annotation-api.version>1.3.2</javax.annotation-api.version>
         <javax.activation.version>1.2.0</javax.activation.version>
         <jaxws-api.version>2.3.0</jaxws-api.version>
         <RoaringBitmap.version>0.8.13</RoaringBitmap.version>
-        <spark.version>3.4.1</spark.version>
+        <spark.version>3.4.3</spark.version>
+        <hudi-spark.version>hudi-spark3.4.x</hudi-spark.version>
         <hive.version>3.1.3</hive.version>
         <hive.common.version>2.3.9</hive.common.version>
         <nimbusds.version>9.35</nimbusds.version>
@@ -331,6 +332,8 @@ under the License.
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
         <hadoop.version>3.3.6</hadoop.version>
+        <hbase.version>2.4.9</hbase.version>
+        <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
         <spring.version>2.7.13</spring.version>
@@ -349,7 +352,7 @@ under the License.
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
         <!-- paimon -->
-        <paimon.version>0.7.0-incubating</paimon.version>
+        <paimon.version>0.8.0</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
@@ -528,6 +531,14 @@ under the License.
                     <exclusion>
                         <groupId>javax.servlet</groupId>
                         <artifactId>servlet-api</artifactId>
+                    </exclusion>        
+                    <exclusion>
+                        <groupId>org.apache.hadoop</groupId>
+                        <artifactId>hadoop-yarn-common</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hadoop</groupId>
+                        <artifactId>hadoop-yarn-api</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -557,6 +568,29 @@ under the License.
                 <groupId>org.apache.kerby</groupId>
                 <artifactId>kerb-simplekdc</artifactId>
                 <version>${kerby.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hbase</groupId>
+                <artifactId>hbase-server</artifactId>
+                <version>${hbase.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.hadoop</groupId>
+                        <artifactId>hadoop-yarn-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hadoop</groupId>
+                        <artifactId>hadoop-yarn-common</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hbase</groupId>
+                        <artifactId>hbase-hadoop2-compat</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hadoop</groupId>
+                        <artifactId>hadoop-annotations</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.apache.kerby</groupId>
@@ -1143,6 +1177,11 @@ under the License.
             <dependency>
                 <groupId>org.jboss.xnio</groupId>
                 <artifactId>xnio-nio</artifactId>
+                <version>${xnio-nio.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jboss.xnio</groupId>
+                <artifactId>xnio-api</artifactId>
                 <version>${xnio-nio.version}</version>
             </dependency>
             <!-- support jdk9 -->

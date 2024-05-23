@@ -309,6 +309,12 @@ struct TIcebergFileDesc {
     5: optional Exprs.TExpr file_select_conjunct;
 }
 
+struct TPaimonDeletionFileDesc {
+    1: optional string path;
+    2: optional i64 offset;
+    3: optional i64 length;
+}
+
 struct TPaimonFileDesc {
     1: optional string paimon_split
     2: optional string paimon_column_names
@@ -321,6 +327,7 @@ struct TPaimonFileDesc {
     9: optional i64 tbl_id
     10: optional i64 last_update_time
     11: optional string file_format
+    12: optional TPaimonDeletionFileDesc deletion_file;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -897,7 +904,7 @@ struct TAggregationNode {
   7: optional list<TSortInfo> agg_sort_infos
   8: optional bool is_first_phase
   9: optional bool is_colocate
-  // 9: optional bool use_fixed_length_serialization_opt
+  10: optional TSortInfo agg_sort_info_by_group_key
 }
 
 struct TRepeatNode {
@@ -1173,6 +1180,15 @@ enum TMinMaxRuntimeFilterType {
   MIN_MAX = 4
 }
 
+struct TTopnFilterDesc {
+  // topn node id
+  1: required i32 source_node_id 
+  2: required bool is_asc
+  3: required bool null_first 
+  // scan node id -> expr on scan node
+  4: required map<Types.TPlanNodeId, Exprs.TExpr> targetNodeId_to_target_expr
+}
+
 // Specification of a runtime filter.
 struct TRuntimeFilterDesc {
   // Filter unique id (within a query)
@@ -1212,7 +1228,7 @@ struct TRuntimeFilterDesc {
   // for bitmap filter
   11: optional bool bitmap_filter_not_in
 
-  12: optional bool opt_remote_rf;
+  12: optional bool opt_remote_rf; // Deprecated
   
   // for min/max rf
   13: optional TMinMaxRuntimeFilterType min_max_type;

@@ -1024,7 +1024,7 @@ DEFINE_mBool(inverted_index_compaction_enable, "false");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
-DEFINE_mBool(inverted_index_ram_dir_enable, "false");
+DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1075,6 +1075,7 @@ DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 // max_write_buffer_number for rocksdb
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
+DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 DEFINE_mString(kerberos_ccache_path, "");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
@@ -1268,6 +1269,9 @@ DEFINE_mInt64(hdfs_jni_write_max_retry_time, "3");
 DEFINE_Int64(min_nonblock_close_thread_num, "12");
 // The max thread num for NonBlockCloseThreadPool
 DEFINE_Int64(max_nonblock_close_thread_num, "64");
+// The possibility that mem allocator throws an exception during memory allocation
+// This config is for test usage, be careful when changing it.
+DEFINE_mDouble(mem_alloc_fault_probability, "0.0");
 
 // clang-format off
 #ifdef BE_TEST

@@ -93,6 +93,7 @@ import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.THivePartitionUpdate;
+import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -143,6 +144,7 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -245,6 +247,9 @@ public class Coordinator implements CoordInterface {
 
     // Collect all hivePartitionUpdates obtained from be
     Consumer<List<THivePartitionUpdate>> hivePartitionUpdateFunc;
+
+    // Collect all icebergCommitData obtained from be
+    Consumer<List<TIcebergCommitData>> icebergCommitDataFunc;
 
     // Input parameter
     private long jobId = -1; // job which this task belongs to
@@ -380,6 +385,14 @@ public class Coordinator implements CoordInterface {
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
         this.executionProfile = new ExecutionProfile(queryId, fragments);
+        // Need to be same with LoadLoadingTask
+        // https://github.com/apache/doris/blob/bd6f5b6a0e5f1b12744607336123d7f97eb76af9/fe/fe-core/src/main/java/org/apache/doris/load/loadv2/LoadLoadingTask.java#L155
+        this.enablePipelineEngine = Config.enable_pipeline_load;
+        this.enablePipelineXEngine = Config.enable_pipeline_load;
+        // make sure Coordinator can update profile correctlly
+        if (this.enablePipelineXEngine) {
+            this.executionProfile.setPipelineX();
+        }
     }
 
     private void setFromUserProperty(ConnectContext connectContext) {
@@ -2275,7 +2288,13 @@ public class Coordinator implements CoordInterface {
     protected void computeScanRangeAssignment() throws Exception {
         Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         Map<TNetworkAddress, Long> replicaNumPerHost = getReplicaNumPerHostForOlapTable();
-        Collections.shuffle(scanNodes);
+        boolean isAllOlapTables = scanNodes.stream().allMatch(e -> e instanceof OlapScanNode);
+        boolean isEnableOrderedLocations = ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().enableOrderedScanRangeLocations
+                && isAllOlapTables;
+        if (isEnableOrderedLocations) {
+            sortScanNodes();
+        }
         // set scan ranges/locations for scan nodes
         for (ScanNode scanNode : scanNodes) {
             if (!(scanNode instanceof ExternalScanNode)) {
@@ -2287,6 +2306,9 @@ public class Coordinator implements CoordInterface {
             if (locations == null) {
                 // only analysis olap scan node
                 continue;
+            }
+            if (isEnableOrderedLocations) {
+                sortScanRangeLocations(locations);
             }
             Set<Integer> scanNodeIds = fragmentIdToScanNodeIds.computeIfAbsent(scanNode.getFragmentId(),
                     k -> Sets.newHashSet());
@@ -2307,7 +2329,8 @@ public class Coordinator implements CoordInterface {
             // A fragment may contain both colocate join and bucket shuffle join
             // on need both compute scanRange to init basic data for query coordinator
             if (fragmentContainsColocateJoin) {
-                computeScanRangeAssignmentByColocate((OlapScanNode) scanNode, assignedBytesPerHost, replicaNumPerHost);
+                computeScanRangeAssignmentByColocate((OlapScanNode) scanNode, assignedBytesPerHost,
+                        replicaNumPerHost, isEnableOrderedLocations);
             }
             if (fragmentContainsBucketShuffleJoin) {
                 bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode,
@@ -2315,7 +2338,7 @@ public class Coordinator implements CoordInterface {
             }
             if (!(fragmentContainsColocateJoin || fragmentContainsBucketShuffleJoin)) {
                 computeScanRangeAssignmentByScheduler(scanNode, locations, assignment, assignedBytesPerHost,
-                        replicaNumPerHost);
+                        replicaNumPerHost, isEnableOrderedLocations);
             }
         }
     }
@@ -2323,7 +2346,7 @@ public class Coordinator implements CoordInterface {
     // To ensure the same bucketSeq tablet to the same execHostPort
     private void computeScanRangeAssignmentByColocate(
             final OlapScanNode scanNode, Map<TNetworkAddress, Long> assignedBytesPerHost,
-            Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+            Map<TNetworkAddress, Long> replicaNumPerHost, boolean isEnableOrderedLocations) throws Exception {
         if (!fragmentIdToSeqToAddressMap.containsKey(scanNode.getFragmentId())) {
             fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashMap<>());
             fragmentIdTobucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
@@ -2344,7 +2367,8 @@ public class Coordinator implements CoordInterface {
             List<TScanRangeLocations> locations = scanNode.bucketSeq2locations.get(bucketSeq);
             if (!bucketSeqToAddress.containsKey(bucketSeq)) {
                 getExecHostPortForFragmentIDAndBucketSeq(locations.get(0),
-                        scanNode.getFragmentId(), bucketSeq, assignedBytesPerHost, replicaNumPerHost);
+                        scanNode.getFragmentId(), bucketSeq, assignedBytesPerHost,
+                        replicaNumPerHost, isEnableOrderedLocations);
             }
 
             for (TScanRangeLocations location : locations) {
@@ -2366,29 +2390,55 @@ public class Coordinator implements CoordInterface {
     //ensure bucket sequence distribued to every host evenly
     private void getExecHostPortForFragmentIDAndBucketSeq(TScanRangeLocations seqLocation,
             PlanFragmentId fragmentId, Integer bucketSeq, Map<TNetworkAddress, Long> assignedBytesPerHost,
-            Map<TNetworkAddress, Long> replicaNumPerHost)
+            Map<TNetworkAddress, Long> replicaNumPerHost, boolean isEnableOrderedLocations)
             throws Exception {
         Reference<Long> backendIdRef = new Reference<Long>();
-        selectBackendsByRoundRobin(seqLocation, assignedBytesPerHost, replicaNumPerHost, backendIdRef);
+        selectBackendsByRoundRobin(seqLocation, assignedBytesPerHost, replicaNumPerHost,
+                backendIdRef, isEnableOrderedLocations);
         Backend backend = this.idToBackend.get(backendIdRef.getRef());
         TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
         this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
         this.fragmentIdToSeqToAddressMap.get(fragmentId).put(bucketSeq, execHostPort);
     }
 
+    private void sortScanNodes() {
+        Collections.sort(scanNodes, new Comparator<ScanNode>() {
+            @Override
+            public int compare(ScanNode s1, ScanNode s2) {
+                return java.lang.Integer.compare(s1.getId().asInt(), s2.getId().asInt());
+            }
+        });
+    }
+
+    private void sortScanRangeLocations(List<TScanRangeLocations> locations) {
+        Collections.sort(locations, new Comparator<TScanRangeLocations>() {
+            @Override
+            public int compare(TScanRangeLocations o1, TScanRangeLocations o2) {
+                return org.apache.thrift.TBaseHelper.compareTo(
+                        o1.getScanRange().getPaloScanRange().tablet_id,
+                        o2.getScanRange().getPaloScanRange().tablet_id);
+            }
+        });
+    }
+
     public TScanRangeLocation selectBackendsByRoundRobin(TScanRangeLocations seqLocation,
                                                          Map<TNetworkAddress, Long> assignedBytesPerHost,
                                                          Map<TNetworkAddress, Long> replicaNumPerHost,
-                                                         Reference<Long> backendIdRef) throws UserException {
+                                                         Reference<Long> backendIdRef,
+                                                         boolean isEnableOrderedLocations) throws UserException {
+        List<TScanRangeLocation> locations = seqLocation.getLocations();
+        if (isEnableOrderedLocations) {
+            Collections.sort(locations);
+        }
         if (!Config.enable_local_replica_selection) {
-            return selectBackendsByRoundRobin(seqLocation.getLocations(), assignedBytesPerHost, replicaNumPerHost,
+            return selectBackendsByRoundRobin(locations, assignedBytesPerHost, replicaNumPerHost,
                     backendIdRef);
         }
 
         List<TScanRangeLocation> localLocations = new ArrayList<>();
         List<TScanRangeLocation> nonlocalLocations = new ArrayList<>();
         long localBeId = Env.getCurrentSystemInfo().getBackendIdByHost(FrontendOptions.getLocalHostAddress());
-        for (final TScanRangeLocation location : seqLocation.getLocations()) {
+        for (final TScanRangeLocation location : locations) {
             if (location.backend_id == localBeId) {
                 localLocations.add(location);
             } else {
@@ -2406,14 +2456,15 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    public TScanRangeLocation selectBackendsByRoundRobin(List<TScanRangeLocation> locations,
+    public TScanRangeLocation selectBackendsByRoundRobin(List<TScanRangeLocation> sortedLocations,
             Map<TNetworkAddress, Long> assignedBytesPerHost, Map<TNetworkAddress, Long> replicaNumPerHost,
             Reference<Long> backendIdRef) throws UserException {
         Long minAssignedBytes = Long.MAX_VALUE;
         Long minReplicaNum = Long.MAX_VALUE;
         TScanRangeLocation minLocation = null;
         Long step = 1L;
-        for (final TScanRangeLocation location : locations) {
+
+        for (final TScanRangeLocation location : sortedLocations) {
             Long assignedBytes = findOrInsert(assignedBytesPerHost, location.server, 0L);
             if (assignedBytes < minAssignedBytes || (assignedBytes.equals(minAssignedBytes)
                     && replicaNumPerHost.get(location.server) < minReplicaNum)) {
@@ -2422,10 +2473,10 @@ public class Coordinator implements CoordInterface {
                 minLocation = location;
             }
         }
-        for (TScanRangeLocation location : locations) {
+        for (TScanRangeLocation location : sortedLocations) {
             replicaNumPerHost.put(location.server, replicaNumPerHost.get(location.server) - 1);
         }
-        TScanRangeLocation location = SimpleScheduler.getLocation(minLocation, locations,
+        TScanRangeLocation location = SimpleScheduler.getLocation(minLocation, sortedLocations,
                 this.idToBackend, backendIdRef);
         assignedBytesPerHost.put(location.server, assignedBytesPerHost.get(location.server) + step);
 
@@ -2437,7 +2488,8 @@ public class Coordinator implements CoordInterface {
             final List<TScanRangeLocations> locations,
             FragmentScanRangeAssignment assignment,
             Map<TNetworkAddress, Long> assignedBytesPerHost,
-            Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+            Map<TNetworkAddress, Long> replicaNumPerHost,
+            boolean isEnableOrderedLocations) throws Exception {
         // Type of locations is List, it could have elements that have same "location"
         // and we do have this situation for some scan node.
         // The duplicate "location" will NOT be filtered by FragmentScanRangeAssignment,
@@ -2446,7 +2498,7 @@ public class Coordinator implements CoordInterface {
         for (TScanRangeLocations scanRangeLocations : locations) {
             Reference<Long> backendIdRef = new Reference<Long>();
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,
-                    assignedBytesPerHost, replicaNumPerHost, backendIdRef);
+                    assignedBytesPerHost, replicaNumPerHost, backendIdRef, isEnableOrderedLocations);
             Backend backend = this.idToBackend.get(backendIdRef.getRef());
             TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
             this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
@@ -2494,6 +2546,10 @@ public class Coordinator implements CoordInterface {
 
     public void setHivePartitionUpdateFunc(Consumer<List<THivePartitionUpdate>> hivePartitionUpdateFunc) {
         this.hivePartitionUpdateFunc = hivePartitionUpdateFunc;
+    }
+
+    public void setIcebergCommitDataFunc(Consumer<List<TIcebergCommitData>> icebergCommitDataFunc) {
+        this.icebergCommitDataFunc = icebergCommitDataFunc;
     }
 
     // update job progress from BE
@@ -2545,6 +2601,9 @@ public class Coordinator implements CoordInterface {
             }
             if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
                 hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+            }
+            if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
+                icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
             }
 
             Preconditions.checkArgument(params.isSetDetailedReport());
@@ -2610,6 +2669,9 @@ public class Coordinator implements CoordInterface {
                 }
                 if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
                     hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+                }
+                if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
+                    icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
                 }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query {} instance {} is marked done",
@@ -2682,6 +2744,9 @@ public class Coordinator implements CoordInterface {
                 }
                 if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
                     hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+                }
+                if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
+                    icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
                 }
                 instancesDoneLatch.markedCountDown(params.getFragmentInstanceId(), -1L);
             }

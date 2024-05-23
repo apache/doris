@@ -87,6 +87,12 @@ public class LogicalPlanBuilder {
         return from(project);
     }
 
+    public LogicalPlanBuilder projectAll() {
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(ImmutableList.copyOf(this.plan.getOutput()),
+                this.plan);
+        return from(project);
+    }
+
     public LogicalPlanBuilder projectExprs(List<NamedExpression> projectExprs) {
         LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
         return from(project);
@@ -200,8 +206,8 @@ public class LogicalPlanBuilder {
     }
 
     public LogicalPlanBuilder aggGroupUsingIndexAndSourceRepeat(List<Integer> groupByKeysIndex,
-                                                                List<NamedExpression> outputExprsList,
-                                                                Optional<LogicalRepeat<?>> sourceRepeat) {
+            List<NamedExpression> outputExprsList,
+            Optional<LogicalRepeat<?>> sourceRepeat) {
         Builder<Expression> groupByBuilder = ImmutableList.builder();
         for (Integer index : groupByKeysIndex) {
             groupByBuilder.add(this.plan.getOutput().get(index));

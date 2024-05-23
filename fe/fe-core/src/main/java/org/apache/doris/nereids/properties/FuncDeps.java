@@ -20,8 +20,11 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
@@ -69,6 +72,52 @@ public class FuncDeps {
 
     public int size() {
         return items.size();
+    }
+
+    public boolean isEmpty() {
+        return items.isEmpty();
+    }
+
+    /**
+     * Reduces a given set of slot sets by eliminating dependencies using a breadth-first search (BFS) approach.
+     * <p>
+     * Let's assume we have the following sets of slots and functional dependencies:
+     * Slots: {A, B, C}, {D, E}, {F}
+     * Dependencies: {A} -> {B}, {D, E} -> {F}
+     * The BFS reduction process would look like this:
+     * 1. Initial set: [{A, B, C}, {D, E}, {F}]
+     * 2. Apply {A} -> {B}:
+     *    - New set: [{A, C}, {D, E}, {F}]
+     * 3. Apply {D, E} -> {F}:
+     *    - New set: [{A, C}, {D, E}]
+     * 4. No more dependencies can be applied, output: [{A, C}, {D, E}]
+     * </p>
+     *
+     * @param slots the initial set of slot sets to be reduced
+     * @return the minimal set of slot sets after applying all possible reductions
+     */
+    public Set<Set<Slot>> eliminateDeps(Set<Set<Slot>> slots) {
+        Set<Set<Slot>> minSlotSet = slots;
+        List<Set<Set<Slot>>> reduceSlotSets = new ArrayList<>();
+        reduceSlotSets.add(slots);
+        while (!reduceSlotSets.isEmpty()) {
+            List<Set<Set<Slot>>> newReduceSlotSets = new ArrayList<>();
+            for (Set<Set<Slot>> slotSet : reduceSlotSets) {
+                for (FuncDepsItem funcDepsItem : items) {
+                    if (slotSet.contains(funcDepsItem.dependencies)
+                            && slotSet.contains(funcDepsItem.determinants)) {
+                        Set<Set<Slot>> newSet = Sets.newHashSet(slotSet);
+                        newSet.remove(funcDepsItem.dependencies);
+                        if (minSlotSet.size() > newSet.size()) {
+                            minSlotSet = newSet;
+                        }
+                        newReduceSlotSets.add(newSet);
+                    }
+                }
+            }
+            reduceSlotSets = newReduceSlotSets;
+        }
+        return minSlotSet;
     }
 
     public boolean isFuncDeps(Set<Slot> dominate, Set<Slot> dependency) {

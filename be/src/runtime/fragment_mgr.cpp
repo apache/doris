@@ -78,6 +78,7 @@
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/hash_util.hpp"
@@ -211,14 +212,14 @@ Status FragmentMgr::trigger_pipeline_context_report(
 // including the final status when execution finishes.
 void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     DCHECK(req.status.ok() || req.done); // if !status.ok() => done
-    Status exec_status = req.update_fn(req.status);
+    Status exec_status = req.status;
     Status coord_status;
     FrontendServiceConnection coord(_exec_env->frontend_client_cache(), req.coord_addr,
                                     &coord_status);
     if (!coord_status.ok()) {
         std::stringstream ss;
         UniqueId uid(req.query_id.hi, req.query_id.lo);
-        static_cast<void>(req.update_fn(Status::InternalError(
+        static_cast<void>(req.cancel_fn(Status::InternalError(
                 "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
                 PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string())));
         return;
@@ -266,13 +267,21 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
 
             if (enable_profile) {
+                DCHECK(req.profile != nullptr);
+                TDetailedReportParams detailed_param;
+                detailed_param.__isset.fragment_instance_id = false;
+                detailed_param.__isset.profile = true;
+                detailed_param.__isset.loadChannelProfile = false;
+                detailed_param.__set_is_fragment_level(true);
+                req.profile->to_thrift(&detailed_param.profile);
+                params.detailed_report.push_back(detailed_param);
                 for (auto pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
                     TDetailedReportParams detailed_param;
                     detailed_param.__isset.fragment_instance_id = false;
                     detailed_param.__isset.profile = true;
                     detailed_param.__isset.loadChannelProfile = false;
                     pipeline_profile->to_thrift(&detailed_param.profile);
-                    params.detailed_report.push_back(detailed_param);
+                    params.detailed_report.push_back(std::move(detailed_param));
                 }
             }
         } else {
@@ -438,7 +447,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
             if (!rpc_status.ok()) {
                 // we need to cancel the execution of this fragment
-                static_cast<void>(req.update_fn(rpc_status));
                 req.cancel_fn(rpc_status);
                 return;
             }
@@ -455,7 +463,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         LOG_INFO("Going to cancel instance {} since report exec status got rpc failed: {}",
                  print_id(req.fragment_instance_id), rpc_status.to_string());
         // we need to cancel the execution of this fragment
-        static_cast<void>(req.update_fn(rpc_status));
         req.cancel_fn(rpc_status);
     }
 }
@@ -589,7 +596,7 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
                 "timeout or be cancelled. host: {}",
                 BackendOptions::get_localhost());
     }
-    search->second->set_ready_to_execute(false);
+    search->second->set_ready_to_execute(Status::OK());
     return Status::OK();
 }
 
@@ -644,6 +651,11 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             return Status::OK();
         }
 
+        LOG(INFO) << "query_id: " << print_id(query_id) << ", coord_addr: " << params.coord
+                  << ", total fragment num on current host: " << params.fragment_num_on_host
+                  << ", fe process uuid: " << params.query_options.fe_process_uuid
+                  << ", query type: " << params.query_options.query_type;
+
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
@@ -657,10 +669,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             query_ctx->file_scan_range_params_map = params.file_scan_params;
         }
 
-        LOG(INFO) << "query_id: " << UniqueId(query_ctx->query_id().hi, query_ctx->query_id().lo)
-                  << " coord_addr " << query_ctx->coord_addr
-                  << " total fragment num on current host: " << params.fragment_num_on_host
-                  << " fe process uuid: " << params.query_options.fe_process_uuid;
         query_ctx->query_globals = params.query_globals;
 
         if (params.__isset.resource_info) {
@@ -855,6 +863,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         }
     }
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
+
+    DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
+                    { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
     RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
@@ -1246,6 +1257,7 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
 
     std::shared_ptr<PlanFragmentExecutor> fragment_executor;
     std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
+    QueryThreadContext query_thread_context;
 
     RuntimeFilterMgr* runtime_filter_mgr = nullptr;
     if (is_pipeline) {
@@ -1259,6 +1271,8 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
 
         DCHECK(pip_context != nullptr);
         runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
+        query_thread_context = {pip_context->get_query_ctx()->query_id(),
+                                pip_context->get_query_ctx()->query_mem_tracker};
     } else {
         std::unique_lock<std::mutex> lock(_lock);
         auto iter = _fragment_instance_map.find(tfragment_instance_id);
@@ -1271,8 +1285,11 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
         DCHECK(fragment_executor != nullptr);
         runtime_filter_mgr =
                 fragment_executor->runtime_state()->get_query_ctx()->runtime_filter_mgr();
+        query_thread_context = {fragment_executor->get_query_ctx()->query_id(),
+                                fragment_executor->get_query_ctx()->query_mem_tracker};
     }
 
+    SCOPED_ATTACH_TASK(query_thread_context);
     return runtime_filter_mgr->update_filter(request, attach_data);
 }
 
@@ -1390,7 +1407,6 @@ Status FragmentMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
 Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
                                  butil::IOBufAsZeroCopyInputStream* attach_data) {
     UniqueId queryid = request->query_id();
-    bool opt_remote_rf = request->has_opt_remote_rf() && request->opt_remote_rf();
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
 
@@ -1410,7 +1426,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         query_ctx = iter->second;
     }
     SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, query_ctx->query_id());
-    auto merge_status = filter_controller->merge(request, attach_data, opt_remote_rf);
+    auto merge_status = filter_controller->merge(request, attach_data);
     return merge_status;
 }
 
@@ -1516,7 +1532,10 @@ Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
 
     {
         std::lock_guard<std::mutex> lock(_lock);
-        query_context = _query_ctx_map[query_id];
+        auto iter = _query_ctx_map.find(query_id);
+        if (iter != _query_ctx_map.end()) {
+            query_context = iter->second;
+        }
     }
 
     if (query_context == nullptr) {

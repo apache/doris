@@ -504,11 +504,9 @@ Status StreamingAggLocalState::_merge_with_serialized_key(vectorized::Block* blo
 }
 
 Status StreamingAggLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
-    if (!init_agg_hash_method(
-                _agg_data.get(), probe_exprs,
-                Base::_parent->template cast<StreamingAggOperatorX>()._is_first_phase)) {
-        return Status::InternalError("init hash method failed");
-    }
+    RETURN_IF_ERROR(init_agg_hash_method(
+            _agg_data.get(), probe_exprs,
+            Base::_parent->template cast<StreamingAggOperatorX>()._is_first_phase));
     return Status::OK();
 }
 
@@ -649,7 +647,6 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
     RETURN_IF_ERROR(std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) -> Status {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                         return Status::InternalError("Uninited hash table");
                     },
                     [&](auto& agg_method) -> Status {

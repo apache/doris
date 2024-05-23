@@ -67,7 +67,6 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
           _query_options(query_options) {
     _init_query_mem_tracker();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker);
-    this->coord_addr = coord_addr;
     _query_watcher.start();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _shared_scanner_controller.reset(new vectorized::SharedScannerController());
@@ -76,6 +75,18 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
 
     _timeout_second = query_options.execution_timeout;
+
+    bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||
+                               query_options.query_type == TQueryType::LOAD ||
+                               query_options.query_type == TQueryType::EXTERNAL;
+    DCHECK_EQ(is_query_type_valid, true);
+
+    this->coord_addr = coord_addr;
+    // external query has no coord_addr
+    if (query_options.query_type != TQueryType::EXTERNAL) {
+        bool is_coord_addr_valid = !this->coord_addr.hostname.empty() && this->coord_addr.port != 0;
+        DCHECK_EQ(is_coord_addr_valid, true);
+    }
 
     register_memory_statistics();
     register_cpu_statistics();
@@ -171,17 +182,15 @@ QueryContext::~QueryContext() {
     LOG_INFO("Query {} deconstructed, {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
-void QueryContext::set_ready_to_execute(bool is_cancelled) {
+void QueryContext::set_ready_to_execute(Status reason) {
     set_execution_dependency_ready();
     {
         std::lock_guard<std::mutex> l(_start_lock);
-        if (!_is_cancelled) {
-            _is_cancelled = is_cancelled;
-        }
+        _exec_status.update(reason);
         _ready_to_execute = true;
     }
-    if (query_mem_tracker && is_cancelled) {
-        query_mem_tracker->set_is_query_cancelled(is_cancelled);
+    if (query_mem_tracker && !reason.ok()) {
+        query_mem_tracker->set_is_query_cancelled(!reason.ok());
     }
     _start_cond.notify_all();
 }
@@ -200,16 +209,11 @@ void QueryContext::set_execution_dependency_ready() {
 }
 
 void QueryContext::cancel(Status new_status, int fragment_id) {
-    // we must get this wrong status once query ctx's `_is_cancelled` = true.
-    set_exec_status(new_status);
-    // Just for CAS need a left value
-    bool false_cancel = false;
-    if (!_is_cancelled.compare_exchange_strong(false_cancel, true)) {
+    if (!_exec_status.update(new_status)) {
         return;
     }
-    DCHECK(!false_cancel && _is_cancelled);
 
-    set_ready_to_execute(true);
+    set_ready_to_execute(new_status);
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
     {
         std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
@@ -266,8 +270,8 @@ void QueryContext::set_pipeline_context(
 }
 
 void QueryContext::register_query_statistics(std::shared_ptr<QueryStatistics> qs) {
-    _exec_env->runtime_query_statistics_mgr()->register_query_statistics(print_id(_query_id), qs,
-                                                                         coord_addr);
+    _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+            print_id(_query_id), qs, coord_addr, _query_options.query_type);
 }
 
 std::shared_ptr<QueryStatistics> QueryContext::get_query_statistics() {
@@ -280,8 +284,8 @@ void QueryContext::register_memory_statistics() {
         std::shared_ptr<QueryStatistics> qs = query_mem_tracker->get_query_statistics();
         std::string query_id = print_id(_query_id);
         if (qs) {
-            _exec_env->runtime_query_statistics_mgr()->register_query_statistics(query_id, qs,
-                                                                                 coord_addr);
+            _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+                    query_id, qs, coord_addr, _query_options.query_type);
         } else {
             LOG(INFO) << " query " << query_id << " get memory query statistics failed ";
         }
@@ -292,7 +296,7 @@ void QueryContext::register_cpu_statistics() {
     if (!_cpu_statistics) {
         _cpu_statistics = std::make_shared<QueryStatistics>();
         _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-                print_id(_query_id), _cpu_statistics, coord_addr);
+                print_id(_query_id), _cpu_statistics, coord_addr, _query_options.query_type);
     }
 }
 
@@ -466,7 +470,8 @@ TReportExecStatusParams QueryContext::get_realtime_exec_status_x() const {
         }
 
         exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params_x(
-                this->_query_id, realtime_query_profile, load_channel_profiles, /*is_done=*/false);
+                this->_query_id, std::move(realtime_query_profile),
+                std::move(load_channel_profiles), /*is_done=*/false);
     } else {
         auto msg = fmt::format("Query {} is not pipelineX query", print_id(_query_id));
         LOG_ERROR(msg);

@@ -91,6 +91,11 @@ public class AggStateType extends Type {
     }
 
     @Override
+    public String toString() {
+        return toSql();
+    }
+
+    @Override
     protected String prettyPrint(int lpad) {
         return Strings.repeat(" ", lpad) + toSql();
     }
