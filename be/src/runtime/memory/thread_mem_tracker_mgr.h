@@ -149,6 +149,9 @@ private:
     bool _stop_consume = false;
     TUniqueId _query_id = TUniqueId();
     bool _is_query_cancelled = false;
+    // SCOPED_ATTACH_TASK cannot be nested, but SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER can continue to be called,
+    // so `attach_limiter_tracker` may be nested, _attach_level is the number of nesting levels.
+    size_t _attach_level = 0;
 };
 
 inline bool ThreadMemTrackerMgr::init() {
@@ -281,21 +284,21 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
         tracker->consume(size);
     }
     _reserved_mem += size;
-    DCHECK(_untracked_mem == 0);
     return true;
 }
 
 inline void ThreadMemTrackerMgr::release_reserved() {
-    flush_untracked_mem();
     if (_reserved_mem > 0) {
-        doris::GlobalMemoryArbitrator::release_process_reserved_memory(_reserved_mem);
-        _limiter_tracker_raw->consume(-_reserved_mem);
+        doris::GlobalMemoryArbitrator::release_process_reserved_memory(_reserved_mem +
+                                                                       _untracked_mem);
+        _limiter_tracker_raw->release(_reserved_mem);
         if (_count_scope_mem) {
             _scope_mem -= _reserved_mem;
         }
         for (auto* tracker : _consumer_tracker_stack) {
-            tracker->consume(-_reserved_mem);
+            tracker->release(_reserved_mem);
         }
+        _untracked_mem = 0;
         _reserved_mem = 0;
     }
 }

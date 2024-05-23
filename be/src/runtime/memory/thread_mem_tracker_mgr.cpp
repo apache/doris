@@ -44,20 +44,28 @@ private:
 void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
-    DCHECK(_reserved_mem == 0);
     CHECK(init());
-    flush_untracked_mem();
+    if (_reserved_mem == 0) {
+        flush_untracked_mem();
+    }
     _limiter_tracker = mem_tracker;
     _limiter_tracker_raw = mem_tracker.get();
+    _attach_level++;
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker) {
     CHECK(init());
-    release_reserved();
-    flush_untracked_mem();
+    // If reserve memory is called in nested attach, release reserved in outermost detach.
+    if (_attach_level == 1) {
+        release_reserved();
+    }
+    if (_reserved_mem == 0) {
+        flush_untracked_mem();
+    }
     _limiter_tracker = old_mem_tracker;
     _limiter_tracker_raw = old_mem_tracker.get();
+    _attach_level--;
 }
 
 void ThreadMemTrackerMgr::cancel_query(const std::string& exceed_msg) {
