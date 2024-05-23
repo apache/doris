@@ -39,6 +39,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "common/sync_point.h"
 #include "runtime/exec_env.h"
 #include "s3_uri.h"
 #include "vec/exec/scan/scanner_scheduler.h"
@@ -156,6 +157,8 @@ S3ClientFactory& S3ClientFactory::instance() {
 }
 
 std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3ClientConf& s3_conf) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("s3_client_factory::create",
+                                      std::make_shared<Aws::S3::S3Client>());
     if (!is_s3_conf_valid(s3_conf)) {
         return nullptr;
     }
