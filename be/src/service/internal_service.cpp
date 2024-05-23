@@ -1506,7 +1506,7 @@ void PInternalService::transmit_block(google::protobuf::RpcController* controlle
         // pool here.
         _transmit_block(controller, request, response, done, Status::OK());
     } else {
-        bool ret = _light_work_pool.try_offer([request, response, done]() {
+        bool ret = _light_work_pool.try_offer([this, request, response, done]() {
             int64_t receive_time = GetCurrentTimeNanos();
             response->set_receive_time(receive_time);
             // Sometimes transmit block function is the last owner of PlanFragmentExecutor
