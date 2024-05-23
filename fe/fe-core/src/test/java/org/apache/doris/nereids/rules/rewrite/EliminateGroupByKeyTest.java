@@ -53,6 +53,28 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
     }
 
     @Test
+    void testProjectAlias() {
+        PlanChecker.from(connectContext)
+                .analyze("select id as c from t1 where id = 1 group by name, id")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 2));
+        PlanChecker.from(connectContext)
+                .analyze("select id as c, name as n from t1 group by name, id")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 2));
+        PlanChecker.from(connectContext)
+                .analyze("select id from t1 where id = 1 and name = \"\" group by name, id")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 2));
+    }
+
+    @Test
     void testEliminateByUnique() {
         PlanChecker.from(connectContext)
                 .analyze("select count(t1.id) from uni as t1 cross join uni as t2 group by t1.name, t1.id")
