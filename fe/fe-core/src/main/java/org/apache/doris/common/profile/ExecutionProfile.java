@@ -62,11 +62,11 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class ExecutionProfile {
     private static final Logger LOG = LogManager.getLogger(ExecutionProfile.class);
-    public static final long QUERY_FINISH_TIME_INIT = 0L;
+
     private final TUniqueId queryId;
     private boolean isFinished = false;
     private long startTime = 0L;
-    private long queryFinishTime = QUERY_FINISH_TIME_INIT;
+    private long queryFinishTime = 0L;
     // The root profile of this execution task
     private RuntimeProfile root;
     // Profiles for each fragment. And the InstanceProfile is the child of fragment profile.
