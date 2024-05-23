@@ -39,6 +39,11 @@ under the License.
             <artifactId>client</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+        </dependency>
+        
+        <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>

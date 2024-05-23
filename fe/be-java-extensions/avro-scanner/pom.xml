@@ -40,7 +40,20 @@ under the License.
             <groupId>org.apache.avro</groupId>
             <artifactId>avro-mapred</artifactId>
             <version>${avro.version}</version>
+            <exclusions>
+                <exclusion>
+                    <artifactId>avro-ipc-jetty</artifactId>
+                    <groupId>org.apache.avro</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-client-api</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>java-common</artifactId>
