@@ -178,6 +178,11 @@ public class ProfileManager {
             if (queryIdToExecutionProfiles.size() > 2 * Config.max_query_profile_num) {
                 List<ExecutionProfile> finishOrExpireExecutionProfiles = Lists.newArrayList();
                 for (ExecutionProfile tmpProfile : queryIdToExecutionProfiles.values()) {
+                    // Query still running, skip them.
+                    if (tmpProfile.getQueryFinishTime() == ExecutionProfile.QUERY_FINISH_TIME_INIT) {
+                        continue;
+                    }
+
                     if (System.currentTimeMillis() - tmpProfile.getQueryFinishTime()
                             > Config.profile_async_collect_expire_time_secs * 1000) {
                         finishOrExpireExecutionProfiles.add(tmpProfile);
