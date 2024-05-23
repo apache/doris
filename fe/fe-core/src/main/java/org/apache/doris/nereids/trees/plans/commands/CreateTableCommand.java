@@ -151,7 +151,9 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                     ctx.queryId(), createTableInfo.getTableName());
         }
         try {
-            Env.getCurrentEnv().createTable(createTableStmt);
+            if (Env.getCurrentEnv().createTable(createTableStmt)) {
+                return;
+            }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
