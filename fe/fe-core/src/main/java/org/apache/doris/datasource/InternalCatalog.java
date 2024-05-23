@@ -1076,7 +1076,7 @@ public class InternalCatalog implements CatalogIf<Database> {
      * 10. add this table to FE's meta
      * 11. add this table to ColocateGroup if necessary
      */
-    public void createTable(CreateTableStmt stmt) throws UserException {
+    public boolean createTable(CreateTableStmt stmt) throws UserException {
         String engineName = stmt.getEngineName();
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
@@ -1101,40 +1101,33 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (db.getTable(tableName).isPresent()) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableName);
-                return;
+                return true;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
         }
 
         if (engineName.equals("olap")) {
-            createOlapTable(db, stmt);
-            return;
+            return createOlapTable(db, stmt);
         } else if (engineName.equals("odbc")) {
-            createOdbcTable(db, stmt);
-            return;
+            return createOdbcTable(db, stmt);
         } else if (engineName.equals("mysql")) {
-            createMysqlTable(db, stmt);
-            return;
+            return createMysqlTable(db, stmt);
         } else if (engineName.equals("broker")) {
-            createBrokerTable(db, stmt);
-            return;
+            return createBrokerTable(db, stmt);
         } else if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
-            createEsTable(db, stmt);
-            return;
+            return createEsTable(db, stmt);
         } else if (engineName.equalsIgnoreCase("hive")) {
-            createHiveTable(db, stmt);
-            return;
+            return createHiveTable(db, stmt);
         } else if (engineName.equalsIgnoreCase("iceberg")) {
-            IcebergCatalogMgr.createIcebergTable(db, stmt);
-            return;
+            return IcebergCatalogMgr.createIcebergTable(db, stmt);
         } else if (engineName.equalsIgnoreCase("jdbc")) {
-            createJdbcTable(db, stmt);
-            return;
+            return createJdbcTable(db, stmt);
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
         Preconditions.checkState(false);
+        return false;
     }
 
     public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
@@ -1292,7 +1285,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             Analyzer dummyRootAnalyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
             createTableStmt.analyze(dummyRootAnalyzer);
-            createTable(createTableStmt);
+            boolean tableHasExists = createTable(createTableStmt);
+            stmt.setTableHasExists(tableHasExists);
         } catch (UserException e) {
             throw new DdlException("Failed to execute CTAS Reason: " + e.getMessage());
         }
@@ -1982,10 +1976,10 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     // Create olap table and related base index synchronously.
-    private void createOlapTable(Database db, CreateTableStmt stmt) throws UserException {
+    private boolean createOlapTable(Database db, CreateTableStmt stmt) throws UserException {
         String tableName = stmt.getTableName();
         LOG.debug("begin create olap table: {}", tableName);
-
+        boolean tableHasExists = false;
         BinlogConfig dbBinlogConfig;
         db.readLock();
         try {
@@ -2616,6 +2610,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     Env.getCurrentInvertedIndex().deleteTablet(tabletId);
                 }
                 LOG.info("duplicate create table[{};{}], skip next steps", tableName, tableId);
+                tableHasExists = true;
             } else {
                 // we have added these index to memory, only need to persist here
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
@@ -2654,9 +2649,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             LOG.info("Create related {} mv job.", jobs.size());
         }
+        return tableHasExists;
     }
 
-    private void createMysqlTable(Database db, CreateTableStmt stmt) throws DdlException {
+    private boolean createMysqlTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
 
         List<Column> columns = stmt.getColumns();
@@ -2664,26 +2660,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         long tableId = Env.getCurrentEnv().getNextId();
         MysqlTable mysqlTable = new MysqlTable(tableId, tableName, columns, stmt.getProperties());
         mysqlTable.setComment(stmt.getComment());
-        if (!db.createTableWithLock(mysqlTable, false, stmt.isSetIfNotExists()).first) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-        }
-        LOG.info("successfully create table[{}-{}]", tableName, tableId);
+        Pair<Boolean, Boolean> result = db.createTableWithLock(mysqlTable, false, stmt.isSetIfNotExists());
+        return checkCreateTableResult(tableName, tableId, result);
     }
 
-    private void createOdbcTable(Database db, CreateTableStmt stmt) throws DdlException {
+    private boolean createOdbcTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
         List<Column> columns = stmt.getColumns();
 
         long tableId = Env.getCurrentEnv().getNextId();
         OdbcTable odbcTable = new OdbcTable(tableId, tableName, columns, stmt.getProperties());
         odbcTable.setComment(stmt.getComment());
-        if (!db.createTableWithLock(odbcTable, false, stmt.isSetIfNotExists()).first) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-        }
-        LOG.info("successfully create table[{}-{}]", tableName, tableId);
+        Pair<Boolean, Boolean> result = db.createTableWithLock(odbcTable, false, stmt.isSetIfNotExists());
+        return checkCreateTableResult(tableName, tableId, result);
     }
 
-    private Table createEsTable(Database db, CreateTableStmt stmt) throws DdlException, AnalysisException {
+    private boolean createEsTable(Database db, CreateTableStmt stmt) throws DdlException, AnalysisException {
         String tableName = stmt.getTableName();
 
         // validate props to get column from es.
@@ -2716,14 +2708,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         esTable.setId(tableId);
         esTable.setComment(stmt.getComment());
         esTable.syncTableMetaData();
-        if (!db.createTableWithLock(esTable, false, stmt.isSetIfNotExists()).first) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-        }
-        LOG.info("successfully create table{} with id {}", tableName, tableId);
-        return esTable;
+        Pair<Boolean, Boolean> result = db.createTableWithLock(esTable, false, stmt.isSetIfNotExists());
+        return checkCreateTableResult(tableName, tableId, result);
     }
 
-    private void createBrokerTable(Database db, CreateTableStmt stmt) throws DdlException {
+    private boolean createBrokerTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
 
         List<Column> columns = stmt.getColumns();
@@ -2732,14 +2721,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         BrokerTable brokerTable = new BrokerTable(tableId, tableName, columns, stmt.getProperties());
         brokerTable.setComment(stmt.getComment());
         brokerTable.setBrokerProperties(stmt.getExtProperties());
-
-        if (!db.createTableWithLock(brokerTable, false, stmt.isSetIfNotExists()).first) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-        }
-        LOG.info("successfully create table[{}-{}]", tableName, tableId);
+        Pair<Boolean, Boolean> result = db.createTableWithLock(brokerTable, false, stmt.isSetIfNotExists());
+        return checkCreateTableResult(tableName, tableId, result);
     }
 
-    private void createHiveTable(Database db, CreateTableStmt stmt) throws DdlException {
+    private boolean createHiveTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
         List<Column> columns = stmt.getColumns();
         long tableId = Env.getCurrentEnv().getNextId();
@@ -2757,13 +2743,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(String.format("Table [%s] dose not exist in Hive.", hiveTable.getHiveDbTable()));
         }
         // check hive table if exists in doris database
-        if (!db.createTableWithLock(hiveTable, false, stmt.isSetIfNotExists()).first) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-        }
-        LOG.info("successfully create table[{}-{}]", tableName, tableId);
+        Pair<Boolean, Boolean> result = db.createTableWithLock(hiveTable, false, stmt.isSetIfNotExists());
+        return checkCreateTableResult(tableName, tableId, result);
     }
 
-    private void createJdbcTable(Database db, CreateTableStmt stmt) throws DdlException {
+    private boolean createJdbcTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
         List<Column> columns = stmt.getColumns();
 
@@ -2772,10 +2756,20 @@ public class InternalCatalog implements CatalogIf<Database> {
         JdbcTable jdbcTable = new JdbcTable(tableId, tableName, columns, stmt.getProperties());
         jdbcTable.setComment(stmt.getComment());
         // check table if exists
-        if (!db.createTableWithLock(jdbcTable, false, stmt.isSetIfNotExists()).first) {
+        Pair<Boolean, Boolean> result = db.createTableWithLock(jdbcTable, false, stmt.isSetIfNotExists());
+        return checkCreateTableResult(tableName, tableId, result);
+    }
+
+    private boolean checkCreateTableResult(String tableName, long tableId, Pair<Boolean, Boolean> result)
+                throws DdlException {
+        if (Boolean.FALSE.equals(result.first)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
         }
+        if (Boolean.TRUE.equals(result.second)) {
+            return true;
+        }
         LOG.info("successfully create table[{}-{}]", tableName, tableId);
+        return false;
     }
 
     @VisibleForTesting
