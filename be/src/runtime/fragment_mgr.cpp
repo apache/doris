@@ -717,6 +717,16 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     VLOG_ROW << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
     const TUniqueId& fragment_instance_id = params.params.fragment_instance_id;
+    int64_t query_reserved_memory = 0; // TODO
+    if (!config::enable_query_enforce_exec &&
+        doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(query_reserved_memory)) {
+        std::string errmsg =
+                fmt::format(" try exec_plan_fragment failed, fragmentInstanceId {}, but {}",
+                            print_id(fragment_instance_id),
+                            doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
+        LOG(INFO) << errmsg;
+        return Status::MemoryLimitExceeded(errmsg);
+    }
     {
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _fragment_instance_map.find(fragment_instance_id);
@@ -836,6 +846,15 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     VLOG_ROW << "query: " << print_id(params.query_id) << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
+    int64_t query_reserved_memory = 0; // TODO
+    if (!config::enable_query_enforce_exec &&
+        doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(query_reserved_memory)) {
+        std::string errmsg = fmt::format(
+                " try exec_plan_fragment failed, queryId {}, {}", print_id(params.query_id),
+                doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
+        LOG(INFO) << errmsg;
+        return Status::MemoryLimitExceeded(errmsg);
+    }
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
     SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);

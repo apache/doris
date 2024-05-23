@@ -171,6 +171,8 @@ DECLARE_mString(process_full_gc_size);
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
+// Default is false, BE process exceed memory limit will reject new Query execution.
+DECLARE_mBool(enable_query_enforce_exec);
 //waibibabu
 // gc will release cache, cancel task, and task will wait for gc to release memory,
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
