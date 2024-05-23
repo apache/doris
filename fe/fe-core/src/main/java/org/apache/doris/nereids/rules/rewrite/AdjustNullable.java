@@ -188,9 +188,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         }
         if (setOperation instanceof LogicalUnion) {
             LogicalUnion logicalUnion = (LogicalUnion) setOperation;
-            int consExprListSize = logicalUnion.getConstantExprsList().size();
-            if (consExprListSize > 0 && inputNullable == null) {
+            if (!logicalUnion.getConstantExprsList().isEmpty() && setOperation.children().isEmpty()) {
                 int outputSize = logicalUnion.getConstantExprsList().get(0).size();
+                // create the inputNullable list and fill it with all FALSE values
                 inputNullable = Lists.newArrayListWithCapacity(outputSize);
                 for (int i = 0; i < outputSize; i++) {
                     inputNullable.add(false);
@@ -203,6 +203,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             }
         }
         if (inputNullable == null) {
+            // this is a fail-safe
+            // means there is no children and having no getConstantExprsList
+            // no way to update the nullable flag, so just do nothing
             return setOperation;
         }
         List<NamedExpression> outputs = setOperation.getOutputs();
