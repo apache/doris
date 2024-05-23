@@ -2027,6 +2027,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
     int field_idx = 0;
     int field_len = year_len;
     long sec_offset = 0;
+    bool need_use_timezone = false;
 
     while (ptr < end && isdigit(*ptr) && field_idx < MAX_DATE_PARTS) {
         const char* start = ptr;
@@ -2111,15 +2112,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             if (local_time_zone == nullptr) {
                 return false;
             }
-            cctz::time_zone given_tz {};
-            if (!TimezoneUtils::find_cctz_time_zone(std::string {ptr, end}, given_tz)) {
-                return false; // invalid format
-            }
-            auto given = cctz::convert(cctz::civil_second {}, given_tz);
-            auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
-            // these two values is absolute time. so they are negative. need to use (-local) - (-given)
-            sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
-
+            need_use_timezone = true;
             field_idx++;
             break;
         }
@@ -2191,6 +2184,17 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         } else {
             return false;
         }
+    }
+
+    if (need_use_timezone) {
+        cctz::time_zone given_tz {};
+        if (!TimezoneUtils::find_cctz_time_zone(std::string {ptr, end}, given_tz)) {
+            return false; // invalid format
+        }
+        auto given = cctz::convert(cctz::civil_second {}, given_tz);
+        auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
+        // these two values is absolute time. so they are negative. need to use (-local) - (-given)
+        sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
     }
 
     // In check_range_and_set_time, for Date type the time part will be truncated. So if the timezone offset should make
