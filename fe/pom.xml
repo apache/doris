@@ -335,6 +335,7 @@ under the License.
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
         <hadoop.thirdparty.protobuf_3_7.version>1.1.1</hadoop.thirdparty.protobuf_3_7.version>
         <hbase.version>2.4.9</hbase.version>
+        <hbase-shaded-gson.version>4.1.7</hbase-shaded-gson.version>
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
@@ -540,10 +541,6 @@ under the License.
                     </exclusion>
                     <exclusion>
                         <groupId>org.apache.hadoop</groupId>
-                        <artifactId>hadoop-mapreduce-client-core</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.hadoop</groupId>
                         <artifactId>hadoop-yarn-api</artifactId>
                     </exclusion>
                 </exclusions>
@@ -608,10 +605,6 @@ under the License.
                     </exclusion>
                     <exclusion>
                         <groupId>org.apache.hbase.thirdparty</groupId>
-                        <artifactId>hbase-shaded-gson</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.hbase.thirdparty</groupId>
                         <artifactId>hbase-shaded-miscellaneous</artifactId>
                     </exclusion>
                     <exclusion>
@@ -624,6 +617,12 @@ under the License.
                     </exclusion>
                 </exclusions>
             </dependency>
+            <dependency>
+                <groupId>org.apache.hbase.thirdparty</groupId>
+                <artifactId>hbase-shaded-gson</artifactId>
+                <version>${hbase-shaded-gson.version}</version>
+            </dependency>
+
             <dependency>
                 <groupId>org.apache.kerby</groupId>
                 <artifactId>kerb-core</artifactId>
