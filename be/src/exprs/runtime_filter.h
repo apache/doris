@@ -209,9 +209,9 @@ public:
               _rf_wait_time_ms(_state->runtime_filter_wait_time_ms),
               _enable_pipeline_exec(_state->enable_pipeline_exec),
               _runtime_filter_type(get_runtime_filter_type(desc)),
-              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                                to_string(_runtime_filter_type))),
-              _profile(new RuntimeProfile(_name)),
+              _profile(
+                      new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})",
+                                                     _filter_id, to_string(_runtime_filter_type)))),
               _need_local_merge(need_local_merge) {}
 
     ~IRuntimeFilter() = default;
@@ -311,7 +311,7 @@ public:
 
     void init_profile(RuntimeProfile* parent_profile);
 
-    std::string& get_name() { return _name; }
+    std::string debug_string() const;
 
     void update_runtime_filter_type_to_profile();
 
@@ -442,7 +442,6 @@ protected:
     std::atomic<bool> _profile_init = false;
     // runtime filter type
     RuntimeFilterType _runtime_filter_type;
-    std::string _name;
     // parent profile
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
