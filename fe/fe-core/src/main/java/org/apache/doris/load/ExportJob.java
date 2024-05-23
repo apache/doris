@@ -511,23 +511,15 @@ public class ExportJob implements Writable {
             // get partitions
             // user specifies partitions, already checked in ExportCommand
             if (!this.partitionNames.isEmpty()) {
-                this.partitionNames.forEach(partitionName -> {
-                    Partition partition = table.getPartition(partitionName);
-                    if (partition.hasData()) {
-                        partitions.add(partition);
-                    }
-                });
+                this.partitionNames.forEach(partitionName -> partitions.add(table.getPartition(partitionName)));
             } else {
-                table.getPartitions().forEach(partition -> {
-                    if (partition.hasData()) {
-                        partitions.add(partition);
-                    }
-                });
+                if (table.getPartitions().size() > Config.maximum_number_of_export_partitions) {
+                    throw new UserException("The partitions number of this export job is larger than the maximum number"
+                            + " of partitions allowed by a export job");
+                }
+                partitions.addAll(table.getPartitions());
             }
-            if (partitions.size() > Config.maximum_number_of_export_partitions) {
-                throw new UserException("The partitions number of this export job is larger than the maximum number"
-                        + " of partitions allowed by a export job");
-            }
+
             // get tablets
             for (Partition partition : partitions) {
                 // Partition data consistency is not need to verify partition version.
@@ -597,7 +589,8 @@ public class ExportJob implements Writable {
             List<Long> tabletsList = new ArrayList<>(flatTabletIdList.subList(start, start + tabletsNum));
             List<List<Long>> tablets = new ArrayList<>();
             for (int i = 0; i < tabletsList.size(); i += MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT) {
-                int end = Math.min(i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT, tabletsList.size());
+                int end = i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT < tabletsList.size()
+                        ? i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT : tabletsList.size();
                 tablets.add(new ArrayList<>(tabletsList.subList(i, end)));
             }
 
