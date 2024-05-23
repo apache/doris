@@ -512,6 +512,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
+    DCHECK(config::enable_non_pipeline);
     if (params.txn_conf.need_txn) {
         std::shared_ptr<StreamLoadContext> stream_load_ctx =
                 std::make_shared<StreamLoadContext>(_exec_env);
@@ -1192,15 +1193,15 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     VLOG_QUERY << "BackendService execute open()  TQueryPlanInfo: "
                << apache::thrift::ThriftDebugString(t_query_plan_info);
     // assign the param used to execute PlanFragment
-    TExecPlanFragmentParams exec_fragment_params;
+    TPipelineFragmentParams exec_fragment_params;
     exec_fragment_params.protocol_version = (PaloInternalServiceVersion::type)0;
     exec_fragment_params.__set_is_simplified_param(false);
     exec_fragment_params.__set_fragment(t_query_plan_info.plan_fragment);
     exec_fragment_params.__set_desc_tbl(t_query_plan_info.desc_tbl);
 
     // assign the param used for executing of PlanFragment-self
-    TPlanFragmentExecParams fragment_exec_params;
-    fragment_exec_params.query_id = t_query_plan_info.query_id;
+    TPipelineInstanceParams fragment_exec_params;
+    exec_fragment_params.query_id = t_query_plan_info.query_id;
     fragment_exec_params.fragment_instance_id = fragment_instance_id;
     std::map<::doris::TPlanNodeId, std::vector<TScanRangeParams>> per_node_scan_ranges;
     std::vector<TScanRangeParams> scan_ranges;
@@ -1236,12 +1237,13 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     }
     per_node_scan_ranges.insert(std::make_pair((::doris::TPlanNodeId)0, scan_ranges));
     fragment_exec_params.per_node_scan_ranges = per_node_scan_ranges;
-    exec_fragment_params.__set_params(fragment_exec_params);
+    exec_fragment_params.local_params.push_back(fragment_exec_params);
     TQueryOptions query_options;
     query_options.batch_size = params.batch_size;
     query_options.execution_timeout = params.execution_timeout;
     query_options.mem_limit = params.mem_limit;
     query_options.query_type = TQueryType::EXTERNAL;
+    query_options.__set_enable_pipeline_x_engine(true);
     exec_fragment_params.__set_query_options(query_options);
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
