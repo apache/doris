@@ -2694,6 +2694,9 @@ public class StmtExecutor {
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
             return;
         }
+        if (ctasStmt.isTableHasExists()) {
+            return;
+        }
         // after success create table insert data
         try {
             parsedStmt = ctasStmt.getInsertStmt();
