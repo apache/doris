@@ -209,7 +209,7 @@ public class CreateTableInfo {
 
         partitionTableInfo.extractPartitionColumns();
         columns.stream()
-                .filter(column -> partitionTableInfo.containInListPartition(column.getName()))
+                .filter(column -> partitionTableInfo.inIdentifierPartitions(column.getName()))
                 .filter(column -> column.getType().isStringType())
                 .forEach(column -> {
                     LOG.warn("Doris currently does not support using string as a partition field,"
