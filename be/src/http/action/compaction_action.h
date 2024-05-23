@@ -70,6 +70,9 @@ private:
     /// check param and fetch tablet_id from req
     Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id);
 
+    /// retrieve specific id from req
+    Status _check_param(HttpRequest* req, uint64_t* id_param, const std::string param_name);
+
 private:
     CompactionActionType _type;
 };
