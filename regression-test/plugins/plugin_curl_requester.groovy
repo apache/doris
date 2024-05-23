@@ -56,6 +56,10 @@ Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_
     return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id))
 }
 
+Suite.metaClass.be_get_overall_compaction_status{ String ip, String port  /* param */->
+    return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port))
+}
+
 logger.info("Added 'be_get_compaction_status' function to Suite")
 
 Suite.metaClass._be_run_compaction = { String ip, String port, String tablet_id, String compact_type ->
