@@ -41,10 +41,10 @@ public class CheckedMath {
     }
 
     public static double checkedMultiply(double a, double b) {
-        BigDecimal d1 = new BigDecimal(a);
-        BigDecimal d2 = new BigDecimal(b);
+        BigDecimal d1 = BigDecimal.valueOf(a);
+        BigDecimal d2 = BigDecimal.valueOf(b);
         BigDecimal result = d1.multiply(d2);
-        if (result.compareTo(new BigDecimal(Double.MAX_VALUE)) > 0) {
+        if (result.compareTo(BigDecimal.valueOf(Double.MAX_VALUE)) > 0) {
             return Double.MAX_VALUE;
         }
         return result.doubleValue();
