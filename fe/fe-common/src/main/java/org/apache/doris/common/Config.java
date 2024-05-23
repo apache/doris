@@ -156,14 +156,14 @@ public class Config extends ConfigBase {
             "已完成或取消的导入作业信息的 label 会在这个时间后被删除。被删除的 label 可以被重用。",
             "Labels of finished or cancelled load jobs will be removed after this time"
                     + "The removed labels can be reused."})
-    public static int label_keep_max_second = 3 * 24 * 3600; // 3 days
+    public static int label_keep_max_second = 6 * 3600; // 6 hour
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "针对一些高频的导入作业，比如 INSERT, STREAMING LOAD, ROUTINE_LOAD_TASK, DELETE"
                     + "如果导入作业或者任务已经完成，且超过这个时间后，会被删除。被删除的作业或者任务可以被重用。",
             "For some high frequency load jobs such as INSERT, STREAMING LOAD, ROUTINE_LOAD_TASK, DELETE"
                     + "Remove the finished job or task if expired. The removed job or task can be reused."})
-    public static int streaming_label_keep_max_second = 43200; // 12 hour
+    public static int streaming_label_keep_max_second = 21600; // 6 hour
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "针对 ALTER, EXPORT 作业，如果作业已经完成，且超过这个时间后，会被删除。",
