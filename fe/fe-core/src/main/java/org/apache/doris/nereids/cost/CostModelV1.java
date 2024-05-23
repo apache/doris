@@ -147,7 +147,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanContext context) {
-        if (context.getStatementContext().isDpHyp()) {
+        if (context.getStatementContext() == null || context.getStatementContext().isDpHyp()) {
             return CostV1.zero();
         }
         double filterCostFactor = 0.0001;
