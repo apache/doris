@@ -612,7 +612,7 @@ void FragmentMgr::remove_pipeline_context(
 
 std::shared_ptr<QueryContext> FragmentMgr::_get_or_erase_query_ctx(TUniqueId query_id) {
     auto search = _query_ctx_map.find(query_id);
-    if (search == _query_ctx_map.end()) {
+    if (search != _query_ctx_map.end()) {
         if (auto q_ctx = search->second.lock()) {
             return q_ctx;
         } else {
