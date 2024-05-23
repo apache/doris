@@ -91,6 +91,9 @@ suite("test_hive_write_different_path", "p0,external,hive,external_docker,extern
             order_qt_q001 """ select * from ${catalog1}.write_test.tb_with_hdfs2 order by col_bigint_undef_signed """
             order_qt_q002 """ select * from ${catalog1}.write_test.tb_with_hdfs3 order by col_bigint_undef_signed """
 
+            sql """drop table ${catalog1}.write_test.tb_with_hdfs2"""
+            sql """drop table ${catalog1}.write_test.tb_with_hdfs3"""
+
             sql """drop catalog if exists ${catalog1}"""
             sql """drop catalog if exists ${catalog2}"""
             sql """drop catalog if exists ${catalog3}"""
