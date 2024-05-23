@@ -18,6 +18,7 @@
 #include "olap/segment_loader.h"
 
 #include "common/config.h"
+#include "common/status.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "util/stopwatch.hpp"
@@ -64,7 +65,8 @@ void SegmentCache::erase(const SegmentCache::CacheKey& key) {
 }
 
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
-                                    SegmentCacheHandle* cache_handle, bool use_cache) {
+                                    SegmentCacheHandle* cache_handle, bool use_cache,
+                                    bool need_load_pk_index_and_bf) {
     if (cache_handle->is_inited()) {
         return Status::OK();
     }
@@ -76,10 +78,13 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
 
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(rowset->load_segments(&segments));
-
+    if (need_load_pk_index_and_bf) {
+        RETURN_IF_ERROR(segments->load_pk_index_and_bf());
+    }
     if (use_cache && !config::disable_segment_cache) {
         // memory of SegmentCache::CacheValue will be handled by SegmentCache
         SegmentCache::CacheValue* cache_value = new SegmentCache::CacheValue();
+        _cache_mem_usage += segments->meta_mem_usage();
         cache_value->segments = std::move(segments);
         _segment_cache->insert(cache_key, *cache_value, cache_handle);
     } else {
