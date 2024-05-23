@@ -145,6 +145,10 @@ public class ColumnDefinition {
         return type;
     }
 
+    public void setType(DataType dataType) {
+        this.type = dataType;
+    }
+
     public AggregateType getAggType() {
         return aggType;
     }

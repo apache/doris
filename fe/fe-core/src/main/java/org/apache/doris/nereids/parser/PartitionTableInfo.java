@@ -333,4 +333,8 @@ public class PartitionTableInfo {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
     }
+
+    public boolean containInListPartition(String columnName) {
+        return partitionColumns.contains(columnName);
+    }
 }

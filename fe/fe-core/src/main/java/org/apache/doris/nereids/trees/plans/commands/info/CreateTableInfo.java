@@ -49,6 +49,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.PartitionTableInfo;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -58,6 +59,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -72,6 +75,7 @@ import java.util.stream.Collectors;
  * table info in creating table.
  */
 public class CreateTableInfo {
+    public static final Logger LOG = LogManager.getLogger(CreateTableInfo.class);
 
     public static final String ENGINE_OLAP = "olap";
     public static final String ENGINE_JDBC = "jdbc";
@@ -202,6 +206,16 @@ public class CreateTableInfo {
         if (columns.isEmpty()) {
             throw new AnalysisException("table should contain at least one column");
         }
+
+        partitionTableInfo.extractPartitionColumns();
+        columns.stream()
+                .filter(column -> partitionTableInfo.containInListPartition(column.getName()))
+                .filter(column -> column.getType().isStringType())
+                .forEach(column -> {
+                    LOG.warn("Doris currently does not support using string as a partition field,"
+                            + " so [{}] is automatically converted to varchar(65533) type here.", column.getName());
+                    column.setType(VarcharType.MAX_VARCHAR_TYPE);
+                });
 
         // analyze catalog name
         if (Strings.isNullOrEmpty(ctlName)) {
@@ -445,7 +459,6 @@ public class CreateTableInfo {
             }
 
             // validate partition
-            partitionTableInfo.extractPartitionColumns();
             partitionTableInfo.validatePartitionInfo(
                     engineName, columns, columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
 
