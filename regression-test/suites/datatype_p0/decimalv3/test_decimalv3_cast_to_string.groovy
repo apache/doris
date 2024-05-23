@@ -32,4 +32,37 @@ suite("test_decimalv3_cast_to_string") {
     qt_cast1 """
         select k1, cast(k1 as varchar) from decimalv3_cast_to_string_test order by 1;
     """
+
+    sql """
+        drop table if exists decimalv3_cast_to_string_join_test_l;
+    """
+    sql """
+        drop table if exists decimalv3_cast_to_string_join_test_r;
+    """
+    sql """
+        create table decimalv3_cast_to_string_join_test_l(k1 decimalv3(10, 3)) distributed by hash(k1) properties("replication_num"="1");
+    """
+    sql """
+        create table decimalv3_cast_to_string_join_test_r(kk1 decimalv3(10, 4)) distributed by hash(kk1) properties("replication_num"="1");
+    """
+    sql """
+        insert into decimalv3_cast_to_string_join_test_l values (1.123);
+    """
+    sql """
+        insert into decimalv3_cast_to_string_join_test_r values (1.123);
+    """
+    qt_join1 """
+        select * from decimalv3_cast_to_string_join_test_l, decimalv3_cast_to_string_join_test_r where k1 = kk1 order by 1, 2;
+    """
+    // scale is different, cast result will not equal
+    qt_cast_join1 """
+        select k1, cast(k1 as char(16)) k1cast, kk1, cast(kk1 as char(16)) kk1cast
+            from decimalv3_cast_to_string_join_test_l, decimalv3_cast_to_string_join_test_r
+        where cast(k1 as char(16)) = cast(kk1 as char(16)) order by 1, 2;
+    """
+    qt_cast_join2 """
+        select k1, cast(k1 as varchar) k1cast, kk1, cast(kk1 as varchar) kk1cast
+            from decimalv3_cast_to_string_join_test_l, decimalv3_cast_to_string_join_test_r
+        where cast(k1 as varchar) = cast(kk1 as varchar) order by 1, 2;
+    """
 }
