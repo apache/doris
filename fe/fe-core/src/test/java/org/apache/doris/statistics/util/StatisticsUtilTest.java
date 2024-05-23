@@ -196,7 +196,7 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 0, 0);
+                return new ColStatsMeta(0, null, null, null, 0, 0, 0, null);
             }
         };
 
@@ -244,7 +244,7 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 100, 0);
+                return new ColStatsMeta(0, null, null, null, 0, 100, 0, null);
             }
         };
         tableMeta.newPartitionLoaded.set(false);
@@ -254,7 +254,7 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 0, 0);
+                return new ColStatsMeta(0, null, null, null, 0, 0, 0, null);
             }
         };
         tableMeta.newPartitionLoaded.set(false);
@@ -270,7 +270,7 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 500, 0);
+                return new ColStatsMeta(0, null, null, null, 0, 500, 0, null);
             }
         };
         tableMeta.newPartitionLoaded.set(false);
@@ -286,7 +286,7 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 100, 80);
+                return new ColStatsMeta(0, null, null, null, 0, 100, 80, null);
             }
         };
         tableMeta.newPartitionLoaded.set(false);

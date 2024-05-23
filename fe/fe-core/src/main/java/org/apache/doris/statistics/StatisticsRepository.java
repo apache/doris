@@ -34,6 +34,7 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -122,6 +123,9 @@ public class StatisticsRepository {
 
     public static List<ResultRow> queryColumnStatisticsByPartitions(TableIf table, Set<String> columnNames,
             List<String> partitionNames) {
+        if (!table.isPartitionedTable()) {
+            return new ArrayList<>();
+        }
         long ctlId = table.getDatabase().getCatalog().getId();
         long dbId = table.getDatabase().getId();
         Map<String, String> params = new HashMap<>();
