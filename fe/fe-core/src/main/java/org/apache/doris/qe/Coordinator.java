@@ -259,8 +259,8 @@ public class Coordinator implements CoordInterface {
 
     private boolean enableShareHashTableForBroadcastJoin = false;
 
-    private final boolean enablePipelineEngine = true;
-    private final boolean enablePipelineXEngine = true;
+    private boolean enablePipelineEngine = true;
+    private boolean enablePipelineXEngine = true;
     private boolean useNereids = false;
 
     // Runtime filter merge instance address and ID
