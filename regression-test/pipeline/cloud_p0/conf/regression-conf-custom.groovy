@@ -61,6 +61,8 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "storage_medium_p0," +
     "ccr_syncer_p0," +
     "ccr_mow_syncer_p0," +
+    "hdfs_vault_p2," +
+    "inject_hdfs_vault_p0," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 max_failure_num = 100

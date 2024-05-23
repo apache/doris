@@ -110,7 +110,7 @@ public final class HiveUtil {
     }
 
     public static boolean isSplittable(RemoteFileSystem remoteFileSystem, String inputFormat,
-            String location, JobConf jobConf) throws UserException {
+            String location) throws UserException {
         if (remoteFileSystem instanceof BrokerFileSystem) {
             return ((BrokerFileSystem) remoteFileSystem).isSplittable(location, inputFormat);
         }

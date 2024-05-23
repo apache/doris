@@ -429,7 +429,7 @@ public class LoadAction extends RestBaseController {
             throw new LoadException("Invalid header host: " + reqHost);
         }
 
-        if (!Strings.isNullOrEmpty(Config.security_checker_class_name)) {
+        if (Config.streamload_redirect_policy.equalsIgnoreCase("public-private")) {
             // ip
             if (InetAddressValidator.getInstance().isValid(reqHost)) {
                 InetAddress addr;

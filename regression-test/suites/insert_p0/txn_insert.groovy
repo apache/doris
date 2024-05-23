@@ -165,6 +165,10 @@ suite("txn_insert") {
                 exception "Transaction insert expect label"
             }
             sql """ insert into ${table}_1 select * from $table; """
+            test {
+                sql """ insert into ${table}_0 with label $label2 select * from $table; """
+                exception "Transaction insert expect label"
+            }
             sql """ insert into ${table}_2 select * from ${table}_0; """
             sql """ commit; """
             sql "sync"

@@ -377,7 +377,7 @@ Status VCollectIterator::_topn_next(Block* block) {
 
                 size_t base = mutable_block.rows();
                 // append block to mutable_block
-                mutable_block.add_rows(block, 0, rows_to_copy);
+                RETURN_IF_ERROR(mutable_block.add_rows(block, 0, rows_to_copy));
                 // insert appended rows pos in mutable_block to sorted_row_pos and sort it
                 for (size_t i = 0; i < rows_to_copy; i++) {
                     sorted_row_pos.insert(base + i);

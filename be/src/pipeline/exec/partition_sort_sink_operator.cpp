@@ -178,7 +178,6 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
     return std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) -> Status {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                         return Status::InternalError("Unit hash table");
                     },
                     [&](auto& agg_method) -> Status {

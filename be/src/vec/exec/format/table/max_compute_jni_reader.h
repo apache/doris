@@ -28,8 +28,7 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "runtime/descriptors.h"
-#include "vec/exec/format/generic_reader.h"
-#include "vec/exec/jni_connector.h"
+#include "vec/exec/format/jni_reader.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -49,7 +48,7 @@ namespace doris::vectorized {
  * This class will only be retained during the functional testing phase to verify that
  * the communication and data exchange with the jvm are correct.
  */
-class MaxComputeJniReader : public GenericReader {
+class MaxComputeJniReader : public JniReader {
     ENABLE_FACTORY_CREATOR(MaxComputeJniReader);
 
 public:
@@ -71,12 +70,8 @@ public:
 private:
     const MaxComputeTableDescriptor* _table_desc = nullptr;
     const TMaxComputeFileDesc& _max_compute_params;
-    const std::vector<SlotDescriptor*>& _file_slot_descs;
     const TFileRangeDesc& _range;
-    RuntimeState* _state = nullptr;
-    RuntimeProfile* _profile = nullptr;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
-    std::unique_ptr<JniConnector> _jni_connector = nullptr;
 };
 
 } // namespace doris::vectorized

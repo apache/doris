@@ -83,7 +83,7 @@ public class ShowProcedureStatusCommand extends Command implements NoForward {
         Set<Expression> equalTo = whereExpr.stream().filter(EqualTo.class::isInstance).collect(Collectors.toSet());
 
         if (whereExpr.size() != likeSet.size() + equalTo.size()) {
-            throw new AnalysisException("Only support equalTo  and Like filters.");
+            throw new AnalysisException("only support AND conjunction, does not support OR.");
         }
 
         equalTo.addAll(likeSet);

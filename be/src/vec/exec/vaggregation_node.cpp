@@ -1108,7 +1108,7 @@ Status AggregationNode::_spill_hash_table(HashTableCtxType& agg_method, HashTabl
         for (size_t j = 0; j < partitioned_indices.size(); ++j) {
             if (partitioned_indices[j] != i) {
                 if (length > 0) {
-                    mutable_block.add_rows(&block, begin, length);
+                    RETURN_IF_ERROR(mutable_block.add_rows(&block, begin, length));
                 }
                 length = 0;
                 continue;
@@ -1121,7 +1121,7 @@ Status AggregationNode::_spill_hash_table(HashTableCtxType& agg_method, HashTabl
         }
 
         if (length > 0) {
-            mutable_block.add_rows(&block, begin, length);
+            RETURN_IF_ERROR(mutable_block.add_rows(&block, begin, length));
         }
 
         CHECK_EQ(mutable_block.rows(), blocks_rows[i]);

@@ -423,7 +423,19 @@ public:
                     _doc->clear();
                     _CLDELETE(ts);
                 } else {
+                    // avoid to add doc which without any field which may make threadState init skip
+                    // init fieldDataArray, then will make error with next doc with fields in
+                    // resetCurrentFieldData
+                    if (Status st = create_field(&new_field); st != Status::OK()) {
+                        LOG(ERROR)
+                                << "create field " << string(_field_name.begin(), _field_name.end())
+                                << " error:" << st;
+                        return st;
+                    }
+                    _doc->add(*new_field);
                     RETURN_IF_ERROR(add_null_document());
+                    _doc->clear();
+                    _CLDELETE(ts);
                 }
                 _rid++;
             }
