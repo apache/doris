@@ -88,6 +88,13 @@ public class TableSchemaAction extends RestBaseController {
                             baseInfo.put("precision", scalarType.getPrecision() + "");
                             baseInfo.put("scale", scalarType.getScalarScale() + "");
                         }
+                        if (primitiveType == PrimitiveType.DATETIMEV2)
+                        {
+                            ScalarType scalarType = (ScalarType) colType;
+                            if (scalarType.getScalarScale() == 0) {
+                                primitiveType = PrimitiveType.DATETIME;
+                            }
+                        }
                         baseInfo.put("type", primitiveType.toString());
                         baseInfo.put("comment", column.getComment());
                         baseInfo.put("name", column.getDisplayName());
