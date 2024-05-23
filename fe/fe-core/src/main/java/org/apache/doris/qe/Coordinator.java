@@ -1525,7 +1525,7 @@ public class Coordinator implements CoordInterface {
 
     private void cancelRemoteFragmentsAsync(Types.PPlanFragmentCancelReason cancelReason) {
         if (enablePipelineEngine) {
-            for (PipelineExecContext ctx : pipelineExecContexts.values()) {
+            for (PipelineExecContexts ctx : beToPipelineExecCtxs.values()) {
                 ctx.cancelFragmentInstance(cancelReason);
             }
         } else {
@@ -3280,8 +3280,6 @@ public class Coordinator implements CoordInterface {
         long profileReportProgress = 0;
         long beProcessEpoch = 0;
         private final int numInstances;
-        private boolean hasCancelled = false;
-        private boolean cancelInProcess = false;
 
         public PipelineExecContext(PlanFragmentId fragmentId,
                 TPipelineFragmentParams rpcParams, Long backendId,
@@ -3363,150 +3361,6 @@ public class Coordinator implements CoordInterface {
                     this.done = true;
                 }
                 return true;
-            }
-        }
-
-        // Just send the cancel message to BE, not care about the result, because there is no retry
-        // logic in upper logic.
-        private synchronized void cancelFragment(Types.PPlanFragmentCancelReason cancelReason) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("cancelRemoteFragments initiated={} done={} backend: {},"
-                        + " fragment id={} query={}, reason: {}",
-                        this.initiated, this.done, backend.getId(),
-                        this.fragmentId,
-                        DebugUtil.printId(queryId), cancelReason.name());
-            }
-
-            if (this.hasCancelled || this.cancelInProcess) {
-                LOG.info("Frangment has already been cancelled. Query {} backend: {}, fragment id={},"
-                        + "stack trace={}", DebugUtil.printId(queryId), backend.getId(), this.fragmentId,
-                        Thread.currentThread().getStackTrace());
-                return;
-            }
-            try {
-                try {
-                    ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelResult =
-                            BackendServiceProxy.getInstance().cancelPipelineXPlanFragmentAsync(brpcAddress,
-                            this.fragmentId, queryId, cancelReason);
-                    Futures.addCallback(cancelResult, new FutureCallback<InternalService.PCancelPlanFragmentResult>() {
-                        public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
-                            cancelInProcess = false;
-                            if (result.hasStatus()) {
-                                Status status = new Status(result.getStatus());
-                                if (status.getErrorCode() == TStatusCode.OK) {
-                                    hasCancelled = true;
-                                } else {
-                                    LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                            + "fragment id={}, reason: {}",
-                                            DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                            fragmentId, status.toString());
-                                }
-                            }
-                            LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                    + "fragment id={}, reason: {}",
-                                    DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                    fragmentId, "without status");
-                        }
-
-                        public void onFailure(Throwable t) {
-                            cancelInProcess = false;
-                            LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                    + "fragment id={}, reason: {}",
-                                    DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                    fragmentId, cancelReason.name(), t);
-                        }
-                    }, backendRpcCallbackExecutor);
-                    cancelInProcess = true;
-                } catch (RpcException e) {
-                    LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
-                            brpcAddress.getPort());
-                    SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
-                }
-            } catch (Exception e) {
-                LOG.warn("catch a exception", e);
-                return;
-            }
-            return;
-        }
-
-        // Just send the cancel logic to BE, not care about the result, and there is no retry logic
-        // in upper logic.
-        private synchronized void cancelInstance(Types.PPlanFragmentCancelReason cancelReason) {
-            for (TPipelineInstanceParams localParam : rpcParams.local_params) {
-                LOG.warn("cancelRemoteFragments initiated={} done={} backend:{},"
-                        + " fragment instance id={} query={}, reason: {}",
-                        this.initiated, this.done, backend.getId(),
-                        DebugUtil.printId(localParam.fragment_instance_id),
-                        DebugUtil.printId(queryId), cancelReason.name());
-                if (this.hasCancelled || this.cancelInProcess) {
-                    LOG.info("fragment instance has already been cancelled {} or in process {}. "
-                            + "initiated={} done={} backend:{},"
-                            + " fragment instance id={} query={}, reason: {}",
-                            this.hasCancelled, this.cancelInProcess,
-                            this.initiated, this.done, backend.getId(),
-                            DebugUtil.printId(localParam.fragment_instance_id),
-                            DebugUtil.printId(queryId), cancelReason.name());
-                    return;
-                }
-                try {
-                    ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelResult =
-                            BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddress,
-                                    localParam.fragment_instance_id, cancelReason);
-                    Futures.addCallback(cancelResult, new FutureCallback<InternalService.PCancelPlanFragmentResult>() {
-                        public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
-                            cancelInProcess = false;
-                            if (result.hasStatus()) {
-                                Status status = new Status(result.getStatus());
-                                if (status.getErrorCode() == TStatusCode.OK) {
-                                    hasCancelled = true;
-                                } else {
-                                    LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                            + "fragment instance id={}, reason: {}",
-                                            DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                            DebugUtil.printId(localParam.fragment_instance_id), status.toString());
-                                }
-                            }
-                            LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                    + "fragment instance id={}, reason: {}",
-                                    DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                    DebugUtil.printId(localParam.fragment_instance_id), "without status");
-                        }
-
-                        public void onFailure(Throwable t) {
-                            cancelInProcess = false;
-                            LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                    + "fragment instance id={}, reason: {}",
-                                    DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                    DebugUtil.printId(localParam.fragment_instance_id), cancelReason.name(), t);
-                        }
-                    }, backendRpcCallbackExecutor);
-                    cancelInProcess = true;
-                } catch (Exception e) {
-                    LOG.warn("catch a exception", e);
-                    return;
-                }
-            }
-            return;
-        }
-
-        /// TODO: refactor rpcParams
-        public synchronized void cancelFragmentInstance(Types.PPlanFragmentCancelReason cancelReason) {
-            if (!this.initiated) {
-                LOG.warn("Query {}, ccancel before initiated", DebugUtil.printId(queryId));
-                return;
-            }
-            // don't cancel if it is already finished
-            if (this.done) {
-                LOG.warn("Query {}, cancel after finished", DebugUtil.printId(queryId));
-                return;
-            }
-
-            if (this.enablePipelineX) {
-                cancelFragment(cancelReason);
-                return;
-            } else {
-                cancelInstance(cancelReason);
-                return;
             }
         }
 
@@ -3634,6 +3488,8 @@ public class Coordinator implements CoordInterface {
         boolean twoPhaseExecution = false;
         int instanceNumber;
         ByteString serializedFragments = null;
+        boolean hasCancelled = false;
+        boolean cancelInProcess = false;
 
         public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution,
                 int instanceNumber) {
@@ -3743,6 +3599,57 @@ public class Coordinator implements CoordInterface {
             }
             return String.format("query %s, sending pipeline fragments: %s to be %s bprc address %s",
                     DebugUtil.printId(queryId), infos, beId, brpcAddr.toString());
+        }
+
+        // Just send the cancel message to BE, not care about the result, because there is no retry
+        // logic in upper logic.
+        private synchronized void cancelFragment(Types.PPlanFragmentCancelReason cancelReason) {
+            if (this.hasCancelled || this.cancelInProcess) {
+                LOG.info("Fragments of query {} on backend{} has already been cancelled.",
+                        DebugUtil.printId(queryId), idToBackend.get(beId));
+                return;
+            }
+            try {
+                try {
+                    ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelResult =
+                            BackendServiceProxy.getInstance().cancelPipelineXPlanFragmentAsync(brpcAddr,
+                                    queryId, cancelReason);
+                    Futures.addCallback(cancelResult, new FutureCallback<InternalService.PCancelPlanFragmentResult>() {
+                        public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
+                            cancelInProcess = false;
+                            if (result.hasStatus()) {
+                                Status status = new Status(result.getStatus());
+                                if (status.getErrorCode() == TStatusCode.OK) {
+                                    hasCancelled = true;
+                                } else {
+                                    LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
+                                            DebugUtil.printId(queryId), idToBackend.get(beId), status.toString());
+                                }
+                            } else {
+                                LOG.warn("Failed to cancel query {} backend: {}, without status",
+                                        DebugUtil.printId(queryId), idToBackend.get(beId));
+                            }
+                        }
+
+                        public void onFailure(Throwable t) {
+                            cancelInProcess = false;
+                            LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
+                                    DebugUtil.printId(queryId), idToBackend.get(beId), cancelReason.name(), t);
+                        }
+                    }, backendRpcCallbackExecutor);
+                    cancelInProcess = true;
+                } catch (RpcException e) {
+                    LOG.warn("cancel plan fragment get a exception, address={}", brpcAddr);
+                    SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddr), e.getMessage());
+                }
+            } catch (Exception e) {
+                LOG.warn("catch a exception", e);
+            }
+        }
+
+        /// TODO: refactor rpcParams
+        public synchronized void cancelFragmentInstance(Types.PPlanFragmentCancelReason cancelReason) {
+            cancelFragment(cancelReason);
         }
     }
 

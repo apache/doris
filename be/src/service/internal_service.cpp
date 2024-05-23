@@ -576,25 +576,43 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
     bool ret = _light_work_pool.try_offer([this, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId tid;
+        bool is_pipeline = false;
+        if (request->finst_id().hi() == 0 && request->finst_id().lo() == 0) {
+            is_pipeline = true;
+        }
         tid.__set_hi(request->finst_id().hi());
         tid.__set_lo(request->finst_id().lo());
         signal::set_signal_task_id(tid);
         Status st = Status::OK();
 
         const bool has_cancel_reason = request->has_cancel_reason();
-        if (request->has_fragment_id()) {
-            TUniqueId query_id;
-            query_id.__set_hi(request->query_id().hi());
-            query_id.__set_lo(request->query_id().lo());
-            LOG(INFO) << fmt::format(
-                    "Cancel query {}, reason: {}", print_id(query_id),
-                    has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
-                                      : "INTERNAL_ERROR");
-            _exec_env->fragment_mgr()->cancel_fragment(
-                    query_id, request->fragment_id(),
-                    has_cancel_reason ? request->cancel_reason()
-                                      : PPlanFragmentCancelReason::INTERNAL_ERROR);
+        if (is_pipeline) {
+            if (request->has_fragment_id()) {
+                TUniqueId query_id;
+                query_id.__set_hi(request->query_id().hi());
+                query_id.__set_lo(request->query_id().lo());
+                LOG(INFO) << fmt::format(
+                        "Cancel query {}, reason: {}", print_id(query_id),
+                        has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
+                                          : "INTERNAL_ERROR");
+                _exec_env->fragment_mgr()->cancel_fragment(
+                        query_id, request->fragment_id(),
+                        has_cancel_reason ? request->cancel_reason()
+                                          : PPlanFragmentCancelReason::INTERNAL_ERROR);
+            } else {
+                TUniqueId query_id;
+                query_id.__set_hi(request->query_id().hi());
+                query_id.__set_lo(request->query_id().lo());
+                LOG(INFO) << fmt::format(
+                        "Cancel query {}, reason: {}", print_id(query_id),
+                        has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
+                                          : "INTERNAL_ERROR");
+                _exec_env->fragment_mgr()->cancel_query_by_fe(
+                        query_id, has_cancel_reason ? request->cancel_reason()
+                                                    : PPlanFragmentCancelReason::INTERNAL_ERROR);
+            }
         } else {
+            DCHECK(!request->has_fragment_id());
             LOG(INFO) << fmt::format(
                     "Cancel instance {}, reason: {}", print_id(tid),
                     has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())

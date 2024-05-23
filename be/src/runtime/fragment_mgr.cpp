@@ -1078,6 +1078,22 @@ void FragmentMgr::cancel_fragment(const TUniqueId& query_id, int32_t fragment_id
     }
 }
 
+void FragmentMgr::cancel_query_by_fe(const TUniqueId& query_id,
+                                     const PPlanFragmentCancelReason& reason,
+                                     const std::string& msg) {
+    std::unique_lock<std::mutex> lock(_lock);
+    auto q_ctx_iter = _query_ctx_map.find(query_id);
+    if (q_ctx_iter != _query_ctx_map.end()) {
+        // Has to use value to keep the shared ptr not deconstructed.
+        std::shared_ptr<QueryContext> q_ctx = q_ctx_iter->second;
+        // the lock should only be used to protect the map, not scope query ctx
+        lock.unlock();
+        WARN_IF_ERROR(q_ctx->cancel_pipeline_context(-1, reason, msg), "fail to cancel fragment");
+    } else {
+        LOG(WARNING) << "Could not find the query id:" << print_id(query_id) << " to cancel";
+    }
+}
+
 void FragmentMgr::cancel_worker() {
     LOG(INFO) << "FragmentMgr cancel worker start working.";
     do {

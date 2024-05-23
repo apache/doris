@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
@@ -258,13 +257,13 @@ public class BackendServiceProxy {
     }
 
     public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPipelineXPlanFragmentAsync(
-            TNetworkAddress address, PlanFragmentId fragmentId, TUniqueId queryId,
-            Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
+            TNetworkAddress address, TUniqueId queryId, Types.PPlanFragmentCancelReason cancelReason)
+            throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest = InternalService.PCancelPlanFragmentRequest
                 .newBuilder()
+                // instance id is not used, but it is a required field.
                 .setFinstId(Types.PUniqueId.newBuilder().setHi(0).setLo(0).build())
                 .setCancelReason(cancelReason)
-                .setFragmentId(fragmentId.asInt())
                 .setQueryId(Types.PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build()).build();
         try {
             final BackendServiceClient client = getProxy(address);

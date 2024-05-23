@@ -103,6 +103,9 @@ public:
     // {query id fragment} -> PipelineXFragmentContext
     void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
                          const PPlanFragmentCancelReason& reason, const std::string& msg = "");
+    // Cancel all fragments for this query (only pipelineX).
+    void cancel_query_by_fe(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
+                            const std::string& msg = "");
 
     // Can be used in both version.
     void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
