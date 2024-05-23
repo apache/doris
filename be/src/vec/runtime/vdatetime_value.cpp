@@ -2037,6 +2037,10 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             ptr++;
         }
 
+        if (ptr == start) {
+            return false;
+        }
+
         if (field_idx == 6) {
             if constexpr (is_datetime) {
                 // round of microseconds
@@ -2107,23 +2111,15 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             if (local_time_zone == nullptr) {
                 return false;
             }
-            auto get_tz_offset = [&](const std::string& str_tz,
-                                     const cctz::time_zone* local_time_zone) -> long {
-                cctz::time_zone given_tz {};
-                if (!TimezoneUtils::find_cctz_time_zone(str_tz, given_tz)) {
-                    throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
-                }
-                auto given = cctz::convert(cctz::civil_second {}, given_tz);
-                auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
-                // these two values is absolute time. so they are negative. need to use (-local) - (-given)
-                return std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
-            };
-            try {
-                sec_offset = get_tz_offset(std::string {ptr, end},
-                                           local_time_zone); // use the whole remain string
-            } catch ([[maybe_unused]] Exception& e) {
+            cctz::time_zone given_tz {};
+            if (!TimezoneUtils::find_cctz_time_zone(std::string {ptr, end}, given_tz)) {
                 return false; // invalid format
             }
+            auto given = cctz::convert(cctz::civil_second {}, given_tz);
+            auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
+            // these two values is absolute time. so they are negative. need to use (-local) - (-given)
+            sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
+
             field_idx++;
             break;
         }
