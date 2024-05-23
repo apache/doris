@@ -18,15 +18,19 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.ExecuteStmt;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
+import org.apache.doris.nereids.trees.plans.commands.PreparedCommand;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -81,6 +85,120 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
     }
 
+    private void handleExecute(PrepareStmt prepareStmt, long stmtId) {
+        if (prepareStmt.getInnerStmt() instanceof QueryStmt) {
+            ctx.getState().setIsQuery(true);
+        }
+        prepareStmt.setIsPrepared();
+        int paramCount = prepareStmt.getParmCount();
+        LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
+        // null bitmap
+        String stmtStr = "";
+        try {
+            List<LiteralExpr> realValueExprs = new ArrayList<>();
+            if (paramCount > 0) {
+                byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
+                packetBuf.get(nullbitmapData);
+                // new_params_bind_flag
+                if ((int) packetBuf.get() != 0) {
+                    // parse params's types
+                    for (int i = 0; i < paramCount; ++i) {
+                        int typeCode = packetBuf.getChar();
+                        LOG.debug("code {}", typeCode);
+                        prepareStmt.placeholders().get(i).setTypeCode(typeCode);
+                    }
+                }
+                // parse param data
+                for (int i = 0; i < paramCount; ++i) {
+                    if (isNull(nullbitmapData, i)) {
+                        realValueExprs.add(new NullLiteral());
+                        continue;
+                    }
+                    LiteralExpr l = prepareStmt.placeholders().get(i).createLiteralFromType();
+                    l.setupParamFromBinary(packetBuf);
+                    realValueExprs.add(l);
+                }
+            }
+            ExecuteStmt executeStmt = new ExecuteStmt(String.valueOf(stmtId), realValueExprs);
+            // TODO set real origin statement
+            executeStmt.setOrigStmt(new OriginStatement("null", 0));
+            executeStmt.setUserInfo(ctx.getCurrentUserIdentity());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("executeStmt {}", executeStmt);
+            }
+            executor = new StmtExecutor(ctx, executeStmt);
+            ctx.setExecutor(executor);
+            executor.execute();
+            PrepareStmtContext preparedStmtContext = ConnectContext.get().getPreparedStmt(String.valueOf(stmtId));
+            if (preparedStmtContext != null) {
+                stmtStr = executeStmt.toSql();
+            }
+        } catch (Throwable e)  {
+            // Catch all throwable.
+            // If reach here, maybe doris bug.
+            LOG.warn("Process one query failed because unknown reason: ", e);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+        }
+        if (!stmtStr.isEmpty()) {
+            auditAfterExec(stmtStr, prepareStmt.getInnerStmt(), null, false);
+        }
+    }
+
+    private void handleExecute(PreparedCommand prepareStmt, long stmtId) {
+        prepareStmt.setIsPrepared();
+        int paramCount = prepareStmt.getParamLen();
+        LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
+        // null bitmap
+        String stmtStr = "";
+        try {
+            List<Expression> realValueExprs = new ArrayList<>();
+            if (paramCount > 0) {
+                byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
+                packetBuf.get(nullbitmapData);
+                // new_params_bind_flag
+                if ((int) packetBuf.get() != 0) {
+                    // parse params's types
+                    for (int i = 0; i < paramCount; ++i) {
+                        int typeCode = packetBuf.getChar();
+                        LOG.debug("code {}", typeCode);
+                        prepareStmt.params().get(i).setTypeCode(typeCode);
+                    }
+                }
+                // parse param data
+                for (int i = 0; i < paramCount; ++i) {
+                    if (isNull(nullbitmapData, i)) {
+                        realValueExprs.add(new org.apache.doris.nereids.trees.expressions.literal.NullLiteral());
+                        continue;
+                    }
+                    Literal l = Literal.getLiteralByMysqlType(
+                                prepareStmt.params().get(i).getMysqlTypeCode(), packetBuf);
+                    realValueExprs.add(l);
+                }
+            }
+            ExecuteCommand executeStmt = new ExecuteCommand(String.valueOf(stmtId), realValueExprs);
+            // TODO set real origin statement
+            executeStmt.setOrigStmt(new OriginStatement("null", 0));
+            executeStmt.setUserInfo(ctx.getCurrentUserIdentity());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("executeStmt {}", executeStmt);
+            }
+            executor = new StmtExecutor(ctx, executeStmt);
+            ctx.setExecutor(executor);
+            executor.execute();
+            stmtStr = executeStmt.toSql();
+        } catch (Throwable e)  {
+            // Catch all throwable.
+            // If reach here, maybe doris bug.
+            LOG.warn("Process one query failed because unknown reason: ", e);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+        }
+        if (!stmtStr.isEmpty()) {
+            auditAfterExec(stmtStr, prepareStmt.getInnerStmt(), null, false);
+        }
+    }
+
     // process COM_EXECUTE, parse binary row data
     // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
     private void handleExecute() {
@@ -105,62 +223,16 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             return;
         }
         ctx.setStartTime();
-        if (prepareCtx.stmt.getInnerStmt() instanceof QueryStmt) {
-            ctx.getState().setIsQuery(true);
-        }
-        prepareCtx.stmt.setIsPrepared();
-        int paramCount = prepareCtx.stmt.getParmCount();
-        LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
-        // null bitmap
-        String stmtStr = "";
-        try {
-            List<LiteralExpr> realValueExprs = new ArrayList<>();
-            if (paramCount > 0) {
-                byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
-                packetBuf.get(nullbitmapData);
-                // new_params_bind_flag
-                if ((int) packetBuf.get() != 0) {
-                    // parse params's types
-                    for (int i = 0; i < paramCount; ++i) {
-                        int typeCode = packetBuf.getChar();
-                        LOG.debug("code {}", typeCode);
-                        prepareCtx.stmt.placeholders().get(i).setTypeCode(typeCode);
-                    }
-                }
-                // parse param data
-                for (int i = 0; i < paramCount; ++i) {
-                    if (isNull(nullbitmapData, i)) {
-                        realValueExprs.add(new NullLiteral());
-                        continue;
-                    }
-                    LiteralExpr l = prepareCtx.stmt.placeholders().get(i).createLiteralFromType();
-                    l.setupParamFromBinary(packetBuf);
-                    realValueExprs.add(l);
-                }
-            }
-            ExecuteStmt executeStmt = new ExecuteStmt(String.valueOf(stmtId), realValueExprs);
-            // TODO set real origin statement
-            executeStmt.setOrigStmt(new OriginStatement("null", 0));
-            executeStmt.setUserInfo(ctx.getCurrentUserIdentity());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("executeStmt {}", executeStmt);
-            }
-            executor = new StmtExecutor(ctx, executeStmt);
-            ctx.setExecutor(executor);
-            executor.execute();
-            PrepareStmtContext preparedStmtContext = ConnectContext.get().getPreparedStmt(String.valueOf(stmtId));
-            if (preparedStmtContext != null && !(preparedStmtContext.stmt.getInnerStmt() instanceof InsertStmt)) {
-                stmtStr = executeStmt.toSql();
-            }
-        } catch (Throwable e)  {
-            // Catch all throwable.
-            // If reach here, maybe doris bug.
-            LOG.warn("Process one query failed because unknown reason: ", e);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
-        }
-        if (!stmtStr.isEmpty()) {
-            auditAfterExec(stmtStr, prepareCtx.stmt.getInnerStmt(), null, false);
+        if (prepareCtx.stmt instanceof PrepareStmt) {
+            // legacy
+            handleExecute((PrepareStmt) prepareCtx.stmt, stmtId);
+        } else if (prepareCtx.stmt instanceof PreparedCommand) {
+            // nererids
+            handleExecute((PreparedCommand) prepareCtx.stmt, stmtId);
+        } else {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
+                    "msg: Not supported such prepared statement");
+            return;
         }
     }
 

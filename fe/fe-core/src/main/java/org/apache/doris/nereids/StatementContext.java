@@ -30,6 +30,7 @@ import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.PlaceholderExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -143,6 +144,9 @@ public class StatementContext implements Closeable {
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
+
+    // placeholder params for prepared statement
+    private List<PlaceholderExpr> params;
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be replaced,
@@ -488,6 +492,14 @@ public class StatementContext implements Closeable {
     @Override
     public void close() {
         releasePlannerResources();
+    }
+
+    public List<PlaceholderExpr> getParams() {
+        return params;
+    }
+
+    public void setParams(List<PlaceholderExpr> params) {
+        this.params = params;
     }
 
     private static class CloseableResource implements Closeable {

@@ -257,8 +257,7 @@ public abstract class ConnectProcessor {
         Exception nereidsSyntaxException = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
-        // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
-        if (mysqlCommand == MysqlCommand.COM_QUERY && sessionVariable.isEnableNereidsPlanner()) {
+        if (sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
                 cachedStmts = parseFromSqlCache(originStmt);
                 if (cachedStmts != null) {

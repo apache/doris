@@ -150,8 +150,10 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
+import org.apache.doris.nereids.trees.plans.commands.PreparedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -278,7 +280,7 @@ public class StmtExecutor {
     private Data.PQueryStatistics.Builder statisticsForAuditLog;
     private boolean isCached;
     private String stmtName;
-    private PrepareStmt prepareStmt = null;
+    private StatementBase prepareStmt = null;
     private String mysqlLoadId;
     // Distinguish from prepare and execute command
     private boolean isExecuteStmt = false;
@@ -690,6 +692,25 @@ public class StmtExecutor {
                 throw new NereidsException(errMsg, new AnalysisException(errMsg));
             }
         }
+        if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+            if (isForwardToMaster()) {
+                throw new UserException("Forward master command is not supported for prepare statement");
+            }
+            // register statement and return
+            handlePrepareStmt();
+            return;
+        }
+        if (context.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+            ExecuteCommand executeStmt = (ExecuteCommand) parsedStmt;
+            preparedStmtCtx = context.getPreparedStmt(executeStmt.getStmtName());
+            if (null == preparedStmtCtx) {
+                throw new AnalysisException(
+                        "prepare statement " + executeStmt.getStmtName() + " not found,  maybe expired");
+            }
+            PreparedCommand prepareStmt = (PreparedCommand) preparedStmtCtx.stmt;
+            parsedStmt = prepareStmt.assignValues(executeStmt.getParams());
+            logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        }
         if (logicalPlan instanceof Command) {
             if (logicalPlan instanceof Forward) {
                 redirectStatus = ((Forward) logicalPlan).toRedirectStatus();
@@ -765,6 +786,7 @@ public class StmtExecutor {
                     LOG.debug("Nereids plan query failed:\n{}", originStmt.originStmt);
                 }
                 LOG.info("NereidsException", e);
+                e.printStackTrace();
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
@@ -1187,8 +1209,8 @@ public class StmtExecutor {
                 throw new UserException("Could not execute, since `" + execStmt.getName() + "` not exist");
             }
             // parsedStmt may already by set when constructing this StmtExecutor();
-            preparedStmtCtx.stmt.asignValues(execStmt.getArgs());
-            parsedStmt = preparedStmtCtx.stmt.getInnerStmt();
+            ((PrepareStmt) preparedStmtCtx.stmt).asignValues(execStmt.getArgs());
+            parsedStmt = ((PrepareStmt) preparedStmtCtx.stmt).getInnerStmt();
             planner = preparedStmtCtx.planner;
             analyzer = preparedStmtCtx.analyzer;
             prepareStmt = preparedStmtCtx.stmt;
@@ -1196,7 +1218,7 @@ public class StmtExecutor {
                 LOG.debug("already prepared stmt: {}", preparedStmtCtx.stmtString);
             }
             isExecuteStmt = true;
-            if (!preparedStmtCtx.stmt.needReAnalyze()) {
+            if (!((PrepareStmt) preparedStmtCtx.stmt).needReAnalyze()) {
                 // Return directly to bypass analyze and plan
                 return;
             }
@@ -1218,15 +1240,15 @@ public class StmtExecutor {
         if (parsedStmt instanceof PrepareStmt || context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                 prepareStmt = new PrepareStmt(parsedStmt,
-                        String.valueOf(context.getEnv().getNextStmtId()));
+                        String.valueOf(String.valueOf(context.getStmtId())));
             } else {
                 prepareStmt = (PrepareStmt) parsedStmt;
             }
-            prepareStmt.setContext(context);
+            ((PrepareStmt) prepareStmt).setContext(context);
             prepareStmt.analyze(analyzer);
             // Need analyze inner statement
-            parsedStmt = prepareStmt.getInnerStmt();
-            if (prepareStmt.getPreparedType() == PrepareStmt.PreparedType.STATEMENT) {
+            parsedStmt =  ((PrepareStmt) prepareStmt).getInnerStmt();
+            if (((PrepareStmt) prepareStmt).getPreparedType() == PrepareStmt.PreparedType.STATEMENT) {
                 // Skip analyze, do it lazy
                 return;
             }
@@ -1344,15 +1366,15 @@ public class StmtExecutor {
             }
         }
         if (preparedStmtReanalyzed
-                && preparedStmtCtx.stmt.getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
-            prepareStmt.asignValues(execStmt.getArgs());
+                && ((PrepareStmt) preparedStmtCtx.stmt).getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
+            ((PrepareStmt) prepareStmt).asignValues(execStmt.getArgs());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("update planner and analyzer after prepared statement reanalyzed");
             }
             preparedStmtCtx.planner = planner;
             preparedStmtCtx.analyzer = analyzer;
             Preconditions.checkNotNull(preparedStmtCtx.stmt);
-            preparedStmtCtx.analyzer.setPrepareStmt(preparedStmtCtx.stmt);
+            preparedStmtCtx.analyzer.setPrepareStmt(((PrepareStmt) preparedStmtCtx.stmt));
         }
     }
 
@@ -1410,9 +1432,9 @@ public class StmtExecutor {
             }
         }
         if (prepareStmt != null) {
-            analyzer.setPrepareStmt(prepareStmt);
-            if (execStmt != null && prepareStmt.getPreparedType() != PreparedType.FULL_PREPARED) {
-                prepareStmt.asignValues(execStmt.getArgs());
+            analyzer.setPrepareStmt(((PrepareStmt) prepareStmt));
+            if (execStmt != null &&  ((PrepareStmt) prepareStmt).getPreparedType() != PreparedType.FULL_PREPARED) {
+                ((PrepareStmt) prepareStmt).asignValues(execStmt.getArgs());
             }
         }
         parsedStmt.analyze(analyzer);
@@ -1480,9 +1502,10 @@ public class StmtExecutor {
                 // query re-analyze
                 parsedStmt.reset();
                 if (prepareStmt != null) {
-                    analyzer.setPrepareStmt(prepareStmt);
-                    if (execStmt != null && prepareStmt.getPreparedType() != PreparedType.FULL_PREPARED) {
-                        prepareStmt.asignValues(execStmt.getArgs());
+                    analyzer.setPrepareStmt(((PrepareStmt) prepareStmt));
+                    if (execStmt != null
+                            && ((PrepareStmt) prepareStmt).getPreparedType() != PreparedType.FULL_PREPARED) {
+                        ((PrepareStmt) prepareStmt).asignValues(execStmt.getArgs());
                     }
                 }
                 analyzer.setReAnalyze(true);
@@ -2584,16 +2607,26 @@ public class StmtExecutor {
     }
 
     private void handlePrepareStmt() throws Exception {
+        List<String> labels;
+        if (prepareStmt == null) {
+            // must be in nereids, todo remove original planner code
+            prepareStmt = new PreparedCommand(String.valueOf(context.getStmtId()),
+                    parsedStmt, statementContext.getParams());
+            labels = ((PreparedCommand) prepareStmt).getLabels();
+        } else {
+            // legacy planner
+            labels = ((PrepareStmt) prepareStmt).getColLabelsOfPlaceHolders();
+        }
         // register prepareStmt
         if (LOG.isDebugEnabled()) {
             LOG.debug("add prepared statement {}, isBinaryProtocol {}",
-                        prepareStmt.getName(), context.getCommand() == MysqlCommand.COM_STMT_PREPARE);
+                    prepareStmt.toSql(), context.getCommand() == MysqlCommand.COM_STMT_PREPARE);
         }
-        context.addPreparedStmt(prepareStmt.getName(),
+        context.addPreparedStmt(String.valueOf(context.getStmtId()),
                 new PrepareStmtContext(prepareStmt,
-                            context, planner, analyzer, prepareStmt.getName()));
+                            context, planner, analyzer, String.valueOf(context.getStmtId())));
         if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
-            sendStmtPrepareOK();
+            sendStmtPrepareOK((int) context.getStmtId(), labels);
         }
     }
 
@@ -2697,19 +2730,19 @@ public class StmtExecutor {
         return exprs.stream().map(e -> PrimitiveType.STRING).collect(Collectors.toList());
     }
 
-    private void sendStmtPrepareOK() throws IOException {
+    private void sendStmtPrepareOK(int stmtId, List<String> labels) throws IOException {
         Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
         serializer.reset();
         // 0x00 OK
         serializer.writeInt1(0);
         // statement_id
-        serializer.writeInt4(Integer.valueOf(prepareStmt.getName()));
+        serializer.writeInt4(stmtId);
         // num_columns
         int numColumns = 0;
         serializer.writeInt2(numColumns);
         // num_params
-        int numParams = prepareStmt.getColLabelsOfPlaceHolders().size();
+        int numParams = labels.size();
         serializer.writeInt2(numParams);
         // reserved_1
         serializer.writeInt1(0);
@@ -2718,14 +2751,12 @@ public class StmtExecutor {
             // send field one by one
             // TODO use real type instead of string, for JDBC client it's ok
             // but for other client, type should be correct
-            List<PrimitiveType> types = exprToStringType(prepareStmt.getPlaceHolderExprList());
-            List<String> colNames = prepareStmt.getColLabelsOfPlaceHolders();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("sendFields {}, {}", colNames, types);
-            }
+            // List<PrimitiveType> types = exprToStringType(labels);
+            List<String> colNames = labels;
             for (int i = 0; i < colNames.size(); ++i) {
                 serializer.reset();
-                serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
+                // serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
+                serializer.writeField(colNames.get(i), Type.STRING);
                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
             serializer.reset();
@@ -2754,14 +2785,15 @@ public class StmtExecutor {
         // send field one by one
         for (int i = 0; i < colNames.size(); ++i) {
             serializer.reset();
-            if (prepareStmt != null && isExecuteStmt) {
+            if (prepareStmt != null && prepareStmt instanceof  PrepareStmt
+                    && context.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
                 // Using PreparedStatment pre serializedField to avoid serialize each time
                 // we send a field
-                byte[] serializedField = prepareStmt.getSerializedField(colNames.get(i));
+                byte[] serializedField = ((PrepareStmt) prepareStmt).getSerializedField(colNames.get(i));
                 if (serializedField == null) {
                     serializer.writeField(colNames.get(i), types.get(i));
                     serializedField = serializer.toArray();
-                    prepareStmt.setSerializedField(colNames.get(i), serializedField);
+                    ((PrepareStmt) prepareStmt).setSerializedField(colNames.get(i), serializedField);
                 }
                 context.getMysqlChannel().sendOnePacket(ByteBuffer.wrap(serializedField));
             } else {

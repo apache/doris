@@ -65,4 +65,5 @@ public class TinyIntLiteral extends IntegerLikeLiteral {
     public Number getNumber() {
         return value;
     }
+
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.antlr.v4.runtime.CommonToken;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;
@@ -262,6 +263,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.PlaceholderExpr;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
@@ -493,6 +495,12 @@ import java.util.stream.Collectors;
 @SuppressWarnings({"OptionalUsedAsFieldOrParameterType", "OptionalGetWithoutIsPresent"})
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private final boolean forCreateView;
+
+    private int placeHolderExprId = 0;
+
+    // Sort the parameters with token position to keep the order with original placeholders
+    // in prepared statement.Otherwise, the order maybe broken
+    private Map<Token, PlaceholderExpr> tokenPosToParameters;
 
     public LogicalPlanBuilder() {
         forCreateView = false;
@@ -1010,6 +1018,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             logicalPlans.add(Pair.of(
                     ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext));
+            if (tokenPosToParameters != null) {
+                List<PlaceholderExpr> params = new ArrayList<>(tokenPosToParameters.values());
+                statementContext.setParams(params);
+                tokenPosToParameters.clear();
+            }
         }
         return logicalPlans;
     }
@@ -2320,6 +2333,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new StringLiteral(s);
         }
         return new VarcharLiteral(s, strLength);
+    }
+
+    @Override
+    public Expression visitPlaceholder(DorisParser.PlaceholderContext ctx) {
+        if (tokenPosToParameters == null) {
+            tokenPosToParameters = Maps.newTreeMap((pos1, pos2) -> {
+                int line = pos1.getLine() - pos2.getLine();
+                if (line != 0) {
+                    return line;
+                }
+                return pos1.getCharPositionInLine() - pos2.getCharPositionInLine();
+            });
+        }
+        PlaceholderExpr parameter = new PlaceholderExpr(placeHolderExprId++);
+        tokenPosToParameters.put(ctx.start, parameter);
+        return parameter;
     }
 
     /**
