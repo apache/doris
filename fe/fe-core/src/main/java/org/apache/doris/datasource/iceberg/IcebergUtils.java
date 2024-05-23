@@ -655,10 +655,9 @@ public class IcebergUtils {
     public static String convertIcebergPartitionToPartitionName(PartitionSpec partitionSpec, PartitionData partition) {
         int size = partition.size();
         for (int i = 0; i < size; i++) {
-            org.apache.iceberg.types.Type type = partition.getType(i);
+            partition.getType(i);
             partition.getPartitionType();
             partition.toString();
-
         }
         StringBuilder sb = new StringBuilder();
         for (int index = 0; index < partitionSpec.fields().size(); ++index) {
