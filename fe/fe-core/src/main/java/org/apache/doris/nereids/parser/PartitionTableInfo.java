@@ -335,6 +335,6 @@ public class PartitionTableInfo {
     }
 
     public boolean inIdentifierPartitions(String columnName) {
-        return identifierPartitionColumns.contains(columnName);
+        return identifierPartitionColumns != null && identifierPartitionColumns.contains(columnName);
     }
 }
