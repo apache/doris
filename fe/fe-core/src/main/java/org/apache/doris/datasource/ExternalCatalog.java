@@ -726,14 +726,14 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void createTable(CreateTableStmt stmt) throws UserException {
+    public boolean createTable(CreateTableStmt stmt) throws UserException {
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("createTable not implemented");
-            return;
+            return false;
         }
         try {
-            metadataOps.createTable(stmt);
+            return metadataOps.createTable(stmt);
         } catch (Exception e) {
             LOG.warn("Failed to create a table.", e);
             throw e;
