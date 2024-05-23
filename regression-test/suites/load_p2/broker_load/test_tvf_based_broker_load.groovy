@@ -179,7 +179,6 @@ suite("test_tvf_based_broker_load_p2", "p2") {
     def parse_compress_type = { path ->
        def pos = path.lastIndexOf(".") 
        String type = path.substring(pos + 1)
-       logger.info("parse_compress_type: $type")
        switch(type) {
         case "gz":
             return "GZ" 
@@ -203,7 +202,6 @@ suite("test_tvf_based_broker_load_p2", "p2") {
                         set_value, where_expr, line_delimiter ->
         String columns_str = ("$columns" != "") ? "($columns)" : "";
         String compress_type = "compress_type as '${parse_compress_type(path)}'"
-        logger.info("do_load_job line_delimiter is: $line_delimiter; compress_type is: $compress_type")
         String line_term = ("$line_delimiter" != "") ? "lines terminated by '$line_delimiter'" : "";
 
         String column_separator = ("$line_term" != "UNKNOWN") ? "columns terminated by '|'" : "columns terminated by ','";
@@ -250,14 +248,11 @@ suite("test_tvf_based_broker_load_p2", "p2") {
         def uuids = []
         try {
             def i = 0
-            logger.info("line_delimiters size is: ${line_delimiters.size()}")
             for (String table in tables) {
                 sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
                 sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
-                logger.info("generate {$i}th table(${tables.size()}): $table, the line_delimiter is: ${line_delimiters[i]}")
                 def uuid = UUID.randomUUID().toString().replace("-", "0")
                 uuids.add(uuid)
-                logger.info("\n$i, ${paths[i]}, $table, ${columns_list[i]}, ${column_in_paths[i]}, ${preceding_filters[i]}, ${set_values[i]}, ${where_exprs[i]}, ${line_delimiters[i]}")
                 do_load_job.call(uuid, paths[i], table, columns_list[i], column_in_paths[i], preceding_filters[i],
                         set_values[i], where_exprs[i], line_delimiters[i])
                 i++
@@ -268,16 +263,13 @@ suite("test_tvf_based_broker_load_p2", "p2") {
                 def max_try_milli_secs = 60000
                 while (max_try_milli_secs > 0) {
                     String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
-                    logger.info("\ntable: ${tables[i]} show load result: $result\n")
                     if (result[0][2].equals("FINISHED")) {
                         
-                        // logger.info("Load FINISHED " + label + ", table ${tables[i]}")
                         assertTrue(result[0][6].contains(task_info[0]))
                         // assertTrue(etl_info[0] == result[0][5], "expected: " + etl_info[0] + ", actual: " + result[0][5] + ", label: $label")
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {
-                        logger.info("Load CANCELLED " + label + ", table ${tables[i]}")
                         assertTrue(result[0][6].contains(task_info[0]))
                         assertTrue(result[0][7].contains(error_msg[0]))
                         break;
@@ -289,12 +281,10 @@ suite("test_tvf_based_broker_load_p2", "p2") {
                         // assertTrue(1 == 2, "load Timeout: $label")
                     }
                 }
-                logger.info("${i}th label finished")
                 i++
             }
 
 
-            logger.info("all tables passed")
 
             def orc_expect_result = """[[20, 15901, 6025915247311731176, 1373910657, 8863282788606566657], [38, 15901, -9154375582268094750, 1373853561, 4923892366467329038], [38, 15901, -9154375582268094750, 1373853561, 8447995939656287502], [38, 15901, -9154375582268094750, 1373853565, 7451966001310881759], [38, 15901, -9154375582268094750, 1373853565, 7746521994248163870], [38, 15901, -9154375582268094750, 1373853577, 6795654975682437824], [38, 15901, -9154375582268094750, 1373853577, 9009208035649338594], [38, 15901, -9154375582268094750, 1373853608, 6374361939566017108], [38, 15901, -9154375582268094750, 1373853608, 7387298457456465364], [38, 15901, -9154375582268094750, 1373853616, 7463736180224933002]]"""
             for (String table in tables) {
@@ -305,19 +295,12 @@ suite("test_tvf_based_broker_load_p2", "p2") {
             }
 
 
-            logger.info("test parquet_s3_case1")
             order_qt_parquet_s3_case1 """select count(*) from parquet_s3_case1 where col1=10"""
-            logger.info("test parquet_s3_case2")
             order_qt_parquet_s3_case3 """select count(*) from parquet_s3_case3 where p_partkey < 100000"""
-            logger.info("test parquet_s3_case3")
             order_qt_parquet_s3_case6 """select count(*) from parquet_s3_case6 where p_partkey < 100000"""
-            logger.info("test parquet_s3_case4")
             order_qt_parquet_s3_case7 """select count(*) from parquet_s3_case7 where col4=4"""
-            logger.info("test parquet_s3_case5")
             order_qt_parquet_s3_case8 """ select count(*) from parquet_s3_case8 where p_partkey=1"""
-            logger.info("test parquet_s3_case6")
-            // order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
-            // logger.info("test parquet_s3_case[123456789] passed")
+            // order_qt_parquet_s3_case9 """ select * from parquet_s3_case9""" // we ignore this table temporarily due to complex field type
 
         } finally {
             for (String table in tables) {
