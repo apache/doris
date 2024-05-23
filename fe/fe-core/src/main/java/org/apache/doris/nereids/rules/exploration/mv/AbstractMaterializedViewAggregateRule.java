@@ -45,7 +45,6 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
-import org.apache.hadoop.util.Lists;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -61,8 +60,8 @@ import java.util.stream.Collectors;
  */
 public abstract class AbstractMaterializedViewAggregateRule extends AbstractMaterializedViewRule {
 
-    public static List<AggFunctionRollUpHandler> ROLL_UP_HANDLERS =
-            Lists.newArrayList(DirectRollupHandler.INSTANCE,
+    public final static List<AggFunctionRollUpHandler> ROLL_UP_HANDLERS =
+            ImmutableList.of(DirectRollupHandler.INSTANCE,
                     MappingRollupHandler.INSTANCE,
                     SingleCombinatorRollupHandler.INSTANCE,
                     BothCombinatorRollupHandler.INSTANCE);
@@ -288,9 +287,9 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             Expression queryAggregateFunctionShuttled,
             Map<Expression, Expression> mvExprToMvScanExprQueryBased) {
         for (Map.Entry<Expression, Expression> expressionEntry : mvExprToMvScanExprQueryBased.entrySet()) {
+            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair = Pair.of(expressionEntry.getKey(),
+                    expressionEntry.getValue());
             for (AggFunctionRollUpHandler rollUpHandler : ROLL_UP_HANDLERS) {
-                Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair = Pair.of(expressionEntry.getKey(),
-                        expressionEntry.getValue());
                 if (!rollUpHandler.canRollup(queryAggregateFunction, queryAggregateFunctionShuttled,
                         mvExprToMvScanExprQueryBasedPair)) {
                     continue;

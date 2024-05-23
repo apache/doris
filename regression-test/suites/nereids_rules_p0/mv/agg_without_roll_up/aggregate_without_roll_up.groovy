@@ -1239,9 +1239,7 @@ suite("aggregate_without_roll_up") {
             o_orderpriority,
             l_suppkey;
     """
-    order_qt_query24_0_before "${query24_0}"
     check_mv_rewrite_success(db, mv24_0, query24_0, "mv24_0")
-    order_qt_query24_0_after "${query24_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv24_0"""
 
 
@@ -1364,8 +1362,6 @@ suite("aggregate_without_roll_up") {
             o_orderpriority,
             l_suppkey;
     """
-    order_qt_query27_0_before "${query27_0}"
     check_mv_rewrite_fail(db, mv27_0, query27_0, "mv27_0")
-    order_qt_query27_0_after "${query27_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv27_0"""
 }

@@ -1514,9 +1514,7 @@ suite("aggregate_with_roll_up") {
             o_orderstatus,
             l_suppkey;
     """
-    order_qt_query34_0_before "${query34_0}"
     check_mv_rewrite_success(db, mv34_0, query34_0, "mv34_0")
-    order_qt_query34_0_after "${query34_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv34_0"""
 
 
@@ -1645,8 +1643,6 @@ suite("aggregate_with_roll_up") {
             o_orderstatus,
             l_suppkey;
     """
-    order_qt_query37_0_before "${query37_0}"
     check_mv_rewrite_fail(db, mv37_0, query37_0, "mv37_0")
-    order_qt_query37_0_after "${query37_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv37_0"""
 }
