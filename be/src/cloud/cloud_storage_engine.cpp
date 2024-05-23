@@ -323,7 +323,7 @@ void CloudStorageEngine::sync_storage_vault() {
     }
 
     if (vault_infos.empty()) {
-        LOG(WARNING) << "no storage vault info";
+        LOG(WARNING) << "empty storage vault info";
         return;
     }
 
