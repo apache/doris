@@ -424,19 +424,15 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return null;
         }
         // Check when mv partition relates base table partition data change or delete partition
-        Set<String> rewrittenPlanUsePartitionNameSet = rewrittenPlan.collectToList(node ->
-                        node instanceof LogicalOlapScan
-                                && Objects.equals(((CatalogRelation) node).getTable().getName(), mtmv.getName()))
-                .stream()
-                .map(node -> {
-                    LogicalOlapScan olapScan = (LogicalOlapScan) node;
-                    Set<String> partitionNames = new HashSet<>();
-                    olapScan.getSelectedPartitionIds().forEach(id ->
-                            partitionNames.add(olapScan.getTable().getPartition(id).getName()));
-                    return partitionNames;
-                })
-                .flatMap(Collection::stream)
-                .collect(ImmutableSet.toImmutableSet());
+        Set<String> rewrittenPlanUsePartitionNameSet = new HashSet<>();
+        List<Object> mvOlapScanList = rewrittenPlan.collectToList(node ->
+                node instanceof LogicalOlapScan
+                        && Objects.equals(((CatalogRelation) node).getTable().getName(), mtmv.getName()));
+        for (Object olapScanObj : mvOlapScanList) {
+            LogicalOlapScan olapScan = (LogicalOlapScan) olapScanObj;
+            olapScan.getSelectedPartitionIds().forEach(id ->
+                    rewrittenPlanUsePartitionNameSet.add(olapScan.getTable().getPartition(id).getName()));
+        }
         // If rewritten plan use but not in mv valid partition name set, need remove in mv and base table union
         Sets.difference(rewrittenPlanUsePartitionNameSet, mvValidPartitionNameSet)
                 .copyInto(mvNeedRemovePartitionNameSet);

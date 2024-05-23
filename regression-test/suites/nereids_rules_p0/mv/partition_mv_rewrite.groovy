@@ -167,6 +167,7 @@ suite("partition_mv_rewrite") {
     """
     sleep(5000)
 
+    sql "SET enable_materialized_view_union_rewrite=false;"
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_1_0_before "${all_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
