@@ -64,7 +64,7 @@ CloudCompactionAction::CloudCompactionAction(CompactionActionType ctype, ExecEnv
                                              TPrivilegeType::type ptype)
         : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine), _type(ctype) {}
 
-/// check param and fetch tablet_id from req
+/// check param and fetch tablet_id & table_id from req
 static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id) {
     // req tablet id and table id, we have to set only one of them.
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
