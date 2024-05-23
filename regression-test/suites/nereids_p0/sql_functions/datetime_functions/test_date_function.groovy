@@ -594,31 +594,30 @@ suite("test_date_function") {
     qt_sql """ select seconds_sub(test_time2,1) result from ${tableName}; """
 
     // test last_day for vec
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """ DROP TABLE IF EXISTS test_time_add_sub_function; """
     sql """
-            CREATE TABLE IF NOT EXISTS ${tableName} (
-                birth date,    
-                birth1 datev2, 
-                birth2 datetime, 
+            CREATE TABLE IF NOT EXISTS test_time_add_sub_function (
+                birth date,
+                birth1 datev2,
+                birth2 datetime,
                 birth3 datetimev2)
             UNIQUE KEY(birth, birth1, birth2, birth3)
             DISTRIBUTED BY HASH (birth) BUCKETS 1 
             PROPERTIES( "replication_allocation" = "tag.location.default: 1");
         """
     sql """
-        insert into ${tableName} values 
-        ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
-        ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
+        insert into test_time_add_sub_function values
+        ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'),
+        ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'),
         ('2022-02-27', '2022-02-27', '2022-02-27 00:00:00', '2022-02-27 00:00:00'),
         ('2022-02-28', '2022-02-28', '2022-02-28 23:59:59', '2022-02-28 23:59:59');"""
     qt_sql """
-        select last_day(birth), last_day(birth1), 
-                last_day(birth2), last_day(birth3) 
-                from ${tableName};
+        select last_day(birth), last_day(birth1),
+                last_day(birth2), last_day(birth3)
+                from test_time_add_sub_function;
     """
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
 
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """ DROP TABLE IF EXISTS test_time_add_sub_function; """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 birth date,    
