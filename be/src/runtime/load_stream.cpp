@@ -335,8 +335,10 @@ LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool e
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
     TUniqueId load_tid = ((UniqueId)load_id).to_thrift();
 #ifndef BE_TEST
-    std::shared_ptr<QueryContext> query_context =
-            ExecEnv::GetInstance()->fragment_mgr()->get_query_context(load_tid);
+    std::shared_ptr<QueryContext> query_context = nullptr;
+    WARN_IF_ERROR(
+            ExecEnv::GetInstance()->fragment_mgr()->get_query_context(load_tid, &query_context),
+            "");
     if (query_context != nullptr) {
         _query_thread_context = {load_tid, query_context->query_mem_tracker};
     } else {
