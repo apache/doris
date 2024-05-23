@@ -582,6 +582,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
 
+    public static final String FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS = "fetch_remote_schema_timeout_seconds";
+
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
@@ -1816,6 +1818,10 @@ public class SessionVariable implements Serializable, Writable {
     // for spill to disk
     @VariableMgr.VarAttr(name = MIN_REVOCABLE_MEM, fuzzy = true)
     public long minRevocableMem = 32 * 1024 * 1024;
+
+    // fetch remote schema rpc timeout
+    @VariableMgr.VarAttr(name = FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS, fuzzy = true)
+    public long fetchRemoteSchemaTimeoutSeconds = 120;
 
     @VariableMgr.VarAttr(
             name = ENABLE_JOIN_SPILL,

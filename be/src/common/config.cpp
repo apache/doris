@@ -1271,6 +1271,8 @@ DEFINE_Int64(max_nonblock_close_thread_num, "64");
 // The possibility that mem allocator throws an exception during memory allocation
 // This config is for test usage, be careful when changing it.
 DEFINE_mDouble(mem_alloc_fault_probability, "0.0");
+// The time out milliseconds for remote fetch schema RPC, default 60s
+DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
 
 // clang-format off
 #ifdef BE_TEST

@@ -1346,6 +1346,8 @@ DECLARE_Int64(max_nonblock_close_thread_num);
 // The possibility that mem allocator throws an exception during memory allocation
 // This config is for test usage, be careful when changing it.
 DECLARE_mDouble(mem_alloc_fault_probability);
+// The time out milliseconds for remote fetch schema RPC
+DECLARE_mInt64(fetch_remote_schema_rpc_timeout_ms);
 
 #ifdef BE_TEST
 // test s3

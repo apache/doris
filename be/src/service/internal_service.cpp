@@ -1072,6 +1072,7 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                         ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                                 host, brpc_port));
                 rpc_contexts[i].cid = rpc_contexts[i].cntl.call_id();
+                rpc_contexts[i].cntl.set_timeout_ms(config::fetch_remote_schema_rpc_timeout_ms);
                 stub->fetch_remote_tablet_schema(&rpc_contexts[i].cntl, &remote_request,
                                                  &rpc_contexts[i].response, brpc::DoNothing());
             }
