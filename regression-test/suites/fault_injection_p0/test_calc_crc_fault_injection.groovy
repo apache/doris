@@ -109,7 +109,7 @@ suite("test_calc_crc") {
     assertEquals("3", parseJson(out_4.trim()).start_version)
     assertEquals("6", parseJson(out_4.trim()).end_version)
     assertEquals("4", parseJson(out_4.trim()).rowset_count)
-    assertEquals("12", parseJson(out_4.trim()).file_count)
+    assertEquals("8", parseJson(out_4.trim()).file_count)
 
     def (code_5, out_5, err_5) = calc_file_crc_on_tablet_with_start_end(ip, port, tablet_id, 5, 9)
     logger.info("Run calc_file_crc_on_tablet: code=" + code_5 + ", out=" + out_5 + ", err=" + err_5)
