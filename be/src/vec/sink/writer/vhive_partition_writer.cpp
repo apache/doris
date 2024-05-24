@@ -189,7 +189,7 @@ Status VHivePartitionWriter::_projection_and_filter_block(doris::vectorized::Blo
     }
 
     std::vector<uint32_t> columns_to_filter;
-    int column_to_keep = output_block.columns();
+    int column_to_keep = output_block->columns();
     columns_to_filter.resize(column_to_keep);
     for (uint32_t i = 0; i < column_to_keep; ++i) {
         columns_to_filter[i] = i;
