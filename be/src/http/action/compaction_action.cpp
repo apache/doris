@@ -87,7 +87,8 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id, uin
 }
 
 /// retrieve specific id from req
-Status CompactionAction::_check_param(HttpRequest* req, uint64_t* id_param, const std::string param_name) {
+Status CompactionAction::_check_param(HttpRequest* req, uint64_t* id_param,
+                                      const std::string param_name) {
     std::string req_id_param = req->param(param_name);
     if (req_id_param != "") {
         try {
@@ -193,7 +194,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
 
 Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
-     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY),
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY),
                                    "check param failed");
 
     if (tablet_id == 0) {
