@@ -123,9 +123,9 @@ public class ShowPartitionsStmt extends ShowStmt {
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), catalog.getName(), dbName,
                 tblName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW PARTITIONS",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(),
-                    dbName + ": " + tblName);
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(),
+                                                dbName + ": " + tblName);
         }
 
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
@@ -188,7 +188,7 @@ public class ShowPartitionsStmt extends ShowStmt {
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
                 || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
-                    catalog.getType()));
+                catalog.getType()));
         }
 
         // analyze where clause if not null
@@ -241,7 +241,7 @@ public class ShowPartitionsStmt extends ShowStmt {
         String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName();
         if (catalog instanceof HMSExternalCatalog && !leftKey.equalsIgnoreCase(FILTER_PARTITION_NAME)) {
             throw new AnalysisException(String.format("Only %s column supported in where clause for this catalog",
-                    FILTER_PARTITION_NAME));
+                FILTER_PARTITION_NAME));
         }
         if (subExpr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
@@ -252,7 +252,7 @@ public class ShowPartitionsStmt extends ShowStmt {
             } else if (leftKey.equalsIgnoreCase(FILTER_LAST_CONSISTENCY_CHECK_TIME)) {
                 if (!(subExpr.getChild(1) instanceof StringLiteral)) {
                     throw new AnalysisException("Where clause : LastConsistencyCheckTime =|>=|<=|>|<|!= "
-                            + "\"2019-12-22|2019-12-22 22:22:00\"");
+                        + "\"2019-12-22|2019-12-22 22:22:00\"");
                 }
                 subExpr.setChild(1, (subExpr.getChild(1)).castTo(
                         Objects.requireNonNull(ScalarType.getDefaultDateType(Type.DATETIME))));
@@ -266,7 +266,7 @@ public class ShowPartitionsStmt extends ShowStmt {
             if (leftKey.equalsIgnoreCase(FILTER_PARTITION_NAME) || leftKey.equalsIgnoreCase(FILTER_STATE)) {
                 if (likePredicate.getOp() != LikePredicate.Operator.LIKE) {
                     throw new AnalysisException("Where clause : PartitionName|State like "
-                            + "\"p20191012|NORMAL\"");
+                        + "\"p20191012|NORMAL\"");
                 }
             } else {
                 throw new AnalysisException("Where clause : PartitionName|State like \"p20191012|NORMAL\"");
