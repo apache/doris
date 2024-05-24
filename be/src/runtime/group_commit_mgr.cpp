@@ -447,10 +447,12 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     }
     LOG(INFO) << ss.str();
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
-        std ::string msg = _exec_env->wal_mgr()->get_wal_dirs_info_string();
-        LOG(INFO) << "debug promise set: " << msg;
-        ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
-                Status ::InternalError(msg));
+        if (dp->param<int64_t>("table_id", -1) == table_id) {
+            std ::string msg = _exec_env->wal_mgr()->get_wal_dirs_info_string();
+            LOG(INFO) << "table_id" << std::to_string(table_id) << " set debug promise: " << msg;
+            ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
+                    Status ::InternalError(msg));
+        }
     };);
     return st;
 }
