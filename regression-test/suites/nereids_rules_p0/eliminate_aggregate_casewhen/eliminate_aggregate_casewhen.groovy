@@ -20,9 +20,11 @@ suite("eliminate_aggregate_casewhen") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute'"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'DROP DATABASE IF EXISTS test_eliminate_aggregate_casewhen'
     sql 'CREATE DATABASE IF NOT EXISTS test_eliminate_aggregate_casewhen'
     sql 'use test_eliminate_aggregate_casewhen'
+
 
     // create tables
     sql """drop table if exists t1;"""
