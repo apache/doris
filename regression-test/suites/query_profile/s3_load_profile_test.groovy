@@ -179,7 +179,7 @@ PROPERTIES (
     assertFalse(executionProfileIdx == -1)
     if (!profileDataString.contains("FILE_SCAN_OPERATOR") || !profileDataString.contains("BlocksProduced")
         || !profileDataString.contains("RowsProduced") || !profileDataString.contains("RowsRead")) {
-            logger.info("profileDataString")
+            logger.info("profileDataString:" + profileDataString)
     }
     assertTrue(profileDataString.contains("FILE_SCAN_OPERATOR"))
     assertTrue(profileDataString.contains("BlocksProduced"))
