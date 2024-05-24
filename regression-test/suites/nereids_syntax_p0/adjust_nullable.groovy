@@ -95,5 +95,23 @@ suite("adjust_nullable") {
     sql """
         drop table if exists table_8_undef_undef;
     """
+
+    sql """
+        drop table if exists orders_2_x;
+    """
+
+    sql """CREATE TABLE `orders_2_x` (
+        `o_orderdate` DATE not NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`o_orderdate`)
+        DISTRIBUTED BY HASH(`o_orderdate`) BUCKETS 96
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );"""
+
+    explain {
+            sql(" select cast('2023-10-17' as date ) from orders_2_x union all select '2023-10-17' from orders_2_x;")
+            notContains("nullable=true")
+    }
 }
 
