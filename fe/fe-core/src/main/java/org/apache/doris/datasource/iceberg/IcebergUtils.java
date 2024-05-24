@@ -512,8 +512,8 @@ public class IcebergUtils {
             case MAP:
                 Types.MapType map = (Types.MapType) type;
                 return new MapType(
-                        icebergTypeToDorisType(map.keyType()),
-                        icebergTypeToDorisType(map.valueType())
+                    icebergTypeToDorisType(map.keyType()),
+                    icebergTypeToDorisType(map.valueType())
                 );
             case STRUCT:
                 Types.StructType struct = (Types.StructType) type;
