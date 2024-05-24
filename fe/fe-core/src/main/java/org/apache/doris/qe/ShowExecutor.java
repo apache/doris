@@ -1351,10 +1351,10 @@ public class ShowExecutor {
         } else {
             loadInfos.addAll(((CloudLoadManager) env.getLoadManager())
                     .getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
-                            showStmt.isAccurateMatch(), statesValue, jobTypes, showStmt.getCopyIdValue(),
-                            showStmt.isCopyIdAccurateMatch(), showStmt.getTableNameValue(),
-                            showStmt.isTableNameAccurateMatch(),
-                            showStmt.getFileValue(), showStmt.isFileAccurateMatch()));
+                        showStmt.isAccurateMatch(), statesValue, jobTypes, showStmt.getCopyIdValue(),
+                        showStmt.isCopyIdAccurateMatch(), showStmt.getTableNameValue(),
+                        showStmt.isTableNameAccurateMatch(),
+                        showStmt.getFileValue(), showStmt.isFileAccurateMatch()));
         }
         // add the nerieds load info
         JobManager loadMgr = env.getJobManager();
@@ -1554,8 +1554,8 @@ public class ShowExecutor {
             } else {
                 loadJobInfosByDb = ((CloudLoadManager) loadManager)
                         .getLoadJobInfosByDb(db.getId(),
-                                showWarningsStmt.getLabel(),
-                                true, null, null, null, false, null, false, null, false);
+                        showWarningsStmt.getLabel(),
+                        true, null, null, null, false, null, false, null, false);
             }
             if (CollectionUtils.isEmpty(loadJobInfosByDb)) {
                 return null;
@@ -2515,12 +2515,12 @@ public class ShowExecutor {
         if (showStmt.showAllJobs()) {
             int limit = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().MAX_SHOW_ENTRIES;
             resultSet = new ShowResultSet(showStmt.getMetaData(),
-                    ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getAllJobInfos(limit));
+                            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getAllJobInfos(limit));
         } else {
             resultSet = new ShowResultSet(showStmt.getMetaData(),
-                    ((CloudEnv) Env.getCurrentEnv())
-                            .getCacheHotspotMgr()
-                            .getSingleJobInfo(showStmt.getJobId()));
+                            ((CloudEnv) Env.getCurrentEnv())
+                                    .getCacheHotspotMgr()
+                                    .getSingleJobInfo(showStmt.getJobId()));
         }
     }
 
@@ -3222,7 +3222,7 @@ public class ShowExecutor {
         ShowStageStmt showStmt = (ShowStageStmt) stmt;
         try {
             List<Cloud.StagePB> stages = ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                    .getStage(Cloud.StagePB.StageType.EXTERNAL, null, null, null);
+                                            .getStage(Cloud.StagePB.StageType.EXTERNAL, null, null, null);
             if (stages == null) {
                 throw new AnalysisException("get stage err");
             }
