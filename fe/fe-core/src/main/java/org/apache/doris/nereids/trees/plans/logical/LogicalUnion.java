@@ -180,6 +180,13 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         return new LogicalUnion(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter, children);
     }
 
+    public LogicalUnion withNewOutputsChildrenAndConstExprsList(List<NamedExpression> newOutputs, List<Plan> children,
+                                                                List<List<SlotReference>> childrenOutputs,
+                                                                List<List<NamedExpression>> constantExprsList) {
+        return new LogicalUnion(qualifier, newOutputs, childrenOutputs, constantExprsList,
+                hasPushedFilter, Optional.empty(), Optional.empty(), children);
+    }
+
     public LogicalUnion withAllQualifier() {
         return new LogicalUnion(Qualifier.ALL, outputs, regularChildrenOutputs, constantExprsList, hasPushedFilter,
                 Optional.empty(), Optional.empty(), children);
