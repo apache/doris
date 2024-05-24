@@ -558,10 +558,6 @@ public class IcebergUtils {
                 partition.getPartitionData());
     }
 
-    // return partition name in forms of `col1=value1/col2=value2`
-    // if the partition field is explicitly named, use this name without change
-    // if the partition field is not identity transform, column name is appended by its transform name (e.g. col1_hour)
-    // if all partition fields are no longer active (dropped by partition evolution), return "ICEBERG_DEFAULT_PARTITION"
     public static String convertIcebergPartitionToPartitionName(PartitionSpec partitionSpec, StructLike partition) {
         StringBuilder sb = new StringBuilder();
         List<Integer> notNullValueIndex = getNotNullValues(partition);
