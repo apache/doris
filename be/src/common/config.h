@@ -871,7 +871,7 @@ DECLARE_mString(kafka_debug);
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
-DECLARE_Int32(routine_load_consumer_pool_size);
+DECLARE_mInt32(routine_load_consumer_pool_size);
 
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
