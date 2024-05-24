@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.analysis.SetOperationStmt.Qualifier;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.ExprFdItem;
