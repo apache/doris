@@ -182,11 +182,11 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 );
 
         Set<Expression> needPushSelf = Sets.union(
-                categorizedNoDistinctAggsChildren.getOrDefault(true, new HashSet<>()),
-                categorizedDistinctAggsChildren.getOrDefault(true, new HashSet<>()));
+                categorizedNoDistinctAggsChildren.getOrDefault(true, ImmutableSet.of()),
+                categorizedDistinctAggsChildren.getOrDefault(true, ImmutableSet.of()));
         Set<Slot> needPushInputSlots = ExpressionUtils.getInputSlotSet(Sets.union(
-                categorizedNoDistinctAggsChildren.getOrDefault(false, new HashSet<>()),
-                categorizedDistinctAggsChildren.getOrDefault(false, new HashSet<>())));
+                categorizedNoDistinctAggsChildren.getOrDefault(false, ImmutableSet.of()),
+                categorizedDistinctAggsChildren.getOrDefault(false, ImmutableSet.of())));
 
         Set<Alias> existsAlias =
                 ExpressionUtils.mutableCollect(aggregateOutput, Alias.class::isInstance);
