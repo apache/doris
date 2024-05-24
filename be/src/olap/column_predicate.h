@@ -292,9 +292,9 @@ public:
         case PredicateType::GE:
             return "ge";
         case PredicateType::IN_LIST:
-            return "in_list";
+            return "in";
         case PredicateType::NOT_IN_LIST:
-            return "not_in_list";
+            return "not_in";
         case PredicateType::IS_NULL:
             return "is_null";
         case PredicateType::IS_NOT_NULL:

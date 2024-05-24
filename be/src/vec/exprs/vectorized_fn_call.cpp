@@ -188,8 +188,8 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
     if (_can_fast_execute) {
-        auto can_fast_execute = fast_execute(context->fn_context(_fn_context_index), *block, args,
-                                             num_columns_without_result, block->rows());
+        auto can_fast_execute = fast_execute(*block, args, num_columns_without_result,
+                                             block->rows(), _function->get_name());
         if (can_fast_execute) {
             *result_column_id = num_columns_without_result;
             return Status::OK();
@@ -211,32 +211,6 @@ Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block
                                  int* result_column_id) {
     std::vector<size_t> arguments;
     return _do_execute(context, block, result_column_id, arguments);
-}
-
-// fast_execute can direct copy expr filter result which build by apply index in segment_iterator
-bool VectorizedFnCall::fast_execute(FunctionContext* context, Block& block,
-                                    const ColumnNumbers& arguments, size_t result,
-                                    size_t input_rows_count) {
-    auto query_value = block.get_by_position(arguments[1]).to_string(0);
-    std::string column_name = block.get_by_position(arguments[0]).name;
-    auto result_column_name = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" +
-                              _function->get_name() + "_" + query_value;
-    if (!block.has(result_column_name)) {
-        return false;
-    }
-
-    auto result_column =
-            block.get_by_name(result_column_name).column->convert_to_full_column_if_const();
-    auto& result_info = block.get_by_position(result);
-    if (result_info.type->is_nullable()) {
-        block.replace_by_position(
-                result,
-                ColumnNullable::create(result_column, ColumnUInt8::create(input_rows_count, 0)));
-    } else {
-        block.replace_by_position(result, std::move(result_column));
-    }
-
-    return true;
 }
 
 const std::string& VectorizedFnCall::expr_name() const {

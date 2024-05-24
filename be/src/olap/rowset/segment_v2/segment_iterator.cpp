@@ -761,9 +761,9 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
             _column_predicate_info->query_op = "match";
         } else if (node_type == TExprNodeType::IN_PRED) {
             if (expr->op() == TExprOpcode::type::FILTER_IN) {
-                _column_predicate_info->query_op = "in_list";
+                _column_predicate_info->query_op = "in";
             } else {
-                _column_predicate_info->query_op = "not_in_list";
+                _column_predicate_info->query_op = "not_in";
             }
         } else {
             _column_predicate_info->query_op = expr->fn().name.function_name;
@@ -2709,9 +2709,9 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
             _column_predicate_info->query_op = "match";
         } else if (node_type == TExprNodeType::IN_PRED) {
             if (expr->op() == TExprOpcode::type::FILTER_IN) {
-                _column_predicate_info->query_op = "in_list";
+                _column_predicate_info->query_op = "in";
             } else {
-                _column_predicate_info->query_op = "not_in_list";
+                _column_predicate_info->query_op = "not_in";
             }
         } else if (node_type != TExprNodeType::COMPOUND_PRED) {
             _column_predicate_info->query_op = expr->fn().name.function_name;

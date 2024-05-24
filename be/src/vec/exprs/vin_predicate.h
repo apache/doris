@@ -61,5 +61,7 @@ private:
 
     const bool _is_not_in;
     static const constexpr char* function_name = "in";
+
+    bool _can_fast_execute = false;
 };
 } // namespace doris::vectorized
