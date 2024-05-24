@@ -48,8 +48,11 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.thrift.TExprOpcode;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import io.trino.plugin.base.io.ByteBuffers;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
@@ -77,10 +80,13 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -591,7 +597,7 @@ public class IcebergUtils {
         });
     }
 
-    public static List<String> getPartitions(ExternalCatalog catalog, String dbName, String name) {
+    public static List<String> getPartitions2(ExternalCatalog catalog, String dbName, String name) {
         return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
             List<String> res = Lists.newArrayList();
             org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
@@ -646,6 +652,74 @@ public class IcebergUtils {
             }
             return res;
         });
+    }
+
+    public static List<String> getPartitions(ExternalCatalog catalog, String dbName, String name) {
+        return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
+            List<String> res = Lists.newArrayList();
+            org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
+            if (icebergTable.specs().values().stream().allMatch(PartitionSpec::isUnpartitioned)) {
+                return res;
+            }
+            PartitionsTable partitionsTable = (PartitionsTable) MetadataTableUtils.createMetadataTableInstance(
+                    icebergTable, MetadataTableType.PARTITIONS);
+            // For partition table, we need to get all partitions from PartitionsTable.
+            try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().planFiles()) {
+                for (FileScanTask fileScanTask : tasks) {
+                    DataFile dataFile = fileScanTask.file();
+                    // Types.StructType structType = fileScanTask.spec().partitionType();
+                    // StructLike partitionStruct = dataFile.partition();
+                    // StructLikeWrapper partitionWrapper = StructLikeWrapper.forType(structType).set(partitionStruct);
+                    Map<Integer, Optional<String>> partitionValues = getPartitionKeys(dataFile.partition(),
+                            fileScanTask.spec());
+                    System.out.println(partitionValues);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return res;
+        });
+    }
+
+
+    public static Map<Integer, Optional<String>> getPartitionKeys(StructLike partition, PartitionSpec spec) {
+        Map<PartitionField, Integer> fieldToIndex = getIdentityPartitions(spec);
+        ImmutableMap.Builder<Integer, Optional<String>> partitionKeys = ImmutableMap.builder();
+
+        fieldToIndex.forEach((field, index) -> {
+            int id = field.sourceId();
+            org.apache.iceberg.types.Type type = spec.schema().findType(id);
+            Class<?> javaClass = type.typeId().javaClass();
+            Object value = partition.get(index, javaClass);
+
+            if (value == null) {
+                partitionKeys.put(id, Optional.empty());
+            } else {
+                String partitionValue;
+                if (type.typeId() == TypeID.FIXED || type.typeId() == TypeID.BINARY) {
+                    // this is safe because Iceberg PartitionData directly wraps the byte array
+                    partitionValue = Base64.getEncoder()
+                            .encodeToString(ByteBuffers.getWrappedBytes(((ByteBuffer) value)));
+                } else {
+                    partitionValue = value.toString();
+                }
+                partitionKeys.put(id, Optional.of(partitionValue));
+            }
+        });
+
+        return partitionKeys.buildOrThrow();
+    }
+
+    public static Map<PartitionField, Integer> getIdentityPartitions(PartitionSpec partitionSpec) {
+        // TODO: expose transform information in Iceberg library
+        ImmutableMap.Builder<PartitionField, Integer> columns = ImmutableMap.builder();
+        for (int i = 0; i < partitionSpec.fields().size(); i++) {
+            PartitionField field = partitionSpec.fields().get(i);
+            if (field.transform().isIdentity()) {
+                columns.put(field, i);
+            }
+        }
+        return columns.buildOrThrow();
     }
 
     // return partition name in forms of `col1=value1/col2=value2`
