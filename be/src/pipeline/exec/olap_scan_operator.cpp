@@ -329,6 +329,16 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
             scanner_builder.set_max_scanners_count(max_scanners_count);
             scanner_builder.set_min_rows_per_scanner(min_rows_per_scanner);
 
+            auto min_bytes_per_scanner = state()->parallel_scan_min_bytes_per_scanner();
+            auto segment_count_factor = state()->parallel_scan_segment_count_factor();
+            if (min_bytes_per_scanner > 0) {
+                scanner_builder.set_min_bytes_per_scanner(min_bytes_per_scanner);
+            }
+
+            if (segment_count_factor > 0) {
+                scanner_builder.set_segment_count_factor(segment_count_factor);
+            }
+
             RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
             for (auto& scanner : *scanners) {
                 auto* olap_scanner = assert_cast<vectorized::NewOlapScanner*>(scanner.get());

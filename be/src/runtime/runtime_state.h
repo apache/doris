@@ -504,6 +504,18 @@ public:
                        : 0;
     }
 
+    int64_t parallel_scan_min_bytes_per_scanner() const {
+        return _query_options.__isset.parallel_scan_min_bytes_per_scanner
+                       ? _query_options.parallel_scan_min_bytes_per_scanner
+                       : 0;
+    }
+
+    int64_t parallel_scan_segment_count_factor() const {
+        return _query_options.__isset.parallel_scan_segment_count_factor
+                       ? _query_options.parallel_scan_segment_count_factor
+                       : 0;
+    }
+
     int repeat_max_num() const {
 #ifndef BE_TEST
         if (!_query_options.__isset.repeat_max_num) {
