@@ -352,7 +352,7 @@ private:
             }
 
             auto wbytes = LZ4F_compressBegin(context->ctx, compressed_buf.data, compressed_buf.size,
-                                           &_s_preferences);
+                                             &_s_preferences);
             if (LZ4F_isError(wbytes)) {
                 compress_failed = true;
                 return Status::InvalidArgument("Fail to do LZ4F compress begin, res={}",
