@@ -23,6 +23,7 @@
 
 #include "util/runtime_profile.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
 #include "vec/exec/format/table/iceberg/partition_spec_parser.h"
 #include "vec/exec/format/table/iceberg/schema_parser.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -34,12 +35,10 @@ namespace doris {
 
 class ObjectPool;
 class RuntimeState;
-class RuntimeProfile;
 struct TypeDescriptor;
 
 namespace vectorized {
 
-class Block;
 class IColumn;
 class VIcebergPartitionWriter;
 struct ColumnWithTypeAndName;
@@ -123,6 +122,8 @@ private:
             _partitions_to_writers;
 
     VExprContextSPtrs _write_output_vexpr_ctxs;
+
+    Block _transformed_block;
 
     size_t _row_count = 0;
 

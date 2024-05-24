@@ -106,6 +106,65 @@ suite("test_iceberg_write_partitions", "p0,external,iceberg,external_docker,exte
         sql """ DROP TABLE iceberg_all_partition_types2_${format_compression}; """
     }
 
+    def test_columns_out_of_order = {  String format_compression, String catalog_name ->
+        def parts = format_compression.split("_")
+        def format = parts[0]
+        def compression = parts[1]
+        sql """ drop table if exists columns_out_of_order_source_tbl_${format_compression} """
+        sql """
+            CREATE TABLE columns_out_of_order_source_tbl_${format_compression} (
+                `col3` bigint,
+                `col6` int,
+                `col1` bigint,
+                `col4` int,
+                `col2` bigint,
+                `col5` int
+                ) ENGINE = iceberg
+                properties (
+                    "compression-codec" = ${compression},
+                    "write-format"=${format}
+                )
+        """;
+        sql """ drop table if exists columns_out_of_order_target_tbl_${format_compression} """
+        sql """
+            CREATE TABLE columns_out_of_order_target_tbl_${format_compression} (
+                `col1` bigint,
+                `col2` bigint,
+                `col3` bigint,
+                `col4` int,
+                `col5` int,
+                `col6` int
+                ) ENGINE = iceberg 
+                PARTITION BY LIST (
+                      col4, col5, col6
+                )()
+                properties (
+                    "compression-codec" = ${compression},
+                    "write-format"=${format}
+                )
+        """;
+
+        sql """
+            INSERT INTO columns_out_of_order_source_tbl_${format_compression} (
+              col1, col2, col3, col4, col5, col6
+            ) VALUES (1, 2, 3, 4, 5, 6);
+            """
+        order_qt_columns_out_of_order01 """ SELECT * FROM columns_out_of_order_source_tbl_${format_compression} """
+
+        sql """
+            INSERT INTO columns_out_of_order_target_tbl_${format_compression} (
+              col1, col2, col3, col4, col5, col6
+            ) VALUES (1, 2, 3, 4, 5, 6);
+            """
+
+        order_qt_columns_out_of_order02 """ SELECT * FROM columns_out_of_order_target_tbl_${format_compression} """
+
+        sql """ drop table columns_out_of_order_source_tbl_${format_compression} """
+        sql """ drop table columns_out_of_order_target_tbl_${format_compression} """
+        sql """ drop database if exists `test_columns_out_of_order` """;
+    }
+
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable Hive test.")
@@ -134,6 +193,7 @@ suite("test_iceberg_write_partitions", "p0,external,iceberg,external_docker,exte
                 logger.info("Process format_compression " + format_compression)
                 q01(format_compression, catalog_name)
                 q02(format_compression, catalog_name)
+                test_columns_out_of_order(format_compression, catalog_name)
             }
             sql """drop catalog if exists ${catalog_name}"""
         } finally {

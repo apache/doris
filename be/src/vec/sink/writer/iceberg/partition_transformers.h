@@ -17,9 +17,10 @@
 
 #pragma once
 
-#include <any>
-
 #include "runtime/types.h"
+#include "util/bit_util.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/functions/function_string.h"
 
 namespace doris {
 
@@ -39,7 +40,7 @@ private:
 
 public:
     static std::unique_ptr<PartitionColumnTransform> create(
-            const doris::iceberg::PartitionField& field);
+            const doris::iceberg::PartitionField& field, const TypeDescriptor& source_type);
 };
 
 class PartitionColumnTransform {
@@ -54,21 +55,26 @@ public:
 
     virtual bool temporal() const { return false; }
 
-    virtual const TypeDescriptor get_result_type(const TypeDescriptor& source_type) = 0;
+    virtual const TypeDescriptor& get_result_type() const = 0;
 
     virtual bool is_void() const { return false; }
 
-    virtual void apply(IColumn& column) = 0;
+    virtual ColumnWithTypeAndName apply(Block& block, int idx) = 0;
 
     virtual std::string to_human_string(const TypeDescriptor& type, const std::any& value) const;
 };
 
 class IdentityPartitionColumnTransform : public PartitionColumnTransform {
-    virtual const TypeDescriptor get_result_type(const TypeDescriptor& source_type) {
-        return source_type;
-    }
+public:
+    IdentityPartitionColumnTransform(const TypeDescriptor& source_type)
+            : _source_type(source_type) {}
 
-    virtual void apply(IColumn& column) { return; }
+    virtual const TypeDescriptor& get_result_type() const { return _source_type; }
+
+    virtual ColumnWithTypeAndName apply(Block& block, int idx);
+
+private:
+    TypeDescriptor _source_type;
 };
 
 } // namespace vectorized
