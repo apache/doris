@@ -171,6 +171,7 @@ PROPERTIES (
     profileJson = new JsonSlurper().parseText(profileString)
     assertEquals(0, profileJson.code)
     profileDataString = profileJson.data
+    logger.info("profileDataString:" + profileDataString)
     def taskStateIdx = profileDataString.indexOf("- Task State: FINISHED")
     assertFalse(taskStateIdx == -1)
     def fragmentIdx = profileDataString.indexOf(" Fragment 0:")
