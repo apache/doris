@@ -2587,7 +2587,6 @@ public class Coordinator implements CoordInterface {
                 icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
             }
 
-            Preconditions.checkArgument(params.isSetDetailedReport());
             if (ctx.done) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query {} fragment {} is marked done",

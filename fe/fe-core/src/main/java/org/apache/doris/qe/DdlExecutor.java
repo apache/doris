@@ -125,6 +125,7 @@ import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.statistics.StatisticsRepository;
@@ -177,8 +178,11 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CancelLoadStmt) {
             CancelLoadStmt cs = (CancelLoadStmt) ddlStmt;
             // cancel all
-            env.getJobManager().cancelLoadJob(cs);
-            env.getLoadManager().cancelLoadJob(cs);
+            try {
+                env.getJobManager().cancelLoadJob(cs);
+            } catch (JobException e) {
+                env.getLoadManager().cancelLoadJob(cs);
+            }
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             env.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof PauseRoutineLoadStmt) {
