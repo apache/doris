@@ -323,8 +323,12 @@ std::vector<std::string> VHiveTableWriter::_create_partition_values(vectorized::
     std::vector<std::string> partition_values;
     for (int i = 0; i < _partition_columns_input_index.size(); ++i) {
         int partition_column_idx = _partition_columns_input_index[i];
+        DCHECK(_vec_output_expr_ctxs[partition_column_idx]->root()->is_slot_ref());
+        int partition_column_pos_in_block =
+                ((vectorized::VSlotRef*)_vec_output_expr_ctxs[partition_column_idx]->root().get())
+                        ->column_id();
         vectorized::ColumnWithTypeAndName partition_column =
-                block.get_by_position(partition_column_idx);
+                block.get_by_position(partition_column_pos_in_block);
         std::string value =
                 _to_partition_value(_vec_output_expr_ctxs[partition_column_idx]->root()->type(),
                                     partition_column, position);
