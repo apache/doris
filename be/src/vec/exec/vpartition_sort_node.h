@@ -133,7 +133,7 @@ using PartitionDataWithUInt256Key = PHHashMap<UInt256, PartitionDataPtr, HashCRC
 using PartitionDataWithUInt136Key = PHHashMap<UInt136, PartitionDataPtr, HashCRC32<UInt136>>;
 
 using PartitionedMethodVariants = std::variant<
-        MethodSerialized<PartitionDataWithStringKey>,
+        std::monostate, MethodSerialized<PartitionDataWithStringKey>,
         MethodOneNumber<UInt8, PartitionDataWithUInt8Key>,
         MethodOneNumber<UInt16, PartitionDataWithUInt16Key>,
         MethodOneNumber<UInt32, PartitionDataWithUInt32Key>,
@@ -236,7 +236,7 @@ public:
     bool can_read();
 
 private:
-    void _init_hash_method();
+    Status _init_hash_method();
     Status _split_block_by_partition(vectorized::Block* input_block, bool eos);
     Status _emplace_into_hash_table(const ColumnRawPtrs& key_columns,
                                     const vectorized::Block* input_block, bool eos);

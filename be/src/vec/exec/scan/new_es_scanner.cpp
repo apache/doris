@@ -232,7 +232,7 @@ Status NewEsScanner::close(RuntimeState* state) {
     }
 
     if (_es_reader != nullptr) {
-        static_cast<void>(_es_reader->close());
+        RETURN_IF_ERROR(_es_reader->close());
     }
 
     RETURN_IF_ERROR(VScanner::close(state));

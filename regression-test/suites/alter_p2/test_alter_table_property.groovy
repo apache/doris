@@ -39,6 +39,7 @@ suite ("test_alter_table_property") {
 
     def queryReplicaCount = { partitionName ->
         def result = sql "SHOW REPLICA DISTRIBUTION FROM ${tableName} PARTITION ${partitionName}"
+        logger.info("${result}")
         int sum = 0
         for (row in result) {
             sum += row[1].toInteger()

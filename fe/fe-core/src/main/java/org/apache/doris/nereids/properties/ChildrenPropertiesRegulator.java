@@ -497,16 +497,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
             boolean isSatisfy = true;
             for (int i = 0; i < shuffleSideOutputList.size() && isSatisfy; i++) {
                 ExprId shuffleSideExprId = shuffleSideOutputList.get(i);
-                boolean found = false;
-                for (int j = 0; j < notShuffleSideOutputList.size() && !found; j++) {
-                    ExprId notShuffleSideExprId = notShuffleSideOutputList.get(j);
-                    if (shuffleSideExprId.equals(notShuffleSideExprId)
-                            || shuffleSideOutput.getEquivalenceExprIdsOf(shuffleSideExprId)
-                            .contains(notShuffleSideExprId)) {
-                        found = true;
-                    }
-                }
-                if (!found) {
+                ExprId notShuffleSideExprId = notShuffleSideOutputList.get(i);
+                if (!(shuffleSideExprId.equals(notShuffleSideExprId)
+                        || shuffleSideOutput.getEquivalenceExprIdsOf(shuffleSideExprId)
+                        .contains(notShuffleSideExprId))) {
                     isSatisfy = false;
                 }
             }

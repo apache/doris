@@ -1153,7 +1153,7 @@ public class Config extends ConfigBase {
      * the max concurrent routine load task num of a single routine load job
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_task_concurrent_num = 5;
+    public static int max_routine_load_task_concurrent_num = 256;
 
     /**
      * the max concurrent routine load task num per BE.
@@ -1162,7 +1162,7 @@ public class Config extends ConfigBase {
      * which is the routine load task thread pool max size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_task_num_per_be = 5;
+    public static int max_routine_load_task_num_per_be = 1024;
 
     /**
      * The max number of files store in SmallFileMgr
@@ -1302,13 +1302,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static boolean cache_enable_sql_mode = true;
-
-    /**
-     * If set to true, fe will get data from be cache,
-     * This option is suitable for real-time updating of partial partitions.
-     */
-    @ConfField(mutable = true, masterOnly = false)
-    public static boolean cache_enable_partition_mode = true;
 
     /**
      *  Minimum interval between last version when caching results,
@@ -2617,6 +2610,14 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean checkpoint_after_check_compatibility = false;
 
+    // Advance the next id before transferring to the master.
+    @ConfField(description = {
+            "是否在成为 Master 后推进 ID 分配器，保证即使回滚元数据时，它也不会回滚",
+            "Whether to advance the ID generator after becoming Master to ensure that the id "
+                    + "generator will not be rolled back even when metadata is rolled back."
+    })
+    public static boolean enable_advance_next_id = false;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
@@ -2836,6 +2837,10 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_cloud_running_txn_check = true;
+
+    @ConfField(description = {"存算分离模式下streamload导入使用的转发策略, 可选值为public-private或者空",
+            "streamload route policy in cloud mode, availale options are public-private and empty string"})
+    public static String streamload_redirect_policy = "";
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

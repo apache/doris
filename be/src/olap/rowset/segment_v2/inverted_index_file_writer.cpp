@@ -52,7 +52,7 @@ Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index
             (_index_file_dir / _segment_file_name).native(), index_id, index_suffix);
 
     bool exists = false;
-    auto st = _fs->exists(lfs_index_path.c_str(), &exists);
+    auto st = _lfs->exists(lfs_index_path.c_str(), &exists);
     if (!st.ok()) {
         LOG(ERROR) << "index_path:" << lfs_index_path << " exists error:" << st;
         return ResultError(st);

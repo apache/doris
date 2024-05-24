@@ -49,7 +49,7 @@ namespace doris::io {
 bvar::Adder<uint64_t> hdfs_file_writer_total("hdfs_file_writer_total_num");
 bvar::Adder<uint64_t> hdfs_bytes_written_total("hdfs_file_writer_bytes_written");
 bvar::Adder<uint64_t> hdfs_file_created_total("hdfs_file_writer_file_created");
-bvar::Adder<uint64_t> hdfs_file_being_written("hdfs_file_writer_file_being_written");
+bvar::Adder<uint64_t> inflight_hdfs_file_writer("inflight_hdfs_file_writer");
 
 static constexpr size_t MB = 1024 * 1024;
 #ifndef USE_LIBHDFS3
@@ -140,7 +140,6 @@ HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, 
                         BlockFileCache::hash(_path.filename().native()))});
     }
     hdfs_file_writer_total << 1;
-    hdfs_file_being_written << 1;
 
     TEST_SYNC_POINT("HdfsFileWriter");
 }
@@ -148,16 +147,15 @@ HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, 
 HdfsFileWriter::~HdfsFileWriter() {
     if (_async_close_pack != nullptr) {
         // For thread safety
-        std::ignore = _async_close_pack->promise.get_future();
+        std::ignore = _async_close_pack->future.get();
         _async_close_pack = nullptr;
     }
     if (_hdfs_file) {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
+        inflight_hdfs_file_writer << -1;
         _flush_and_reset_approximate_jni_buffer_size();
     }
-
-    hdfs_file_being_written << -1;
 }
 
 void HdfsFileWriter::_flush_and_reset_approximate_jni_buffer_size() {
@@ -205,11 +203,11 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
 }
 
 Status HdfsFileWriter::close(bool non_block) {
-    if (closed() == FileWriterState::CLOSED) {
+    if (state() == State::CLOSED) {
         return Status::InternalError("HdfsFileWriter already closed, file path {}, fs name {}",
                                      _path.native(), _fs_name);
     }
-    if (closed() == FileWriterState::ASYNC_CLOSING) {
+    if (state() == State::ASYNC_CLOSING) {
         if (non_block) {
             return Status::InternalError("Don't submit async close multi times");
         }
@@ -217,20 +215,20 @@ Status HdfsFileWriter::close(bool non_block) {
         _st = _async_close_pack->future.get();
         _async_close_pack = nullptr;
         // We should wait for all the pre async task to be finished
-        _close_state = FileWriterState::CLOSED;
+        _state = State::CLOSED;
         // The next time we call close() with no matter non_block true or false, it would always return the
         // '_st' value because this writer is already closed.
         return _st;
     }
     if (non_block) {
-        _close_state = FileWriterState::ASYNC_CLOSING;
+        _state = State::ASYNC_CLOSING;
         _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
         _async_close_pack->future = _async_close_pack->promise.get_future();
         return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func(
                 [&]() { _async_close_pack->promise.set_value(_close_impl()); });
     }
     _st = _close_impl();
-    _close_state = FileWriterState::CLOSED;
+    _state = State::CLOSED;
     return _st;
 }
 
@@ -270,6 +268,7 @@ Status HdfsFileWriter::_close_impl() {
         // the HDFS response, but won't guarantee the synchronization of data to HDFS.
         ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file),
                                            "HdfsFileWriter::close::hdfsCloseFile");
+        inflight_hdfs_file_writer << -1;
         _flush_and_reset_approximate_jni_buffer_size();
     }
     _hdfs_file = nullptr;
@@ -407,7 +406,7 @@ Status HdfsFileWriter::_append(std::string_view content) {
 }
 
 Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
-    if (_close_state != FileWriterState::OPEN) [[unlikely]] {
+    if (_state != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
 
@@ -451,6 +450,7 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<Hdf
         return ResultError(Status::InternalError(ss.str()));
     }
     VLOG_NOTICE << "open file. fs_name:" << fs_name << ", path:" << path;
+    inflight_hdfs_file_writer << 1;
     return std::make_unique<HdfsFileWriter>(std::move(path), handler, hdfs_file, fs_name, opts);
 }
 

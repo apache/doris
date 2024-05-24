@@ -107,6 +107,7 @@ public:
     BasicSharedState* shared_state() { return _shared_state; }
     void set_shared_state(BasicSharedState* shared_state) { _shared_state = shared_state; }
     virtual std::string debug_string(int indentation_level = 0);
+    bool ready() const { return _ready; }
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
     void start_watcher() { _watcher.start(); }
@@ -231,11 +232,19 @@ public:
     int64_t registration_time() const { return _registration_time; }
     int32_t wait_time_ms() const { return _wait_time_ms; }
 
+    void set_local_runtime_filter_dependencies(
+            const std::vector<std::shared_ptr<RuntimeFilterDependency>>& deps) {
+        _local_runtime_filter_dependencies = deps;
+    }
+
+    bool should_be_check_timeout();
+
 private:
     friend struct RuntimeFilterTimerQueue;
     std::shared_ptr<RuntimeFilterDependency> _parent = nullptr;
+    std::vector<std::shared_ptr<RuntimeFilterDependency>> _local_runtime_filter_dependencies;
     std::mutex _lock;
-    const int64_t _registration_time;
+    int64_t _registration_time;
     const int32_t _wait_time_ms;
 };
 
@@ -258,11 +267,9 @@ struct RuntimeFilterTimerQueue {
 
     ~RuntimeFilterTimerQueue() = default;
     RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
-    void push_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer> filter) { push(filter); }
-
-    void push(std::shared_ptr<pipeline::RuntimeFilterTimer> filter) {
+    void push_filter_timer(std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>>&& filter) {
         std::unique_lock<std::mutex> lc(_que_lock);
-        _que.push_back(filter);
+        _que.insert(_que.end(), filter.begin(), filter.end());
         cv.notify_all();
     }
 
@@ -297,6 +304,8 @@ public:
     ~AggSharedState() override {
         if (!probe_expr_ctxs.empty()) {
             _close_with_serialized_key();
+        } else {
+            _close_without_key();
         }
     }
 
@@ -335,6 +344,7 @@ public:
         int64_t used_in_state;
     };
     MemoryRecord mem_usage_record;
+    bool agg_data_created_without_key = false;
     bool enable_spill = false;
 
 private:
@@ -362,6 +372,15 @@ private:
                    agg_data->method_variant);
     }
 
+    void _close_without_key() {
+        //because prepare maybe failed, and couldn't create agg data.
+        //but finally call close to destory agg data, if agg data has bitmapValue
+        //will be core dump, it's not initialized
+        if (agg_data_created_without_key) {
+            static_cast<void>(_destroy_agg_status(agg_data->without_key));
+            agg_data_created_without_key = false;
+        }
+    }
     Status _destroy_agg_status(vectorized::AggregateDataPtr data) {
         for (int i = 0; i < aggregate_evaluators.size(); ++i) {
             aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);

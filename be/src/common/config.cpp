@@ -244,6 +244,7 @@ DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> b
     }
     return true;
 });
+DEFINE_Int32(remote_split_source_batch_size, "1024");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
@@ -334,6 +335,7 @@ DEFINE_mBool(disable_storage_page_cache, "false");
 DEFINE_mBool(disable_storage_row_cache, "true");
 // whether to disable pk page cache feature in storage
 DEFINE_Bool(disable_pk_storage_page_cache, "false");
+DEFINE_Bool(enable_non_pipeline, "false");
 
 // Cache for mow primary key storage page size
 DEFINE_String(pk_storage_page_cache_limit, "10%");
@@ -1023,7 +1025,7 @@ DEFINE_mBool(inverted_index_compaction_enable, "false");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
-DEFINE_mBool(inverted_index_ram_dir_enable, "false");
+DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1074,6 +1076,7 @@ DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 // max_write_buffer_number for rocksdb
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
+DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 DEFINE_mString(kerberos_ccache_path, "");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
@@ -1267,6 +1270,9 @@ DEFINE_mInt64(hdfs_jni_write_max_retry_time, "3");
 DEFINE_Int64(min_nonblock_close_thread_num, "12");
 // The max thread num for NonBlockCloseThreadPool
 DEFINE_Int64(max_nonblock_close_thread_num, "64");
+// The possibility that mem allocator throws an exception during memory allocation
+// This config is for test usage, be careful when changing it.
+DEFINE_mDouble(mem_alloc_fault_probability, "0.0");
 
 // clang-format off
 #ifdef BE_TEST

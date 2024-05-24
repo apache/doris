@@ -14,6 +14,10 @@
 -- !sum_null --
 \N
 
+-- !desc --
+k1	INT	Yes	true	\N	
+k2	AGG_STATE<max_by(INT, INT NULL)>	No	false	\N	GENERIC
+
 -- !length1 --
 1	11
 

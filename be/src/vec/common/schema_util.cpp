@@ -395,9 +395,9 @@ void inherit_root_attributes(TabletSchemaSPtr& schema) {
             col.type() != FieldType::OLAP_FIELD_TYPE_DOUBLE &&
             col.type() != FieldType::OLAP_FIELD_TYPE_FLOAT) {
             // above types are not supported in bf
-            col.set_is_bf_column(schema->column(col.parent_unique_id()).is_bf_column());
+            col.set_is_bf_column(schema->column_by_uid(col.parent_unique_id()).is_bf_column());
         }
-        col.set_aggregation_method(schema->column(col.parent_unique_id()).aggregation());
+        col.set_aggregation_method(schema->column_by_uid(col.parent_unique_id()).aggregation());
         auto it = variants_index_meta.find(col.parent_unique_id());
         // variant has no index meta, ignore
         if (it == variants_index_meta.end()) {

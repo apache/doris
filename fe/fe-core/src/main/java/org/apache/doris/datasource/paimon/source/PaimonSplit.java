@@ -22,24 +22,29 @@ import org.apache.doris.datasource.SplitCreator;
 import org.apache.doris.datasource.TableFormatType;
 
 import org.apache.hadoop.fs.Path;
+import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.Split;
 
 import java.util.List;
+import java.util.Optional;
 
 public class PaimonSplit extends FileSplit {
     private Split split;
     private TableFormatType tableFormatType;
+    private Optional<DeletionFile> optDeletionFile;
 
     public PaimonSplit(Split split) {
         super(new Path("hdfs://dummyPath"), 0, 0, 0, null, null);
         this.split = split;
         this.tableFormatType = TableFormatType.PAIMON;
+        this.optDeletionFile = Optional.empty();
     }
 
     public PaimonSplit(Path file, long start, long length, long fileLength, String[] hosts,
-                       List<String> partitionList) {
+            List<String> partitionList) {
         super(file, start, length, fileLength, hosts, partitionList);
         this.tableFormatType = TableFormatType.PAIMON;
+        this.optDeletionFile = Optional.empty();
     }
 
     public Split getSplit() {
@@ -58,18 +63,26 @@ public class PaimonSplit extends FileSplit {
         this.tableFormatType = tableFormatType;
     }
 
+    public Optional<DeletionFile> getDeletionFile() {
+        return optDeletionFile;
+    }
+
+    public void setDeletionFile(DeletionFile deletionFile) {
+        this.optDeletionFile = Optional.of(deletionFile);
+    }
+
     public static class PaimonSplitCreator implements SplitCreator {
 
         static final PaimonSplitCreator DEFAULT = new PaimonSplitCreator();
 
         @Override
         public org.apache.doris.spi.Split create(Path path,
-                                                 long start,
-                                                 long length,
-                                                 long fileLength,
-                                                 long modificationTime,
-                                                 String[] hosts,
-                                                 List<String> partitionValues) {
+                long start,
+                long length,
+                long fileLength,
+                long modificationTime,
+                String[] hosts,
+                List<String> partitionValues) {
             return new PaimonSplit(path, start, length, fileLength, hosts, partitionValues);
         }
     }

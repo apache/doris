@@ -42,8 +42,6 @@
 
 namespace doris {
 
-static constexpr int s_days_in_month[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-
 static const char* s_ab_month_name[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", nullptr};
 
@@ -74,7 +72,7 @@ bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, 
 
 bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
     if (month == 2 && day == 29 && doris::is_leap(year)) return false;
-    if (year > 9999 || month == 0 || month > 12 || day > s_days_in_month[month] || day == 0) {
+    if (year > 9999 || month == 0 || month > 12 || day > S_DAYS_IN_MONTH[month] || day == 0) {
         return true;
     }
     return false;
@@ -520,8 +518,8 @@ bool VecDateTimeValue::get_date_from_daynr(uint64_t daynr) {
         }
     }
     month = 1;
-    while (days_of_year > s_days_in_month[month]) {
-        days_of_year -= s_days_in_month[month];
+    while (days_of_year > S_DAYS_IN_MONTH[month]) {
+        days_of_year -= S_DAYS_IN_MONTH[month];
         month++;
     }
     day = days_of_year + leap_day;
@@ -1679,8 +1677,8 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
             return false;
         }
         _month = (months % 12) + 1;
-        if (_day > s_days_in_month[_month]) {
-            _day = s_days_in_month[_month];
+        if (_day > S_DAYS_IN_MONTH[_month]) {
+            _day = S_DAYS_IN_MONTH[_month];
             if (_month == 2 && doris::is_leap(_year)) {
                 _day++;
             }
@@ -1931,11 +1929,11 @@ bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uin
     if (only_time_part) {
         return false;
     }
-    if (year < MIN_YEAR || year > MAX_YEAR) {
+    if (year > MAX_YEAR) {
         return true;
     }
     if (month == 2 && day == 29 && doris::is_leap(year)) return false;
-    if (month == 0 || month > 12 || day > s_days_in_month[month] || day == 0) {
+    if (month == 0 || month > 12 || day > S_DAYS_IN_MONTH[month] || day == 0) {
         return true;
     }
     return false;
@@ -1960,7 +1958,7 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
             date_val[1] += 1;
             carry_bits[2] = true;
         }
-    } else if (date_val[2] == s_days_in_month[date_val[1]] + 1 && carry_bits[3]) {
+    } else if (date_val[2] == S_DAYS_IN_MONTH[date_val[1]] + 1 && carry_bits[3]) {
         date_val[2] = 1;
         date_val[1] += 1;
         carry_bits[2] = true;
@@ -1976,18 +1974,20 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
 template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, nullptr);
+bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/,
+                                   bool convert_zero) {
+    return from_date_str_base(date_str, len, scale, nullptr, convert_zero);
 }
 // when we parse
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len,
-                                   const cctz::time_zone& local_time_zone, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, &local_time_zone);
+                                   const cctz::time_zone& local_time_zone, int scale /* = -1*/,
+                                   bool convert_zero) {
+    return from_date_str_base(date_str, len, scale, &local_time_zone, convert_zero);
 }
 template <typename T>
 bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
-                                        const cctz::time_zone* local_time_zone) {
+                                        const cctz::time_zone* local_time_zone, bool convert_zero) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -2189,7 +2189,12 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         return false;
     }
     if (is_invalid(date_val[0], date_val[1], date_val[2], 0, 0, 0, 0)) {
-        return false;
+        if (date_val[0] == 0 && date_val[1] == 0 && date_val[2] == 0 && convert_zero) {
+            date_val[1] = 1;
+            date_val[2] = 1;
+        } else {
+            return false;
+        }
     }
 
     // In check_range_and_set_time, for Date type the time part will be truncated. So if the timezone offset should make
@@ -2916,8 +2921,8 @@ bool DateV2Value<T>::get_date_from_daynr(uint64_t daynr) {
             }
         }
         month = 1;
-        while (days_of_year > s_days_in_month[month]) {
-            days_of_year -= s_days_in_month[month];
+        while (days_of_year > S_DAYS_IN_MONTH[month]) {
+            days_of_year -= S_DAYS_IN_MONTH[month];
             month++;
         }
         day = days_of_year + leap_day;
@@ -2974,30 +2979,27 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value
         to_value.set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60, microseconds);
     } else if constexpr (unit == YEAR) {
         // This only change year information
-        to_value.template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ + interval.year);
-        if (to_value.year() > 9999) {
-            return false;
-        }
+        PROPAGATE_FALSE(to_value.template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ +
+                                                                        interval.year));
         if (date_v2_value_.month_ == 2 && date_v2_value_.day_ == 29 &&
             !doris::is_leap(to_value.year())) {
-            to_value.template set_time_unit<TimeUnit::DAY>(28);
+            // add year. so if from Leap Year to Equal Year, use last day of Feb(29 to 28)
+            PROPAGATE_FALSE(to_value.template set_time_unit<TimeUnit::DAY>(28));
         }
     } else if constexpr (unit == QUARTER || unit == MONTH || unit == YEAR_MONTH) {
         // This will change month and year information, maybe date.
         int64_t months = date_v2_value_.year_ * 12 + date_v2_value_.month_ - 1 +
                          12 * interval.year + interval.month;
-        to_value.template set_time_unit<TimeUnit::YEAR>(months / 12);
         if (months < 0) {
             return false;
         }
-        if (to_value.year() > MAX_YEAR) {
-            return false;
-        }
-        to_value.template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);
-        if (date_v2_value_.day_ > s_days_in_month[to_value.month()]) {
-            date_v2_value_.day_ = s_days_in_month[to_value.month()];
+        PROPAGATE_FALSE(to_value.template set_time_unit<TimeUnit::YEAR>(months / 12));
+        PROPAGATE_FALSE(to_value.template set_time_unit<TimeUnit::MONTH>((months % 12) + 1));
+        if (date_v2_value_.day_ > S_DAYS_IN_MONTH[to_value.month()]) {
+            date_v2_value_.day_ = S_DAYS_IN_MONTH[to_value.month()];
             if (to_value.month() == 2 && doris::is_leap(to_value.year())) {
-                to_value.template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1);
+                PROPAGATE_FALSE(
+                        to_value.template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1));
             }
         }
     }
@@ -3050,30 +3052,27 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
         }
     } else if constexpr (unit == YEAR) {
         // This only change year information
-        this->template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ + interval.year);
-        if (this->year() > 9999) {
-            return false;
-        }
+        PROPAGATE_FALSE(
+                this->template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ + interval.year));
         if (date_v2_value_.month_ == 2 && date_v2_value_.day_ == 29 &&
             !doris::is_leap(this->year())) {
-            this->template set_time_unit<TimeUnit::DAY>(28);
+            // add year. so if from Leap Year to Equal Year, use last day of Feb(29 to 28)
+            PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::DAY>(28));
         }
     } else if constexpr (unit == QUARTER || unit == MONTH || unit == YEAR_MONTH) {
         // This will change month and year information, maybe date.
         int64_t months = date_v2_value_.year_ * 12 + date_v2_value_.month_ - 1 +
                          12 * interval.year + interval.month;
-        this->template set_time_unit<TimeUnit::YEAR>(months / 12);
         if (months < 0) {
             return false;
         }
-        if (this->year() > MAX_YEAR) {
-            return false;
-        }
-        this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);
-        if (date_v2_value_.day_ > s_days_in_month[this->month()]) {
-            date_v2_value_.day_ = s_days_in_month[this->month()];
+        PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::YEAR>(months / 12));
+        PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1));
+        if (date_v2_value_.day_ > S_DAYS_IN_MONTH[this->month()]) {
+            date_v2_value_.day_ = S_DAYS_IN_MONTH[this->month()];
             if (this->month() == 2 && doris::is_leap(this->year())) {
-                this->template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1);
+                PROPAGATE_FALSE(
+                        this->template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1));
             }
         }
     }
@@ -3102,13 +3101,13 @@ bool DateV2Value<T>::date_set_interval(const TimeInterval& interval) {
         }
     } else if constexpr (unit == YEAR) {
         this->set_time(0, 1, 1, 0, 0, 0, 0);
-        this->template set_time_unit<TimeUnit::YEAR>(interval.year);
+        PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::YEAR>(interval.year));
     } else if constexpr (unit == MONTH) {
         // This will change month and year information, maybe date.
         this->set_time(0, 1, 1, 0, 0, 0, 0);
         int64_t months = 12 * interval.year + interval.month;
-        this->template set_time_unit<TimeUnit::YEAR>(months / 12);
-        this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);
+        PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::YEAR>(months / 12));
+        PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1));
     }
     return true;
 }

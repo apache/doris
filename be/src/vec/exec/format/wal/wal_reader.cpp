@@ -30,12 +30,6 @@ WalReader::WalReader(RuntimeState* state) : _state(state) {
     _wal_id = state->wal_id();
 }
 
-WalReader::~WalReader() {
-    if (_wal_reader.get() != nullptr) {
-        static_cast<void>(_wal_reader->finalize());
-    }
-}
-
 Status WalReader::init_reader(const TupleDescriptor* tuple_descriptor) {
     _tuple_descriptor = tuple_descriptor;
     RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->get_wal_path(_wal_id, _wal_path));
@@ -67,6 +61,11 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (!st.ok()) {
         LOG(WARNING) << "Failed to read wal on path = " << _wal_path;
         return st;
+    }
+    int be_exec_version = pblock.has_be_exec_version() ? pblock.be_exec_version() : 0;
+    if (!BeExecVersionManager::check_be_exec_version(be_exec_version)) {
+        return Status::DataQualityError("check be exec version fail when reading wal file {}",
+                                        _wal_path);
     }
     vectorized::Block src_block;
     RETURN_IF_ERROR(src_block.deserialize(pblock));

@@ -36,8 +36,6 @@ public:
     // Return num of filters which are applied already.
     Status try_append_late_arrival_runtime_filter(int* arrived_rf_num);
 
-    bool runtime_filters_are_ready_or_timeout();
-
     void init_runtime_filter_dependency(
             std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>&
                     runtime_filter_dependencies,

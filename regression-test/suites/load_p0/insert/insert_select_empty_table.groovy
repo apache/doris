@@ -16,25 +16,22 @@
 // under the License.
 
 suite("insert_select_empty_table") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql """
-         DROP TABLE IF EXISTS insert_select_empty_table1
-        """
+    multi_sql """
+    SET enable_nereids_planner=true;
+    SET enable_fallback_to_original_planner=false;
 
-    sql """
-        create table insert_select_empty_table1(pk int, a int, b int) distributed by hash(pk) buckets 10
-        properties('replication_num' = '1'); 
-        """
-    sql """
-         DROP TABLE IF EXISTS insert_select_empty_table2
-        """
+    DROP TABLE IF EXISTS insert_select_empty_table1;
 
-    sql """
-        create table insert_select_empty_table2(pk int, a int, b int) distributed by hash(pk) buckets 10
-        properties('replication_num' = '1'); 
-        """
-    sql "insert into insert_select_empty_table1 select * from insert_select_empty_table2;"
+    create table insert_select_empty_table1(pk int, a int, b int) distributed by hash(pk) buckets 10
+    properties('replication_num' = '1'); 
+
+    DROP TABLE IF EXISTS insert_select_empty_table2;
+
+    create table insert_select_empty_table2(pk int, a int, b int) distributed by hash(pk) buckets 10
+    properties('replication_num' = '1'); 
+    
+    insert into insert_select_empty_table1 select * from insert_select_empty_table2;
+    """
     qt_test_shape "explain shape plan insert into insert_select_empty_table1 select * from insert_select_empty_table2;"
 
     sql """insert into insert_select_empty_table1 select * from insert_select_empty_table2 

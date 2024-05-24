@@ -109,6 +109,7 @@
 #include "service/point_query_executor.h"
 #include "tablet.h"
 #include "util/bvar_helper.h"
+#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
@@ -1191,7 +1192,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction()
 }
 
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_index(
-        const std::set<int32_t>& alter_index_uids, bool is_drop_op) {
+        const std::set<int64_t>& alter_index_uids, bool is_drop_op) {
     std::vector<RowsetSharedPtr> candidate_rowsets;
     {
         std::shared_lock rlock(_meta_lock);
@@ -1708,6 +1709,9 @@ void Tablet::execute_single_replica_compaction(SingleReplicaCompaction& compacti
         set_last_single_compaction_failure_status(res.to_string());
         if (res.is<CANCELLED>()) {
             DorisMetrics::instance()->single_compaction_request_cancelled->increment(1);
+            // "CANCELLED" indicates that the peer has not performed compaction,
+            // wait for the peer to perform compaction
+            set_skip_compaction(true, compaction.real_compact_type(), UnixSeconds());
             VLOG_CRITICAL << "Cannel fetching from the remote peer. res=" << res
                           << ", tablet=" << tablet_id();
         } else {
@@ -2624,6 +2628,37 @@ void Tablet::clear_cache() {
     };
     recycle_segment_cache(rowset_map());
     recycle_segment_cache(stale_rowset_map());
+}
+
+Status Tablet::calc_local_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
+                                   int32_t* rowset_count, int64_t* file_count) {
+    Version v(start_version, end_version);
+    std::vector<RowsetSharedPtr> rowsets;
+    traverse_rowsets([&rowsets, &v](const auto& rs) {
+        // get local rowsets
+        if (rs->is_local() && v.contains(rs->version())) {
+            rowsets.emplace_back(rs);
+        }
+    });
+    std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
+    *rowset_count = rowsets.size();
+
+    *crc_value = 0;
+    *file_count = 0;
+    for (const auto& rs : rowsets) {
+        uint32_t rs_crc_value;
+        int64_t rs_file_count = 0;
+        auto rowset = std::static_pointer_cast<BetaRowset>(rs);
+        auto st = rowset->calc_local_file_crc(&rs_crc_value, &rs_file_count);
+        if (!st.ok()) {
+            return st;
+        }
+        // crc_value is calculated based on the crc_value of each rowset.
+        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const char*>(&rs_crc_value),
+                                    sizeof(rs_crc_value));
+        *file_count += rs_file_count;
+    }
+    return Status::OK();
 }
 
 } // namespace doris

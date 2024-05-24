@@ -43,6 +43,7 @@
 #include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "vec/columns/columns_number.h"
 
 namespace doris {
 class IRuntimeFilter;
@@ -189,7 +190,6 @@ public:
         return _query_options.__isset.mysql_row_binary_format &&
                _query_options.mysql_row_binary_format;
     }
-    Status query_status();
 
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
@@ -205,21 +205,19 @@ public:
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
     [[nodiscard]] bool is_cancelled() const;
-    std::string cancel_reason() const;
-    int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(std::string msg) {
-        if (!_is_cancelled.exchange(true)) {
-            _cancel_reason = msg;
+    Status cancel_reason() const;
+    void cancel(const Status& reason) {
+        if (_exec_status.update(reason)) {
             // Create a error status, so that we could print error stack, and
             // we could know which path call cancel.
             LOG(WARNING) << "Task is cancelled, instance: "
                          << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                         << ", st = " << Status::Error<ErrorCode::CANCELLED>(msg);
+                         << ", st = " << reason;
         } else {
             LOG(WARNING) << "Task is already cancelled, instance: "
                          << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                         << ", original cancel msg: " << _cancel_reason
-                         << ", new cancel msg: " << Status::Error<ErrorCode::CANCELLED>(msg);
+                         << ", original cancel msg: " << _exec_status.status()
+                         << ", new cancel msg: " << reason;
         }
     }
 
@@ -228,18 +226,6 @@ public:
 
     void set_be_number(int be_number) { _be_number = be_number; }
     int be_number(void) const { return _be_number; }
-
-    // Sets _process_status with err_msg if no error has been set yet.
-    void set_process_status(const Status& status) {
-        if (status.ok()) {
-            return;
-        }
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        if (!_process_status.ok()) {
-            return;
-        }
-        _process_status = status;
-    }
 
     std::vector<std::string>& output_files() { return _output_files; }
 
@@ -628,6 +614,10 @@ public:
 
     int task_num() const { return _task_num; }
 
+    vectorized::ColumnInt64* partial_update_auto_inc_column() {
+        return _partial_update_auto_inc_column;
+    };
+
 private:
     Status create_error_log_file();
 
@@ -688,9 +678,7 @@ private:
     TQueryOptions _query_options;
     ExecEnv* _exec_env = nullptr;
 
-    // if true, execution should stop with a CANCELLED status
-    std::atomic<bool> _is_cancelled;
-    std::string _cancel_reason;
+    AtomicStatus _exec_status;
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;
@@ -703,12 +691,6 @@ private:
 
     // used as send id
     int _be_number;
-
-    // Non-OK if an error has occurred and query execution should abort. Used only for
-    // asynchronously reporting such errors (e.g., when a UDF reports an error), so this
-    // will not necessarily be set in all error cases.
-    std::mutex _process_status_lock;
-    Status _process_status;
 
     // put here to collect files??
     std::vector<std::string> _output_files;
@@ -757,6 +739,8 @@ private:
 
     // prohibit copies
     RuntimeState(const RuntimeState&);
+
+    vectorized::ColumnInt64* _partial_update_auto_inc_column;
 };
 
 #define RETURN_IF_CANCELLED(state)                                                    \
