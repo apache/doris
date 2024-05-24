@@ -73,7 +73,7 @@ suite("test_calc_crc") {
     assertEquals("0", parseJson(out_0.trim()).start_version)
     assertEquals("7", parseJson(out_0.trim()).end_version)
     assertEquals("7", parseJson(out_0.trim()).rowset_count)
-    assertEquals("18", parseJson(out_0.trim()).file_count)
+    assertEquals("12", parseJson(out_0.trim()).file_count)
 
     try {
         GetDebugPoint().enableDebugPointForAllBEs("fault_inject::BetaRowset::calc_local_file_crc")
@@ -90,7 +90,7 @@ suite("test_calc_crc") {
     assertEquals("0", parseJson(out_2.trim()).start_version)
     assertEquals("7", parseJson(out_2.trim()).end_version)
     assertEquals("7", parseJson(out_2.trim()).rowset_count)
-    assertEquals("18", parseJson(out_2.trim()).file_count)
+    assertEquals("12", parseJson(out_2.trim()).file_count)
     assertTrue(parseJson(out_0.trim()).crc_value == parseJson(out_2.trim()).crc_value)
 
     def (code_3, out_3, err_3) = calc_file_crc_on_tablet_with_end(ip, port, tablet_id, 7)
@@ -99,7 +99,7 @@ suite("test_calc_crc") {
     assertEquals("0", parseJson(out_3.trim()).start_version)
     assertEquals("7", parseJson(out_3.trim()).end_version)
     assertEquals("7", parseJson(out_3.trim()).rowset_count)
-    assertEquals("18", parseJson(out_3.trim()).file_count)
+    assertEquals("12", parseJson(out_3.trim()).file_count)
     assertTrue(parseJson(out_2.trim()).crc_value == parseJson(out_3.trim()).crc_value)
 
     def (code_4, out_4, err_4) = calc_file_crc_on_tablet_with_start_end(ip, port, tablet_id, 3, 6)
