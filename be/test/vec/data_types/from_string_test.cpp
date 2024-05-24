@@ -159,7 +159,11 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             DataTypePtr data_type_ptr;
             int precision = 0;
             int scale = 0;
-            if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
+            if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
+                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 27, 9);
+                precision = 27;
+                scale = 9;
+            } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
                 // decimal32(7, 2)
                 data_type_ptr = DataTypeFactory::instance().create_data_type(type, 9, 2);
                 precision = 9;
