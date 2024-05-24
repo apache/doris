@@ -146,7 +146,7 @@ PROPERTIES (
             if (loadAttribute.isExceptFailed) {
                 assertTrue(false, "load should be failed but was success: $result")
             }
-            jobId = result[0][0].toInteger()
+            jobId = result[0][0].toLong()
             logger.info("Load FINISHED " + loadAttribute.label + ": $result" + " loadId: $jobId")
             break
         }

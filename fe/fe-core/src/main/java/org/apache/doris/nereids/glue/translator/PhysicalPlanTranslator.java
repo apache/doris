@@ -573,6 +573,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     break;
                 case ICEBERG:
                     scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+                    IcebergScanNode icebergScanNode = (IcebergScanNode) scanNode;
+                    if (fileScan.getTableSnapshot().isPresent()) {
+                        icebergScanNode.setTableSnapshot(fileScan.getTableSnapshot().get());
+                    }
                     break;
                 case HIVE:
                     scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false);

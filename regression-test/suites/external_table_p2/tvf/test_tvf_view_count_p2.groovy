@@ -31,7 +31,8 @@ suite("test_tvf_view_count_p2", "p2,external,tvf,external_remote,external_remote
             "format"="parquet");"""
 
         explain {
-            "select count(1) from tvf_view_count"
+            verbose true
+            sql("select count(1) from tvf_view_count")
             contains "SlotDescriptor{id=0,"
             notContains "SlotDescriptor{id=1,"
         }
