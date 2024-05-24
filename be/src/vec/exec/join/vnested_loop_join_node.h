@@ -153,10 +153,10 @@ private:
             }
 
             if constexpr (set_probe_side_flag) {
-                RETURN_IF_ERROR_OR_CATCH_EXCEPTION((
-                    _do_filtering_and_update_visited_flags<
-                                 set_build_side_flag, set_probe_side_flag, ignore_null>(
-                                 &_join_block, !_is_left_semi_anti)));
+                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                        (_do_filtering_and_update_visited_flags<set_build_side_flag,
+                                                                set_probe_side_flag, ignore_null>(
+                                &_join_block, !_is_left_semi_anti)));
                 _update_additional_flags(&_join_block);
                 // If this join operation is left outer join or full outer join, when
                 // `_left_side_process_count`, means all rows from build
@@ -172,10 +172,10 @@ private:
         }
 
         if constexpr (!set_probe_side_flag) {
-            RETURN_IF_ERROR_OR_CATCH_EXCEPTION((
-                    _do_filtering_and_update_visited_flags<set_build_side_flag, set_probe_side_flag,
-                                                           ignore_null>(&_join_block,
-                                                                        !_is_right_semi_anti)));
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                    (_do_filtering_and_update_visited_flags<set_build_side_flag,
+                                                            set_probe_side_flag, ignore_null>(
+                            &_join_block, !_is_right_semi_anti)));
             _update_additional_flags(&_join_block);
         }
 
