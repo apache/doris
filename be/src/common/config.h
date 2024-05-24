@@ -383,6 +383,7 @@ DECLARE_Bool(disable_storage_page_cache);
 DECLARE_mBool(disable_storage_row_cache);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
+DECLARE_Bool(enable_non_pipeline);
 
 // Cache for mow primary key storage page size, it's seperated from
 // storage_page_cache_limit

@@ -34,11 +34,13 @@
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/group_commit_block_sink_operator.h"
+#include "pipeline/exec/group_commit_scan_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/hive_table_sink_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
+#include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
@@ -644,6 +646,7 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
 DECLARE_OPERATOR_X(HashJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(ResultSinkLocalState)
 DECLARE_OPERATOR_X(JdbcTableSinkLocalState)
+DECLARE_OPERATOR_X(MemoryScratchSinkLocalState)
 DECLARE_OPERATOR_X(ResultFileSinkLocalState)
 DECLARE_OPERATOR_X(OlapTableSinkLocalState)
 DECLARE_OPERATOR_X(OlapTableSinkV2LocalState)
@@ -671,6 +674,7 @@ DECLARE_OPERATOR_X(GroupCommitBlockSinkLocalState)
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class OperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR_X(HashJoinProbeLocalState)
 DECLARE_OPERATOR_X(OlapScanLocalState)
+DECLARE_OPERATOR_X(GroupCommitLocalState)
 DECLARE_OPERATOR_X(JDBCScanLocalState)
 DECLARE_OPERATOR_X(FileScanLocalState)
 DECLARE_OPERATOR_X(EsScanLocalState)
