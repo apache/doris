@@ -2503,6 +2503,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException(
                         "Row store column rely on light schema change, enable light schema change first");
             }
+            if (storeRowColumn && olapTable instanceof MTMV) {
+                throw new DdlException(
+                        "Not support store_row_column in MTMV");
+            }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
