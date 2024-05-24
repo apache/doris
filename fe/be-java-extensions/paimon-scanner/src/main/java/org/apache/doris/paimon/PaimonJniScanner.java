@@ -109,7 +109,8 @@ public class PaimonJniScanner extends JniScanner {
         ReadBuilder readBuilder = table.newReadBuilder();
         if (this.fields.length != this.paimonAllFieldNames.size()) {
             throw new IOException(
-                    String.format("The jni reader fields' size {%s} is not matched with paimon fields' size {%s}. Please refresh table and try again",
+                    String.format(
+                            "The jni reader fields' size {%s} is not matched with paimon fields' size {%s}. Please refresh table and try again",
                             fields.length, paimonAllFieldNames.size()));
         }
         readBuilder.withProjection(getProjected());
