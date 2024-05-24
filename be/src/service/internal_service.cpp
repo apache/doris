@@ -592,19 +592,12 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
             actual_cancel_status = Status::InternalError("unknown error");
         }
 
-        if (request->has_fragment_id()) {
-            TUniqueId query_id;
-            query_id.__set_hi(request->query_id().hi());
-            query_id.__set_lo(request->query_id().lo());
-            LOG(INFO) << fmt::format("Cancel query {}, reason: {}", print_id(query_id),
-                                     actual_cancel_status.to_string());
-            _exec_env->fragment_mgr()->cancel_fragment(query_id, request->fragment_id(),
-                                                       actual_cancel_status);
-        } else {
-            LOG(INFO) << fmt::format("Cancel instance {}, reason: {}", print_id(tid),
-                                     actual_cancel_status.to_string());
-            _exec_env->fragment_mgr()->cancel_instance(tid, actual_cancel_status);
-        }
+        TUniqueId query_id;
+        query_id.__set_hi(request->query_id().hi());
+        query_id.__set_lo(request->query_id().lo());
+        LOG(INFO) << fmt::format("Cancel query {}, reason: {}", print_id(query_id),
+                                 actual_cancel_status.to_string());
+        _exec_env->fragment_mgr()->cancel_query(query_id, actual_cancel_status);
 
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
