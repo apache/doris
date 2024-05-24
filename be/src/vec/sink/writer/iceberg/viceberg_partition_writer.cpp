@@ -131,6 +131,9 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
 }
 
 Status VIcebergPartitionWriter::close(const Status& status) {
+    if (status.ok()) {
+        _state->iceberg_commit_datas().emplace_back(_build_iceberg_commit_data());
+    }
     if (_file_format_transformer != nullptr) {
         Status st = _file_format_transformer->close();
         if (!st.ok()) {
@@ -145,7 +148,6 @@ Status VIcebergPartitionWriter::close(const Status& status) {
             LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
         }
     }
-    _state->iceberg_commit_datas().emplace_back(_build_iceberg_commit_data());
     return Status::OK();
 }
 
@@ -174,7 +176,7 @@ Status VIcebergPartitionWriter::_projection_and_filter_block(
     }
 
     std::vector<uint32_t> columns_to_filter;
-    int column_to_keep = input_block.columns();
+    int column_to_keep = output_block->columns();
     columns_to_filter.resize(column_to_keep);
     for (uint32_t i = 0; i < column_to_keep; ++i) {
         columns_to_filter[i] = i;
@@ -192,6 +194,7 @@ TIcebergCommitData VIcebergPartitionWriter::_build_iceberg_commit_data() {
     iceberg_commit_data.__set_file_path(
             fmt::format("{}/{}", _write_info.original_write_path, _get_target_file_name()));
     iceberg_commit_data.__set_row_count(_row_count);
+    DCHECK(_file_format_transformer != nullptr);
     iceberg_commit_data.__set_file_size(_file_format_transformer->written_len());
     iceberg_commit_data.__set_file_content(TFileContent::DATA);
     iceberg_commit_data.__set_partition_values(_partition_values);

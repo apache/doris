@@ -26,14 +26,40 @@ namespace doris {
 namespace vectorized {
 
 std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
-        const doris::iceberg::PartitionField& field) {
+        const doris::iceberg::PartitionField& field, const TypeDescriptor& source_type) {
     auto& transform = field.transform();
+    static const std::regex hasWidth(R"((\w+)\[(\d+)\])");
+    std::smatch width_match;
+
+    if (std::regex_match(transform, width_match, hasWidth)) {
+        std::string name = width_match[1];
+        //int parsed_width = std::stoi(width_match[2]);
+
+        if (name == "truncate") {
+            switch (source_type.type) {
+            default: {
+                throw doris::Exception(
+                        doris::ErrorCode::INTERNAL_ERROR,
+                        "Unsupported type for truncate partition column transform {}",
+                        source_type.debug_string());
+            }
+            }
+        } else if (name == "bucket") {
+            switch (source_type.type) {
+            default: {
+                throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                       "Unsupported type for bucket partition column transform {}",
+                                       source_type.debug_string());
+            }
+            }
+        }
+    }
 
     if (transform == "identity") {
-        return std::make_unique<IdentityPartitionColumnTransform>();
+        return std::make_unique<IdentityPartitionColumnTransform>(source_type);
     } else {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                               "Unsupported partition transform: {}.", transform);
+                               "Unsupported partition column transform: {}.", transform);
     }
 }
 
@@ -105,11 +131,18 @@ std::string PartitionColumnTransform::to_human_string(const TypeDescriptor& type
         }
         default: {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "Unsupported type for partition {}", type.debug_string());
+                                   "Unsupported partition column transform: {}",
+                                   type.debug_string());
         }
         }
     }
     return "null";
+}
+
+ColumnWithTypeAndName IdentityPartitionColumnTransform::apply(Block& block, int idx) {
+    const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(idx);
+    return {column_with_type_and_name.column, column_with_type_and_name.type,
+            column_with_type_and_name.name};
 }
 
 } // namespace vectorized
