@@ -110,7 +110,8 @@ public class PaimonJniScanner extends JniScanner {
         if (this.fields.length != this.paimonAllFieldNames.size()) {
             throw new IOException(
                     String.format(
-                            "The jni reader fields' size {%s} is not matched with paimon fields' size {%s}. Please refresh table and try again",
+                            "The jni reader fields' size {%s} is not matched with paimon fields' size {%s}."
+                                    + " Please refresh table and try again",
                             fields.length, paimonAllFieldNames.size()));
         }
         readBuilder.withProjection(getProjected());
@@ -188,7 +189,7 @@ public class PaimonJniScanner extends JniScanner {
         } catch (Exception e) {
             close();
             LOG.warn("Failed to get the next batch of paimon. "
-                            + "split: {}, requiredFieldNames: {}, paimonAllFieldNames: {}",
+                    + "split: {}, requiredFieldNames: {}, paimonAllFieldNames: {}",
                     getSplit(), params.get("required_fields"), paimonAllFieldNames, e);
             throw new IOException(e);
         }
