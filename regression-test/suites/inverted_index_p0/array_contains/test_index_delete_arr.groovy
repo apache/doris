@@ -65,8 +65,8 @@ suite("test_index_delete_arr", "array_contains_inverted_index") {
         qt_sql """ select count() from ${indexTbName1} where a <= 10; """
         
         test {
-         sql """ delete from ${indexTbName1} where array_contains(b,'3'); """
-         exception("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate")
+         sql """ delete from test_index_delete_arr where array_contains(b,'3'); """
+         exception("errCode = 2")
         }
 
         sql "sync"

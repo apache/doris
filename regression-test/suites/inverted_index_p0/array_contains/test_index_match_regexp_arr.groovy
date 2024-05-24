@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_match_regexp_arr_arr", "array_contains_inverted_index"){
+suite("test_index_match_regexp_arr", "array_contains_inverted_index"){
     // here some variable to control inverted index query
     sql """ set enable_profile=true"""
     sql """ set enable_pipeline_x_engine=true;"""
@@ -24,7 +24,7 @@ suite("test_index_match_regexp_arr_arr", "array_contains_inverted_index"){
     sql """ set enable_common_expr_pushdown=true """
     sql """ set enable_common_expr_pushdown_for_inverted_index=true """
 
-    def indexTbName1 = "test_index_match_regexp_arr_arr"
+    def indexTbName1 = "test_index_match_regexp_arr"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
 

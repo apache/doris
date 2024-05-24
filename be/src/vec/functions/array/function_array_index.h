@@ -129,6 +129,17 @@ public:
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, param_value is nullptr or value is null");
         }
+        if (iter->get_inverted_index_reader_type() ==
+            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+            // parser is not none we can not make sure the result is correct in expr combination
+            // for example, filter: !array_index(array, 'tall:120cm, weight: 35kg')
+            // here we have rows [tall:120cm, weight: 35kg, hobbies: reading book] which be tokenized
+            // but query is also tokenized, and FULLTEXT reader will catch this row as matched,
+            // so array_index(array, 'tall:120cm, weight: 35kg') return this rowid,
+            // but we expect it to be filtered, because we want row is equal to 'tall:120cm, weight: 35kg'
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, FULLTEXT reader can not support array_index");
+        }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                 param_value->type, &param_value->value, query_param));
