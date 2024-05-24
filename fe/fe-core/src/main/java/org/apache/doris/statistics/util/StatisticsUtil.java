@@ -109,6 +109,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -121,6 +122,7 @@ public class StatisticsUtil {
     private static final String NUM_ROWS = "numRows";
 
     private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
+    public static final int UPDATED_PARTITION_THRESHOLD = 3;
 
     public static List<ResultRow> executeQuery(String template, Map<String, String> params) {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -973,6 +975,11 @@ public class StatisticsUtil {
         if (columnStatsMeta == null) {
             return true;
         }
+        // Partition table partition stats never been collected.
+        if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()
+                && (columnStatsMeta.partitionUpdateRows == null || columnStatsMeta.partitionUpdateRows.isEmpty())) {
+            return true;
+        }
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
             // 0. Check new partition first time loaded flag.
@@ -1006,7 +1013,11 @@ public class StatisticsUtil {
             long currentUpdatedRows = tableStatsStatus.updatedRows.get();
             long lastAnalyzeUpdateRows = columnStatsMeta.updatedRows;
             changeRate = ((double) Math.abs(currentUpdatedRows - lastAnalyzeUpdateRows) / lastAnalyzeRowCount) * 100.0;
-            return changeRate > StatisticsUtil.getTableStatsHealthThreshold();
+            if (changeRate > StatisticsUtil.getTableStatsHealthThreshold()) {
+                return true;
+            }
+            // 3. Check partition
+            return needAnalyzePartition(olapTable, tableStatsStatus, columnStatsMeta);
         } else {
             // Now, we only support Hive external table auto analyze.
             if (!(table instanceof HMSExternalTable)) {
@@ -1020,5 +1031,47 @@ public class StatisticsUtil {
             return System.currentTimeMillis()
                     - tableStatsStatus.updatedTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
         }
+    }
+
+    public static boolean needAnalyzePartition(OlapTable table, TableStatsMeta tableStatsStatus,
+                                               ColStatsMeta columnStatsMeta) {
+        if (!StatisticsUtil.enablePartitionAnalyze() || !table.isPartitionedTable()) {
+            return false;
+        }
+        Collection<Partition> partitions = table.getPartitions();
+        ConcurrentMap<Long, Long> partitionUpdateRows = columnStatsMeta.partitionUpdateRows;
+        if (partitionUpdateRows == null) {
+            return true;
+        }
+        // New partition added or old partition deleted.
+        if (partitions.size() != partitionUpdateRows.size()) {
+            return true;
+        }
+        int changedPartitions = 0;
+        for (Partition p : partitions) {
+            long id = p.getId();
+            // New partition added.
+            if (!partitionUpdateRows.containsKey(id)) {
+                return true;
+            }
+            long currentUpdateRows = tableStatsStatus.partitionUpdateRows.get(id);
+            long lastUpdateRows = partitionUpdateRows.get(id);
+            if (currentUpdateRows != 0) {
+                long changedRows = currentUpdateRows - lastUpdateRows;
+                if (changedRows > 0) {
+                    changedPartitions++;
+                    // Too much partition changed, need to reanalyze.
+                    if (changedPartitions > UPDATED_PARTITION_THRESHOLD) {
+                        return true;
+                    }
+                }
+                double changeRate = ((double) changedRows) / currentUpdateRows;
+                // One partition changed too much, need to reanalyze.
+                if (changeRate > StatisticsUtil.getTableStatsHealthThreshold()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

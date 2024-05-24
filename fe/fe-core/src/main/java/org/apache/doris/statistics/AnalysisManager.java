@@ -372,7 +372,7 @@ public class AnalysisManager implements Writable {
         }
         infoBuilder.setColName(stringJoiner.toString());
         infoBuilder.setTaskIds(Lists.newArrayList());
-        infoBuilder.setTblUpdateTime(table.getUpdateTime());
+        infoBuilder.setTblUpdateTime(System.currentTimeMillis());
         // Empty table row count is 0. Call fetchRowCount() when getRowCount() returns <= 0,
         // because getRowCount may return <= 0 if cached is not loaded. This is mainly for external table.
         long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 :
@@ -1126,6 +1126,9 @@ public class AnalysisManager implements Writable {
                 Comparator.comparing(Partition::getVisibleVersionTime).reversed()).collect(Collectors.toList());
         Map<Long, Long> tabletToRows = new HashMap<>(originTabletToRows);
         int tabletCount = tabletToRows.size();
+        if (statsStatus.partitionUpdateRows == null) {
+            statsStatus.partitionUpdateRows = new ConcurrentHashMap<>();
+        }
         for (Partition p : partitions) {
             MaterializedIndex baseIndex = p.getBaseIndex();
             Iterator<Entry<Long, Long>> iterator = tabletToRows.entrySet().iterator();
