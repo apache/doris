@@ -22,8 +22,6 @@
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <algorithm>
 #include <cassert>
@@ -144,12 +142,28 @@ public:
 
     static constexpr size_t max_precision() { return max_decimal_precision<T>(); }
 
-    DataTypeDecimal(UInt32 precision = 27, UInt32 scale = 9) : precision(precision), scale(scale) {
+    DataTypeDecimal(UInt32 precision = 27, UInt32 scale = 9,
+                    UInt32 arg_original_precision = UINT32_MAX,
+                    UInt32 arg_original_scale = UINT32_MAX)
+            : precision(precision),
+              scale(scale),
+              original_precision(arg_original_precision),
+              original_scale(arg_original_scale) {
         check_type_precision(precision);
         check_type_scale(scale);
+        if (UINT32_MAX != original_precision) {
+            check_type_precision(original_precision);
+        }
+        if (UINT32_MAX != original_scale) {
+            check_type_scale(scale);
+        }
     }
 
-    DataTypeDecimal(const DataTypeDecimal& rhs) : precision(rhs.precision), scale(rhs.scale) {}
+    DataTypeDecimal(const DataTypeDecimal& rhs)
+            : precision(rhs.precision),
+              scale(rhs.scale),
+              original_precision(rhs.original_precision),
+              original_scale(rhs.original_scale) {}
 
     const char* get_family_name() const override { return "Decimal"; }
     std::string do_get_name() const override;
@@ -248,6 +262,9 @@ public:
 
     [[nodiscard]] UInt32 get_precision() const override { return precision; }
     [[nodiscard]] UInt32 get_scale() const override { return scale; }
+    [[nodiscard]] UInt32 get_format_scale() const {
+        return UINT32_MAX == original_scale ? scale : original_scale;
+    }
     T get_scale_multiplier() const { return get_scale_multiplier(scale); }
 
     T whole_part(T x) const {
@@ -323,6 +340,14 @@ public:
 private:
     const UInt32 precision;
     const UInt32 scale;
+
+    // For decimalv2 only, record the original(schema) precision and scale.
+    // UINT32_MAX means original precision and scale are unknown.
+    // Decimalv2 will be converted to Decimal(27, 9) in memory when doing any calculations,
+    // but when casting decimalv2 to string, it's better to keep the presion and
+    // scale of it's original value in schema.
+    UInt32 original_precision = UINT32_MAX;
+    UInt32 original_scale = UINT32_MAX;
 };
 
 template <typename T, typename U>
