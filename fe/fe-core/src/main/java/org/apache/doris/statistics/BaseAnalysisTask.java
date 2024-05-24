@@ -21,6 +21,8 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.DebugUtil;
@@ -48,7 +50,9 @@ import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 
 public abstract class BaseAnalysisTask {
 
@@ -358,7 +362,25 @@ public abstract class BaseAnalysisTask {
         Set<String> partitionNames = tbl.getPartitionNames();
         List<String> sqls = Lists.newArrayList();
         int count = 0;
+        TableStatsMeta tableStatsStatus = Env.getServingEnv().getAnalysisManager().findTableStatsStatus(tbl.getId());
         for (String part : partitionNames) {
+            Partition partition = tbl.getPartition(part);
+            // Skip partitions that not changed after last analyze.
+            // External table getPartition always return null. So external table doesn't skip any partitions.
+            if (partition != null && tableStatsStatus != null && tableStatsStatus.partitionUpdateRows != null) {
+                ConcurrentMap<Long, Long> tableUpdateRows = tableStatsStatus.partitionUpdateRows;
+                String idxName = info.indexId == -1 ? tbl.getName() : ((OlapTable) tbl).getIndexNameById(info.indexId);
+                ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(idxName, col.getName());
+                if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
+                    ConcurrentMap<Long, Long> columnUpdateRows = columnStatsMeta.partitionUpdateRows;
+                    long id = partition.getId();
+                    if (Objects.equals(tableUpdateRows.get(id), columnUpdateRows.get(id))) {
+                        LOG.info("Partition {} doesn't change after last analyze for column {}, skip it.",
+                                part, col.getName());
+                        continue;
+                    }
+                }
+            }
             params.put("partId", "'" + StatisticsUtil.escapeColumnName(part) + "'");
             params.put("partitionInfo", getPartitionInfo(part));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
