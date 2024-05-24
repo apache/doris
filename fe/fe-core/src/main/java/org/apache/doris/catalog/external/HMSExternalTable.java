@@ -47,7 +47,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.DateColumnStatsData;
-import org.apache.hadoop.hive.metastore.api.Decimal;
 import org.apache.hadoop.hive.metastore.api.DecimalColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
@@ -61,9 +60,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -555,8 +551,11 @@ public class HMSExternalTable extends ExternalTable {
             return Optional.empty();
         }
         Map<String, String> parameters = remoteTable.getParameters();
+        if (!parameters.containsKey(NUM_ROWS) || Long.parseLong(parameters.get(NUM_ROWS)) == 0) {
+            return Optional.empty();
+        }
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-        double count = parameters.containsKey(NUM_ROWS) ? Double.parseDouble(parameters.get(NUM_ROWS)) : 0;
+        long count = Long.parseLong(parameters.get(NUM_ROWS));
         columnStatisticBuilder.setCount(count);
         // The tableStats length is at most 1.
         for (ColumnStatisticsObj tableStat : tableStats) {
@@ -575,12 +574,10 @@ public class HMSExternalTable extends ExternalTable {
         return Optional.of(columnStatisticBuilder.build());
     }
 
-    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, double count)
+    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, long count)
             throws AnalysisException {
         long ndv = 0;
         long nulls = 0;
-        String min = "";
-        String max = "";
         double colSize = 0;
         if (!data.isSetStringStats()) {
             colSize = count * col.getType().getSlotSize();
@@ -590,8 +587,6 @@ public class HMSExternalTable extends ExternalTable {
             LongColumnStatsData longStats = data.getLongStats();
             ndv = longStats.getNumDVs();
             nulls = longStats.getNumNulls();
-            min = String.valueOf(longStats.getLowValue());
-            max = String.valueOf(longStats.getHighValue());
         } else if (data.isSetStringStats()) {
             StringColumnStatsData stringStats = data.getStringStats();
             ndv = stringStats.getNumDVs();
@@ -602,65 +597,23 @@ public class HMSExternalTable extends ExternalTable {
             DecimalColumnStatsData decimalStats = data.getDecimalStats();
             ndv = decimalStats.getNumDVs();
             nulls = decimalStats.getNumNulls();
-            if (decimalStats.isSetLowValue()) {
-                Decimal lowValue = decimalStats.getLowValue();
-                if (lowValue != null) {
-                    BigDecimal lowDecimal = new BigDecimal(new BigInteger(lowValue.getUnscaled()), lowValue.getScale());
-                    min = lowDecimal.toString();
-                }
-            }
-            if (decimalStats.isSetHighValue()) {
-                Decimal highValue = decimalStats.getHighValue();
-                if (highValue != null) {
-                    BigDecimal highDecimal =
-                            new BigDecimal(new BigInteger(highValue.getUnscaled()), highValue.getScale());
-                    max = highDecimal.toString();
-                }
-            }
         } else if (data.isSetDoubleStats()) {
             DoubleColumnStatsData doubleStats = data.getDoubleStats();
             ndv = doubleStats.getNumDVs();
             nulls = doubleStats.getNumNulls();
-            min = String.valueOf(doubleStats.getLowValue());
-            max = String.valueOf(doubleStats.getHighValue());
         } else if (data.isSetDateStats()) {
             DateColumnStatsData dateStats = data.getDateStats();
             ndv = dateStats.getNumDVs();
             nulls = dateStats.getNumNulls();
-            if (dateStats.isSetLowValue()) {
-                org.apache.hadoop.hive.metastore.api.Date lowValue = dateStats.getLowValue();
-                if (lowValue != null) {
-                    LocalDate lowDate = LocalDate.ofEpochDay(lowValue.getDaysSinceEpoch());
-                    min = lowDate.toString();
-                }
-            }
-            if (dateStats.isSetHighValue()) {
-                org.apache.hadoop.hive.metastore.api.Date highValue = dateStats.getHighValue();
-                if (highValue != null) {
-                    LocalDate highDate = LocalDate.ofEpochDay(highValue.getDaysSinceEpoch());
-                    max = highDate.toString();
-                }
-            }
         } else {
-            LOG.debug(String.format("Not suitable data type for column %s", col.getName()));
-            throw new RuntimeException("Not supported data type.");
+            LOG.warn(String.format("Not suitable data type for column %s", col.getName()));
         }
         builder.setNdv(ndv);
         builder.setNumNulls(nulls);
         builder.setDataSize(colSize);
         builder.setAvgSizeByte(colSize / count);
-        if (!min.equals("")) {
-            builder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
-            builder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
-        } else {
-            builder.setMinValue(Double.MIN_VALUE);
-        }
-        if (!max.equals("")) {
-            builder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
-            builder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
-        } else {
-            builder.setMaxValue(Double.MAX_VALUE);
-        }
+        builder.setMinValue(Double.NEGATIVE_INFINITY);
+        builder.setMaxValue(Double.POSITIVE_INFINITY);
     }
 
     public void setEventUpdateTime(long updateTime) {
