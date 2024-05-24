@@ -558,7 +558,7 @@ public class IcebergUtils {
         });
     }
 
-    public static List<String> getPartitions(ExternalCatalog catalog, String dbName, String name) {
+    public static List<String> getPartitions1(ExternalCatalog catalog, String dbName, String name) {
         return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
             List<String> res = Lists.newArrayList();
             org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
@@ -615,6 +615,12 @@ public class IcebergUtils {
         });
     }
 
+    public static String getPartitionName(ExternalCatalog catalog, String dbName, String tableName,
+            IcebergPartition partition) {
+        org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, tableName);
+        return convertIcebergPartitionToPartitionName(icebergTable.specs().get(partition.getSpecId()),
+                partition.getPartitionData());
+    }
 
     // return partition name in forms of `col1=value1/col2=value2`
     // if the partition field is explicitly named, use this name without change

@@ -201,6 +201,8 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergPartition;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
@@ -1938,12 +1940,22 @@ public class ShowExecutor {
         ExternalDatabase<? extends ExternalTable> db = catalog.getDbOrAnalysisException(dbName);
         ExternalTable table = db.getTableOrAnalysisException(showStmt.getTableName().getTbl());
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
-        List<String> partitionNames = icebergTable.getPartitions();
+        List<IcebergPartition> partitions = icebergTable.getPartitions();
 
         /* Filter add rows */
-        for (String partition : partitionNames) {
+        for (IcebergPartition partition : partitions) {
             List<String> list = new ArrayList<>();
-            list.add(partition);
+            list.add(IcebergUtils.getPartitionName(catalog, dbName, showStmt.getTableName().getTbl(), partition));
+            list.add(String.valueOf(partition.getSpecId()));
+            list.add(String.valueOf(partition.getRecordCount()));
+            list.add(String.valueOf(partition.getFileCount()));
+            list.add(String.valueOf(partition.getTotalDataFileSizeInBytes()));
+            list.add(String.valueOf(partition.getPositionDeleteRecordCount()));
+            list.add(String.valueOf(partition.getPositionDeleteFileCount()));
+            list.add(String.valueOf(partition.getEqualityDeleteRecordCount()));
+            list.add(String.valueOf(partition.getEqualityDeleteFileCount()));
+            list.add(String.valueOf(partition.getLastUpdatedAt()));
+            list.add(String.valueOf(partition.getLastUpdatedSnapshotId()));
             rows.add(list);
         }
 

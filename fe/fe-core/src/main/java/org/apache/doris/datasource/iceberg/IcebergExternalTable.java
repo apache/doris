@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -54,8 +55,9 @@ public class IcebergExternalTable extends ExternalTable {
         return Optional.of(new SchemaCacheValue(IcebergUtils.getSchema(catalog, dbName, name)));
     }
 
-    public List<String> getPartitions() {
-        return IcebergUtils.getPartitions(catalog, dbName, name);
+    public List<IcebergPartition> getPartitions() {
+        IcebergMetadataCache icebergMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
+        return icebergMetadataCache.getPartitionList(catalog, dbName, name);
     }
 
     @Override

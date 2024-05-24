@@ -293,6 +293,18 @@ public class ShowPartitionsStmt extends ShowStmt {
             for (String col : result.getColumnNames()) {
                 builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
             }
+        } else if (catalog instanceof IcebergExternalCatalog) {
+            builder.addColumn(new Column("partition", ScalarType.createVarchar(60)));
+            builder.addColumn(new Column("specId", ScalarType.createVarchar(20)));
+            builder.addColumn(new Column("recordCount", ScalarType.createVarchar(20)));
+            builder.addColumn(new Column("fileCount", ScalarType.createVarchar(20)));
+            builder.addColumn(new Column("totalDataFileSizeInBytes", ScalarType.createVarchar(20)));
+            builder.addColumn(new Column("positionDeleteRecordCount", ScalarType.createVarchar(20)));
+            builder.addColumn(new Column("positionDeleteFileCount", ScalarType.createVarchar(20)));
+            builder.addColumn(new Column("equalityDeleteRecordCount", ScalarType.createVarchar(20)));
+            builder.addColumn(new Column("equalityDeleteFileCount", ScalarType.createVarchar(20)));
+            builder.addColumn(new Column("lastUpdatedAt", ScalarType.createVarchar(20)));
+            builder.addColumn(new Column("lastUpdatedSnapshotId", ScalarType.createVarchar(20)));
         } else {
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
         }

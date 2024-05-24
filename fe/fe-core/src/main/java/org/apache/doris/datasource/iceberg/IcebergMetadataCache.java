@@ -22,6 +22,7 @@ import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.property.constants.HMSProperties;
@@ -32,12 +33,20 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
+import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFiles;
+import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.PartitionsTable;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hive.HiveCatalog;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.util.StructProjection;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
@@ -51,6 +60,8 @@ public class IcebergMetadataCache {
 
     private final LoadingCache<IcebergMetadataCacheKey, List<Snapshot>> snapshotListCache;
     private final LoadingCache<IcebergMetadataCacheKey, Table> tableCache;
+
+    private final LoadingCache<IcebergMetadataCacheKey, List<IcebergPartition>> partitionListCache;
 
     public IcebergMetadataCache(ExecutorService executor) {
         CacheFactory snapshotListCacheFactory = new CacheFactory(
@@ -68,6 +79,14 @@ public class IcebergMetadataCache {
                 false,
                 null);
         this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), null, executor);
+
+        CacheFactory partitionListCacheFactory = new CacheFactory(
+                OptionalLong.of(86400L),
+                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                Config.max_hive_table_cache_num,
+                false,
+                null);
+        this.partitionListCache = partitionListCacheFactory.buildCache(key -> loadPartitions(key), null, executor);
     }
 
     public List<Snapshot> getSnapshotList(TIcebergMetadataParams params) throws UserException {
@@ -78,6 +97,12 @@ public class IcebergMetadataCache {
         IcebergMetadataCacheKey key =
                 IcebergMetadataCacheKey.of(catalog, params.getDatabase(), params.getTable());
         return snapshotListCache.get(key);
+    }
+
+    public List<IcebergPartition> getPartitionList(ExternalCatalog catalog, String dbName, String tableName) {
+        IcebergMetadataCacheKey key =
+                IcebergMetadataCacheKey.of(catalog, dbName, tableName);
+        return partitionListCache.get(key);
     }
 
     public Table getIcebergTable(CatalogIf catalog, String dbName, String tbName) {
@@ -91,6 +116,48 @@ public class IcebergMetadataCache {
         List<Snapshot> snaps = Lists.newArrayList();
         Iterables.addAll(snaps, icebergTable.snapshots());
         return snaps;
+    }
+
+    @NotNull
+    private List<IcebergPartition> loadPartitions(IcebergMetadataCacheKey key) {
+        Table icebergTable = getIcebergTable(key.catalog, key.dbName, key.tableName);
+        List<IcebergPartition> res = Lists.newArrayList();
+        if (icebergTable.specs().values().stream().allMatch(PartitionSpec::isUnpartitioned)) {
+            return res;
+        }
+        PartitionsTable partitionsTable = (PartitionsTable) MetadataTableUtils.createMetadataTableInstance(
+                icebergTable, MetadataTableType.PARTITIONS);
+        CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().planFiles();
+        for (FileScanTask task : tasks) {
+            CloseableIterable<StructLike> rows = task.asDataTask().rows();
+            for (StructLike row : rows) {
+                IcebergPartition partition = new IcebergPartition();
+                // partition_data
+                partition.setPartitionData(row.get(0, StructProjection.class));
+                // spec_id,
+                partition.setSpecId(row.get(1, Integer.class));
+                // record_count,
+                partition.setRecordCount(row.get(2, Long.class));
+                // file_count,
+                partition.setFileCount(row.get(3, Integer.class));
+                // total_data_file_size_in_bytes,
+                partition.setTotalDataFileSizeInBytes(row.get(4, Long.class));
+                // position_delete_record_count,
+                partition.setPositionDeleteRecordCount(row.get(5, Long.class));
+                // position_delete_file_count,
+                partition.setPositionDeleteFileCount(row.get(6, Integer.class));
+                // equality_delete_record_count,
+                partition.setEqualityDeleteRecordCount(row.get(7, Long.class));
+                // equality_delete_file_count,
+                partition.setEqualityDeleteFileCount(row.get(8, Integer.class));
+                // last_updated_at,
+                partition.setLastUpdatedAt(row.get(9, Long.class));
+                // last_updated_snapshot_id
+                partition.setLastUpdatedSnapshotId(row.get(10, Long.class));
+                res.add(partition);
+            }
+        }
+        return res;
     }
 
     @NotNull
@@ -116,7 +183,11 @@ public class IcebergMetadataCache {
     public void invalidateCatalogCache(long catalogId) {
         snapshotListCache.asMap().keySet().stream()
                 .filter(key -> key.catalog.getId() == catalogId)
-            .forEach(snapshotListCache::invalidate);
+                .forEach(snapshotListCache::invalidate);
+
+        partitionListCache.asMap().keySet().stream()
+                .filter(key -> key.catalog.getId() == catalogId)
+                .forEach(partitionListCache::invalidate);
 
         tableCache.asMap().entrySet().stream()
                 .filter(entry -> entry.getKey().catalog.getId() == catalogId)
@@ -130,7 +201,12 @@ public class IcebergMetadataCache {
         snapshotListCache.asMap().keySet().stream()
                 .filter(key -> key.catalog.getId() == catalogId && key.dbName.equals(dbName) && key.tableName.equals(
                         tblName))
-            .forEach(snapshotListCache::invalidate);
+                .forEach(snapshotListCache::invalidate);
+
+        partitionListCache.asMap().keySet().stream()
+                .filter(key -> key.catalog.getId() == catalogId && key.dbName.equals(dbName) && key.tableName.equals(
+                        tblName))
+                .forEach(partitionListCache::invalidate);
 
         tableCache.asMap().entrySet().stream()
                 .filter(entry -> {
@@ -148,6 +224,10 @@ public class IcebergMetadataCache {
         snapshotListCache.asMap().keySet().stream()
                 .filter(key -> key.catalog.getId() == catalogId && key.dbName.equals(dbName))
                 .forEach(snapshotListCache::invalidate);
+
+        partitionListCache.asMap().keySet().stream()
+                .filter(key -> key.catalog.getId() == catalogId && key.dbName.equals(dbName))
+                .forEach(partitionListCache::invalidate);
 
         tableCache.asMap().entrySet().stream()
                 .filter(entry -> {
