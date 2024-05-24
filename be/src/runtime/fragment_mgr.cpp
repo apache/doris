@@ -720,10 +720,10 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     int64_t query_reserved_memory = 0; // TODO
     if (!config::enable_query_enforce_exec &&
         doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(query_reserved_memory)) {
-        std::string errmsg =
-                fmt::format(" try exec_plan_fragment failed, fragmentInstanceId {}, but {}",
-                            print_id(fragment_instance_id),
-                            doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
+        std::string errmsg = fmt::format(
+                " exec_plan_fragment failed, please try again, fragmentInstanceId {}, {}",
+                print_id(fragment_instance_id),
+                doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
         LOG(INFO) << errmsg;
         return Status::MemoryLimitExceeded(errmsg);
     }
@@ -849,9 +849,10 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     int64_t query_reserved_memory = 0; // TODO
     if (!config::enable_query_enforce_exec &&
         doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(query_reserved_memory)) {
-        std::string errmsg = fmt::format(
-                " try exec_plan_fragment failed, queryId {}, {}", print_id(params.query_id),
-                doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
+        std::string errmsg =
+                fmt::format(" exec_plan_fragment failed, please try again, queryId {}, {}",
+                            print_id(params.query_id),
+                            doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
         LOG(INFO) << errmsg;
         return Status::MemoryLimitExceeded(errmsg);
     }
