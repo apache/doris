@@ -26,7 +26,6 @@ suite("partition_mv_rewrite_dimension_2_right_join") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
-    sql " set enable_memtable_on_sink_node = false; " //FIXME: remove when fixed.
 
     sql """
     drop table if exists orders_2_right_join

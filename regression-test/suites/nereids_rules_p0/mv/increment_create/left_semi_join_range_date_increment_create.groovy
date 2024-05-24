@@ -22,7 +22,6 @@ suite("left_semi_join_range_date_increment_create") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=false"
     sql "SET enable_nereids_timeout = false"
-    sql " set enable_memtable_on_sink_node = false; " //FIXME: remove when fixed.
 
     sql """
     drop table if exists orders_left_semi_2

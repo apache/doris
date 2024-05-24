@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_select_with_predicate_prune", "arrow_flight_sql") {
-    sql " set enable_memtable_on_sink_node = false; " //FIXME: remove when fixed.
-
     sql """
         drop table if exists `test_select_with_predicate_prune`;
     """

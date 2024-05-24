@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_auto_range_partition") {
-    sql " set enable_memtable_on_sink_node = false; " //FIXME: remove when fixed.
-
     sql "drop table if exists range_table1"
     sql """
         CREATE TABLE `range_table1` (
@@ -143,6 +141,7 @@ suite("test_auto_range_partition") {
     assertEquals(result2.size(), 2)
 
     // insert into select have multi sender in load
+    sql " set enable_memtable_on_sink_node = false; " //FIXME: remove when fixed.
     sql " drop table if exists isit "
     sql " drop table if exists isit_src "
     sql """

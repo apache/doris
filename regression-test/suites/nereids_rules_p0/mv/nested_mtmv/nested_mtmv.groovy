@@ -23,7 +23,6 @@ suite("nested_mtmv") {
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
     sql "SET enable_materialized_view_nest_rewrite = true"
-    sql " set enable_memtable_on_sink_node = false; " //FIXME: remove when fixed.
 
     sql """
     drop table if exists orders_1

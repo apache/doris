@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_auto_partition_behavior") {
-    sql " set enable_memtable_on_sink_node = false; " //FIXME: remove when fixed.
     /// unique key table
     sql "drop table if exists unique_table"
     sql """
