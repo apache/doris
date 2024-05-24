@@ -378,9 +378,8 @@ public class OlapTableSink extends DataSink {
         // set partition keys
         setPartitionKeys(fakePartition, createDummyPartitionItem(partType), partColNum);
 
-        long fakeId = 1;
-        for (Map.Entry<Long, MaterializedIndexMeta> entry : table.getIndexIdToMeta().entrySet()) {
-            fakePartition.addToIndexes(new TOlapTableIndexTablets(entry.getKey(), Arrays.asList(++fakeId)));
+        for (Long indexId : table.getIndexIdToMeta().keySet()) {
+            fakePartition.addToIndexes(new TOlapTableIndexTablets(indexId, Arrays.asList(0L)));
             fakePartition.setNumBuckets(1);
         }
         fakePartition.setIsMutable(true);
@@ -607,6 +606,8 @@ public class OlapTableSink extends DataSink {
             } else {
                 locationParam.addToTablets(new TTabletLocation(fakeTabletId,
                         Arrays.asList(aliveBe.get(0)))); // just one fake location is enough
+
+                LOG.info("created dummy location tablet_id={}, be_id={}", fakeTabletId, aliveBe.get(0));
             }
         }
 

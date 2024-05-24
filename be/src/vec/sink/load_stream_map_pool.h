@@ -78,7 +78,7 @@ public:
     LoadStreamMap(UniqueId load_id, int64_t src_id, int num_streams, int num_use,
                   LoadStreamMapPool* pool);
 
-    std::shared_ptr<Streams> get_or_create(int64_t dst_id);
+    std::shared_ptr<Streams> get_or_create(int64_t dst_id, bool incremental=false);
 
     std::shared_ptr<Streams> at(int64_t dst_id);
 
@@ -95,7 +95,7 @@ public:
 
     // send CLOSE_LOAD to all streams, return ERROR if any.
     // only call this method after release() returns true.
-    Status close_load();
+    Status close_load(bool incremental);
 
 private:
     const UniqueId _load_id;
