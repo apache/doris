@@ -104,13 +104,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
         String dbName = stmt.getDbName();
-        if (dorisCatalog.getDbNameToId().containsKey(dbName)) {
-            Long aLong = dorisCatalog.getDbNameToId().get(dbName);
-            dorisCatalog.getIdToDb().remove(aLong);
-            dorisCatalog.getDbNameToId().remove(dbName);
-        }
         if (!databaseExist(dbName)) {
             if (stmt.isSetIfExists()) {
                 LOG.info("drop database[{}] which does not exist", dbName);
@@ -119,12 +113,13 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
             }
         }
+        SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
         nsCatalog.dropNamespace(Namespace.of(dbName));
         dorisCatalog.onRefresh(true);
     }
 
     @Override
-    public void createTable(CreateTableStmt stmt) throws UserException {
+    public boolean createTable(CreateTableStmt stmt) throws UserException {
         String dbName = stmt.getDbName();
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db == null) {
@@ -134,7 +129,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (tableExist(dbName, tableName)) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableName);
-                return;
+                return true;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
@@ -152,6 +147,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(stmt.getPartitionDesc(), schema);
         catalog.createTable(TableIdentifier.of(dbName, tableName), schema, partitionSpec, properties);
         db.setUnInitialized(true);
+        return false;
     }
 
     @Override

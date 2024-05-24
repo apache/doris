@@ -19,7 +19,6 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -30,15 +29,10 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 public class PushDownFilterThroughProject extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
+        filter = (PhysicalFilter<? extends Plan>) super.visit(filter, context);
         Plan child = filter.child();
         if (!(child instanceof PhysicalProject)) {
-            Plan newChild = child.accept(this, context);
-            if (newChild == child) {
-                return filter;
-            } else {
-                return ((AbstractPhysicalPlan) filter.withChildren(child.accept(this, context)))
-                        .copyStatsAndGroupIdFrom(filter);
-            }
+            return filter;
         }
 
         PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;

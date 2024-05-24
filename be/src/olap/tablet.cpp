@@ -109,6 +109,7 @@
 #include "service/point_query_executor.h"
 #include "tablet.h"
 #include "util/bvar_helper.h"
+#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
@@ -330,11 +331,19 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
                                   const std::vector<RowsetSharedPtr>& to_delete,
                                   bool is_incremental_clone) {
     LOG(INFO) << "begin to revise tablet. tablet_id=" << tablet_id();
-    delete_rowsets(to_delete, false);
-    add_rowsets(to_add);
-    // reconstruct from tablet meta
-    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
-    if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
+    // 1. for incremental clone, we have to add the rowsets first to make it easy to compute
+    //    all the delete bitmaps, and it's easy to delete them if we end up with a failure
+    // 2. for full clone, we can calculate delete bitmaps on the cloned rowsets directly.
+    if (is_incremental_clone) {
+        CHECK(to_delete.empty()); // don't need to delete rowsets
+        add_rowsets(to_add);
+        // reconstruct from tablet meta
+        _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
+    }
+
+    Status calc_bm_status;
+    std::vector<RowsetSharedPtr> base_rowsets_for_full_clone = to_add; // copy vector
+    while (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
         std::vector<RowsetSharedPtr> calc_delete_bitmap_rowsets;
         int64_t to_add_min_version = INT64_MAX;
         int64_t to_add_max_version = INT64_MIN;
@@ -369,20 +378,73 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
         }
 
         if (calc_delete_bitmap_ver.first <= calc_delete_bitmap_ver.second) {
-            Status res = capture_consistent_rowsets_unlocked(calc_delete_bitmap_ver,
-                                                             &calc_delete_bitmap_rowsets);
-            // Because the data in memory has been changed, can't return an error.
-            CHECK(res.ok()) << "fail to capture_consistent_rowsets, res: " << res;
-
+            calc_bm_status = capture_consistent_rowsets_unlocked(calc_delete_bitmap_ver,
+                                                                 &calc_delete_bitmap_rowsets);
+            if (!calc_bm_status.ok()) {
+                LOG(WARNING) << "fail to capture_consistent_rowsets, res: " << calc_bm_status;
+                break;
+            }
             // FIXME(plat1ko): Use `const TabletSharedPtr&` as parameter
             auto self = _engine.tablet_manager()->get_tablet(tablet_id());
             CHECK(self);
             for (auto rs : calc_delete_bitmap_rowsets) {
-                res = update_delete_bitmap_without_lock(self, rs);
-                CHECK(res.ok()) << "fail to update_delete_bitmap_without_lock, res: " << res;
+                if (is_incremental_clone) {
+                    calc_bm_status = update_delete_bitmap_without_lock(self, rs);
+                } else {
+                    calc_bm_status = update_delete_bitmap_without_lock(
+                            self, rs, &base_rowsets_for_full_clone);
+                    base_rowsets_for_full_clone.push_back(rs);
+                }
+                if (!calc_bm_status.ok()) {
+                    LOG(WARNING) << "fail to update_delete_bitmap_without_lock, res: "
+                                 << calc_bm_status;
+                    break;
+                }
+            }
+        }
+        break; // while (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write())
+    }
+
+    // error handling
+    if (!calc_bm_status.ok()) {
+        if (is_incremental_clone) {
+            delete_rowsets(to_add, false);
+            LOG(WARNING) << "incremental clone on tablet: " << tablet_id() << " failed due to "
+                         << calc_bm_status.msg() << ", revert " << to_add.size()
+                         << " rowsets added before.";
+        } else {
+            LOG(WARNING) << "full clone on tablet: " << tablet_id() << " failed due to "
+                         << calc_bm_status.msg() << ", will not update tablet meta.";
+        }
+        return calc_bm_status;
+    }
+
+    // full clone, calculate delete bitmap succeeded, update rowset
+    if (!is_incremental_clone) {
+        delete_rowsets(to_delete, false);
+        add_rowsets(to_add);
+        // reconstruct from tablet meta
+        _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
+
+        // check the rowsets used for delete bitmap calculation is equal to the rowsets
+        // that we can capture by version
+        if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
+            Version full_version = Version(0, max_version_unlocked());
+            std::vector<RowsetSharedPtr> expected_rowsets;
+            auto st = capture_consistent_rowsets_unlocked(full_version, &expected_rowsets);
+            DCHECK(st.ok()) << st;
+            DCHECK_EQ(base_rowsets_for_full_clone.size(), expected_rowsets.size());
+            if (st.ok() && base_rowsets_for_full_clone.size() != expected_rowsets.size())
+                    [[unlikely]] {
+                LOG(WARNING) << "full clone succeeded, but the count("
+                             << base_rowsets_for_full_clone.size()
+                             << ") of base rowsets used for delete bitmap calculation is not match "
+                                "expect count("
+                             << expected_rowsets.size() << ") we capture from tablet meta";
             }
         }
     }
+
     // clear stale rowset
     for (auto& [v, rs] : _stale_rs_version_map) {
         _engine.add_unused_rowset(rs);
@@ -1129,49 +1191,8 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction()
     return candidate_rowsets;
 }
 
-std::vector<RowsetSharedPtr> Tablet::pick_first_consecutive_empty_rowsets(int limit) {
-    std::vector<RowsetSharedPtr> consecutive_empty_rowsets;
-    std::vector<RowsetSharedPtr> candidate_rowsets =
-            pick_candidate_rowsets_to_cumulative_compaction();
-    int len = candidate_rowsets.size();
-    for (int i = 0; i < len - 1; ++i) {
-        auto rowset = candidate_rowsets[i];
-        auto next_rowset = candidate_rowsets[i + 1];
-
-        // identify two consecutive rowsets that are empty
-        if (rowset->num_segments() == 0 && next_rowset->num_segments() == 0 &&
-            !rowset->rowset_meta()->has_delete_predicate() &&
-            !next_rowset->rowset_meta()->has_delete_predicate() &&
-            rowset->end_version() == next_rowset->start_version() - 1) {
-            consecutive_empty_rowsets.emplace_back(rowset);
-            consecutive_empty_rowsets.emplace_back(next_rowset);
-            rowset = next_rowset;
-            int next_index = i + 2;
-
-            // keep searching for consecutive empty rowsets
-            while (next_index < len && candidate_rowsets[next_index]->num_segments() == 0 &&
-                   !candidate_rowsets[next_index]->rowset_meta()->has_delete_predicate() &&
-                   rowset->end_version() == candidate_rowsets[next_index]->start_version() - 1) {
-                consecutive_empty_rowsets.emplace_back(candidate_rowsets[next_index]);
-                rowset = candidate_rowsets[next_index++];
-            }
-            // if the number of consecutive empty rowset reach the limit,
-            // and there are still rowsets following them
-            if (consecutive_empty_rowsets.size() >= limit && next_index < len) {
-                return consecutive_empty_rowsets;
-            } else {
-                // current rowset is not empty, start searching from that rowset in the next
-                i = next_index - 1;
-                consecutive_empty_rowsets.clear();
-            }
-        }
-    }
-
-    return consecutive_empty_rowsets;
-}
-
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_index(
-        const std::set<int32_t>& alter_index_uids, bool is_drop_op) {
+        const std::set<int64_t>& alter_index_uids, bool is_drop_op) {
     std::vector<RowsetSharedPtr> candidate_rowsets;
     {
         std::shared_lock rlock(_meta_lock);
@@ -1687,9 +1708,14 @@ void Tablet::execute_single_replica_compaction(SingleReplicaCompaction& compacti
         set_last_failure_time(this, compaction, UnixMillis());
         set_last_single_compaction_failure_status(res.to_string());
         if (res.is<CANCELLED>()) {
+            DorisMetrics::instance()->single_compaction_request_cancelled->increment(1);
+            // "CANCELLED" indicates that the peer has not performed compaction,
+            // wait for the peer to perform compaction
+            set_skip_compaction(true, compaction.real_compact_type(), UnixSeconds());
             VLOG_CRITICAL << "Cannel fetching from the remote peer. res=" << res
                           << ", tablet=" << tablet_id();
         } else {
+            DorisMetrics::instance()->single_compaction_request_failed->increment(1);
             LOG(WARNING) << "failed to do single replica compaction. res=" << res
                          << ", tablet=" << tablet_id();
         }
@@ -2377,8 +2403,11 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
     // will update delete bitmap, handle compaction with _rowset_update_lock
     // and publish_txn runs sequential so no need to lock here
     for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
-        _tablet_meta->delete_bitmap().merge({std::get<0>(key), std::get<1>(key), cur_version},
-                                            bitmap);
+        // skip sentinel mark, which is used for delete bitmap correctness check
+        if (std::get<1>(key) != DeleteBitmap::INVALID_SEGMENT_ID) {
+            _tablet_meta->delete_bitmap().merge({std::get<0>(key), std::get<1>(key), cur_version},
+                                                bitmap);
+        }
     }
 
     return Status::OK();
@@ -2599,6 +2628,37 @@ void Tablet::clear_cache() {
     };
     recycle_segment_cache(rowset_map());
     recycle_segment_cache(stale_rowset_map());
+}
+
+Status Tablet::calc_local_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
+                                   int32_t* rowset_count, int64_t* file_count) {
+    Version v(start_version, end_version);
+    std::vector<RowsetSharedPtr> rowsets;
+    traverse_rowsets([&rowsets, &v](const auto& rs) {
+        // get local rowsets
+        if (rs->is_local() && v.contains(rs->version())) {
+            rowsets.emplace_back(rs);
+        }
+    });
+    std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
+    *rowset_count = rowsets.size();
+
+    *crc_value = 0;
+    *file_count = 0;
+    for (const auto& rs : rowsets) {
+        uint32_t rs_crc_value;
+        int64_t rs_file_count = 0;
+        auto rowset = std::static_pointer_cast<BetaRowset>(rs);
+        auto st = rowset->calc_local_file_crc(&rs_crc_value, &rs_file_count);
+        if (!st.ok()) {
+            return st;
+        }
+        // crc_value is calculated based on the crc_value of each rowset.
+        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const char*>(&rs_crc_value),
+                                    sizeof(rs_crc_value));
+        *file_count += rs_file_count;
+    }
+    return Status::OK();
 }
 
 } // namespace doris

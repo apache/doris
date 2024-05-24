@@ -40,7 +40,7 @@
 // including MemTracker, QueryID, etc. Use CONSUME_THREAD_MEM_TRACKER/RELEASE_THREAD_MEM_TRACKER in the code segment where
 // the macro is located to record the memory into MemTracker.
 // Not use it in rpc done.run(), because bthread_setspecific may have errors when UBSAN compiles.
-#if defined(USE_MEM_TRACKER) && !defined(UNDEFINED_BEHAVIOR_SANITIZER) && !defined(BE_TEST)
+#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
 // Attach to query/load/compaction/e.g. when thread starts.
 // This will save some info about a working thread in the thread context.
 // Looking forward to tracking memory during thread execution into MemTrackerLimiter.
@@ -59,29 +59,8 @@
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
 
-#define SCOPED_SKIP_MEMORY_CHECK() \
-    auto VARNAME_LINENUM(scope_skip_memory_check) = doris::ScopeSkipMemoryCheck()
-#else
-#define SCOPED_ATTACH_TASK(arg1, ...) (void)0
-#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2) (void)0
-#define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(arg1) (void)0
-#define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) (void)0
-#define SCOPED_SKIP_MEMORY_CHECK() (void)0
-#endif
-
-// Used to tracking the memory usage of the specified code segment use by mem hook.
-#if defined(USE_MEM_TRACKER)
-// Count a code segment memory (memory malloc - memory free) to int64_t
-// Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT(&scope_mem); xxx; xxx; }
-#define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) \
-    auto VARNAME_LINENUM(scope_mem_count) = doris::ScopeMemCountByHook(scope_mem)
-
-// Count a code segment memory (memory malloc - memory free) to MemTracker.
-// Compared to count `scope_mem`, MemTracker is easier to observe from the outside and is thread-safe.
-// Usage example: std::unique_ptr<MemTracker> tracker = std::make_unique<MemTracker>("first_tracker");
-//                { SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(_mem_tracker.get()); xxx; xxx; }
-#define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
-    auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumerByHook(mem_tracker)
+#define DEFER_RELEASE_RESERVED() \
+    Defer VARNAME_LINENUM(defer) {[&]() { doris::thread_context()->release_reserved_memory(); }};
 
 #define ORPHAN_TRACKER_CHECK()                                                  \
     DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check || \
@@ -92,11 +71,41 @@
     DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check) \
             << doris::memory_orphan_check_msg;
 #else
-#define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) (void)0
-#define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) (void)0
+// thread context need to be initialized, required by Allocator and elsewhere.
+#define SCOPED_ATTACH_TASK(arg1, ...) \
+    auto VARNAME_LINENUM(scoped_tls_at) = doris::ScopedInitThreadContext()
+#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2) \
+    auto VARNAME_LINENUM(scoped_tls_atwi) = doris::ScopedInitThreadContext()
+#define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(arg1) \
+    auto VARNAME_LINENUM(scoped_tls_stmtl) = doris::ScopedInitThreadContext()
+#define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
+    auto VARNAME_LINENUM(scoped_tls_cmt) = doris::ScopedInitThreadContext()
+#define DEFER_RELEASE_RESERVED() (void)0
 #define ORPHAN_TRACKER_CHECK() (void)0
 #define MEMORY_ORPHAN_CHECK() (void)0
 #endif
+
+#if defined(USE_MEM_TRACKER) && !defined(BE_TEST) && defined(USE_JEMALLOC_HOOK)
+// Count a code segment memory (memory malloc - memory free) to int64_t
+// Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT_BY_HOOK(&scope_mem); xxx; xxx; }
+#define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) \
+    auto VARNAME_LINENUM(scope_mem_count) = doris::ScopeMemCountByHook(scope_mem)
+
+// Count a code segment memory (memory malloc - memory free) to MemTracker.
+// Compared to count `scope_mem`, MemTracker is easier to observe from the outside and is thread-safe.
+// Usage example: std::unique_ptr<MemTracker> tracker = std::make_unique<MemTracker>("first_tracker");
+//                { SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(_mem_tracker.get()); xxx; xxx; }
+#define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
+    auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumerByHook(mem_tracker)
+#else
+#define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) \
+    auto VARNAME_LINENUM(scoped_tls_mcbh) = doris::ScopedInitThreadContext()
+#define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
+    auto VARNAME_LINENUM(scoped_tls_cmtbh) = doris::ScopedInitThreadContext()
+#endif
+
+#define SCOPED_SKIP_MEMORY_CHECK() \
+    auto VARNAME_LINENUM(scope_skip_memory_check) = doris::ScopeSkipMemoryCheck()
 
 #define SKIP_LARGE_MEMORY_CHECK(...)                                       \
     do {                                                                   \
@@ -201,6 +210,24 @@ public:
         thread_mem_tracker_mgr->consume(size, skip_large_memory_check);
     }
 
+    bool try_reserve_memory(const int64_t size) const {
+#ifdef USE_MEM_TRACKER
+        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
+               thread_mem_tracker()->label() != "Orphan")
+                << doris::memory_orphan_check_msg;
+#endif
+        return thread_mem_tracker_mgr->try_reserve(size);
+    }
+
+    void release_reserved_memory() const {
+#ifdef USE_MEM_TRACKER
+        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
+               thread_mem_tracker()->label() != "Orphan")
+                << doris::memory_orphan_check_msg;
+#endif
+        thread_mem_tracker_mgr->release_reserved();
+    }
+
     int thread_local_handle_count = 0;
     int skip_memory_check = 0;
     int skip_large_memory_check = 0;
@@ -284,6 +311,7 @@ static ThreadContext* thread_context() {
     __builtin_unreachable();
 }
 
+// belong to one query object member, not be shared by multiple queries.
 class QueryThreadContext {
 public:
     QueryThreadContext() = default;
@@ -291,7 +319,9 @@ public:
                        const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
             : query_id(query_id), query_mem_tracker(mem_tracker) {}
 
-    void init() {
+    // Not thread safe, generally be called in class constructor, shared_ptr use_count may be
+    // wrong when called by multiple threads, cause crash after object be destroyed prematurely.
+    void init_unlocked() {
 #ifndef BE_TEST
         ORPHAN_TRACKER_CHECK();
         query_id = doris::thread_context()->task_id();
@@ -323,6 +353,14 @@ public:
 
 private:
     int64_t* _scope_mem = nullptr;
+};
+
+// only hold thread context in scope.
+class ScopedInitThreadContext {
+public:
+    explicit ScopedInitThreadContext() { ThreadLocalHandle::create_thread_local_if_not_exits(); }
+
+    ~ScopedInitThreadContext() { ThreadLocalHandle::del_thread_local_if_count_is_zero(); }
 };
 
 class AttachTask {

@@ -98,7 +98,7 @@ Status DistinctStreamingAggLocalState::open(RuntimeState* state) {
         _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
                 _agg_profile_arena->alloc(p._total_size_of_aggregate_states));
     } else {
-        _init_hash_method(_probe_expr_ctxs);
+        RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
     }
     return Status::OK();
 }
@@ -168,72 +168,12 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
             _agg_data->method_variant);
 }
 
-void DistinctStreamingAggLocalState::_init_hash_method(
+Status DistinctStreamingAggLocalState::_init_hash_method(
         const vectorized::VExprContextSPtrs& probe_exprs) {
-    DCHECK(probe_exprs.size() >= 1);
-
-    using Type = vectorized::AggregatedDataVariants::Type;
-    Type t(Type::serialized);
-
-    if (probe_exprs.size() == 1) {
-        auto is_nullable = probe_exprs[0]->root()->is_nullable();
-        PrimitiveType type = probe_exprs[0]->root()->result_type();
-        switch (type) {
-        case TYPE_TINYINT:
-        case TYPE_BOOLEAN:
-        case TYPE_SMALLINT:
-        case TYPE_INT:
-        case TYPE_FLOAT:
-        case TYPE_DATEV2:
-        case TYPE_BIGINT:
-        case TYPE_DOUBLE:
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-        case TYPE_DATETIMEV2:
-        case TYPE_LARGEINT:
-        case TYPE_DECIMALV2:
-        case TYPE_DECIMAL32:
-        case TYPE_DECIMAL64:
-        case TYPE_DECIMAL128I: {
-            size_t size = get_primitive_type_size(type);
-            if (size == 1) {
-                t = Type::int8_key;
-            } else if (size == 2) {
-                t = Type::int16_key;
-            } else if (size == 4) {
-                t = Type::int32_key;
-            } else if (size == 8) {
-                t = Type::int64_key;
-            } else if (size == 16) {
-                t = Type::int128_key;
-            } else {
-                throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "meet invalid type size, size={}, type={}", size,
-                                type_to_string(type));
-            }
-            break;
-        }
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING: {
-            t = Type::string_key;
-            break;
-        }
-        default:
-            t = Type::serialized;
-        }
-
-        _agg_data->init(get_hash_key_type_with_phase(
-                                t, !Base::_parent->template cast<DistinctStreamingAggOperatorX>()
-                                            ._is_first_phase),
-                        is_nullable);
-    } else {
-        if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32,
-                                            vectorized::AggregateDataPtr>(_agg_data->method_variant,
-                                                                          probe_exprs)) {
-            _agg_data->init(Type::serialized);
-        }
-    }
+    RETURN_IF_ERROR(init_agg_hash_method(
+            _agg_data.get(), probe_exprs,
+            Base::_parent->template cast<DistinctStreamingAggOperatorX>()._is_first_phase));
+    return Status::OK();
 }
 
 Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
@@ -386,9 +326,7 @@ DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, i
                                                              const DescriptorTbl& descs)
         : StatefulOperatorX<DistinctStreamingAggLocalState>(pool, tnode, operator_id, descs),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
-          _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
-          _output_tuple_desc(nullptr),
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
           _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]

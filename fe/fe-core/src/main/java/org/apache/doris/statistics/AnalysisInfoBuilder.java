@@ -27,6 +27,7 @@ import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.logging.log4j.core.util.CronExpression;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class AnalysisInfoBuilder {
@@ -53,19 +54,19 @@ public class AnalysisInfoBuilder {
     private AnalysisState state;
     private ScheduleType scheduleType;
     private String message = "";
-    private boolean externalTableLevelTask;
     private boolean partitionOnly;
     private boolean samplingPartition;
     private boolean isAllPartition;
     private long partitionCount;
     private CronExpression cronExpression;
     private boolean forceFull;
-    private boolean usingSqlForPartitionColumn;
+    private boolean usingSqlForExternalTable;
     private long tblUpdateTime;
     private long rowCount;
     private boolean userInject;
     private long updateRows;
     private JobPriority priority;
+    private Map<Long, Long> partitionUpdateRows;
 
     public AnalysisInfoBuilder() {
     }
@@ -94,19 +95,19 @@ public class AnalysisInfoBuilder {
         timeCostInMs = info.timeCostInMs;
         state = info.state;
         scheduleType = info.scheduleType;
-        externalTableLevelTask = info.externalTableLevelTask;
         partitionOnly = info.partitionOnly;
         samplingPartition = info.samplingPartition;
         isAllPartition = info.isAllPartition;
         partitionCount = info.partitionCount;
         cronExpression = info.cronExpression;
         forceFull = info.forceFull;
-        usingSqlForPartitionColumn = info.usingSqlForPartitionColumn;
+        usingSqlForExternalTable = info.usingSqlForExternalTable;
         tblUpdateTime = info.tblUpdateTime;
         rowCount = info.rowCount;
         userInject = info.userInject;
         updateRows = info.updateRows;
         priority = info.priority;
+        partitionUpdateRows = info.partitionUpdateRows;
     }
 
     public AnalysisInfoBuilder setJobId(long jobId) {
@@ -224,11 +225,6 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfoBuilder setExternalTableLevelTask(boolean isTableLevel) {
-        this.externalTableLevelTask = isTableLevel;
-        return this;
-    }
-
     public AnalysisInfoBuilder setPartitionOnly(boolean isPartitionOnly) {
         this.partitionOnly = isPartitionOnly;
         return this;
@@ -259,8 +255,8 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfoBuilder setUsingSqlForPartitionColumn(boolean usingSqlForPartitionColumn) {
-        this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
+    public AnalysisInfoBuilder setUsingSqlForExternalTable(boolean usingSqlForExternalTable) {
+        this.usingSqlForExternalTable = usingSqlForExternalTable;
         return this;
     }
 
@@ -289,13 +285,18 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public AnalysisInfoBuilder setPartitionUpdateRows(Map<Long, Long> partitionUpdateRows) {
+        this.partitionUpdateRows = partitionUpdateRows;
+        return this;
+    }
+
     public AnalysisInfo build() {
         return new AnalysisInfo(jobId, taskId, taskIds, catalogId, dbId, tblId, jobColumns, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
-                externalTableLevelTask, partitionOnly, samplingPartition, isAllPartition, partitionCount,
-                cronExpression, forceFull, usingSqlForPartitionColumn, tblUpdateTime, rowCount, userInject, updateRows,
-                priority);
+                partitionOnly, samplingPartition, isAllPartition, partitionCount,
+                cronExpression, forceFull, usingSqlForExternalTable, tblUpdateTime, rowCount, userInject, updateRows,
+                priority, partitionUpdateRows);
     }
 
 }

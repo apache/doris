@@ -48,7 +48,9 @@ public:
             return Status::OK();
         }
         size_t old_size = _buffer.size();
-        _buffer.resize(old_size + *count * SIZE_OF_TYPE);
+        // This may need a large memory, should return error if could not allocated
+        // successfully, to avoid BE OOM.
+        RETURN_IF_CATCH_EXCEPTION(_buffer.resize(old_size + *count * SIZE_OF_TYPE));
         memcpy(&_buffer[old_size], vals, *count * SIZE_OF_TYPE);
         _count += *count;
         return Status::OK();

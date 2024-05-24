@@ -24,6 +24,7 @@
 
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
+#include "pipeline/exec/group_commit_scan_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
@@ -68,9 +69,8 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 template <typename Derived>
 Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
-    _scan_dependency =
-            Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                      _parent->get_name() + "_DEPENDENCY", state->get_query_ctx());
+    _scan_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                 _parent->get_name() + "_DEPENDENCY");
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
             _runtime_profile, "WaitForDependency[" + _scan_dependency->name() + "]Time", 1);
     SCOPED_TIMER(exec_time_counter());
@@ -190,9 +190,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
         init_value_range(_slot_id_to_slot_desc[_colname_to_slot_id[colname]], type);
     }
 
-    if (!_push_down_topn()) {
-        RETURN_IF_ERROR(_get_topn_filters(state));
-    }
+    RETURN_IF_ERROR(_get_topn_filters(state));
 
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
         auto& conjunct = *it;
@@ -770,7 +768,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
 
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
-        if (!is_fixed_range && state->hybrid_set->contain_null()) {
+        if (state->hybrid_set->contain_null()) {
             _eos = true;
             _scan_dependency->set_ready();
         }
@@ -1270,11 +1268,8 @@ Status ScanLocalState<Derived>::_init_profile() {
 
 template <typename Derived>
 Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
-    for (auto id : get_topn_filter_source_node_ids()) {
+    for (auto id : get_topn_filter_source_node_ids(state, false)) {
         const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
-        if (!pred.inited()) {
-            continue;
-        }
         SlotDescriptor* slot_desc = _slot_id_to_slot_desc[_colname_to_slot_id[pred.get_col_name()]];
 
         vectorized::VExprSPtr topn_pred;
@@ -1472,5 +1467,7 @@ template class ScanOperatorX<EsScanLocalState>;
 template class ScanLocalState<EsScanLocalState>;
 template class ScanLocalState<MetaScanLocalState>;
 template class ScanOperatorX<MetaScanLocalState>;
+template class ScanOperatorX<GroupCommitLocalState>;
+template class ScanLocalState<GroupCommitLocalState>;
 
 } // namespace doris::pipeline

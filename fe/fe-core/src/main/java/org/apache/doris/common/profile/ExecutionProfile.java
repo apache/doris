@@ -250,8 +250,14 @@ public class ExecutionProfile {
     }
 
     public Status updateProfile(TQueryProfile profile, TNetworkAddress backendHBAddress, boolean isDone) {
+        if (!profile.isSetQueryId()) {
+            LOG.warn("QueryId is not set");
+            return new Status(TStatusCode.INVALID_ARGUMENT, "QueryId is not set");
+        }
+
         if (isPipelineXProfile) {
             if (!profile.isSetFragmentIdToProfile()) {
+                LOG.warn("{} FragmentIdToProfile is not set", DebugUtil.printId(profile.getQueryId()));
                 return new Status(TStatusCode.INVALID_ARGUMENT, "FragmentIdToProfile is not set");
             }
 
@@ -266,6 +272,7 @@ public class ExecutionProfile {
                     RuntimeProfile profileNode = new RuntimeProfile(name);
                     taskProfile.add(profileNode);
                     if (!pipelineProfile.isSetProfile()) {
+                        LOG.warn("Profile is not set, {}", DebugUtil.printId(profile.getQueryId()));
                         return new Status(TStatusCode.INVALID_ARGUMENT, "Profile is not set");
                     }
 
@@ -278,10 +285,13 @@ public class ExecutionProfile {
             }
         } else {
             if (!profile.isSetInstanceProfiles() || !profile.isSetFragmentInstanceIds()) {
+                LOG.warn("InstanceIdToProfile is not set, {}", DebugUtil.printId(profile.getQueryId()));
                 return new Status(TStatusCode.INVALID_ARGUMENT, "InstanceIdToProfile is not set");
             }
 
             if (profile.fragment_instance_ids.size() != profile.instance_profiles.size()) {
+                LOG.warn("InstanceIdToProfile size is not equal, {}",
+                        DebugUtil.printId(profile.getQueryId()));
                 return new Status(TStatusCode.INVALID_ARGUMENT, "InstanceIdToProfile size is not equal");
             }
 
@@ -289,6 +299,7 @@ public class ExecutionProfile {
                 TUniqueId instanceId = profile.getFragmentInstanceIds().get(idx);
                 TRuntimeProfileTree instanceProfile = profile.getInstanceProfiles().get(idx);
                 if (instanceProfile == null) {
+                    LOG.warn("Profile is not set {}", DebugUtil.printId(profile.getQueryId()));
                     return new Status(TStatusCode.INVALID_ARGUMENT, "Profile is not set");
                 }
 
@@ -340,9 +351,10 @@ public class ExecutionProfile {
         if (isPipelineXProfile) {
             int pipelineIdx = 0;
             List<RuntimeProfile> taskProfile = Lists.newArrayList();
+            String suffix = " (host=" + backend.getHeartbeatAddress() + ")";
             for (TDetailedReportParams param : params.detailed_report) {
-                String name = "Pipeline :" + pipelineIdx + " "
-                        + " (host=" + backend.getHeartbeatAddress() + ")";
+                String name = param.isSetIsFragmentLevel() && param.is_fragment_level ? "Fragment Level Profile: "
+                        + suffix : "Pipeline :" + pipelineIdx + " " + suffix;
                 RuntimeProfile profile = new RuntimeProfile(name);
                 taskProfile.add(profile);
                 if (param.isSetProfile()) {
@@ -352,6 +364,7 @@ public class ExecutionProfile {
                     profile.setIsDone(true);
                 }
                 pipelineIdx++;
+                profile.sortChildren();
                 fragmentProfiles.get(params.fragment_id).addChild(profile);
             }
             // TODO ygl: is this right? there maybe multi Backends, what does

@@ -46,11 +46,6 @@ private:
 
     friend class SpillSortSinkOperatorX;
 
-    /// Resources in shared state will be released when the operator is closed,
-    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
-    /// So, we need hold the pointer of shared state.
-    std::shared_ptr<SpillSortSharedState> _shared_state_holder;
-
     std::unique_ptr<RuntimeState> _runtime_state;
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     RuntimeProfile::Counter* _partial_sort_timer = nullptr;
@@ -91,7 +86,7 @@ public:
 
     Status revoke_memory(RuntimeState* state) override;
 
-    using DataSinkOperatorX<LocalStateType>::id;
+    using DataSinkOperatorX<LocalStateType>::node_id;
     using DataSinkOperatorX<LocalStateType>::operator_id;
     using DataSinkOperatorX<LocalStateType>::get_local_state;
 

@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_mow_fault_injection", "inverted_index") {
+suite("test_index_mow_fault_injection", "nonConcurrent") {
     // define a sql table
     def testTable_unique = "httplogs_unique"
 

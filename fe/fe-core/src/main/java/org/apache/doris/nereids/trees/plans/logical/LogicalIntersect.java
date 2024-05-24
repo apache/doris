@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -109,7 +109,7 @@ public class LogicalIntersect extends LogicalSetOperation {
                 Optional.empty(), Optional.empty(), children);
     }
 
-    void replaceSlotInFuncDeps(FunctionalDependencies.Builder builder,
+    void replaceSlotInFuncDeps(DataTrait.Builder builder,
             List<Slot> originalOutputs, List<Slot> newOutputs) {
         Map<Slot, Slot> replaceMap = new HashMap<>();
         for (int i = 0; i < newOutputs.size(); i++) {
@@ -119,32 +119,41 @@ public class LogicalIntersect extends LogicalSetOperation {
     }
 
     @Override
-    public void computeUnique(Builder fdBuilder) {
+    public void computeUnique(Builder builder) {
         for (Plan child : children) {
-            fdBuilder.addUniqueSlot(
-                    child.getLogicalProperties().getFunctionalDependencies());
-            replaceSlotInFuncDeps(fdBuilder, child.getOutput(), getOutput());
+            builder.addUniqueSlot(
+                    child.getLogicalProperties().getTrait());
+            replaceSlotInFuncDeps(builder, child.getOutput(), getOutput());
         }
         if (qualifier == Qualifier.DISTINCT) {
-            fdBuilder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
+            builder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
     }
 
     @Override
-    public void computeUniform(Builder fdBuilder) {
+    public void computeUniform(Builder builder) {
         for (Plan child : children) {
-            fdBuilder.addUniformSlot(
-                    child.getLogicalProperties().getFunctionalDependencies());
-            replaceSlotInFuncDeps(fdBuilder, child.getOutput(), getOutput());
+            builder.addUniformSlot(
+                    child.getLogicalProperties().getTrait());
+            replaceSlotInFuncDeps(builder, child.getOutput(), getOutput());
         }
     }
 
     @Override
-    public void computeEqualSet(Builder fdBuilder) {
+    public void computeEqualSet(Builder builder) {
         for (Plan child : children) {
-            fdBuilder.addEqualSet(
-                    child.getLogicalProperties().getFunctionalDependencies());
-            replaceSlotInFuncDeps(fdBuilder, child.getOutput(), getOutput());
+            builder.addEqualSet(
+                    child.getLogicalProperties().getTrait());
+            replaceSlotInFuncDeps(builder, child.getOutput(), getOutput());
+        }
+    }
+
+    @Override
+    public void computeFd(Builder builder) {
+        for (Plan child : children) {
+            builder.addFuncDepsDG(
+                    child.getLogicalProperties().getTrait());
+            replaceSlotInFuncDeps(builder, child.getOutput(), getOutput());
         }
     }
 
@@ -163,9 +172,9 @@ public class LogicalIntersect extends LogicalSetOperation {
             builder.add(fdItem);
             // inherit from both sides
             ImmutableSet<FdItem> leftFdItems = child(0).getLogicalProperties()
-                    .getFunctionalDependencies().getFdItems();
+                    .getTrait().getFdItems();
             ImmutableSet<FdItem> rightFdItems = child(1).getLogicalProperties()
-                    .getFunctionalDependencies().getFdItems();
+                    .getTrait().getFdItems();
 
             builder.addAll(leftFdItems);
             builder.addAll(rightFdItems);

@@ -30,6 +30,7 @@
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
@@ -112,7 +113,7 @@ int64_t WorkloadGroup::memory_used() {
         for (const auto& trackerWptr : mem_tracker_group.trackers) {
             auto tracker = trackerWptr.lock();
             CHECK(tracker != nullptr);
-            used_memory += tracker->is_query_cancelled() ? 0 : tracker->consumption();
+            used_memory += tracker->consumption();
         }
     }
     return used_memory;
@@ -171,7 +172,7 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
                     MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
         }
     }
-    std::string process_mem_usage_str = MemTrackerLimiter::process_mem_log_str();
+    std::string process_mem_usage_str = GlobalMemoryArbitrator::process_mem_log_str();
     auto cancel_top_overcommit_str = [cancel_str, process_mem_usage_str](int64_t mem_consumption,
                                                                          const std::string& label) {
         return fmt::format(
@@ -477,7 +478,7 @@ void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sc
 }
 
 void WorkloadGroup::try_stop_schedulers() {
-    std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
+    std::lock_guard<std::shared_mutex> wlock(_task_sched_lock);
     if (_task_sched) {
         _task_sched->stop();
     }

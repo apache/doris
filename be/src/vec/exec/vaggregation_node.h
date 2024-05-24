@@ -533,7 +533,7 @@ private:
     Status _merge_with_serialized_key(Block* block);
     void _update_memusage_with_serialized_key();
     void _close_with_serialized_key();
-    void _init_hash_method(const VExprContextSPtrs& probe_exprs);
+    Status _init_hash_method(const VExprContextSPtrs& probe_exprs);
 
     template <bool limit>
     Status _execute_with_serialized_key_helper(Block* block) {
@@ -739,4 +739,8 @@ private:
     MemoryRecord _mem_usage_record;
 };
 } // namespace vectorized
+
+constexpr auto init_agg_hash_method =
+        init_hash_method<vectorized::AggregatedDataVariants, vectorized::AggregateDataPtr>;
+
 } // namespace doris

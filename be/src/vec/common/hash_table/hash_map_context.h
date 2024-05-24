@@ -48,7 +48,7 @@ struct MethodBaseInner {
     using Value = typename HashMap::value_type;
     using HashMapType = HashMap;
 
-    std::shared_ptr<HashMap> hash_table;
+    std::shared_ptr<HashMap> hash_table = nullptr;
     bool inited_iterator = false;
     Key* keys = nullptr;
     Arena arena;
@@ -125,7 +125,7 @@ struct MethodBaseInner {
         if constexpr (!is_string_hash_map()) {
             prefetch<true>(i);
         }
-        return state.find_key_with_hash(*hash_table, hash_values[i], keys[i]);
+        return state.find_key_with_hash(*hash_table, i, keys[i], hash_values[i]);
     }
 
     template <typename State, typename F, typename FF>

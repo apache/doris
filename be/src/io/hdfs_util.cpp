@@ -41,10 +41,13 @@ Status create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name
     return Status::OK();
 }
 
-uint64 hdfs_hash_code(const THdfsParams& hdfs_params) {
+uint64 hdfs_hash_code(const THdfsParams& hdfs_params, const std::string& fs_name) {
     uint64 hash_code = 0;
-    hash_code ^= Fingerprint(hdfs_params.fs_name);
-    if (hdfs_params.__isset.user) {
+    // The specified fsname is used first.
+    // If there is no specified fsname, the default fsname is used
+    if (!fs_name.empty()) {
+        hash_code ^= Fingerprint(fs_name);
+    } else if (hdfs_params.__isset.user) {
         hash_code ^= Fingerprint(hdfs_params.user);
     }
     if (hdfs_params.__isset.hdfs_kerberos_principal) {
@@ -75,6 +78,7 @@ bvar::LatencyRecorder hdfs_create_dir_latency("hdfs_create_dir");
 bvar::LatencyRecorder hdfs_open_latency("hdfs_open");
 bvar::LatencyRecorder hdfs_close_latency("hdfs_close");
 bvar::LatencyRecorder hdfs_flush_latency("hdfs_flush");
+bvar::LatencyRecorder hdfs_hflush_latency("hdfs_hflush");
 bvar::LatencyRecorder hdfs_hsync_latency("hdfs_hsync");
 }; // namespace hdfs_bvar
 
@@ -104,7 +108,7 @@ void HdfsHandlerCache::_clean_oldest() {
 
 Status HdfsHandlerCache::get_connection(const THdfsParams& hdfs_params, const std::string& fs_name,
                                         std::shared_ptr<HdfsHandler>* fs_handle) {
-    uint64 hash_code = hdfs_hash_code(hdfs_params);
+    uint64 hash_code = hdfs_hash_code(hdfs_params, fs_name);
     {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _cache.find(hash_code);

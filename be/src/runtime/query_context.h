@@ -61,8 +61,7 @@ struct ReportStatusRequest {
     TUniqueId fragment_instance_id;
     int backend_num;
     RuntimeState* runtime_state;
-    std::function<Status(Status)> update_fn;
-    std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
+    std::function<void(const Status&)> cancel_fn;
 };
 
 // Save the common components of fragments in a query.
@@ -73,31 +72,19 @@ class QueryContext {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
 public:
-    QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline,
-                 bool is_nereids);
+    QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
+                 TNetworkAddress coord_addr, bool is_pipeline, bool is_nereids);
 
     ~QueryContext();
 
-    // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
-    // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
-    bool countdown(int instance_num) {
-        return fragment_num.fetch_sub(instance_num) <= instance_num;
-    }
-
     ExecEnv* exec_env() { return _exec_env; }
 
-    bool is_timeout(const VecDateTimeValue& now) const {
-        if (timeout_second <= 0) {
+    bool is_timeout(timespec now) const {
+        if (_timeout_second <= 0) {
             return false;
         }
-        if (now.second_diff(_start_time) > timeout_second) {
-            return true;
-        }
-        return false;
+        return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
     }
-
-    int64_t query_time(VecDateTimeValue& now) { return now.second_diff(_start_time); }
 
     void set_thread_token(int concurrency, bool is_serial) {
         _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
@@ -108,33 +95,19 @@ public:
 
     ThreadPoolToken* get_token() { return _thread_token.get(); }
 
-    void set_ready_to_execute(bool is_cancelled);
+    void set_ready_to_execute(Status reason);
 
-    [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
+    [[nodiscard]] bool is_cancelled() const { return !_exec_status.ok(); }
 
-    void cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
-                                     const std::string& msg);
-    Status cancel_pipeline_context(const int fragment_id, const PPlanFragmentCancelReason& reason,
-                                   const std::string& msg);
+    void cancel_all_pipeline_context(const Status& reason);
+    Status cancel_pipeline_context(const int fragment_id, const Status& reason);
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
-    void cancel(std::string msg, Status new_status, int fragment_id = -1);
+    void cancel(Status new_status, int fragment_id = -1);
 
-    void set_exec_status(Status new_status) {
-        if (new_status.ok()) {
-            return;
-        }
-        std::lock_guard<std::mutex> l(_exec_status_lock);
-        if (!_exec_status.ok()) {
-            return;
-        }
-        _exec_status = new_status;
-    }
+    void set_exec_status(Status new_status) { _exec_status.update(new_status); }
 
-    [[nodiscard]] Status exec_status() {
-        std::lock_guard<std::mutex> l(_exec_status_lock);
-        return _exec_status;
-    }
+    [[nodiscard]] Status exec_status() { return _exec_status.status(); }
 
     void set_execution_dependency_ready();
 
@@ -148,10 +121,10 @@ public:
     bool wait_for_start() {
         int wait_time = config::max_fragment_start_wait_time_seconds;
         std::unique_lock<std::mutex> l(_start_lock);
-        while (!_ready_to_execute.load() && !_is_cancelled.load() && --wait_time > 0) {
+        while (!_ready_to_execute.load() && _exec_status.ok() && --wait_time > 0) {
             _start_cond.wait_for(l, std::chrono::seconds(1));
         }
-        return _ready_to_execute.load() && !_is_cancelled.load();
+        return _ready_to_execute.load() && _exec_status.ok();
     }
 
     std::shared_ptr<vectorized::SharedHashTableController> get_shared_hash_table_controller() {
@@ -280,15 +253,6 @@ public:
     TNetworkAddress coord_addr;
     TQueryGlobals query_globals;
 
-    /// In the current implementation, for multiple fragments executed by a query on the same BE node,
-    /// we store some common components in QueryContext, and save QueryContext in FragmentMgr.
-    /// When all Fragments are executed, QueryContext needs to be deleted from FragmentMgr.
-    /// Here we use a counter to store the number of Fragments that have not yet been completed,
-    /// and after each Fragment is completed, this value will be reduced by one.
-    /// When the last Fragment is completed, the counter is cleared, and the worker thread of the last Fragment
-    /// will clean up QueryContext.
-    std::atomic<int> fragment_num;
-    int timeout_second;
     ObjectPool obj_pool;
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
@@ -300,9 +264,10 @@ public:
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
 private:
+    int _timeout_second;
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
-    VecDateTimeValue _start_time;
+    MonotonicStopWatch _query_watcher;
     int64_t _bytes_limit = 0;
     bool _is_pipeline = false;
     bool _is_nereids = false;
@@ -320,7 +285,6 @@ private:
     // Only valid when _need_wait_execution_trigger is set to true in PlanFragmentExecutor.
     // And all fragments of this query will start execution when this is set to true.
     std::atomic<bool> _ready_to_execute {false};
-    std::atomic<bool> _is_cancelled {false};
 
     void _init_query_mem_tracker();
 
@@ -332,10 +296,9 @@ private:
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
 
-    std::mutex _exec_status_lock;
     // All pipeline tasks use the same query context to report status. So we need a `_exec_status`
     // to report the real message if failed.
-    Status _exec_status = Status::OK();
+    AtomicStatus _exec_status;
 
     doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;

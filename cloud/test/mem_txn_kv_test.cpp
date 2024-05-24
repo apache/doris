@@ -35,8 +35,6 @@ std::shared_ptr<cloud::TxnKv> fdb_txn_kv;
 int main(int argc, char** argv) {
     cloud::config::init(nullptr, true);
     cloud::config::fdb_cluster_file_path = "fdb.cluster";
-    // UT may be run without fdb, it will take unnecessary time with the default value
-    cloud::config::fdb_txn_timeout_ms = 500;
     fdb_txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
     if (!fdb_txn_kv.get()) {
         std::cout << "exit get FdbTxnKv error" << std::endl;

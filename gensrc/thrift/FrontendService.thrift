@@ -395,6 +395,7 @@ struct TDetailedReportParams {
   1: optional Types.TUniqueId fragment_instance_id
   2: optional RuntimeProfile.TRuntimeProfileTree profile
   3: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+  4: optional bool is_fragment_level
 }
 
 
@@ -515,6 +516,14 @@ struct TFeResult {
     1000: optional string cloud_cluster
     1001: optional bool noAuth
 }
+
+struct TTxnLoadInfo {
+    1: optional string label
+    2: optional i64 dbId
+    3: optional i64 txnId
+    4: optional i64 timeoutTimestamp
+}
+
 struct TMasterOpRequest {
     1: required string user
     2: required string db
@@ -546,6 +555,8 @@ struct TMasterOpRequest {
     26: optional string defaultDatabase
     27: optional bool cancel_qeury // if set to true, this request means to cancel one forwarded query, and query_id needs to be set
     28: optional map<string, Exprs.TExprNode> user_variables
+    // transaction load
+    29: optional TTxnLoadInfo txnLoadInfo
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -577,6 +588,8 @@ struct TMasterOpResult {
     6: optional i32 statusCode;
     7: optional string errMessage;
     8: optional list<binary> queryResultBufList;
+    // transaction load
+    9: optional TTxnLoadInfo txnLoadInfo;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -1482,6 +1495,15 @@ struct TSyncQueryColumns {
     2: optional list<TQueryColumn> midPriorityColumns;
 }
 
+struct TFetchSplitBatchRequest {
+    1: optional i64 split_source_id
+    2: optional i32 max_num_splits
+}
+
+struct TFetchSplitBatchResult {
+    1: optional list<Planner.TScanRangeLocations> splits
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1573,4 +1595,6 @@ service FrontendService {
     Status.TStatus reportCommitTxnResult(1: TReportCommitTxnResultRequest request)
     TShowUserResult showUser(1: TShowUserRequest request)
     Status.TStatus syncQueryColumns(1: TSyncQueryColumns request)
+
+    TFetchSplitBatchResult fetchSplitBatch(1: TFetchSplitBatchRequest request)
 }

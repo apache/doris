@@ -177,31 +177,31 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
         wgs_mem_info[wg_id] = {wg_total_mem_used};
     }
 
+    // *TODO*, modify to use doris::GlobalMemoryArbitrator::process_memory_usage().
     auto proc_vm_rss = PerfCounters::get_vm_rss();
     if (all_queries_mem_used <= 0) {
         return;
     }
 
-    auto process_mem_used = doris::MemInfo::proc_mem_no_allocator_cache();
     if (proc_vm_rss < all_queries_mem_used) {
         all_queries_mem_used = proc_vm_rss;
     }
 
     // process memory used is actually bigger than all_queries_mem_used,
     // because memory of page cache, allocator cache, segment cache etc. are included
-    // in process_mem_used.
+    // in proc_vm_rss.
     // we count these cache memories equally on workload groups.
     double ratio = (double)proc_vm_rss / (double)all_queries_mem_used;
     if (ratio <= 1.25) {
-        auto sys_mem_available = doris::MemInfo::sys_mem_available();
         std::string debug_msg = fmt::format(
                 "\nProcess Memory Summary: process_vm_rss: {}, process mem: {}, sys mem available: "
                 "{}, all quries mem: {}",
                 PrettyPrinter::print(proc_vm_rss, TUnit::BYTES),
-                PrettyPrinter::print(process_mem_used, TUnit::BYTES),
-                PrettyPrinter::print(sys_mem_available, TUnit::BYTES),
+                PrettyPrinter::print(doris::GlobalMemoryArbitrator::process_memory_usage(),
+                                     TUnit::BYTES),
+                doris::MemInfo::sys_mem_available_str(),
                 PrettyPrinter::print(all_queries_mem_used, TUnit::BYTES));
-        VLOG_EVERY_N(1, 10) << debug_msg;
+        LOG_EVERY_T(INFO, 10) << debug_msg;
     }
 
     for (auto& wg : _workload_groups) {
@@ -264,7 +264,7 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
             }
         }
         if (wg_mem_info.is_high_wartermark || wg_mem_info.is_low_wartermark) {
-            VLOG_EVERY_N(1, 10) << debug_msg;
+            LOG_EVERY_T(INFO, 1) << debug_msg;
         }
     }
 }

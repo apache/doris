@@ -67,6 +67,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * ScanNode for Elasticsearch.
@@ -183,6 +184,7 @@ public class EsScanNode extends ExternalScanNode {
         }
         esScanNode.setProperties(properties);
         msg.es_scan_node = esScanNode;
+        super.toThrift(msg);
     }
 
     // only do partition(es index level) prune
@@ -316,6 +318,12 @@ public class EsScanNode extends ExternalScanNode {
         String indexName = table.getIndexName();
         String typeName = table.getMappingType();
         output.append(prefix).append(String.format("ES index/type: %s/%s", indexName, typeName)).append("\n");
+        if (useTopnFilter()) {
+            String topnFilterSources = String.join(",",
+                    topnFilterSortNodes.stream()
+                            .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
+            output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
+        }
         return output.toString();
     }
 

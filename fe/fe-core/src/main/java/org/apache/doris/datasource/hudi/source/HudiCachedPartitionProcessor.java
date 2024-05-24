@@ -56,7 +56,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 Config.max_hive_table_cache_num,
                 false,
                 null);
-        this.partitionCache = partitionCacheFactory.buildCache(key -> new TablePartitionValues(), executor);
+        this.partitionCache = partitionCacheFactory.buildCache(key -> new TablePartitionValues(), null, executor);
     }
 
     @Override
@@ -162,6 +162,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 partitionValues.writeLock().unlock();
             }
         } catch (Exception e) {
+            LOG.warn("Failed to get hudi partitions", e);
             throw new CacheException("Failed to get hudi partitions", e);
         }
     }

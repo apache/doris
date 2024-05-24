@@ -31,17 +31,14 @@
 namespace doris::pipeline {
 
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
-                                                       std::string name, QueryContext* ctx) {
-    source_deps.push_back(
-            std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY", ctx));
+                                                       std::string name) {
+    source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
     source_deps.back()->set_shared_state(this);
     return source_deps.back().get();
 }
 
-Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id, std::string name,
-                                                     QueryContext* ctx) {
-    sink_deps.push_back(
-            std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true, ctx));
+Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id, std::string name) {
+    sink_deps.push_back(std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true));
     sink_deps.back()->set_shared_state(this);
     return sink_deps.back().get();
 }
@@ -73,15 +70,6 @@ void Dependency::set_ready() {
 
 Dependency* Dependency::is_blocked_by(PipelineTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
-    auto ready = _ready.load() || _is_cancelled();
-    if (!ready && task) {
-        _add_block_task(task);
-    }
-    return ready ? nullptr : this;
-}
-
-Dependency* FinishDependency::is_blocked_by(PipelineTask* task) {
-    std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {
         _add_block_task(task);
@@ -91,20 +79,18 @@ Dependency* FinishDependency::is_blocked_by(PipelineTask* task) {
 
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer,
-                   "{}{}: id={}, block task = {}, ready={}, _always_ready={}, is cancelled={}",
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, ready={}, _always_ready={}",
                    std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
-                   _ready, _always_ready, _is_cancelled());
+                   _ready, _always_ready);
     return fmt::to_string(debug_string_buffer);
 }
 
 std::string CountedFinishDependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(
-            debug_string_buffer,
-            "{}{}: id={}, block task = {}, ready={}, _always_ready={}, is cancelled={}, count={}",
-            std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(), _ready,
-            _always_ready, _is_cancelled(), _counter);
+    fmt::format_to(debug_string_buffer,
+                   "{}{}: id={}, block_task={}, ready={}, _always_ready={}, count={}",
+                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
+                   _ready, _always_ready, _counter);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -117,7 +103,7 @@ std::string RuntimeFilterDependency::debug_string(int indentation_level) {
 
 Dependency* RuntimeFilterDependency::is_blocked_by(PipelineTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
-    auto ready = _ready.load() || _is_cancelled();
+    auto ready = _ready.load();
     if (!ready && task) {
         _add_block_task(task);
         task->_blocked_dep = this;
@@ -131,6 +117,27 @@ void RuntimeFilterTimer::call_timeout() {
 
 void RuntimeFilterTimer::call_ready() {
     _parent->set_ready();
+}
+
+// should check rf timeout in two case:
+// 1. the rf is ready just remove the wait queue
+// 2. if the rf have local dependency, the rf should start wait when all local dependency is ready
+bool RuntimeFilterTimer::should_be_check_timeout() {
+    if (!_parent->ready() && !_local_runtime_filter_dependencies.empty()) {
+        bool all_ready = true;
+        for (auto& dep : _local_runtime_filter_dependencies) {
+            if (!dep->ready()) {
+                all_ready = false;
+                break;
+            }
+        }
+        if (all_ready) {
+            _local_runtime_filter_dependencies.clear();
+            _registration_time = MonotonicMillis();
+        }
+        return all_ready;
+    }
+    return true;
 }
 
 void RuntimeFilterTimerQueue::start() {
@@ -149,14 +156,18 @@ void RuntimeFilterTimerQueue::start() {
             for (auto& it : _que) {
                 if (it.use_count() == 1) {
                     // `use_count == 1` means this runtime filter has been released
-                } else if (it->_parent->is_blocked_by(nullptr)) {
-                    // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
-                    int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
-                    if (ms_since_registration > it->wait_time_ms()) {
-                        it->call_timeout();
-                    } else {
-                        new_que.push_back(std::move(it));
+                } else if (it->should_be_check_timeout()) {
+                    if (it->_parent->is_blocked_by(nullptr)) {
+                        // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
+                        int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
+                        if (ms_since_registration > it->wait_time_ms()) {
+                            it->call_timeout();
+                        } else {
+                            new_que.push_back(std::move(it));
+                        }
                     }
+                } else {
+                    new_que.push_back(std::move(it));
                 }
             }
             new_que.swap(_que);
@@ -182,7 +193,6 @@ Status AggSharedState::reset_hash_table() {
     return std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) -> Status {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                         return Status::InternalError("Uninited hash table");
                     },
                     [&](auto& agg_method) {
@@ -197,6 +207,12 @@ Status AggSharedState::reset_hash_table() {
                                 mapped = nullptr;
                             }
                         });
+
+                        if (hash_table.has_null_key_data()) {
+                            auto st = _destroy_agg_status(hash_table.template get_null_key_data<
+                                                          vectorized::AggregateDataPtr>());
+                            RETURN_IF_ERROR(st);
+                        }
 
                         aggregate_data_container.reset(new vectorized::AggregateDataContainer(
                                 sizeof(typename HashTableType::key_type),

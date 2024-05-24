@@ -76,18 +76,20 @@ struct ColumnPredicateInfo {
     std::string debug_string() const {
         std::stringstream ss;
         ss << "column_name=" << column_name << ", query_op=" << query_op
-           << ", query_value=" << query_value;
+           << ", query_value=" << join(query_values, ",");
         return ss.str();
     }
 
-    bool is_empty() const { return column_name.empty() && query_value.empty() && query_op.empty(); }
+    bool is_empty() const {
+        return column_name.empty() && query_values.empty() && query_op.empty();
+    }
 
     bool is_equal(const ColumnPredicateInfo& column_pred_info) const {
         if (column_pred_info.column_name != column_name) {
             return false;
         }
 
-        if (column_pred_info.query_value != query_value) {
+        if (column_pred_info.query_values != query_values) {
             return false;
         }
 
@@ -99,7 +101,7 @@ struct ColumnPredicateInfo {
     }
 
     std::string column_name;
-    std::string query_value;
+    std::vector<std::string> query_values;
     std::string query_op;
 };
 
@@ -122,7 +124,7 @@ public:
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const override { return _segment->id(); }
     RowsetId rowset_id() const { return _segment->rowset_id(); }
-    int32_t tablet_id() const { return _tablet_id; }
+    int64_t tablet_id() const { return _tablet_id; }
 
     bool update_profile(RuntimeProfile* profile) override {
         bool updated = false;
@@ -488,7 +490,7 @@ private:
     // used to collect filter information.
     std::vector<ColumnPredicate*> _filter_info_id;
     bool _record_rowids = false;
-    int32_t _tablet_id = 0;
+    int64_t _tablet_id = 0;
     std::set<int32_t> _output_columns;
 
     std::unique_ptr<HierarchicalDataReader> _path_reader;

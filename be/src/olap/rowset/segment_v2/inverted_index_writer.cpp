@@ -224,6 +224,7 @@ public:
                 break;
             }
             setup_analyzer_lowercase(analyzer);
+            setup_analyzer_use_stopwords(analyzer);
             return Status::OK();
         } catch (CLuceneError& e) {
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
@@ -233,10 +234,19 @@ public:
 
     void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
         auto lowercase = get_parser_lowercase_from_properties<true>(_index_meta->properties());
-        if (lowercase == "true") {
+        if (lowercase == INVERTED_INDEX_PARSER_TRUE) {
             analyzer->set_lowercase(true);
-        } else if (lowercase == "false") {
+        } else if (lowercase == INVERTED_INDEX_PARSER_FALSE) {
             analyzer->set_lowercase(false);
+        }
+    }
+
+    void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
+        auto stop_words = get_parser_stopwords_from_properties(_index_meta->properties());
+        if (stop_words == "none") {
+            analyzer->set_stopwords(nullptr);
+        } else {
+            analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
         }
     }
 
@@ -394,9 +404,11 @@ public:
                             _parser_type != InvertedIndexParserType::PARSER_NONE) {
                             // in this case stream need to delete after add_document, because the
                             // stream can not reuse for different field
-                            _char_string_reader->init(v->get_data(), v->get_size(), false);
+                            std::unique_ptr<lucene::util::Reader> char_string_reader = nullptr;
+                            RETURN_IF_ERROR(create_char_string_reader(char_string_reader));
+                            char_string_reader->init(v->get_data(), v->get_size(), false);
                             ts = _analyzer->tokenStream(new_field->name(),
-                                                        _char_string_reader.get());
+                                                        char_string_reader.release());
                             new_field->setValue(ts);
                         } else {
                             new_field_char_value(v->get_data(), v->get_size(), new_field);
@@ -411,7 +423,19 @@ public:
                     _doc->clear();
                     _CLDELETE(ts);
                 } else {
+                    // avoid to add doc which without any field which may make threadState init skip
+                    // init fieldDataArray, then will make error with next doc with fields in
+                    // resetCurrentFieldData
+                    if (Status st = create_field(&new_field); st != Status::OK()) {
+                        LOG(ERROR)
+                                << "create field " << string(_field_name.begin(), _field_name.end())
+                                << " error:" << st;
+                        return st;
+                    }
+                    _doc->add(*new_field);
                     RETURN_IF_ERROR(add_null_document());
+                    _doc->clear();
+                    _CLDELETE(ts);
                 }
                 _rid++;
             }

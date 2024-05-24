@@ -230,8 +230,9 @@ public:
             const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
                     location_map);
 
-    static Status update_delete_bitmap_without_lock(const BaseTabletSPtr& self,
-                                                    const RowsetSharedPtr& rowset);
+    static Status update_delete_bitmap_without_lock(
+            const BaseTabletSPtr& self, const RowsetSharedPtr& rowset,
+            const std::vector<RowsetSharedPtr>* specified_base_rowsets = nullptr);
 
     ////////////////////////////////////////////////////////////////////////////
     // end MoW functions
@@ -242,6 +243,11 @@ public:
     std::vector<RowsetSharedPtr> get_snapshot_rowset(bool include_stale_rowset = false) const;
 
     virtual void clear_cache() = 0;
+
+    // Find the first consecutive empty rowsets. output->size() >= limit
+    void calc_consecutive_empty_rowsets(std::vector<RowsetSharedPtr>* empty_rowsets,
+                                        const std::vector<RowsetSharedPtr>& candidate_rowsets,
+                                        int limit);
 
 protected:
     // Find the missed versions until the spec_version.
@@ -262,7 +268,7 @@ protected:
     Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
                                                 std::vector<RowsetSharedPtr>* rowsets) const;
 
-    void sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
+    Status sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
 
     mutable std::shared_mutex _meta_lock;
     TimestampedVersionTracker _timestamped_version_tracker;

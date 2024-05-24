@@ -148,18 +148,18 @@ public:
     void insert_many_from_not_nullable(const IColumn& src, size_t position, size_t length);
 
     void insert_many_fix_len_data(const char* pos, size_t num) override {
-        _get_null_map_column().fill(0, num);
+        _get_null_map_column().insert_many_vals(0, num);
         get_nested_column().insert_many_fix_len_data(pos, num);
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {
-        _get_null_map_column().fill(0, num);
+        _get_null_map_column().insert_many_vals(0, num);
         get_nested_column().insert_many_raw_data(pos, num);
     }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t data_num, uint32_t dict_num) override {
-        _get_null_map_column().fill(0, data_num);
+        _get_null_map_column().insert_many_vals(0, data_num);
         get_nested_column().insert_many_dict_data(data_array, start_index, dict, data_num,
                                                   dict_num);
     }
@@ -169,13 +169,13 @@ public:
         if (UNLIKELY(num == 0)) {
             return;
         }
-        _get_null_map_column().fill(0, num);
+        _get_null_map_column().insert_many_vals(0, num);
         get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
     }
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
-        _get_null_map_column().fill(0, num);
+        _get_null_map_column().insert_many_vals(0, num);
         get_nested_column().insert_many_binary_data(data_array, len_array, start_offset_array, num);
     }
 
@@ -193,13 +193,13 @@ public:
 
     void insert_not_null_elements(size_t num) {
         get_nested_column().insert_many_defaults(num);
-        _get_null_map_column().fill(0, num);
+        _get_null_map_column().insert_many_vals(0, num);
         _has_null = false;
     }
 
     void insert_null_elements(int num) {
         get_nested_column().insert_many_defaults(num);
-        _get_null_map_column().fill(1, num);
+        _get_null_map_column().insert_many_vals(1, num);
         _has_null = true;
     }
 
@@ -212,6 +212,10 @@ public:
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int null_direction_hint) const override;
+
+    void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                          int direction, std::vector<uint8>& cmp_res,
+                          uint8* __restrict filter) const override;
     void get_permutation(bool reverse, size_t limit, int null_direction_hint,
                          Permutation& res) const override;
     void reserve(size_t n) override;

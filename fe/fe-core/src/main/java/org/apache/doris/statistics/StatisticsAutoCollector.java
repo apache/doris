@@ -183,7 +183,8 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
-        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 : table.getRowCount();
+        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 :
+                (table.getRowCount() <= 0 ? table.fetchRowCount() : table.getRowCount());
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (Pair<String, String> pair : jobColumns) {
             stringJoiner.add(pair.toString());
@@ -209,6 +210,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setRowCount(rowCount)
                 .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
                 .setPriority(priority)
+                .setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows)
                 .build();
     }
 
@@ -219,10 +221,6 @@ public class StatisticsAutoCollector extends MasterDaemon {
         Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
-        if (StatisticsUtil.isExternalTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId)
-                && jobInfo.priority.equals(JobPriority.LOW)) {
-            analysisManager.createTableLevelTaskForExternalTable(jobInfo, analysisTasks, false);
-        }
         Env.getCurrentEnv().getAnalysisManager().constructJob(jobInfo, analysisTasks.values());
         Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTasks);
         Future<?>[] futures = new Future[analysisTasks.values().size()];

@@ -22,7 +22,9 @@
 #include <boost/algorithm/string/replace.hpp>
 #ifdef USE_JEMALLOC
 #include "jemalloc/jemalloc.h"
-#else
+#endif
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h>
 #endif
 
@@ -112,7 +114,11 @@ void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstrea
         auto* _opaque = static_cast<std::string*>(opaque);
         _opaque->append(buf);
     };
+#ifdef USE_JEMALLOC_HOOK
     jemalloc_stats_print(write_cb, &tmp, "a");
+#else
+    malloc_stats_print(write_cb, &tmp, "a");
+#endif
     boost::replace_all(tmp, "\n", "<br>");
     (*output) << tmp << "</pre>";
 #else

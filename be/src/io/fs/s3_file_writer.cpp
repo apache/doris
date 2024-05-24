@@ -41,6 +41,7 @@
 #include <glog/logging.h>
 
 #include <sstream>
+#include <tuple>
 #include <utility>
 
 #include "common/config.h"
@@ -54,6 +55,7 @@
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 #include "io/fs/s3_file_system.h"
+#include "runtime/exec_env.h"
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
@@ -65,7 +67,6 @@ namespace Aws::S3::Model {
 class DeleteObjectRequest;
 } // namespace Aws::S3::Model
 
-using Aws::S3::Model::AbortMultipartUploadRequest;
 using Aws::S3::Model::CompletedPart;
 using Aws::S3::Model::CompletedMultipartUpload;
 using Aws::S3::Model::CompleteMultipartUploadRequest;
@@ -102,11 +103,18 @@ S3FileWriter::S3FileWriter(std::shared_ptr<Aws::S3::S3Client> client, std::strin
 }
 
 S3FileWriter::~S3FileWriter() {
-    if (!closed() || _failed) {
-        // if we don't abort multi part upload, the uploaded part in object
-        // store will not automatically reclaim itself, it would cost more money
-        static_cast<void>(_abort());
+    if (_async_close_pack != nullptr) {
+        // For thread safety
+        std::ignore = _async_close_pack->future.get();
+        _async_close_pack = nullptr;
     } else {
+        // Consider one situation where the file writer is destructed after it submit at least one async task
+        // without calling close(), then there exists one occasion where the async task is executed right after
+        // the correspoding S3 file writer is already destructed
+        _wait_until_finish(fmt::format("wait s3 file {} upload to be finished", _path.native()));
+    }
+    // We won't do S3 abort operation in BE, we let s3 service do it own.
+    if (state() == State::OPENED && !_failed) {
         s3_bytes_written_total << _bytes_appended;
     }
     s3_file_being_written << -1;
@@ -153,47 +161,38 @@ void S3FileWriter::_wait_until_finish(std::string_view task_name) {
     }
 }
 
-Status S3FileWriter::_abort() {
-    // make all pending work early quits
-    _failed = true;
-
-    // we need to reclaim the memory
-    if (_pending_buf) {
-        _pending_buf = nullptr;
+Status S3FileWriter::close(bool non_block) {
+    if (state() == State::CLOSED) {
+        return Status::InternalError("S3FileWriter already closed, file path {}, file key {}",
+                                     _path.native(), _key);
     }
-    LOG(INFO) << "S3FileWriter::abort, path: " << _path.native();
-    // upload id is empty means there was no create multi upload
-    if (_upload_id.empty()) {
-        return Status::OK();
-    }
-    _wait_until_finish("Abort");
-    AbortMultipartUploadRequest request;
-    request.WithBucket(_bucket).WithKey(_key).WithUploadId(_upload_id);
-    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-    auto outcome = _client->AbortMultipartUpload(request);
-    if (outcome.IsSuccess() ||
-        outcome.GetError().GetErrorType() == Aws::S3::S3Errors::NO_SUCH_UPLOAD ||
-        outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-        LOG(INFO) << "Abort multipart upload successfully"
-                  << "bucket=" << _bucket << ", key=" << _path.native()
-                  << ", upload_id=" << _upload_id << ", whole parts=" << _dump_completed_part();
-        return Status::OK();
-    }
-    return s3fs_error(
-            outcome.GetError(),
-            fmt::format("failed to abort multipart upload {} upload_id={}, whole parts={}",
-                        _path.native(), _upload_id, _dump_completed_part()));
-}
-
-Status S3FileWriter::close() {
-    if (closed()) {
-        _wait_until_finish("close");
+    if (state() == State::ASYNC_CLOSING) {
+        if (non_block) {
+            return Status::InternalError("Don't submit async close multi times");
+        }
+        CHECK(_async_close_pack != nullptr);
+        _st = _async_close_pack->future.get();
+        _async_close_pack = nullptr;
+        // We should wait for all the pre async task to be finished
+        _state = State::CLOSED;
+        // The next time we call close() with no matter non_block true or false, it would always return the
+        // '_st' value because this writer is already closed.
         return _st;
     }
+    if (non_block) {
+        _state = State::ASYNC_CLOSING;
+        _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
+        _async_close_pack->future = _async_close_pack->promise.get_future();
+        return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func(
+                [&]() { _async_close_pack->promise.set_value(_close_impl()); });
+    }
+    _st = _close_impl();
+    _state = State::CLOSED;
+    return _st;
+}
 
+Status S3FileWriter::_close_impl() {
     VLOG_DEBUG << "S3FileWriter::close, path: " << _path.native();
-
-    Defer defer {[this] { _closed = true; }};
 
     if (_upload_id.empty() && _pending_buf) {
         RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
@@ -248,7 +247,7 @@ Status S3FileWriter::close() {
 }
 
 Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
-    if (closed()) [[unlikely]] {
+    if (state() != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
 
@@ -457,27 +456,6 @@ Status S3FileWriter::_complete() {
     return Status::OK();
 }
 
-Status S3FileWriter::finalize() {
-    if (closed()) [[unlikely]] {
-        return Status::InternalError("finalize closed file: {}", _path.native());
-    }
-
-    DBUG_EXECUTE_IF("s3_file_writer::finalize",
-                    { return Status::IOError("failed to finalize due to injected error"); });
-    // submit pending buf if it's not nullptr
-    // it's the last buf, we can submit it right now
-    if (_pending_buf != nullptr) {
-        if (_upload_id.empty()) {
-            RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
-        }
-        _countdown_event.add_count();
-        RETURN_IF_ERROR(FileBuffer::submit(std::move(_pending_buf)));
-        _pending_buf = nullptr;
-    }
-    _wait_until_finish("finalize");
-    return _st;
-}
-
 Status S3FileWriter::_set_upload_to_remote_less_than_buffer_size() {
     auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
     DCHECK(buf != nullptr);
@@ -497,7 +475,7 @@ Status S3FileWriter::_set_upload_to_remote_less_than_buffer_size() {
 }
 
 void S3FileWriter::_put_object(UploadFileBuffer& buf) {
-    DCHECK(!closed());
+    DCHECK(state() != State::CLOSED) << fmt::format("state is {}", state());
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(_bucket).WithKey(_key);
     Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*buf.get_stream()));

@@ -62,7 +62,6 @@ public:
     // because they take locks.
     using report_status_callback = std::function<Status(
             const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
-    PipelineFragmentContext() = default;
     PipelineFragmentContext(const TUniqueId& query_id, const int fragment_id,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
@@ -73,7 +72,9 @@ public:
     std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile_x() const;
     std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile_x() const;
 
-    bool is_timeout(const VecDateTimeValue& now) const;
+    bool is_timeout(timespec now) const;
+
+    uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
     PipelinePtr add_pipeline();
 
@@ -94,8 +95,7 @@ public:
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
-    void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
-                const std::string& msg = "");
+    void cancel(const Status reason);
 
     // TODO: Support pipeline runtime filter
 
@@ -107,20 +107,10 @@ public:
 
     Status send_report(bool);
 
-    Status update_status(Status status) {
-        std::lock_guard<std::mutex> l(_status_lock);
-        if (!status.ok() && _query_ctx->exec_status().ok()) {
-            _query_ctx->set_exec_status(status);
-        }
-        return _query_ctx->exec_status();
-    }
-
     void trigger_report_if_necessary();
     void refresh_next_report_time();
 
     std::string debug_string();
-
-    uint64_t create_time() const { return _create_time; }
 
     [[nodiscard]] int next_operator_id() { return _operator_id--; }
 
@@ -209,8 +199,6 @@ private:
     std::atomic_bool _prepared = false;
     bool _submitted = false;
 
-    std::mutex _status_lock;
-
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
     std::mutex _task_mutex;
@@ -230,6 +218,11 @@ private:
 
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _prepare_timer = nullptr;
+    RuntimeProfile::Counter* _init_context_timer = nullptr;
+    RuntimeProfile::Counter* _build_pipelines_timer = nullptr;
+    RuntimeProfile::Counter* _plan_local_shuffle_timer = nullptr;
+    RuntimeProfile::Counter* _prepare_all_pipelines_timer = nullptr;
+    RuntimeProfile::Counter* _build_tasks_timer = nullptr;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
     bool _is_fragment_instance_closed = false;
@@ -248,7 +241,6 @@ private:
     DescriptorTbl* _desc_tbl = nullptr;
     int _num_instances = 1;
 
-    VecDateTimeValue _start_time;
     int _timeout = -1;
 
     OperatorXPtr _root_op = nullptr;
@@ -321,7 +313,6 @@ private:
 
     // Total instance num running on all BEs
     int _total_instances = -1;
-    uint64_t _create_time;
     bool _require_bucket_distribution = false;
 };
 } // namespace pipeline

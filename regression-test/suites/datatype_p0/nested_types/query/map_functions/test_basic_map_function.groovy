@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_basic_map_function", "p0") {
-    sql """set enable_nereids_planner=false"""
     // ============ sum(map-value) ============
     qt_sql """ SELECT "sum-map-value" """
     sql """ DROP TABLE IF EXISTS t_map_amory;"""
@@ -96,8 +95,4 @@ suite("test_basic_map_function", "p0") {
     qt_nereid_sql """ SELECT CAST('{\\'amory\\':[26, 34], \\'commiter\\':[2023, 2024]}' as Map<String, Array<int>>)"""
     qt_nereid_sql """ SELECT CAST({'amory':{'in': 2023}, 'amory_up':{'commiter': 2024}} as Map<String, Map<String, int>>)"""
     qt_nereid_sql """ SELECT CAST('{\\'amory\\':{\\'in\\': 2023}, \\'amory_up\\':{\\'commiter\\': 2024}}' as Map<String, Map<String, int>>)"""
-
-
-
-
 }

@@ -248,6 +248,7 @@ message PCancelPlanFragmentRequest {
     optional PPlanFragmentCancelReason cancel_reason = 2;
     optional PUniqueId query_id = 3;
     optional int32 fragment_id = 4;
+    optional PStatus cancel_status = 5;
 };
 
 message PCancelPlanFragmentResult {
@@ -408,6 +409,8 @@ message PKafkaMetaProxyRequest {
     repeated PIntegerPair offset_times = 3;
     // optional for getting latest offsets of partitons
     repeated int32 partition_id_for_latest_offsets = 4;
+    // optional for getting real offset for end/beginning flag
+    repeated PIntegerPair offset_flags = 5;
 };
 
 message PProxyRequest {
@@ -557,7 +560,7 @@ message PMergeFilterRequest {
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
-    optional bool opt_remote_rf = 9;
+    optional bool opt_remote_rf = 9; // Deprecated
     optional PColumnType column_type = 10;
     optional bool contain_null = 11;
     optional bool ignored = 12;

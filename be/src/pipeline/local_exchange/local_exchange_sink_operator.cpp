@@ -54,7 +54,7 @@ Status LocalExchangeSinkLocalState::close(RuntimeState* state, Status exec_statu
     if (exec_status.ok()) {
         DCHECK(_release_count) << "Do not finish correctly! " << debug_string(0)
                                << " state: { cancel = " << state->is_cancelled() << ", "
-                               << state->query_status().to_string() << "} query ctx: { cancel = "
+                               << state->cancel_reason().to_string() << "} query ctx: { cancel = "
                                << state->get_query_ctx()->is_cancelled() << ", "
                                << state->get_query_ctx()->exec_status().to_string() << "}";
     }

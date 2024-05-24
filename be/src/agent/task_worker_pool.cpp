@@ -77,6 +77,7 @@
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/debug_points.h"
@@ -1721,17 +1722,17 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     std::map<TTabletId, TVersion> succ_tablets;
     // partition_id, tablet_id, publish_version
     std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
-    std::map<TTableId, int64_t> table_id_to_num_delta_rows;
+    std::map<TTableId, std::map<TTabletId, int64_t>> table_id_to_tablet_id_to_num_delta_rows;
     uint32_t retry_time = 0;
     Status status;
     constexpr uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
     while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
         succ_tablets.clear();
         error_tablet_ids.clear();
-        table_id_to_num_delta_rows.clear();
+        table_id_to_tablet_id_to_num_delta_rows.clear();
         EnginePublishVersionTask engine_task(_engine, publish_version_req, &error_tablet_ids,
                                              &succ_tablets, &discontinuous_version_tablets,
-                                             &table_id_to_num_delta_rows);
+                                             &table_id_to_tablet_id_to_num_delta_rows);
         SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
         if (status.ok()) {
@@ -1792,7 +1793,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 .error(status);
     } else {
         if (!config::disable_auto_compaction &&
-            !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+            !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
@@ -1834,7 +1835,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     finish_task_request.__set_succ_tablets(succ_tablets);
     finish_task_request.__set_error_tablet_ids(
             std::vector<TTabletId>(error_tablet_ids.begin(), error_tablet_ids.end()));
-    finish_task_request.__set_table_id_to_delta_num_rows(table_id_to_num_delta_rows);
+    finish_task_request.__set_table_id_to_tablet_id_to_delta_num_rows(
+            table_id_to_tablet_id_to_num_delta_rows);
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);
 }

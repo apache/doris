@@ -33,7 +33,7 @@ public:
     ~AsyncCancelQueryTask() override = default;
     void run() override {
         ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
-                _query_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED, _exceed_msg);
+                _query_id, Status::MemoryLimitExceeded(_exceed_msg));
     }
 
 private:
@@ -44,6 +44,7 @@ private:
 void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
+    DCHECK(_reserved_mem == 0);
     CHECK(init());
     flush_untracked_mem();
     _limiter_tracker = mem_tracker;
@@ -53,6 +54,7 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
 void ThreadMemTrackerMgr::detach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker) {
     CHECK(init());
+    release_reserved();
     flush_untracked_mem();
     _limiter_tracker = old_mem_tracker;
     _limiter_tracker_raw = old_mem_tracker.get();

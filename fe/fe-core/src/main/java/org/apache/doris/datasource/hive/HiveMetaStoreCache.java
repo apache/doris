@@ -142,7 +142,8 @@ public class HiveMetaStoreCache {
                 Config.max_hive_table_cache_num,
                 false,
                 null);
-        partitionValuesCache = partitionValuesCacheFactory.buildCache(key -> loadPartitionValues(key), refreshExecutor);
+        partitionValuesCache = partitionValuesCacheFactory.buildCache(key -> loadPartitionValues(key), null,
+                refreshExecutor);
 
         CacheFactory partitionCacheFactory = new CacheFactory(
                 OptionalLong.of(86400L),
@@ -160,7 +161,7 @@ public class HiveMetaStoreCache {
             public Map<PartitionCacheKey, HivePartition> loadAll(Iterable<? extends PartitionCacheKey> keys) {
                 return loadPartitions(keys);
             }
-        }, refreshExecutor);
+        }, null, refreshExecutor);
 
         setNewFileCache();
     }
@@ -198,7 +199,7 @@ public class HiveMetaStoreCache {
 
         LoadingCache<FileCacheKey, FileCacheValue> oldFileCache = fileCacheRef.get();
 
-        fileCacheRef.set(fileCacheFactory.buildCache(loader, this.refreshExecutor));
+        fileCacheRef.set(fileCacheFactory.buildCache(loader, null, this.refreshExecutor));
         if (Objects.nonNull(oldFileCache)) {
             oldFileCache.invalidateAll();
         }
@@ -354,7 +355,7 @@ public class HiveMetaStoreCache {
         RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                 new FileSystemCache.FileSystemCacheKey(LocationPath.getFSIdentity(
                         location, bindBrokerName), properties, bindBrokerName));
-        result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, location, jobConf));
+        result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, location));
         // For Tez engine, it may generate subdirectoies for "union" query.
         // So there may be files and directories in the table directory at the same time. eg:
         //      /user/hive/warehouse/region_tmp_union_all2/000000_0
