@@ -114,10 +114,11 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
         PlanChecker.from(connectContext)
                 .parse("select * from " + tableName + " as et join db1.t on et.id = t.a")
                 .customAnalyzer(Optional.of(customTableResolver)) // analyze internal relation
-                .rewrite()
                 .matches(
                         logicalJoin(
-                            logicalOlapScan().when(r -> r.getTable() == externalOlapTable),
+                            logicalSubQueryAlias(
+                                logicalOlapScan().when(r -> r.getTable() == externalOlapTable)
+                            ),
                             logicalOlapScan().when(r -> r.getTable().getName().equals("t"))
                         )
                 );
