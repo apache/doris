@@ -16,7 +16,6 @@
 // under the License.
 
 suite("two_instance_correctness") {
-    sql " set enable_memtable_on_sink_node = false; " //FIXME: remove when fixed.
 
     // finish time of instances have diff
     sql "DROP TABLE IF EXISTS two_bkt;"
