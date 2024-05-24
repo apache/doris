@@ -549,6 +549,7 @@ DECLARE_Int32(brpc_heavy_work_pool_threads);
 DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
+DECLARE_mBool(enable_bthread_transmit_block);
 
 // The maximum amount of data that can be processed by a stream load
 DECLARE_mInt64(streaming_load_max_mb);

@@ -1498,13 +1498,29 @@ void PInternalService::transmit_block(google::protobuf::RpcController* controlle
                                       const PTransmitDataParams* request,
                                       PTransmitDataResult* response,
                                       google::protobuf::Closure* done) {
-    int64_t receive_time = GetCurrentTimeNanos();
-    response->set_receive_time(receive_time);
-
-    // under high concurrency, thread pool will have a lot of lock contention.
-    // May offer failed to the thread pool, so that we should avoid using thread
-    // pool here.
-    _transmit_block(controller, request, response, done, Status::OK());
+    if (config::enable_bthread_transmit_block) {
+        int64_t receive_time = GetCurrentTimeNanos();
+        response->set_receive_time(receive_time);
+        // under high concurrency, thread pool will have a lot of lock contention.
+        // May offer failed to the thread pool, so that we should avoid using thread
+        // pool here.
+        _transmit_block(controller, request, response, done, Status::OK());
+    } else {
+        bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+            int64_t receive_time = GetCurrentTimeNanos();
+            response->set_receive_time(receive_time);
+            // Sometimes transmit block function is the last owner of PlanFragmentExecutor
+            // It will release the object. And the object maybe a JNIContext.
+            // JNIContext will hold some TLS object. It could not work correctly under bthread
+            // Context. So that put the logic into pthread.
+            // But this is rarely happens, so this config is disabled by default.
+            _transmit_block(controller, request, response, done, Status::OK());
+        });
+        if (!ret) {
+            offer_failed(response, done, _light_work_pool);
+            return;
+        }
+    }
 }
 
 void PInternalService::transmit_block_by_http(google::protobuf::RpcController* controller,
