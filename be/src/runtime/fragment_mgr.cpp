@@ -811,16 +811,24 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
     size_t i = 0;
     {
         std::lock_guard<std::mutex> lock(_lock);
-        fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts are still running!\n",
-                       _pipeline_map.size());
+        fmt::format_to(debug_string_buffer,
+                       "{} pipeline fragment contexts are still running! duration_limit={}\n",
+                       _pipeline_map.size(), duration);
+
+        timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
         for (auto& it : _pipeline_map) {
             auto elapsed = it.second->elapsed_time() / 1000000000.0;
             if (elapsed < duration) {
                 // Only display tasks which has been running for more than {duration} seconds.
                 continue;
             }
-            fmt::format_to(debug_string_buffer, "No.{} (elapse time = {}s, InstanceId = {}) : {}\n",
-                           i, elapsed, print_id(it.first), it.second->debug_string());
+            auto timeout_second = it.second->timeout_second();
+            fmt::format_to(debug_string_buffer,
+                           "No.{} (elapse_second={}s, query_timeout_second={}s, instance_id="
+                           "{}, is_timeout={}) : {}\n",
+                           i, elapsed, timeout_second, print_id(it.first),
+                           it.second->is_timeout(now), it.second->debug_string());
             i++;
         }
     }
