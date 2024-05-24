@@ -661,10 +661,9 @@ public class IcebergUtils {
             if (icebergTable.specs().values().stream().allMatch(PartitionSpec::isUnpartitioned)) {
                 return res;
             }
-            PartitionsTable partitionsTable = (PartitionsTable) MetadataTableUtils.createMetadataTableInstance(
-                    icebergTable, MetadataTableType.PARTITIONS);
+            TableScan tableScan = icebergTable.newScan();
             // For partition table, we need to get all partitions from PartitionsTable.
-            try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().planFiles()) {
+            try (CloseableIterable<FileScanTask> tasks = tableScan.planFiles()) {
                 for (FileScanTask fileScanTask : tasks) {
                     DataFile dataFile = fileScanTask.file();
                     // Types.StructType structType = fileScanTask.spec().partitionType();
