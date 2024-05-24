@@ -164,15 +164,16 @@ public:
 
             size_t compressed_len =
                     LZ4_compress_fast_continue(context->ctx, input.data, compressed_buf.data,
-                                                input.size, compressed_buf.size, ACCELARATION);
+                                               input.size, compressed_buf.size, ACCELARATION);
             if (compressed_len == 0) {
                 compress_failed = true;
                 return Status::InvalidArgument("Output buffer's capacity is not enough, size={}",
-                                                compressed_buf.size);
+                                               compressed_buf.size);
             }
             output->resize(compressed_len);
             if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
-                output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), compressed_len);
+                output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data),
+                                    compressed_len);
             }
         } catch (...) {
             // Do not set compress_failed to release context
@@ -351,30 +352,30 @@ private:
             }
 
             auto wbytes = LZ4F_compressBegin(context->ctx, compressed_buf.data, compressed_buf.size,
-                                            &_s_preferences);
+                                                   &_s_preferences);
             if (LZ4F_isError(wbytes)) {
                 compress_failed = true;
                 return Status::InvalidArgument("Fail to do LZ4F compress begin, res={}",
-                                            LZ4F_getErrorName(wbytes));
+                                               LZ4F_getErrorName(wbytes));
             }
             size_t offset = wbytes;
             for (auto input : inputs) {
                 wbytes = LZ4F_compressUpdate(context->ctx, compressed_buf.data + offset,
-                                            compressed_buf.size - offset, input.data, input.size,
-                                            nullptr);
+                                             compressed_buf.size - offset, input.data, input.size,
+                                             nullptr);
                 if (LZ4F_isError(wbytes)) {
                     compress_failed = true;
                     return Status::InvalidArgument("Fail to do LZ4F compress update, res={}",
-                                                LZ4F_getErrorName(wbytes));
+                                                   LZ4F_getErrorName(wbytes));
                 }
                 offset += wbytes;
             }
             wbytes = LZ4F_compressEnd(context->ctx, compressed_buf.data + offset,
-                                    compressed_buf.size - offset, nullptr);
+                                      compressed_buf.size - offset, nullptr);
             if (LZ4F_isError(wbytes)) {
                 compress_failed = true;
                 return Status::InvalidArgument("Fail to do LZ4F compress end, res={}",
-                                            LZ4F_getErrorName(wbytes));
+                                               LZ4F_getErrorName(wbytes));
             }
             offset += wbytes;
             output->resize(offset);
@@ -566,7 +567,8 @@ public:
             }
             output->resize(compressed_len);
             if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
-                output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), compressed_len);
+                output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data),
+                                    compressed_len);
             }
         } catch (...) {
             // Do not set compress_failed to release context
@@ -894,17 +896,17 @@ public:
             }
 
             // set compression level to default 3
-            auto ret =
-                    ZSTD_CCtx_setParameter(context->ctx, ZSTD_c_compressionLevel, ZSTD_CLEVEL_DEFAULT);
+            auto ret = ZSTD_CCtx_setParameter(context->ctx, ZSTD_c_compressionLevel,
+                                                    ZSTD_CLEVEL_DEFAULT);
             if (ZSTD_isError(ret)) {
                 return Status::InvalidArgument("ZSTD_CCtx_setParameter compression level error: {}",
-                                                ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+                                               ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
             }
             // set checksum flag to 1
             ret = ZSTD_CCtx_setParameter(context->ctx, ZSTD_c_checksumFlag, 1);
             if (ZSTD_isError(ret)) {
                 return Status::InvalidArgument("ZSTD_CCtx_setParameter checksumFlag error: {}",
-                                                ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+                                               ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
             }
 
             ZSTD_outBuffer out_buf = {compressed_buf.data, compressed_buf.size, 0};
@@ -923,7 +925,7 @@ public:
                     if (ZSTD_isError(ret)) {
                         compress_failed = true;
                         return Status::InvalidArgument("ZSTD_compressStream2 error: {}",
-                                                        ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+                                                       ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
                     }
 
                     // ret is ZSTD hint for needed output buffer size
