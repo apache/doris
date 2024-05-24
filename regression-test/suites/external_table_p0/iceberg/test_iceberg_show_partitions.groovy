@@ -36,7 +36,7 @@ suite("test_iceberg_show_partitions", "p0,external,doris,external_docker,externa
                     "s3.region" = "us-east-1"
                 );"""
 
-            order_qt_mtmv "show partitions from ${catalog_name}.${sample_cow_parquet}."
+            order_qt_mtmv "show partitions from ${catalog_name}.${db_name}.sample_cow_parquet"
 
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
