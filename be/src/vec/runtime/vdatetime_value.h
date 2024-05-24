@@ -1354,6 +1354,41 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
     switch (unit) {
     case YEAR: {
         int year = (ts_value2.year() - ts_value1.year());
+        if constexpr (std::is_same_v<T0, T1>) {
+            int year_width =
+                    DateV2Value<T0>::is_datetime ? DATETIMEV2_YEAR_WIDTH : DATEV2_YEAR_WIDTH;
+            decltype(ts_value2.to_date_int_val()) minus_one = -1;
+            if (year > 0) {
+                year -= ((ts_value2.to_date_int_val() & (minus_one >> year_width)) <
+                         (ts_value1.to_date_int_val() & (minus_one >> year_width)));
+            } else if (year < 0) {
+                year += ((ts_value2.to_date_int_val() & (minus_one >> year_width)) >
+                         (ts_value1.to_date_int_val() & (minus_one >> year_width)));
+            }
+        } else if constexpr (std::is_same_v<T0, DateV2ValueType>) {
+            auto ts1_int_value = ((uint64_t)ts_value1.to_date_int_val()) << TIME_PART_LENGTH;
+            if (year > 0) {
+                year -= ((ts_value2.to_date_int_val() &
+                          (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)) <
+                         (ts1_int_value & (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)));
+            } else if (year < 0) {
+                year += ((ts_value2.to_date_int_val() &
+                          (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)) >
+                         (ts1_int_value & (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)));
+            }
+        } else {
+            auto ts2_int_value = ((uint64_t)ts_value2.to_date_int_val()) << TIME_PART_LENGTH;
+            if (year > 0) {
+                year -= ((ts2_int_value & (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)) <
+                         (ts_value1.to_date_int_val() &
+                          (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)));
+            } else if (year < 0) {
+                year += ((ts2_int_value & (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)) >
+                         (ts_value1.to_date_int_val() &
+                          (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)));
+            }
+        }
+
         return year;
     }
     case MONTH: {
