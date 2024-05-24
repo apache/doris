@@ -31,7 +31,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -127,18 +126,5 @@ public interface Project {
             }
         }
         return true;
-    }
-
-    static List<Expression> collectExpressions(Expression expr) {
-        List<Expression> expressions = new ArrayList<>();
-        collectExpressionsRecursive(expr, expressions);
-        return expressions;
-    }
-
-    static void collectExpressionsRecursive(Expression expr, List<Expression> expressions) {
-        expressions.add(expr);
-        for (Expression child : expr.children()) {
-            collectExpressionsRecursive(child, expressions);
-        }
     }
 }

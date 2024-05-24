@@ -82,7 +82,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -334,19 +333,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 return canNotPush;
             }
         }
-        List<Expression> projectExpr = new ArrayList<>();
-        for (Expression p : project.getProjects()) {
-            projectExpr.addAll(Project.collectExpressions(p));
-        }
-        boolean noSlotRef = true;
-        for (Expression expr : projectExpr) {
-            if (expr instanceof SlotReference) {
-                noSlotRef = false;
-                break;
+        for (Expression e : project.getProjects()) {
+            if (e.anyMatch(SlotReference.class::isInstance)) {
+                return canNotPush;
             }
-        }
-        if (!noSlotRef) {
-            return canNotPush;
         }
         PhysicalOlapScan physicalOlapScan
                 = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
