@@ -1941,7 +1941,8 @@ public class ShowExecutor {
         ExternalTable table = db.getTableOrAnalysisException(showStmt.getTableName().getTbl());
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
         List<IcebergPartition> partitions = icebergTable.getPartitions();
-
+        List<String> partitions1 = IcebergUtils.getPartitions(catalog, dbName, showStmt.getTableName().getTbl());
+        System.out.println(partitions1);
         /* Filter add rows */
         for (IcebergPartition partition : partitions) {
             List<String> list = new ArrayList<>();

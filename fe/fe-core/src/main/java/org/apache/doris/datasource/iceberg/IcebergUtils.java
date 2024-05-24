@@ -49,6 +49,7 @@ import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
@@ -60,6 +61,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -67,6 +69,7 @@ import org.apache.iceberg.expressions.Not;
 import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.StructProjection;
@@ -78,6 +81,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -555,6 +559,35 @@ public class IcebergUtils {
                         schema.caseInsensitiveFindField(field.name()).fieldId()));
             }
             return tmpSchema;
+        });
+    }
+
+    public static List<String> getPartitions(ExternalCatalog catalog, String dbName, String name) {
+        return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
+            org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
+            Set<String> partitionNames = Sets.newHashSet();
+
+            if (icebergTable.specs().values().stream().allMatch(PartitionSpec::isUnpartitioned)) {
+                return new ArrayList<>();
+            }
+
+            TableScan tableScan = icebergTable.newScan()
+                    .planWith(org.apache.iceberg.util.ThreadPools.newWorkerPool("zdtest",
+                            2));
+            try (CloseableIterable<FileScanTask> fileScanTaskIterable = tableScan.planFiles();
+                    CloseableIterator<FileScanTask> fileScanTaskIterator = fileScanTaskIterable.iterator()) {
+
+                while (fileScanTaskIterator.hasNext()) {
+                    FileScanTask scanTask = fileScanTaskIterator.next();
+                    StructLike partition = scanTask.file().partition();
+                    String partitionName = convertIcebergPartitionToPartitionName(scanTask.spec(), partition);
+                    partitionNames.add(partitionName);
+                }
+            } catch (IOException e) {
+                LOG.warn(e.getMessage(), e);
+            }
+
+            return new ArrayList<>(partitionNames);
         });
     }
 
