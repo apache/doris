@@ -847,9 +847,9 @@ public:
     // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
-    bool from_date_str(const char* str, int len, int scale = -1);
+    bool from_date_str(const char* str, int len, int scale = -1, bool convert_zero = false);
     bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
-                       int scale = -1);
+                       int scale = -1, bool convert_zero = false);
 
     // Convert this value to string
     // this will check type to decide which format to convert
@@ -1245,7 +1245,7 @@ private:
                              bool disable_lut = false);
 
     bool from_date_str_base(const char* date_str, int len, int scale,
-                            const cctz::time_zone* local_time_zone);
+                            const cctz::time_zone* local_time_zone, bool convert_zero);
 
     // Used to construct from int value
     int64_t standardize_timevalue(int64_t value);

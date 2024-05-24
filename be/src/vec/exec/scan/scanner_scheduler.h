@@ -147,11 +147,27 @@ public:
             return;
         }
         if (new_max_thread_num >= cur_max_thread_num) {
-            static_cast<void>(_scan_thread_pool->set_max_threads(new_max_thread_num));
-            static_cast<void>(_scan_thread_pool->set_min_threads(new_min_thread_num));
+            Status st_max = _scan_thread_pool->set_max_threads(new_max_thread_num);
+            if (!st_max.ok()) {
+                LOG(WARNING) << "Failed to set max threads for scan thread pool: "
+                             << st_max.to_string();
+            }
+            Status st_min = _scan_thread_pool->set_min_threads(new_min_thread_num);
+            if (!st_min.ok()) {
+                LOG(WARNING) << "Failed to set min threads for scan thread pool: "
+                             << st_min.to_string();
+            }
         } else {
-            static_cast<void>(_scan_thread_pool->set_min_threads(new_min_thread_num));
-            static_cast<void>(_scan_thread_pool->set_max_threads(new_max_thread_num));
+            Status st_min = _scan_thread_pool->set_min_threads(new_min_thread_num);
+            if (!st_min.ok()) {
+                LOG(WARNING) << "Failed to set min threads for scan thread pool: "
+                             << st_min.to_string();
+            }
+            Status st_max = _scan_thread_pool->set_max_threads(new_max_thread_num);
+            if (!st_max.ok()) {
+                LOG(WARNING) << "Failed to set max threads for scan thread pool: "
+                             << st_max.to_string();
+            }
         }
     }
 

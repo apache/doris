@@ -134,16 +134,22 @@ public class TableStatsMeta implements Writable {
         for (Pair<String, String> colPair : analyzedJob.jobColumns) {
             ColStatsMeta colStatsMeta = colToColStatsMeta.get(colPair);
             if (colStatsMeta == null) {
-                colToColStatsMeta.put(colPair, new ColStatsMeta(updatedTime, analyzedJob.analysisMethod,
+                colToColStatsMeta.put(colPair, new ColStatsMeta(analyzedJob.createTime, analyzedJob.analysisMethod,
                         analyzedJob.analysisType, analyzedJob.jobType, 0, analyzedJob.rowCount,
-                        analyzedJob.updateRows));
+                        analyzedJob.updateRows, analyzedJob.partitionUpdateRows));
             } else {
-                colStatsMeta.updatedTime = updatedTime;
+                colStatsMeta.updatedTime = analyzedJob.tblUpdateTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
                 colStatsMeta.jobType = analyzedJob.jobType;
                 colStatsMeta.updatedRows = analyzedJob.updateRows;
                 colStatsMeta.rowCount = analyzedJob.rowCount;
+                if (colStatsMeta.partitionUpdateRows == null) {
+                    colStatsMeta.partitionUpdateRows = new ConcurrentHashMap<>();
+                } else {
+                    colStatsMeta.partitionUpdateRows.clear();
+                }
+                colStatsMeta.partitionUpdateRows.putAll(analyzedJob.partitionUpdateRows);
             }
         }
         jobType = analyzedJob.jobType;

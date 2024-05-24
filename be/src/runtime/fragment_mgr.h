@@ -138,7 +138,7 @@ public:
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
-    std::shared_ptr<QueryContext> get_query_context(const TUniqueId& query_id);
+    Status get_query_context(const TUniqueId& query_id, std::shared_ptr<QueryContext>* query_ctx);
 
     int32_t running_query_num() {
         std::unique_lock<std::mutex> ctx_lock(_lock);
@@ -175,6 +175,7 @@ private:
     template <typename Params>
     Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                           std::shared_ptr<QueryContext>& query_ctx);
+    std::shared_ptr<QueryContext> _get_or_erase_query_ctx(TUniqueId query_id);
 
     // This is input params
     ExecEnv* _exec_env = nullptr;
@@ -192,7 +193,7 @@ private:
     std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
 
     // query id -> QueryContext
-    std::unordered_map<TUniqueId, std::shared_ptr<QueryContext>> _query_ctx_map;
+    std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctx_map;
     std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;

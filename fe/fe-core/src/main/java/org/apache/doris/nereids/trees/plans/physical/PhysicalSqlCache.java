@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -59,7 +59,7 @@ public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStri
             Optional<ResultSet> resultSet, List<InternalService.PCacheValue> cacheValues,
             String backendAddress, String planBody) {
         super(PlanType.PHYSICAL_SQL_CACHE, Optional.empty(),
-                new LogicalProperties(() -> ImmutableList.of(), () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
+                new LogicalProperties(() -> ImmutableList.of(), () -> DataTrait.EMPTY_TRAIT));
         this.queryId = Objects.requireNonNull(queryId, "queryId can not be null");
         this.columnLabels = Objects.requireNonNull(columnLabels, "colNames can not be null");
         this.resultExprs = Objects.requireNonNull(resultExprs, "resultExprs can not be null");

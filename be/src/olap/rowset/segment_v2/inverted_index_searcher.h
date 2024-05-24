@@ -61,6 +61,10 @@ public:
     virtual Result<IndexSearcherPtr> get_index_searcher(lucene::store::Directory* directory);
     static Result<std::unique_ptr<IndexSearcherBuilder>> create_index_searcher_builder(
             InvertedIndexReaderType reader_type);
+    int64_t get_reader_size() const { return reader_size; }
+
+protected:
+    int64_t reader_size = 0;
 };
 
 class FulltextIndexSearcherBuilder : public IndexSearcherBuilder {

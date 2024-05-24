@@ -44,6 +44,7 @@ Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "FulltextIndexSearcherBuilder build index_searcher error.");
     }
+    reader_size = reader->getTermInfosRAMUsed();
     // NOTE: need to cl_refcount-- here, so that directory will be deleted when
     // index_searcher is destroyed
     _CLDECDELETE(directory)

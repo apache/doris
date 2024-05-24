@@ -76,6 +76,8 @@ public:
 
     uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
+    int timeout_second() const { return _timeout; }
+
     PipelinePtr add_pipeline();
 
     PipelinePtr add_pipeline(PipelinePtr parent, int idx = -1);
@@ -218,6 +220,11 @@ private:
 
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _prepare_timer = nullptr;
+    RuntimeProfile::Counter* _init_context_timer = nullptr;
+    RuntimeProfile::Counter* _build_pipelines_timer = nullptr;
+    RuntimeProfile::Counter* _plan_local_shuffle_timer = nullptr;
+    RuntimeProfile::Counter* _prepare_all_pipelines_timer = nullptr;
+    RuntimeProfile::Counter* _build_tasks_timer = nullptr;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
     bool _is_fragment_instance_closed = false;

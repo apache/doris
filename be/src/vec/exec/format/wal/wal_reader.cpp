@@ -30,12 +30,6 @@ WalReader::WalReader(RuntimeState* state) : _state(state) {
     _wal_id = state->wal_id();
 }
 
-WalReader::~WalReader() {
-    if (_wal_reader.get() != nullptr) {
-        static_cast<void>(_wal_reader->finalize());
-    }
-}
-
 Status WalReader::init_reader(const TupleDescriptor* tuple_descriptor) {
     _tuple_descriptor = tuple_descriptor;
     RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->get_wal_path(_wal_id, _wal_path));
