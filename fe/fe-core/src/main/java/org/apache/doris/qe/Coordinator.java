@@ -3459,7 +3459,7 @@ public class Coordinator implements CoordInterface {
                                 }
                             }
                             LOG.warn("Failed to cancel query {} backend: {}, without status",
-                                    DebugUtil.printId(queryId),idToBackend.get(beId));
+                                    DebugUtil.printId(queryId), idToBackend.get(beId));
                         }
 
                         public void onFailure(Throwable t) {
