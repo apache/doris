@@ -303,8 +303,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                                     _places.data(),
                                     Base::_parent->template cast<AggSinkOperatorX>()
                                             ._offsets_of_aggregate_states[i],
-                                    _deserialize_buffer.data(),
-                                    (vectorized::ColumnString*)(column.get()), _agg_arena_pool,
+                                    _deserialize_buffer.data(), column.get(), _agg_arena_pool,
                                     rows);
                 }
             } else {

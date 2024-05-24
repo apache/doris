@@ -154,7 +154,7 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });
@@ -292,7 +292,7 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });

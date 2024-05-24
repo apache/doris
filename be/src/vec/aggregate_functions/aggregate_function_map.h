@@ -310,9 +310,9 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
-        auto& col = assert_cast<const ColumnMap&>(*assert_cast<const IColumn*>(column));
+        const auto& col = assert_cast<const ColumnMap&>(*column);
         for (size_t i = 0; i != num_rows; ++i) {
             if (places[i]) {
                 auto map = doris::vectorized::get<Map>(col[i]);
