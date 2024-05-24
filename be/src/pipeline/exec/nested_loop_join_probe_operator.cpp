@@ -166,7 +166,7 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
 
         if constexpr (set_probe_side_flag) {
             RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
-                _do_filtering_and_update_visited_flags<
+                (_do_filtering_and_update_visited_flags<
                              set_build_side_flag, set_probe_side_flag, ignore_null>(
                              &_join_block, !p._is_left_semi_anti)));
             _update_additional_flags(&_join_block);
@@ -186,9 +186,9 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
 
     if constexpr (!set_probe_side_flag) {
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
-                _do_filtering_and_update_visited_flags<set_build_side_flag, set_probe_side_flag,
+                (_do_filtering_and_update_visited_flags<set_build_side_flag, set_probe_side_flag,
                                                        ignore_null>(&_join_block,
-                                                                    !p._is_right_semi_anti));
+                                                                    !p._is_right_semi_anti)));
         _update_additional_flags(&_join_block);
     }
 
