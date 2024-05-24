@@ -210,6 +210,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setRowCount(rowCount)
                 .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
                 .setPriority(priority)
+                .setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows)
                 .build();
     }
 

@@ -42,8 +42,10 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
           _sender_ip(sender_ip),
           _backend_id(backend_id),
           _enable_profile(enable_profile) {
-    std::shared_ptr<QueryContext> query_context =
-            ExecEnv::GetInstance()->fragment_mgr()->get_query_context(_load_id.to_thrift());
+    std::shared_ptr<QueryContext> query_context = nullptr;
+    WARN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_query_context(_load_id.to_thrift(),
+                                                                            &query_context),
+                  "");
     if (query_context != nullptr) {
         _query_thread_context = {_load_id.to_thrift(), query_context->query_mem_tracker};
     } else {
