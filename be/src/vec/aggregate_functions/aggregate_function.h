@@ -146,7 +146,7 @@ public:
                                  size_t num_rows) const = 0;
 
     virtual void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                           AggregateDataPtr rhs, const ColumnString* column,
+                                           AggregateDataPtr rhs, const IColumn* column,
                                            Arena* arena, const size_t num_rows) const = 0;
 
     virtual void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
@@ -376,13 +376,14 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
                                    const size_t num_rows) const override {
         const auto size_of_data = assert_cast<const Derived*>(this)->size_of_data();
+        const auto* column_string = assert_cast<const ColumnString*>(column);
         for (size_t i = 0; i != num_rows; ++i) {
             try {
                 auto rhs_place = rhs + size_of_data * i;
-                VectorBufferReader buffer_reader(column->get_data_at(i));
+                VectorBufferReader buffer_reader(column_string->get_data_at(i));
                 assert_cast<const Derived*>(this)->create(rhs_place);
                 assert_cast<const Derived*>(this)->deserialize_and_merge(
                         places[i] + offset, rhs_place, buffer_reader, arena);
