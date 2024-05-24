@@ -584,14 +584,13 @@ public class OlapTableSink extends DataSink {
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
         TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
 
-        long fakeTabletId = 1;
+        final long fakeTabletId = 0;
         SystemInfoService clusterInfo = Env.getCurrentSystemInfo();
         List<Long> aliveBe = clusterInfo.getAllBackendIds(true);
         if (aliveBe.isEmpty()) {
             throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, "no available BE in cluster");
         }
         for (int i = 0; i < table.getIndexNumber(); i++) {
-            ++fakeTabletId;
             // only one fake tablet here
             if (singleReplicaLoad) {
                 Long[] nodes = aliveBe.toArray(new Long[0]);

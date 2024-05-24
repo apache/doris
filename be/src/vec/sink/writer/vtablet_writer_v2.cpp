@@ -311,6 +311,10 @@ Status VTabletWriterV2::_build_tablet_node_mapping() {
                     tablet.set_index_id(index.index_id);
                     tablet.set_tablet_id(tablet_id);
                     _tablets_for_node[node].emplace(tablet_id, tablet);
+                    if (tablet_id == 0) [[unlikely]] {
+                        // ignore fake tablet for auto partition
+                        continue;
+                    }
                     if (known_indexes.contains(index.index_id)) [[likely]] {
                         continue;
                     }
