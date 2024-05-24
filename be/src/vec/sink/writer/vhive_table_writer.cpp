@@ -22,6 +22,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vslot_ref.h"
 #include "vec/sink/writer/vhive_partition_writer.h"
 #include "vec/sink/writer/vhive_utils.h"
 
