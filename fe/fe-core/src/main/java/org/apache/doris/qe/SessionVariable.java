@@ -723,8 +723,6 @@ public class SessionVariable implements Serializable, Writable {
     public String defaultStorageEngine = "olap";
     @VariableMgr.VarAttr(name = DEFAULT_TMP_STORAGE_ENGINE)
     public String defaultTmpStorageEngine = "olap";
-    @VariableMgr.VarAttr(name = DIV_PRECISION_INCREMENT)
-    public int divPrecisionIncrement = 4;
 
     // -1 means unset, BE will use its config value
     @VariableMgr.VarAttr(name = MAX_SCAN_KEY_NUM)
@@ -1964,10 +1962,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setStorageEngine(String storageEngine) {
         this.storageEngine = storageEngine;
-    }
-
-    public int getDivPrecisionIncrement() {
-        return divPrecisionIncrement;
     }
 
     public int getMaxScanKeyNum() {
