@@ -24,6 +24,7 @@ import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -74,6 +76,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
@@ -317,8 +320,14 @@ public class CreateMTMVInfo {
             } else {
                 colNames.add(colName);
             }
+            // If datatype is AggStateType, AggregateType should be generic, or column definition check will fail
             columns.add(new ColumnDefinition(
-                    colName, slots.get(i).getDataType(), slots.get(i).nullable(),
+                    colName,
+                    slots.get(i).getDataType(),
+                    false,
+                    slots.get(i).getDataType() instanceof AggStateType ? AggregateType.GENERIC : null,
+                    slots.get(i).nullable(),
+                    Optional.empty(),
                     CollectionUtils.isEmpty(simpleColumnDefinitions) ? null
                             : simpleColumnDefinitions.get(i).getComment()));
         }
