@@ -3265,9 +3265,9 @@ drop_stmt ::=
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null, null);
     :}
     /* statistics */
-    | KW_DROP KW_STATS table_name:tbl opt_col_list:cols
+    | KW_DROP KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
     {:
-        RESULT = new DropStatsStmt(tbl, cols);
+        RESULT = new DropStatsStmt(tbl, cols, partitionNames);
     :}
     | KW_DROP KW_EXPIRED KW_STATS
     {:
