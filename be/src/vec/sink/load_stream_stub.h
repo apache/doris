@@ -195,7 +195,7 @@ public:
 
     int64_t dst_id() const { return _dst_id; }
 
-    bool is_incremental() { return _is_incremental; }
+    bool is_incremental() const { return _is_incremental; }
 
     friend std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub);
 
