@@ -210,7 +210,7 @@ Status LocalFileWriter::_close(bool sync) {
         if (_dirty) {
 #ifdef __APPLE__
             if (fcntl(_fd, F_FULLFSYNC) < 0) [[unlikely]] {
-                return fd_reclaim_func(q
+                return fd_reclaim_func(
                         localfs_error(errno, fmt::format("failed to sync {}", _path.native())));
             }
 #else
