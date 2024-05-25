@@ -138,7 +138,7 @@ private:
         bool target_is_slot() const { return expr.nodes[0].node_type == TExprNodeType::SLOT_REF; }
     };
 
-    void _init(PrimitiveType type);
+    bool _init(PrimitiveType type);
 
     mutable std::shared_mutex _rwlock;
 
