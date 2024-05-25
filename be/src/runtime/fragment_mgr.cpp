@@ -441,9 +441,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             coord->reportExecStatus(res, params);
         } catch (TTransportException& e) {
 #ifdef ADDRESS_SANITIZER
-            rpc_status =
-                    Status::RpcError<false>("Master client confirm_unused_remote_files failed due to {}",
-                                            e.what());
+            rpc_status = Status::RpcError<false>(
+                    "Master client confirm_unused_remote_files failed due to {}", e.what());
             req.cancel_fn(rpc_status);
             return;
 #else
