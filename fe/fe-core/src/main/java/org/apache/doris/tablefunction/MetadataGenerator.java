@@ -955,10 +955,10 @@ public class MetadataGenerator {
                             }
                         }
                         dataBatch.add(trow);
-                    }
-                }
-            }
-        }
+                    } // if instance of
+                } // for table
+            } // for db
+        } // for catalog
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
