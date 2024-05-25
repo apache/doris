@@ -19,11 +19,11 @@
 
 #include <bthread/countdown_event.h>
 #include <byteswap.h>
-#include <endian.h>
 #include <foundationdb/fdb_c_types.h>
 
 #include <algorithm>
 #include <atomic>
+#include <bit>
 #include <cstring>
 #include <memory>
 #include <optional>
@@ -420,9 +420,9 @@ bool Transaction::decode_atomic_int(std::string_view data, int64_t* val) {
 
     // ATTN: The FDB_MUTATION_TYPE_ADD stores integers in a little-endian representation.
     std::memcpy(val, data.data(), sizeof(*val));
-#if __BYTE_ORDER == __BIG_ENDIAN
-    *val = bswap_64(*val);
-#endif
+    if constexpr (std::endian::native == std::endian::big) {
+        *val = bswap_64(*val);
+    }
     return true;
 }
 
