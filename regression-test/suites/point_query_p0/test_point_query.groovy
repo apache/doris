@@ -128,16 +128,16 @@ suite("test_point_query") {
                 def sql2 = create_table_sql("\"function_column.sequence_col\" = 'k6',")
                 sql """ ${sql2} """
             }
-            sql """ INSERT INTO ${tableName} VALUES(1231, 119291.11, "ddd", "laooq", null, "2020-01-01 12:36:38", null, "1022-01-01", null, 1.111112, [119181.1111, 819019.1191, null], null) """
-            sql """ INSERT INTO ${tableName} VALUES(1232, 12222.99121135, "xxx", "laooq", "2023-01-02", "2020-01-01 12:36:38", 522.762, "2022-01-01", 1, 212.111, null, null) """
-            sql """ INSERT INTO ${tableName} VALUES(1233, 1.392932911, "yyy", "laooq", "2024-01-02", "2020-01-01 12:36:38", 52.862, "3022-01-01", 0, 5973903488739435.668, [119181.1111, null, 819019.1191], ["dijiiixxx"]) """
-            sql """ INSERT INTO ${tableName} VALUES(1234, 12919291.129191137, "xxddd", "laooq", "2025-01-02", "2020-01-01 12:36:38", 552.872, "4022-01-01", 1, 5973903488739435.668, [1888109181.192111, 192129019.1191], ["1", "2", "3"]) """
-            sql """ INSERT INTO ${tableName} VALUES(1235, 991129292901.11138, "dd", null, "2120-01-02", "2020-01-01 12:36:38", 652.692, "5022-01-01", 0, 90696620686827832.374, [119181.1111], ["${generateString(251)}"]) """
-            sql """ INSERT INTO ${tableName} VALUES(1236, 100320.11139, "laa    ddd", "laooq", "2220-01-02", "2020-01-01 12:36:38", 2.7692, "6022-01-01", 1, 23698.299, [], ["${generateString(251)}"]) """
-            sql """ INSERT INTO ${tableName} VALUES(1237, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01", 0, 90696620686827832.374, [1.1, 2.2, 3.3, 4.4, 5.5], []) """
-            sql """ INSERT INTO ${tableName} VALUES(251, 120939.11130, "${generateString(251)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 251, "7022-01-01", 1, 90696620686827832.374, [11111], []) """
-            sql """ INSERT INTO ${tableName} VALUES(252, 120939.11130, "${generateString(252)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 252, "7022-01-01", 0, 90696620686827832.374, [0], null) """
-            sql """ INSERT INTO ${tableName} VALUES(298, 120939.11130, "${generateString(298)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 298, "7022-01-01", 1, 90696620686827832.374, [], []) """
+            sql """ INSERT INTO ${tableName} VALUES(1231, 119291.11, "ddd", "laooq", null, "2020-01-01 12:36:38", null, "1022-01-01 11:30:38", null, 1.111112, [119181.1111, 819019.1191, null], null) """
+            sql """ INSERT INTO ${tableName} VALUES(1232, 12222.99121135, "xxx", "laooq", "2023-01-02", "2020-01-01 12:36:38", 522.762, "2022-01-01 11:30:38", 1, 212.111, null, null) """
+            sql """ INSERT INTO ${tableName} VALUES(1233, 1.392932911, "yyy", "laooq", "2024-01-02", "2020-01-01 12:36:38", 52.862, "3022-01-01 11:30:38", 0, 5973903488739435.668, [119181.1111, null, 819019.1191], ["dijiiixxx"]) """
+            sql """ INSERT INTO ${tableName} VALUES(1234, 12919291.129191137, "xxddd", "laooq", "2025-01-02", "2020-01-01 12:36:38", 552.872, "4022-01-01 11:30:38", 1, 5973903488739435.668, [1888109181.192111, 192129019.1191], ["1", "2", "3"]) """
+            sql """ INSERT INTO ${tableName} VALUES(1235, 991129292901.11138, "dd", null, "2120-01-02", "2020-01-01 12:36:38", 652.692, "5022-01-01 11:30:38", 0, 90696620686827832.374, [119181.1111], ["${generateString(251)}"]) """
+            sql """ INSERT INTO ${tableName} VALUES(1236, 100320.11139, "laa    ddd", "laooq", "2220-01-02", "2020-01-01 12:36:38", 2.7692, "6022-01-01 11:30:38", 1, 23698.299, [], ["${generateString(251)}"]) """
+            sql """ INSERT INTO ${tableName} VALUES(1237, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 0, 90696620686827832.374, [1.1, 2.2, 3.3, 4.4, 5.5], []) """
+            sql """ INSERT INTO ${tableName} VALUES(251, 120939.11130, "${generateString(251)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 251, "7022-01-01 11:30:38", 1, 90696620686827832.374, [11111], []) """
+            sql """ INSERT INTO ${tableName} VALUES(252, 120939.11130, "${generateString(252)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 252, "7022-01-01 11:30:38", 0, 90696620686827832.374, [0], null) """
+            sql """ INSERT INTO ${tableName} VALUES(298, 120939.11130, "${generateString(298)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 298, "7022-01-01 11:30:38", 1, 90696620686827832.374, [], []) """
 
             def result1 = connect(user=user, password=password, url=prepare_url) {
                 def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
@@ -195,13 +195,13 @@ suite("test_point_query") {
                 ALTER table ${tableName} ADD COLUMN new_column0 INT default "0";
                 """
                 sleep(1);
-                nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01", 1, 1.1111299, [119291.19291], ["111", "222", "333"], 1) """
+                nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 1, 1.1111299, [119291.19291], ["111", "222", "333"], 1) """
                 stmt.setBigDecimal(1, new BigDecimal("120939.11130"))
                 stmt.setString(2, "a    ddd")
                 qe_point_select stmt
                 qe_point_select stmt
                 // invalidate cache
-                nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "xxxxxx", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01", 0, 1929111.1111,[119291.19291], ["111", "222", "333"], 2) """
+                nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "xxxxxx", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 0, 1929111.1111,[119291.19291], ["111", "222", "333"], 2) """
                 qe_point_select stmt
                 qe_point_select stmt
                 qe_point_select stmt

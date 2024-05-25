@@ -103,6 +103,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
 
     @Override
     public Boolean visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, Void context) {
+        if (agg.getGroupByExpressions().isEmpty() && agg.getOutputExpressions().isEmpty()) {
+            return false;
+        }
         if (!agg.getAggregateParam().canBeBanned) {
             return true;
         }

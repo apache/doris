@@ -60,6 +60,8 @@ public class JdbcTrinoClient extends JdbcClient {
                 return Type.BOOLEAN;
             case "date":
                 return ScalarType.createDateV2Type();
+            case "json":
+                return ScalarType.createJsonbType();
             default:
                 break;
         }
@@ -90,7 +92,7 @@ public class JdbcTrinoClient extends JdbcClient {
             return ArrayType.create(type, true);
         }
 
-        if (trinoType.startsWith("varchar")) {
+        if (trinoType.startsWith("varchar") || trinoType.startsWith("time")) {
             return ScalarType.createStringType();
         }
 

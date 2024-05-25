@@ -933,7 +933,7 @@ Status BkdIndexReader::get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_rea
     *bkdReader = std::make_shared<lucene::util::bkd::bkd_reader>(data_in.release());
     if (0 == (*bkdReader)->read_meta(meta_in.get())) {
         VLOG_NOTICE << "bkd index file is empty:" << _compoundReader->toString();
-        return Status::EndOfFile("bkd index file is empty");
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>("bkd index file is empty");
     }
 
     (*bkdReader)->read_index(index_in.get());

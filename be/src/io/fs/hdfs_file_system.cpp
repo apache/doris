@@ -511,15 +511,22 @@ Status HdfsFileSystemCache::get_connection(const THdfsParams& hdfs_params,
 uint64 HdfsFileSystemCache::_hdfs_hash_code(const THdfsParams& hdfs_params,
                                             const std::string& fs_name) {
     uint64 hash_code = 0;
-    hash_code += Fingerprint(fs_name);
+    // The specified fsname is used first.
+    // If there is no specified fsname, the default fsname is used
+    if (!fs_name.empty()) {
+        hash_code ^= Fingerprint(fs_name);
+    } else if (hdfs_params.__isset.fs_name) {
+        hash_code ^= Fingerprint(hdfs_params.fs_name);
+    }
+
     if (hdfs_params.__isset.user) {
-        hash_code += Fingerprint(hdfs_params.user);
+        hash_code ^= Fingerprint(hdfs_params.user);
     }
     if (hdfs_params.__isset.hdfs_kerberos_principal) {
-        hash_code += Fingerprint(hdfs_params.hdfs_kerberos_principal);
+        hash_code ^= Fingerprint(hdfs_params.hdfs_kerberos_principal);
     }
     if (hdfs_params.__isset.hdfs_kerberos_keytab) {
-        hash_code += Fingerprint(hdfs_params.hdfs_kerberos_keytab);
+        hash_code ^= Fingerprint(hdfs_params.hdfs_kerberos_keytab);
     }
     if (hdfs_params.__isset.hdfs_conf) {
         std::map<std::string, std::string> conf_map;
@@ -527,8 +534,8 @@ uint64 HdfsFileSystemCache::_hdfs_hash_code(const THdfsParams& hdfs_params,
             conf_map[conf.key] = conf.value;
         }
         for (auto& conf : conf_map) {
-            hash_code += Fingerprint(conf.first);
-            hash_code += Fingerprint(conf.second);
+            hash_code ^= Fingerprint(conf.first);
+            hash_code ^= Fingerprint(conf.second);
         }
     }
     return hash_code;

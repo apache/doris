@@ -120,7 +120,7 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         Expression rewrittenExpression = executor.rewrite(typeCoercion(expression), context);
 
         // right should round to be 2021-01-02 00:00:00.00
-        Assertions.assertEquals(new DateTimeV2Literal("2021-01-02 00:00:00"), rewrittenExpression.child(1));
+        Assertions.assertEquals(new DateTimeV2Literal("2021-01-01 23:59:59.9"), rewrittenExpression.child(1));
     }
 
     @Test

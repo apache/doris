@@ -325,7 +325,7 @@ suite("test_date_function") {
     qt_sql """ select datediff(CAST('2007-12-31 23:59:59' AS DATETIME), CAST('2007-12-30' AS DATETIME)) """
     qt_sql """ select datediff(CAST('2010-11-30 23:59:59' AS DATETIME), CAST('2010-12-31' AS DATETIME)) """
     qt_sql """ select datediff('2010-10-31', '2010-10-15') """
-    qt_sql """ select datediff('1000-10-31', '2010-10-15') from ${tableName}; """
+    qt_sql """ select datediff('10000-10-31', '2010-10-15') from ${tableName}; """
 
     // DAY
     qt_sql """ select day('1987-01-31') """
@@ -678,7 +678,7 @@ suite("test_date_function") {
         ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
         ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
         ('2022-02-27', '2022-02-27', '2022-02-27 00:00:00', '2022-02-27 00:00:00'),
-        ('2022-02-28', '2022-02-28', '2022-02-28 23:59:59', '2022-02-28 23:59:59');"""
+        ('2022-02-28', '2022-02-28', '2022-02-28T23:59:59', '2022-02-28T23:59:59');"""
     qt_sql """
         select last_day(birth), last_day(birth1), 
                 last_day(birth2), last_day(birth3) 
