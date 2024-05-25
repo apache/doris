@@ -673,6 +673,9 @@ DECLARE_mInt32(priority_queue_remaining_tasks_increased_frequency);
 // sync tablet_meta when modifying meta
 DECLARE_mBool(sync_tablet_meta);
 
+// sync a file writer when it is closed
+DECLARE_mBool(sync_file_on_close);
+
 // default thrift rpc timeout ms
 DECLARE_mInt32(thrift_rpc_timeout_ms);
 
