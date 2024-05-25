@@ -541,7 +541,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         if (UNLIKELY(segment_caches[i] == nullptr)) {
             segment_caches[i] = std::make_unique<SegmentCacheHandle>();
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true));
+                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true, true));
         }
         auto& segments = segment_caches[i]->get_segments();
         DCHECK_EQ(segments.size(), num_segments);
@@ -813,7 +813,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RETURN_IF_ERROR(generate_new_block_for_partial_update(
                 rowset_schema, partial_update_info->missing_cids, partial_update_info->update_cids,
                 read_plan_ori, read_plan_update, rsid_to_rowset, &block));
-        sort_block(block, ordered_block);
+        RETURN_IF_ERROR(sort_block(block, ordered_block));
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
     }
     LOG(INFO) << "calc segment delete bitmap, tablet: " << tablet_id() << " rowset: " << rowset_id
@@ -824,7 +824,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     return Status::OK();
 }
 
-void BaseTablet::sort_block(vectorized::Block& in_block, vectorized::Block& output_block) {
+Status BaseTablet::sort_block(vectorized::Block& in_block, vectorized::Block& output_block) {
     vectorized::MutableBlock mutable_input_block =
             vectorized::MutableBlock::build_mutable_block(&in_block);
     vectorized::MutableBlock mutable_output_block =
@@ -855,8 +855,8 @@ void BaseTablet::sort_block(vectorized::Block& in_block, vectorized::Block& outp
     for (auto* block : row_in_blocks) {
         row_pos_vec.emplace_back(block->_row_pos);
     }
-    mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
-                                  row_pos_vec.data() + in_block.rows());
+    return mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
+                                         row_pos_vec.data() + in_block.rows());
 }
 
 // fetch value by row column

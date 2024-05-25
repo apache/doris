@@ -152,7 +152,7 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
             }
         }
     } else {
-        _init_hash_method(_probe_expr_ctxs);
+        RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
 
         std::visit(vectorized::Overload {
                            [&](std::monostate& arg) -> void {
@@ -503,9 +503,11 @@ Status StreamingAggLocalState::_merge_with_serialized_key(vectorized::Block* blo
     }
 }
 
-void StreamingAggLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
-    init_agg_hash_method(_agg_data.get(), probe_exprs,
-                         Base::_parent->template cast<StreamingAggOperatorX>()._is_first_phase);
+Status StreamingAggLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
+    RETURN_IF_ERROR(init_agg_hash_method(
+            _agg_data.get(), probe_exprs,
+            Base::_parent->template cast<StreamingAggOperatorX>()._is_first_phase));
+    return Status::OK();
 }
 
 Status StreamingAggLocalState::do_pre_agg(vectorized::Block* input_block,
@@ -645,7 +647,6 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
     RETURN_IF_ERROR(std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) -> Status {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                         return Status::InternalError("Uninited hash table");
                     },
                     [&](auto& agg_method) -> Status {

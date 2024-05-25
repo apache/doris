@@ -158,7 +158,7 @@ Status VPartitionSortNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor));
     RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, child(0)->row_desc()));
-    _init_hash_method();
+    RETURN_IF_ERROR(_init_hash_method());
 
     _partition_sort_info = std::make_shared<PartitionSortInfo>(
             &_vsort_exec_exprs, _limit, 0, _pool, _is_asc_order, _nulls_first, child(0)->row_desc(),
@@ -182,45 +182,50 @@ Status VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_col
                                                     const vectorized::Block* input_block,
                                                     bool eos) {
     return std::visit(
-            [&](auto&& agg_method) -> Status {
-                SCOPED_TIMER(_build_timer);
-                using HashMethodType = std::decay_t<decltype(agg_method)>;
-                using AggState = typename HashMethodType::State;
+            vectorized::Overload {
+                    [&](std::monostate& arg) -> Status {
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                        return Status::InternalError("Unit hash table");
+                    },
+                    [&](auto&& agg_method) -> Status {
+                        SCOPED_TIMER(_build_timer);
+                        using HashMethodType = std::decay_t<decltype(agg_method)>;
+                        using AggState = typename HashMethodType::State;
 
-                AggState state(key_columns);
-                size_t num_rows = input_block->rows();
-                agg_method.init_serialized_keys(key_columns, num_rows);
+                        AggState state(key_columns);
+                        size_t num_rows = input_block->rows();
+                        agg_method.init_serialized_keys(key_columns, num_rows);
 
-                auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                    HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
-                    auto* aggregate_data = _pool->add(
-                            new PartitionBlocks(_partition_sort_info, _value_places.empty()));
-                    _value_places.push_back(aggregate_data);
-                    ctor(key, aggregate_data);
-                    _num_partition++;
-                };
-                auto creator_for_null_key = [&](auto& mapped) {
-                    mapped = _pool->add(
-                            new PartitionBlocks(_partition_sort_info, _value_places.empty()));
-                    _value_places.push_back(mapped);
-                    _num_partition++;
-                };
-                {
-                    SCOPED_TIMER(_emplace_key_timer);
-                    for (size_t row = 0; row < num_rows; ++row) {
-                        auto& mapped =
-                                agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
-                        mapped->add_row_idx(row);
-                    }
-                }
-                {
-                    SCOPED_TIMER(_selector_block_timer);
-                    for (auto* place : _value_places) {
-                        RETURN_IF_ERROR(place->append_block_by_selector(input_block, eos));
-                    }
-                }
-                return Status::OK();
-            },
+                        auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                            HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
+                            auto* aggregate_data = _pool->add(new PartitionBlocks(
+                                    _partition_sort_info, _value_places.empty()));
+                            _value_places.push_back(aggregate_data);
+                            ctor(key, aggregate_data);
+                            _num_partition++;
+                        };
+                        auto creator_for_null_key = [&](auto& mapped) {
+                            mapped = _pool->add(new PartitionBlocks(_partition_sort_info,
+                                                                    _value_places.empty()));
+                            _value_places.push_back(mapped);
+                            _num_partition++;
+                        };
+                        {
+                            SCOPED_TIMER(_emplace_key_timer);
+                            for (size_t row = 0; row < num_rows; ++row) {
+                                auto& mapped = agg_method.lazy_emplace(state, row, creator,
+                                                                       creator_for_null_key);
+                                mapped->add_row_idx(row);
+                            }
+                        }
+                        {
+                            SCOPED_TIMER(_selector_block_timer);
+                            for (auto* place : _value_places) {
+                                RETURN_IF_ERROR(place->append_block_by_selector(input_block, eos));
+                            }
+                        }
+                        return Status::OK();
+                    }},
             _partitioned_data->method_variant);
 }
 
@@ -397,8 +402,10 @@ void VPartitionSortNode::release_resource(RuntimeState* state) {
     ExecNode::release_resource(state);
 }
 
-void VPartitionSortNode::_init_hash_method() {
-    init_partition_hash_method(_partitioned_data.get(), _partition_expr_ctxs, true);
+Status VPartitionSortNode::_init_hash_method() {
+    RETURN_IF_ERROR(
+            init_partition_hash_method(_partitioned_data.get(), _partition_expr_ctxs, true));
+    return Status::OK();
 }
 
 void VPartitionSortNode::debug_profile() {

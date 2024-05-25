@@ -21,7 +21,10 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AuditLogHelper;
@@ -47,7 +50,9 @@ import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 
 public abstract class BaseAnalysisTask {
 
@@ -181,8 +186,8 @@ public abstract class BaseAnalysisTask {
             + "SUM(count) AS `row_count`, "
             + "HLL_CARDINALITY(HLL_UNION(ndv)) AS `ndv`, "
             + "SUM(null_count) AS `null_count`, "
-            + "MIN(min) AS `min`, "
-            + "MAX(max) AS `max`, "
+            + "MIN(${min}) AS `min`, "
+            + "MAX(${max}) AS `max`, "
             + "SUM(data_size_in_bytes) AS `data_size`, "
             + "NOW() AS `update_time` FROM "
             + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
@@ -357,7 +362,25 @@ public abstract class BaseAnalysisTask {
         Set<String> partitionNames = tbl.getPartitionNames();
         List<String> sqls = Lists.newArrayList();
         int count = 0;
+        TableStatsMeta tableStatsStatus = Env.getServingEnv().getAnalysisManager().findTableStatsStatus(tbl.getId());
         for (String part : partitionNames) {
+            Partition partition = tbl.getPartition(part);
+            // Skip partitions that not changed after last analyze.
+            // External table getPartition always return null. So external table doesn't skip any partitions.
+            if (partition != null && tableStatsStatus != null && tableStatsStatus.partitionUpdateRows != null) {
+                ConcurrentMap<Long, Long> tableUpdateRows = tableStatsStatus.partitionUpdateRows;
+                String idxName = info.indexId == -1 ? tbl.getName() : ((OlapTable) tbl).getIndexNameById(info.indexId);
+                ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(idxName, col.getName());
+                if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
+                    ConcurrentMap<Long, Long> columnUpdateRows = columnStatsMeta.partitionUpdateRows;
+                    long id = partition.getId();
+                    if (Objects.equals(tableUpdateRows.get(id), columnUpdateRows.get(id))) {
+                        LOG.info("Partition {} doesn't change after last analyze for column {}, skip it.",
+                                part, col.getName());
+                        continue;
+                    }
+                }
+            }
             params.put("partId", "'" + StatisticsUtil.escapeColumnName(part) + "'");
             params.put("partitionInfo", getPartitionInfo(part));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -376,7 +399,10 @@ public abstract class BaseAnalysisTask {
                     + Joiner.on(" UNION ALL ").join(sqls);
             runInsert(sql);
         }
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(buildSqlParams());
+        params = buildSqlParams();
+        params.put("min", castToNumeric("min"));
+        params.put("max", castToNumeric("max"));
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
     }
 
@@ -386,6 +412,15 @@ public abstract class BaseAnalysisTask {
 
     protected Map<String, String> buildSqlParams() {
         return Maps.newHashMap();
+    }
+
+    protected String castToNumeric(String colName) {
+        Type type = col.getType();
+        if (type.isNumericType()) {
+            return "CAST(" + colName + " AS " + type.toSql() + ")";
+        } else {
+            return colName;
+        }
     }
 
     protected void runQuery(String sql) {

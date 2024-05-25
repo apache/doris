@@ -122,9 +122,11 @@ class PushDownTopNThroughJoinTest extends TestWithFeService implements MemoPatte
                 .rewrite()
                 .matches(
                         logicalTopN(
-                                logicalJoin(
-                                        logicalTopN().when(l -> l.getLimit() == 10 && l.getOffset() == 0),
-                                        logicalOlapScan()
+                                logicalProject(
+                                        logicalJoin(
+                                                logicalTopN().when(l -> l.getLimit() == 10 && l.getOffset() == 0),
+                                                logicalOlapScan()
+                                        )
                                 )
                         )
                 );

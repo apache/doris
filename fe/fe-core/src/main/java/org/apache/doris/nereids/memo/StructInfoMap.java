@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -51,20 +52,21 @@ public class StructInfoMap {
      * @param group the group that the mv matched
      * @return struct info or null if not found
      */
-    public @Nullable StructInfo getStructInfo(Memo memo, BitSet tableMap, Group group, Plan originPlan) {
+    public @Nullable StructInfo getStructInfo(CascadesContext cascadesContext, BitSet tableMap, Group group,
+            Plan originPlan) {
         StructInfo structInfo = infoMap.get(tableMap);
         if (structInfo != null) {
             return structInfo;
         }
         if (groupExpressionMap.isEmpty() || !groupExpressionMap.containsKey(tableMap)) {
-            refresh(group, memo.getRefreshVersion());
-            group.getstructInfoMap().setRefreshVersion(memo.getRefreshVersion());
+            refresh(group, cascadesContext);
+            group.getstructInfoMap().setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
         }
         if (groupExpressionMap.containsKey(tableMap)) {
             Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(
                     tableMap);
-            structInfo = constructStructInfo(groupExpressionBitSetPair.first,
-                    groupExpressionBitSetPair.second, tableMap, originPlan);
+            structInfo = constructStructInfo(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second,
+                    tableMap, originPlan, cascadesContext);
             infoMap.put(tableMap, structInfo);
         }
         return structInfo;
@@ -87,10 +89,11 @@ public class StructInfoMap {
     }
 
     private StructInfo constructStructInfo(GroupExpression groupExpression, List<BitSet> children,
-            BitSet tableMap, Plan originPlan) {
+            BitSet tableMap, Plan originPlan, CascadesContext cascadesContext) {
         // this plan is not origin plan, should record origin plan in struct info
         Plan plan = constructPlan(groupExpression, children, tableMap);
-        return originPlan == null ? StructInfo.of(plan) : StructInfo.of(plan, originPlan);
+        return originPlan == null ? StructInfo.of(plan, cascadesContext)
+                : StructInfo.of(plan, originPlan, cascadesContext);
     }
 
     private Plan constructPlan(GroupExpression groupExpression, List<BitSet> children, BitSet tableMap) {
@@ -112,8 +115,9 @@ public class StructInfoMap {
      * @param group the root group
      *
      */
-    public void refresh(Group group, long memoVersion) {
+    public void refresh(Group group, CascadesContext cascadesContext) {
         StructInfoMap structInfoMap = group.getstructInfoMap();
+        long memoVersion = cascadesContext.getMemo().getRefreshVersion();
         if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.refreshVersion) {
             return;
         }
@@ -121,14 +125,14 @@ public class StructInfoMap {
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
             List<Set<BitSet>> childrenTableMap = new LinkedList<>();
             if (groupExpression.children().isEmpty()) {
-                BitSet leaf = constructLeaf(groupExpression);
+                BitSet leaf = constructLeaf(groupExpression, cascadesContext);
                 groupExpressionMap.put(leaf, Pair.of(groupExpression, new LinkedList<>()));
                 continue;
             }
             for (Group child : groupExpression.children()) {
                 StructInfoMap childStructInfoMap = child.getstructInfoMap();
                 if (!refreshedGroup.contains(child.getGroupId().asInt())) {
-                    childStructInfoMap.refresh(child, memoVersion);
+                    childStructInfoMap.refresh(child, cascadesContext);
                     childStructInfoMap.setRefreshVersion(memoVersion);
                 }
                 refreshedGroup.add(child.getGroupId().asInt());
@@ -156,12 +160,12 @@ public class StructInfoMap {
         }
     }
 
-    private BitSet constructLeaf(GroupExpression groupExpression) {
+    private BitSet constructLeaf(GroupExpression groupExpression, CascadesContext cascadesContext) {
         Plan plan = groupExpression.getPlan();
         BitSet tableMap = new BitSet();
         if (plan instanceof LogicalCatalogRelation) {
-            // TODO: Bitset is not compatible with long, use tree map instead
-            tableMap.set((int) ((LogicalCatalogRelation) plan).getTable().getId());
+            tableMap.set(cascadesContext.getStatementContext()
+                    .getTableId(((LogicalCatalogRelation) plan).getTable()).asInt());
         }
         // one row relation / CTE consumer
         return tableMap;

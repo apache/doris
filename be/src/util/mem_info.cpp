@@ -56,19 +56,17 @@ namespace doris {
 
 bvar::PassiveStatus<int64_t> g_sys_mem_avail(
         "meminfo_sys_mem_avail", [](void*) { return MemInfo::sys_mem_available(); }, nullptr);
-bvar::PassiveStatus<int64_t> g_proc_mem_no_allocator_cache(
-        "meminfo_proc_mem_no_allocator_cache",
-        [](void*) { return MemInfo::proc_mem_no_allocator_cache(); }, nullptr);
 
 bool MemInfo::_s_initialized = false;
 std::atomic<int64_t> MemInfo::_s_physical_mem = std::numeric_limits<int64_t>::max();
+int64_t MemInfo::_s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
+int64_t MemInfo::_s_cgroup_mem_limit_refresh_wait_times = 0;
 std::atomic<int64_t> MemInfo::_s_mem_limit = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_soft_mem_limit = std::numeric_limits<int64_t>::max();
 
 std::atomic<int64_t> MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
 std::atomic<int64_t> MemInfo::_s_virtual_memory_used = 0;
-std::atomic<int64_t> MemInfo::_s_proc_mem_no_allocator_cache = -1;
 std::atomic<int64_t> MemInfo::refresh_interval_memory_growth = 0;
 
 static std::unordered_map<std::string, int64_t> _mem_info_bytes;
@@ -133,7 +131,7 @@ bool MemInfo::process_minor_gc() {
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        notify_je_purge_dirty_pages();
+        MemInfo::notify_je_purge_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -143,16 +141,16 @@ bool MemInfo::process_minor_gc() {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
-    notify_je_purge_dirty_pages();
-    if (freed_mem > _s_process_minor_gc_size) {
+    MemInfo::notify_je_purge_dirty_pages();
+    if (freed_mem > MemInfo::process_minor_gc_size()) {
         return true;
     }
 
     if (config::enable_workload_group_memory_gc) {
         RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
-        freed_mem += tg_enable_overcommit_group_gc(_s_process_minor_gc_size - freed_mem, tg_profile,
-                                                   true);
-        if (freed_mem > _s_process_minor_gc_size) {
+        freed_mem += tg_enable_overcommit_group_gc(MemInfo::process_minor_gc_size() - freed_mem,
+                                                   tg_profile, true);
+        if (freed_mem > MemInfo::process_minor_gc_size()) {
             return true;
         }
     }
@@ -164,9 +162,9 @@ bool MemInfo::process_minor_gc() {
         RuntimeProfile* toq_profile =
                 profile->create_child("FreeTopOvercommitMemoryQuery", true, true);
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
-                _s_process_minor_gc_size - freed_mem, pre_vm_rss, pre_sys_mem_available,
+                MemInfo::process_minor_gc_size() - freed_mem, pre_vm_rss, pre_sys_mem_available,
                 toq_profile);
-        if (freed_mem > _s_process_minor_gc_size) {
+        if (freed_mem > MemInfo::process_minor_gc_size()) {
             return true;
         }
     }
@@ -187,7 +185,7 @@ bool MemInfo::process_full_gc() {
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        notify_je_purge_dirty_pages();
+        MemInfo::notify_je_purge_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -197,16 +195,16 @@ bool MemInfo::process_full_gc() {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
-    notify_je_purge_dirty_pages();
-    if (freed_mem > _s_process_full_gc_size) {
+    MemInfo::notify_je_purge_dirty_pages();
+    if (freed_mem > MemInfo::process_full_gc_size()) {
         return true;
     }
 
     if (config::enable_workload_group_memory_gc) {
         RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
-        freed_mem += tg_enable_overcommit_group_gc(_s_process_full_gc_size - freed_mem, tg_profile,
-                                                   false);
-        if (freed_mem > _s_process_full_gc_size) {
+        freed_mem += tg_enable_overcommit_group_gc(MemInfo::process_full_gc_size() - freed_mem,
+                                                   tg_profile, false);
+        if (freed_mem > MemInfo::process_full_gc_size()) {
             return true;
         }
     }
@@ -215,8 +213,9 @@ bool MemInfo::process_full_gc() {
             "[MemoryGC] before free top memory query in full GC", MemTrackerLimiter::Type::QUERY);
     RuntimeProfile* tmq_profile = profile->create_child("FreeTopMemoryQuery", true, true);
     freed_mem += MemTrackerLimiter::free_top_memory_query(
-            _s_process_full_gc_size - freed_mem, pre_vm_rss, pre_sys_mem_available, tmq_profile);
-    if (freed_mem > _s_process_full_gc_size) {
+            MemInfo::process_full_gc_size() - freed_mem, pre_vm_rss, pre_sys_mem_available,
+            tmq_profile);
+    if (freed_mem > MemInfo::process_full_gc_size()) {
         return true;
     }
 
@@ -227,9 +226,9 @@ bool MemInfo::process_full_gc() {
         RuntimeProfile* tol_profile =
                 profile->create_child("FreeTopMemoryOvercommitLoad", true, true);
         freed_mem += MemTrackerLimiter::free_top_overcommit_load(
-                _s_process_full_gc_size - freed_mem, pre_vm_rss, pre_sys_mem_available,
+                MemInfo::process_full_gc_size() - freed_mem, pre_vm_rss, pre_sys_mem_available,
                 tol_profile);
-        if (freed_mem > _s_process_full_gc_size) {
+        if (freed_mem > MemInfo::process_full_gc_size()) {
             return true;
         }
     }
@@ -237,15 +236,13 @@ bool MemInfo::process_full_gc() {
     VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
             "[MemoryGC] before free top memory load in full GC", MemTrackerLimiter::Type::LOAD);
     RuntimeProfile* tml_profile = profile->create_child("FreeTopMemoryLoad", true, true);
-    freed_mem += MemTrackerLimiter::free_top_memory_load(
-            _s_process_full_gc_size - freed_mem, pre_vm_rss, pre_sys_mem_available, tml_profile);
-    if (freed_mem > _s_process_full_gc_size) {
-        return true;
-    }
-    return false;
+    freed_mem +=
+            MemTrackerLimiter::free_top_memory_load(MemInfo::process_full_gc_size() - freed_mem,
+                                                    pre_vm_rss, pre_sys_mem_available, tml_profile);
+    return freed_mem > MemInfo::process_full_gc_size();
 }
 
-int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
+int64_t MemInfo::tg_disable_overcommit_group_gc() {
     MonotonicStopWatch watch;
     watch.start();
     std::vector<WorkloadGroupPtr> task_groups;
@@ -404,10 +401,23 @@ void MemInfo::refresh_proc_meminfo() {
     int64_t physical_mem = -1;
     int64_t cgroup_mem_limit = -1;
     physical_mem = _mem_info_bytes["MemTotal"];
-    Status status = CGroupUtil::find_cgroup_mem_limit(&cgroup_mem_limit);
-    if (status.ok() && cgroup_mem_limit > 0) {
+    if (_s_cgroup_mem_limit_refresh_wait_times >= 0) {
+        Status status = CGroupUtil::find_cgroup_mem_limit(&cgroup_mem_limit);
+        if (status.ok() && cgroup_mem_limit > 0) {
+            _s_cgroup_mem_limit = cgroup_mem_limit;
+            _s_cgroup_mem_limit_refresh_wait_times =
+                    -1000; // wait 10s, 1000 * 100ms, avoid too frequently.
+        } else {
+            _s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
+            _s_cgroup_mem_limit_refresh_wait_times =
+                    -6000; // find cgroup failed, wait 60s, 6000 * 100ms.
+        }
+    } else {
+        _s_cgroup_mem_limit_refresh_wait_times++;
+    }
+    if (_s_cgroup_mem_limit > 0) {
         // In theory, always cgroup_mem_limit < physical_mem
-        physical_mem = std::min(physical_mem, cgroup_mem_limit);
+        physical_mem = std::min(physical_mem, _s_cgroup_mem_limit);
     }
 
     if (physical_mem <= 0) {
@@ -447,7 +457,7 @@ void MemInfo::refresh_proc_meminfo() {
     if (_mem_info_bytes.find("MemAvailable") != _mem_info_bytes.end()) {
         mem_available = _mem_info_bytes["MemAvailable"];
     }
-    status = CGroupUtil::find_cgroup_mem_usage(&cgroup_mem_usage);
+    auto status = CGroupUtil::find_cgroup_mem_usage(&cgroup_mem_usage);
     if (status.ok() && cgroup_mem_usage > 0 && cgroup_mem_limit > 0) {
         if (mem_available < 0) {
             mem_available = cgroup_mem_limit - cgroup_mem_usage;

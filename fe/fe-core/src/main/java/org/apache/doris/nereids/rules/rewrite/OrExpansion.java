@@ -91,20 +91,6 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
     }
 
     @Override
-    public Plan visit(Plan plan, OrExpandsionContext ctx) {
-        List<Plan> newChildren = new ArrayList<>();
-        boolean hasNewChildren = false;
-        for (Plan child : plan.children()) {
-            Plan newChild = child.accept(this, ctx);
-            if (newChild != child) {
-                hasNewChildren = true;
-            }
-            newChildren.add(newChild);
-        }
-        return hasNewChildren ? plan.withChildren(newChildren) : plan;
-    }
-
-    @Override
     public Plan visitLogicalCTEAnchor(
             LogicalCTEAnchor<? extends Plan, ? extends Plan> anchor, OrExpandsionContext ctx) {
         Plan child1 = anchor.child(0).accept(this, ctx);

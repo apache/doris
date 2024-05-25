@@ -276,18 +276,20 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
     _is_block_appended = true;
     _blocks.clear();
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
-        if (_load_block_queue) {
-            _remove_estimated_wal_bytes();
-            _load_block_queue->remove_load_id(_load_id);
-        }
-        if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
-                    std ::chrono ::seconds(60)) == std ::future_status ::ready) {
-            auto st = ExecEnv::GetInstance()->group_commit_mgr()->debug_future.get();
-            ExecEnv::GetInstance()->group_commit_mgr()->debug_promise = std::promise<Status>();
-            ExecEnv::GetInstance()->group_commit_mgr()->debug_future =
-                    ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.get_future();
-            LOG(INFO) << "debug future output: " << st.to_string();
-            RETURN_IF_ERROR(st);
+        if (dp->param<int64_t>("table_id", -1) == _table_id) {
+            if (_load_block_queue) {
+                _remove_estimated_wal_bytes();
+                _load_block_queue->remove_load_id(_load_id);
+            }
+            if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
+                        std ::chrono ::seconds(60)) == std ::future_status ::ready) {
+                auto st = ExecEnv::GetInstance()->group_commit_mgr()->debug_future.get();
+                ExecEnv::GetInstance()->group_commit_mgr()->debug_promise = std::promise<Status>();
+                ExecEnv::GetInstance()->group_commit_mgr()->debug_future =
+                        ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.get_future();
+                LOG(INFO) << "debug future output: " << st.to_string();
+                RETURN_IF_ERROR(st);
+            }
         }
     });
     return Status::OK();

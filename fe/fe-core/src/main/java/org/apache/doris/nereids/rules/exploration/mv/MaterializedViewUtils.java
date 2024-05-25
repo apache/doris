@@ -149,7 +149,7 @@ public class MaterializedViewUtils {
             Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
             StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
             // Refresh struct info in current level plan from top to bottom
-            structInfoMap.refresh(ownerGroup, cascadesContext.getMemo().getRefreshVersion());
+            structInfoMap.refresh(ownerGroup, cascadesContext);
             structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
 
             Set<BitSet> queryTableSets = structInfoMap.getTableMaps();
@@ -161,7 +161,7 @@ public class MaterializedViewUtils {
                             && !materializedViewTableSet.equals(queryTableSet)) {
                         continue;
                     }
-                    StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext.getMemo(),
+                    StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext,
                             queryTableSet, ownerGroup, plan);
                     if (structInfo != null) {
                         structInfosBuilder.add(structInfo);
@@ -171,7 +171,7 @@ public class MaterializedViewUtils {
             }
         }
         // if plan doesn't belong to any group, construct it directly
-        return ImmutableList.of(StructInfo.of(plan));
+        return ImmutableList.of(StructInfo.of(plan, cascadesContext));
     }
 
     /**
@@ -184,12 +184,13 @@ public class MaterializedViewUtils {
         LogicalOlapScan mvScan = new LogicalOlapScan(
                 cascadesContext.getStatementContext().getNextRelationId(),
                 materializedView,
-                ImmutableList.of(materializedView.getQualifiedDbName()),
+                materializedView.getFullQualifiers(),
+                ImmutableList.of(),
+                materializedView.getBaseIndexId(),
+                PreAggStatus.on(),
                 // this must be empty, or it will be used to sample
                 ImmutableList.of(),
-                ImmutableList.of(),
                 Optional.empty());
-        mvScan = mvScan.withMaterializedIndexSelected(PreAggStatus.on(), materializedView.getBaseIndexId());
         List<NamedExpression> mvProjects = mvScan.getOutput().stream().map(NamedExpression.class::cast)
                 .collect(Collectors.toList());
         return new LogicalProject<Plan>(mvProjects, mvScan);

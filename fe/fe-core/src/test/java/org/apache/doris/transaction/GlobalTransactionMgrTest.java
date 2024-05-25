@@ -71,7 +71,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.InvocationTargetException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -1104,7 +1103,8 @@ public class GlobalTransactionMgrTest {
 
     protected static List<SubTransactionState> generateSubTransactionStates(GlobalTransactionMgr masterTransMgr,
             TransactionState transactionState, List<SubTransactionInfo> subTransactionInfos) {
-        List<SubTransactionState> subTransactionStates = new ArrayList<>();
+        transactionState.resetSubTransactionStates();
+        List<SubTransactionState> subTransactionStates = transactionState.getSubTransactionStates();
         for (int i = 0; i < subTransactionInfos.size(); i++) {
             SubTransactionInfo subTransactionInfo = subTransactionInfos.get(i);
             Table table = subTransactionInfo.table;
@@ -1117,7 +1117,7 @@ public class GlobalTransactionMgrTest {
             subTransactionStates.add(generateSubTransactionState(transactionState, subTxnId, table,
                     tabletId, backends, addTableId));
         }
-        transactionState.setSubTransactionStates(subTransactionStates);
+        transactionState.resetSubTxnIds();
         LOG.info("sub txn states={}", transactionState.getSubTransactionStates());
         return subTransactionStates;
     }

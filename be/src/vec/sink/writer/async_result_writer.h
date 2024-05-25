@@ -78,10 +78,7 @@ public:
     // Add the IO thread task process block() to thread pool to dispose the IO
     Status start_writer(RuntimeState* state, RuntimeProfile* profile);
 
-    Status get_writer_status() {
-        std::lock_guard l(_m);
-        return _writer_status;
-    }
+    Status get_writer_status() { return _writer_status.status(); }
 
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
@@ -103,7 +100,8 @@ private:
     std::mutex _m;
     std::condition_variable _cv;
     std::deque<std::unique_ptr<Block>> _data_queue;
-    Status _writer_status = Status::OK();
+    // Default value is ok
+    AtomicStatus _writer_status;
     bool _eos = false;
     // The writer is not started at the beginning. If prepare failed but not open, the the writer
     // is not started, so should not pending finish on it.
