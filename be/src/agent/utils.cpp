@@ -187,6 +187,10 @@ Status MasterServerClient::confirm_unused_remote_files(
         try {
             client->confirmUnusedRemoteFiles(*result, request);
         } catch (TTransportException& e) {
+#ifdef ADDRESS_SANITIZER
+            return Status::RpcError<false>("Master client confirm_unused_remote_files failed due to {}",
+                                           e.what());
+#else
             TTransportException::TTransportExceptionType type = e.getType();
             if (type != TTransportException::TTransportExceptionType::TIMED_OUT) {
                 // if not TIMED_OUT, retry
@@ -209,6 +213,7 @@ Status MasterServerClient::confirm_unused_remote_files(
                         _master_info.network_address.hostname, _master_info.network_address.port,
                         client_status.code(), e.what());
             }
+#endif
         }
     } catch (std::exception& e) {
         RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
