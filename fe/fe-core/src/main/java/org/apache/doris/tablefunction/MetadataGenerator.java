@@ -908,54 +908,55 @@ public class MetadataGenerator {
                 DatabaseIf database = catalog.getDbNullable(dbId);
                 List<TableIf> tables = database.getTables();
                 for (TableIf table : tables) {
-                    if (table instanceof OlapTable) {
-                        OlapTable olapTable = (OlapTable) table;
-                        TRow trow = new TRow();
-                        trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
-                        trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
-                        trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
-                        trow.addToColumnValue(
-                            new TCell().setStringVal(olapTable.getKeysType().toMetadata())); //TABLE_MODEL
-                        trow.addToColumnValue(
-                            new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTypes
+                    if (!(table instanceof OlapTable)) {
+                        continue;
+                    }
+                    OlapTable olapTable = (OlapTable) table;
+                    TRow trow = new TRow();
+                    trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
+                    trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
+                    trow.addToColumnValue(
+                        new TCell().setStringVal(olapTable.getKeysType().toMetadata())); //TABLE_MODEL
+                    trow.addToColumnValue(
+                        new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTypes
 
-                        DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-                        if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                            HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                            List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
-                            StringBuilder distributeKey = new StringBuilder();
-                            for (Column c : distributionColumns) {
-                                if (distributeKey.length() != 0) {
-                                    distributeKey.append(",");
-                                }
-                                distributeKey.append(c.getName());
+                    DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+                    if (distributionInfo.getType() == DistributionInfoType.HASH) {
+                        HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                        List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
+                        StringBuilder distributeKey = new StringBuilder();
+                        for (Column c : distributionColumns) {
+                            if (distributeKey.length() != 0) {
+                                distributeKey.append(",");
                             }
-                            if (distributeKey.length() == 0) {
-                                trow.addToColumnValue(new TCell().setStringVal(""));
-                            } else {
-                                trow.addToColumnValue(
-                                    new TCell().setStringVal(distributeKey.toString()));
-                            }
-                            trow.addToColumnValue(new TCell().setStringVal("HASH")); // DISTRIBUTE_TYPE
-                        } else {
-                            trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_KEY
-                            trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_TYPE
+                            distributeKey.append(c.getName());
                         }
-                        trow.addToColumnValue(new TCell().setIntVal(distributionInfo.getBucketNum())); // BUCKETS_NUM
-                        trow.addToColumnValue(new TCell().setIntVal(olapTable.getPartitionNum())); // PARTITION_NUM
-                        TableProperty property = olapTable.getTableProperty();
-                        if (property == null) {
-                            trow.addToColumnValue(new TCell().setStringVal("")); // PROPERTIES
+                        if (distributeKey.length() == 0) {
+                            trow.addToColumnValue(new TCell().setStringVal(""));
                         } else {
-                            try {
-                                trow.addToColumnValue(
-                                    new TCell().setStringVal(property.getPropertiesString())); // PROPERTIES
-                            } catch (IOException e) {
-                                return errorResult(e.getMessage());
-                            }
+                            trow.addToColumnValue(
+                                new TCell().setStringVal(distributeKey.toString()));
                         }
-                        dataBatch.add(trow);
-                    } // if instance of
+                        trow.addToColumnValue(new TCell().setStringVal("HASH")); // DISTRIBUTE_TYPE
+                    } else {
+                        trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_KEY
+                        trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_TYPE
+                    }
+                    trow.addToColumnValue(new TCell().setIntVal(distributionInfo.getBucketNum())); // BUCKETS_NUM
+                    trow.addToColumnValue(new TCell().setIntVal(olapTable.getPartitionNum())); // PARTITION_NUM
+                    TableProperty property = olapTable.getTableProperty();
+                    if (property == null) {
+                        trow.addToColumnValue(new TCell().setStringVal("")); // PROPERTIES
+                    } else {
+                        try {
+                            trow.addToColumnValue(
+                                new TCell().setStringVal(property.getPropertiesString())); // PROPERTIES
+                        } catch (IOException e) {
+                            return errorResult(e.getMessage());
+                        }
+                    }
+                    dataBatch.add(trow);
                 } // for table
             } // for db
         } // for catalog
