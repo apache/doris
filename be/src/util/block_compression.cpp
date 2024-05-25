@@ -95,13 +95,14 @@ private:
         ENABLE_FACTORY_CREATOR(Context);
 
     public:
-        Context() : ctx(nullptr) {}
+        Context() : ctx(nullptr) { buffer = std::make_unique<faststring>(); }
         LZ4_stream_t* ctx;
-        faststring buffer;
+        std::unique_ptr<faststring> buffer;
         ~Context() {
             if (ctx) {
                 LZ4_freeStream(ctx);
             }
+            buffer.reset();
         }
     };
 
@@ -242,13 +243,14 @@ private:
         ENABLE_FACTORY_CREATOR(CContext);
 
     public:
-        CContext() : ctx(nullptr) {}
+        CContext() : ctx(nullptr) { buffer = std::make_unique<faststring>(); }
         LZ4F_compressionContext_t ctx;
-        faststring buffer;
+        std::unique_ptr<faststring> buffer;
         ~CContext() {
             if (ctx) {
                 LZ4F_freeCompressionContext(ctx);
             }
+            buffer.reset();
         }
     };
     class DContext {
@@ -470,13 +472,14 @@ private:
         ENABLE_FACTORY_CREATOR(Context);
 
     public:
-        Context() : ctx(nullptr) {}
+        Context() : ctx(nullptr) { buffer = std::make_unique<faststring>(); }
         LZ4_streamHC_t* ctx;
-        faststring buffer;
+        std::unique_ptr<faststring> buffer;
         ~Context() {
             if (ctx) {
                 LZ4_freeStreamHC(ctx);
             }
+            buffer.reset();
         }
     };
 
@@ -768,13 +771,14 @@ private:
         ENABLE_FACTORY_CREATOR(CContext);
 
     public:
-        CContext() : ctx(nullptr) {}
+        CContext() : ctx(nullptr) { buffer = std::make_unique<faststring>(); }
         ZSTD_CCtx* ctx;
-        faststring buffer;
+        std::unique_ptr<faststring> buffer;
         ~CContext() {
             if (ctx) {
                 ZSTD_freeCCtx(ctx);
             }
+            buffer.reset();
         }
     };
     class DContext {
