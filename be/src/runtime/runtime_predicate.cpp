@@ -20,6 +20,8 @@
 #include <memory>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
+#include "common/status.h"
 #include "olap/accept_null_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/predicate_creator.h"
@@ -35,7 +37,12 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
 
     PrimitiveType type =
             thrift_to_type(desc.target_node_id_to_target_expr.begin()->second.nodes[0].child_type);
-    _init(type);
+    if (!_init(type)) {
+        std::stringstream ss;
+        desc.target_node_id_to_target_expr.begin()->second.nodes[0].printTo(ss);
+        throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}, expr={}", int(type),
+                        ss.str());
+    }
 
     // For ASC  sort, create runtime predicate col_name <= max_top_value
     // since values that > min_top_value are large than any value in current topn values
@@ -100,7 +107,7 @@ std::string get_decimal_value(const Field& field) {
     return cast_to_string<type, ValueType>(v.get_value(), v.get_scale());
 }
 
-void RuntimePredicate::_init(PrimitiveType type) {
+bool RuntimePredicate::_init(PrimitiveType type) {
     // set get value function
     switch (type) {
     case PrimitiveType::TYPE_BOOLEAN: {
@@ -178,8 +185,10 @@ void RuntimePredicate::_init(PrimitiveType type) {
         break;
     }
     default:
-        DCHECK(false) << "unsupported runtime predicate type: " << type;
+        return false;
     }
+
+    return true;
 }
 
 Status RuntimePredicate::update(const Field& value) {
