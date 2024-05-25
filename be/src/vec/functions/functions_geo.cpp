@@ -26,6 +26,7 @@
 #include "geo/geo_common.h"
 #include "geo/geo_types.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -221,21 +222,29 @@ struct StDistanceSphere {
         DCHECK_EQ(arguments.size(), 4);
         auto return_type = block.get_data_type(result);
 
-        auto x_lng = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto x_lat = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        auto y_lng = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
-        auto y_lat = block.get_by_position(arguments[3]).column->convert_to_full_column_if_const();
+        Columns cols(4);
+        bool col_const[4];
+        for (int i = 0; i < arguments.size(); ++i) {
+            std::tie(cols[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
 
-        const auto size = x_lng->size();
+        const auto size =
+                std::max_element(cols.begin(), cols.end(),
+                                 [](auto& col1, auto& col2) { return col1->size() < col2->size(); })
+                        ->get()
+                        ->size();
 
         MutableColumnPtr res = return_type->create_column();
 
         for (int row = 0; row < size; ++row) {
             double distance = 0;
-            if (!GeoPoint::ComputeDistance(x_lng->operator[](row).get<Float64>(),
-                                           x_lat->operator[](row).get<Float64>(),
-                                           y_lng->operator[](row).get<Float64>(),
-                                           y_lat->operator[](row).get<Float64>(), &distance)) {
+            if (!GeoPoint::ComputeDistance(
+                        cols[0]->operator[](index_check_const(row, col_const[0])).get<Float64>(),
+                        cols[1]->operator[](index_check_const(row, col_const[1])).get<Float64>(),
+                        cols[2]->operator[](index_check_const(row, col_const[2])).get<Float64>(),
+                        cols[3]->operator[](index_check_const(row, col_const[3])).get<Float64>(),
+                        &distance)) {
                 res->insert_default();
                 continue;
             }
@@ -255,21 +264,29 @@ struct StAngleSphere {
         DCHECK_EQ(arguments.size(), 4);
         auto return_type = block.get_data_type(result);
 
-        auto x_lng = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto x_lat = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        auto y_lng = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
-        auto y_lat = block.get_by_position(arguments[3]).column->convert_to_full_column_if_const();
+        Columns cols(4);
+        bool col_const[4];
+        for (int i = 0; i < arguments.size(); ++i) {
+            std::tie(cols[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
 
-        const auto size = x_lng->size();
+        const auto size =
+                std::max_element(cols.begin(), cols.end(),
+                                 [](auto& col1, auto& col2) { return col1->size() < col2->size(); })
+                        ->get()
+                        ->size();
 
         MutableColumnPtr res = return_type->create_column();
 
         for (int row = 0; row < size; ++row) {
             double angle = 0;
-            if (!GeoPoint::ComputeAngleSphere(x_lng->operator[](row).get<Float64>(),
-                                              x_lat->operator[](row).get<Float64>(),
-                                              y_lng->operator[](row).get<Float64>(),
-                                              y_lat->operator[](row).get<Float64>(), &angle)) {
+            if (!GeoPoint::ComputeAngleSphere(
+                        cols[0]->operator[](index_check_const(row, col_const[0])).get<Float64>(),
+                        cols[1]->operator[](index_check_const(row, col_const[1])).get<Float64>(),
+                        cols[2]->operator[](index_check_const(row, col_const[2])).get<Float64>(),
+                        cols[3]->operator[](index_check_const(row, col_const[3])).get<Float64>(),
+                        &angle)) {
                 res->insert_default();
                 continue;
             }
@@ -290,30 +307,38 @@ struct StAngle {
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
 
-        auto p1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto p2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        auto p3 = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
-        const auto size = p1->size();
+        Columns cols(3);
+        bool col_const[3];
+        for (int i = 0; i < arguments.size(); ++i) {
+            std::tie(cols[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+
+        const auto size =
+                std::max_element(cols.begin(), cols.end(),
+                                 [](auto& col1, auto& col2) { return col1->size() < col2->size(); })
+                        ->get()
+                        ->size();
 
         GeoPoint point1;
         GeoPoint point2;
         GeoPoint point3;
 
         for (int row = 0; row < size; ++row) {
-            auto shape_value1 = p1->get_data_at(row);
+            auto shape_value1 = cols[0]->get_data_at(index_check_const(row, col_const[0]));
             auto pt1 = point1.decode_from(shape_value1.data, shape_value1.size);
             if (!pt1) {
                 res->insert_default();
                 continue;
             }
 
-            auto shape_value2 = p2->get_data_at(row);
+            auto shape_value2 = cols[1]->get_data_at(index_check_const(row, col_const[1]));
             auto pt2 = point2.decode_from(shape_value2.data, shape_value2.size);
             if (!pt2) {
                 res->insert_default();
                 continue;
             }
-            auto shape_value3 = p3->get_data_at(row);
+            auto shape_value3 = cols[2]->get_data_at(index_check_const(row, col_const[2]));
             auto pt3 = point3.decode_from(shape_value3.data, shape_value3.size);
             if (!pt3) {
                 res->insert_default();
@@ -494,22 +519,27 @@ struct StCircle {
                           size_t result) {
         DCHECK_EQ(arguments.size(), 3);
         auto return_type = block.get_data_type(result);
-        auto center_lng =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto center_lat =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        auto radius = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        Columns cols(3);
+        bool col_const[3];
+        for (int i = 0; i < arguments.size(); ++i) {
+            std::tie(cols[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
 
-        const auto size = center_lng->size();
+        const auto size =
+                std::max_element(cols.begin(), cols.end(),
+                                 [](auto& col1, auto& col2) { return col1->size() < col2->size(); })
+                        ->get()
+                        ->size();
 
         MutableColumnPtr res = return_type->create_column();
 
         GeoCircle circle;
         std::string buf;
         for (int row = 0; row < size; ++row) {
-            auto lng_value = center_lng->get_float64(row);
-            auto lat_value = center_lat->get_float64(row);
-            auto radius_value = radius->get_float64(row);
+            auto lng_value = cols[0]->get_float64(index_check_const(row, col_const[0]));
+            auto lat_value = cols[1]->get_float64(index_check_const(row, col_const[1]));
+            auto radius_value = cols[2]->get_float64(index_check_const(row, col_const[2]));
 
             auto value = circle.init(lng_value, lat_value, radius_value);
             if (value != GEO_PARSE_OK) {
