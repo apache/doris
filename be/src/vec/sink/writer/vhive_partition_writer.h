@@ -49,10 +49,9 @@ public:
     };
 
     VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,
-                         TUpdateMode::type update_mode, const VExprContextSPtrs& output_expr_ctxs,
+                         TUpdateMode::type update_mode,
                          const VExprContextSPtrs& write_output_expr_ctxs,
-                         const std::set<size_t>& non_write_columns_indices,
-                         const std::vector<THiveColumn>& columns, WriteInfo write_info,
+                         std::vector<std::string> write_column_names, WriteInfo write_info,
                          std::string file_name, int file_name_index,
                          TFileFormatType::type file_format_type,
                          TFileCompressType::type hive_compress_type,
@@ -62,7 +61,7 @@ public:
 
     Status open(RuntimeState* state, RuntimeProfile* profile);
 
-    Status write(vectorized::Block& block, IColumn::Filter* filter = nullptr);
+    Status write(vectorized::Block& block);
 
     Status close(const Status& status);
 
@@ -76,10 +75,6 @@ private:
     std::string _get_target_file_name();
 
 private:
-    Status _projection_and_filter_block(doris::vectorized::Block& input_block,
-                                        const vectorized::IColumn::Filter* filter,
-                                        doris::vectorized::Block* output_block);
-
     THivePartitionUpdate _build_partition_update();
 
     std::string _get_file_extension(TFileFormatType::type file_format_type,
@@ -93,11 +88,10 @@ private:
 
     size_t _row_count = 0;
 
-    const VExprContextSPtrs& _vec_output_expr_ctxs;
     const VExprContextSPtrs& _write_output_expr_ctxs;
-    const std::set<size_t>& _non_write_columns_indices;
 
-    const std::vector<THiveColumn>& _columns;
+    std::vector<std::string> _write_column_names;
+
     WriteInfo _write_info;
     std::string _file_name;
     int _file_name_index;

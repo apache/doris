@@ -20,9 +20,9 @@
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/materialize_block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vslot_ref.h"
 #include "vec/sink/writer/vhive_partition_writer.h"
 #include "vec/sink/writer/vhive_utils.h"
 
@@ -83,8 +83,17 @@ Status VHiveTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
 
 Status VHiveTableWriter::write(vectorized::Block& block) {
     SCOPED_RAW_TIMER(&_send_data_ns);
+
+    if (block.rows() == 0) {
+        return Status::OK();
+    }
+    Block output_block;
+    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+            _vec_output_expr_ctxs, block, &output_block, false));
+    materialize_block_inplace(output_block);
+
     std::unordered_map<std::shared_ptr<VHivePartitionWriter>, IColumn::Filter> writer_positions;
-    _row_count += block.rows();
+    _row_count += output_block.rows();
     auto& hive_table_sink = _t_sink.hive_table_sink;
 
     if (_partition_columns_input_index.empty()) {
@@ -94,7 +103,7 @@ Status VHiveTableWriter::write(vectorized::Block& block) {
             auto writer_iter = _partitions_to_writers.find("");
             if (writer_iter == _partitions_to_writers.end()) {
                 try {
-                    writer = _create_partition_writer(block, -1);
+                    writer = _create_partition_writer(output_block, -1);
                 } catch (doris::Exception& e) {
                     return e.to_status();
                 }
@@ -110,7 +119,7 @@ Status VHiveTableWriter::write(vectorized::Block& block) {
                     }
                     _partitions_to_writers.erase(writer_iter);
                     try {
-                        writer = _create_partition_writer(block, -1, &file_name,
+                        writer = _create_partition_writer(output_block, -1, &file_name,
                                                           file_name_index + 1);
                     } catch (doris::Exception& e) {
                         return e.to_status();
@@ -123,16 +132,17 @@ Status VHiveTableWriter::write(vectorized::Block& block) {
             }
         }
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
-        RETURN_IF_ERROR(writer->write(block));
+        output_block.erase(_non_write_columns_indices);
+        RETURN_IF_ERROR(writer->write(output_block));
         return Status::OK();
     }
 
     {
         SCOPED_RAW_TIMER(&_partition_writers_dispatch_ns);
-        for (int i = 0; i < block.rows(); ++i) {
+        for (int i = 0; i < output_block.rows(); ++i) {
             std::vector<std::string> partition_values;
             try {
-                partition_values = _create_partition_values(block, i);
+                partition_values = _create_partition_values(output_block, i);
             } catch (doris::Exception& e) {
                 return e.to_status();
             }
@@ -144,10 +154,10 @@ Status VHiveTableWriter::write(vectorized::Block& block) {
                         const std::string* file_name, int file_name_index,
                         std::shared_ptr<VHivePartitionWriter>& writer_ptr) -> Status {
                 try {
-                    auto writer =
-                            _create_partition_writer(block, position, file_name, file_name_index);
+                    auto writer = _create_partition_writer(output_block, position, file_name,
+                                                           file_name_index);
                     RETURN_IF_ERROR(writer->open(_state, _profile));
-                    IColumn::Filter filter(block.rows(), 0);
+                    IColumn::Filter filter(output_block.rows(), 0);
                     filter[position] = 1;
                     writer_positions.insert({writer, std::move(filter)});
                     _partitions_to_writers.insert({partition_name, writer});
@@ -186,7 +196,7 @@ Status VHiveTableWriter::write(vectorized::Block& block) {
                 }
                 auto writer_pos_iter = writer_positions.find(writer);
                 if (writer_pos_iter == writer_positions.end()) {
-                    IColumn::Filter filter(block.rows(), 0);
+                    IColumn::Filter filter(output_block.rows(), 0);
                     filter[i] = 1;
                     writer_positions.insert({writer, std::move(filter)});
                 } else {
@@ -196,9 +206,36 @@ Status VHiveTableWriter::write(vectorized::Block& block) {
         }
     }
     SCOPED_RAW_TIMER(&_partition_writers_write_ns);
+    output_block.erase(_non_write_columns_indices);
     for (auto it = writer_positions.begin(); it != writer_positions.end(); ++it) {
-        RETURN_IF_ERROR(it->first->write(block, &it->second));
+        Block filtered_block;
+        RETURN_IF_ERROR(_filter_block(output_block, &it->second, &filtered_block));
+        RETURN_IF_ERROR(it->first->write(filtered_block));
     }
+    return Status::OK();
+}
+
+Status VHiveTableWriter::_filter_block(doris::vectorized::Block& block,
+                                       const vectorized::IColumn::Filter* filter,
+                                       doris::vectorized::Block* output_block) {
+    const ColumnsWithTypeAndName& columns_with_type_and_name =
+            block.get_columns_with_type_and_name();
+    vectorized::ColumnsWithTypeAndName result_columns;
+    for (int i = 0; i < columns_with_type_and_name.size(); ++i) {
+        const auto& col = columns_with_type_and_name[i];
+        result_columns.emplace_back(col.column->clone_resized(col.column->size()), col.type,
+                                    col.name);
+    }
+    *output_block = {std::move(result_columns)};
+
+    std::vector<uint32_t> columns_to_filter;
+    int column_to_keep = output_block->columns();
+    columns_to_filter.resize(column_to_keep);
+    for (uint32_t i = 0; i < column_to_keep; ++i) {
+        columns_to_filter[i] = i;
+    }
+
+    Block::filter_block_internal(output_block, columns_to_filter, *filter);
     return Status::OK();
 }
 
@@ -312,11 +349,18 @@ std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer
     }
 
     _write_file_count++;
+    std::vector<std::string> column_names;
+    column_names.reserve(hive_table_sink.columns.size());
+    for (int i = 0; i < hive_table_sink.columns.size(); i++) {
+        if (_non_write_columns_indices.find(i) == _non_write_columns_indices.end()) {
+            column_names.emplace_back(hive_table_sink.columns[i].name);
+        }
+    }
     return std::make_shared<VHivePartitionWriter>(
-            _t_sink, std::move(partition_name), update_mode, _vec_output_expr_ctxs,
-            _write_output_vexpr_ctxs, _non_write_columns_indices, hive_table_sink.columns,
-            std::move(write_info), (file_name == nullptr) ? _compute_file_name() : *file_name,
-            file_name_index, file_format_type, write_compress_type, hive_table_sink.hadoop_config);
+            _t_sink, std::move(partition_name), update_mode, _write_output_vexpr_ctxs,
+            std::move(column_names), std::move(write_info),
+            (file_name == nullptr) ? _compute_file_name() : *file_name, file_name_index,
+            file_format_type, write_compress_type, hive_table_sink.hadoop_config);
 }
 
 std::vector<std::string> VHiveTableWriter::_create_partition_values(vectorized::Block& block,
@@ -324,12 +368,8 @@ std::vector<std::string> VHiveTableWriter::_create_partition_values(vectorized::
     std::vector<std::string> partition_values;
     for (int i = 0; i < _partition_columns_input_index.size(); ++i) {
         int partition_column_idx = _partition_columns_input_index[i];
-        DCHECK(_vec_output_expr_ctxs[partition_column_idx]->root()->is_slot_ref());
-        int partition_column_pos_in_block =
-                ((vectorized::VSlotRef*)_vec_output_expr_ctxs[partition_column_idx]->root().get())
-                        ->column_id();
         vectorized::ColumnWithTypeAndName partition_column =
-                block.get_by_position(partition_column_pos_in_block);
+                block.get_by_position(partition_column_idx);
         std::string value =
                 _to_partition_value(_vec_output_expr_ctxs[partition_column_idx]->root()->type(),
                                     partition_column, position);
