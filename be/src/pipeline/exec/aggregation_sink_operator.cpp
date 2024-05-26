@@ -131,7 +131,8 @@ Status AggSinkLocalState::open(RuntimeState* state) {
 
         _should_limit_output = p._limit != -1 &&       // has limit
                                (!p._have_conjuncts) && // no having conjunct
-                               p._needs_finalize;      // agg's finalize step
+                               p._needs_finalize &&    // agg's finalize step
+                               !Base::_shared_state->enable_spill;
     }
     for (auto& evaluator : p._aggregate_evaluators) {
         Base::_shared_state->aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
@@ -464,7 +465,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
                     _places.data(), _agg_arena_pool));
         }
 
-        if (_should_limit_output && !Base::_shared_state->enable_spill) {
+        if (_should_limit_output) {
             _reach_limit = _get_hash_table_size() >=
                            Base::_parent->template cast<AggSinkOperatorX>()._limit;
             if (_reach_limit &&
