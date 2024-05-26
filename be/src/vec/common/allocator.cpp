@@ -102,6 +102,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
                 doris::MemTrackerLimiter::print_log_process_usage();
                 // If the external catch, throw bad::alloc first, let the query actively cancel. Otherwise asynchronous cancel.
                 if (!doris::enable_thread_catch_bad_alloc) {
+#ifndef NDEBUG
+                    err_msg += "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
+#endif
                     LOG(INFO) << fmt::format(
                             "Query:{} canceled asyn, after waiting for memory {}ms, {}.",
                             print_id(doris::thread_context()->task_id()), wait_milliseconds,
@@ -121,6 +124,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
             doris::MemTrackerLimiter::print_log_process_usage();
             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
         } else {
+#ifndef NDEBUG
+            err_msg += "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
+#endif
             LOG(INFO) << fmt::format("sys memory check failed, no throw exception, {}.", err_msg);
         }
     }
