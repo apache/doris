@@ -617,6 +617,14 @@ public enum PrimitiveType {
         builder.put(TIMEV2, VARCHAR);
         builder.put(TIMEV2, STRING);
 
+        // IPV4
+        builder.put(IPV4, VARCHAR);
+        builder.put(IPV4, STRING);
+
+        // IPV6
+        builder.put(IPV6, VARCHAR);
+        builder.put(IPV6, STRING);
+
         implicitCastMap = builder.build();
     }
 
