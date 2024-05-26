@@ -724,7 +724,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                     + "distributed by hash (id) properties (\"a\"=\"b\")");
         } catch (Exception e) {
             Assertions.assertEquals(
-                    "errCode = 2, detailMessage = auto create partition only support slotRef in list partitions. func1(`id2`, '1')",
+                    "internal catalog does not support functions in 'LIST' partition",
                     e.getMessage());
         }
 

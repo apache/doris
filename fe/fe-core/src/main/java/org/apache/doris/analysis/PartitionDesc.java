@@ -107,26 +107,29 @@ public class PartitionDesc {
             throws AnalysisException {
         List<String> colNames = new ArrayList<>();
         for (Expr expr : exprs) {
-            if ((expr instanceof FunctionCallExpr) && (isListPartition == false)) {
+            if ((expr instanceof FunctionCallExpr)) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
                 List<Expr> paramsExpr = functionCallExpr.getParams().exprs();
                 String name = functionCallExpr.getFnName().getFunction();
-                if (RANGE_PARTITION_FUNCTIONS.contains(name)) {
-                    for (Expr param : paramsExpr) {
-                        if (param instanceof SlotRef) {
-                            if (colNames.isEmpty()) {
-                                colNames.add(((SlotRef) param).getColumnName());
-                            } else {
-                                throw new AnalysisException(
-                                        "auto create partition only support one slotRef in function expr. "
+                if (isListPartition == false) {
+                    if (RANGE_PARTITION_FUNCTIONS.contains(name)) {
+                        for (Expr param : paramsExpr) {
+                            if (param instanceof SlotRef) {
+                                if (colNames.isEmpty()) {
+                                    colNames.add(((SlotRef) param).getColumnName());
+                                } else {
+                                    throw new AnalysisException(
+                                            "auto create partition only support one slotRef in function expr. "
                                                 + expr.toSql());
+                                }
                             }
                         }
-                    }
-                } else {
-                    throw new AnalysisException(
-                            "auto create partition only support function call expr is date_trunc/date_floor/date_ceil. "
+                    } else {
+                        throw new AnalysisException(
+                                "auto create partition only support function call expr is "
+                                    + "date_trunc/date_floor/date_ceil. "
                                     + expr.toSql());
+                    }
                 }
             } else if (expr instanceof SlotRef) {
                 if (isAutoPartition && !colNames.isEmpty() && !isListPartition) {
