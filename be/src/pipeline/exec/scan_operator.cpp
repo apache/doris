@@ -171,20 +171,23 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
         }
     };
 
-    for (auto& slot : slots) {
-        auto type = slot->type().type;
-        if (slot->type().type == TYPE_ARRAY) {
-            type = slot->type().children[0].type;
+    for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
+        _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
+        _slot_id_to_slot_desc[slots[slot_idx]->id()] = slots[slot_idx];
+
+        auto type = slots[slot_idx]->type().type;
+        if (slots[slot_idx]->type().type == TYPE_ARRAY) {
+            type = slots[slot_idx]->type().children[0].type;
             if (type == TYPE_ARRAY) {
                 continue;
             }
         }
-        init_value_range(slot, slot->type().type);
+        init_value_range(slots[slot_idx], slots[slot_idx]->type().type);
     }
 
     get_cast_types_for_variants();
     for (const auto& [colname, type] : _cast_types_for_variants) {
-        init_value_range(p._slot_id_to_slot_desc[p._colname_to_slot_id[colname]], type);
+        init_value_range(_slot_id_to_slot_desc[_colname_to_slot_id[colname]], type);
     }
 
     RETURN_IF_ERROR(_get_topn_filters(state));
@@ -1265,12 +1268,12 @@ Status ScanLocalState<Derived>::_init_profile() {
 
 template <typename Derived>
 Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
-    auto& p = _parent->cast<typename Derived::Parent>();
     for (auto id : get_topn_filter_source_node_ids(state, false)) {
         const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
+        SlotDescriptor* slot_desc = _slot_id_to_slot_desc[_colname_to_slot_id[pred.get_col_name()]];
+
         vectorized::VExprSPtr topn_pred;
-        RETURN_IF_ERROR(vectorized::VTopNPred::create_vtopn_pred(pred.get_texpr(p.node_id()), id,
-                                                                 topn_pred));
+        RETURN_IF_ERROR(vectorized::VTopNPred::create_vtopn_pred(slot_desc, id, topn_pred));
 
         vectorized::VExprContextSPtr conjunct = vectorized::VExprContext::create_shared(topn_pred);
         RETURN_IF_ERROR(conjunct->prepare(
@@ -1285,7 +1288,6 @@ template <typename Derived>
 void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
         const vectorized::VExpr* expr,
         phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types) {
-    auto& p = _parent->cast<typename Derived::Parent>();
     const auto* cast_expr = dynamic_cast<const vectorized::VCastExpr*>(expr);
     if (cast_expr != nullptr) {
         const auto* src_slot =
@@ -1296,7 +1298,7 @@ void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
             return;
         }
         std::vector<SlotDescriptor*> slots = output_tuple_desc()->slots();
-        SlotDescriptor* src_slot_desc = p._slot_id_to_slot_desc[src_slot->slot_id()];
+        SlotDescriptor* src_slot_desc = _slot_id_to_slot_desc[src_slot->slot_id()];
         PrimitiveType cast_dst_type =
                 cast_expr->get_target_type()->get_type_as_type_descriptor().type;
         if (src_slot_desc->type().is_variant_type()) {
@@ -1385,21 +1387,6 @@ Status ScanOperatorX<LocalStateType>::open(RuntimeState* state) {
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     RETURN_IF_ERROR(OperatorX<LocalStateType>::open(state));
-
-    const auto slots = _output_tuple_desc->slots();
-    for (auto* slot : slots) {
-        _colname_to_slot_id[slot->col_name()] = slot->id();
-        _slot_id_to_slot_desc[slot->id()] = slot;
-    }
-    for (auto id : topn_filter_source_node_ids) {
-        if (!state->get_query_ctx()->has_runtime_predicate(id)) {
-            // compatible with older versions fe
-            continue;
-        }
-
-        state->get_query_ctx()->get_runtime_predicate(id).init_target(node_id(),
-                                                                      _slot_id_to_slot_desc);
-    }
 
     RETURN_IF_CANCELLED(state);
     return Status::OK();

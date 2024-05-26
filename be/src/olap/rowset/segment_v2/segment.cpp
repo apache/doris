@@ -164,12 +164,13 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             return Status::OK();
         }
     }
-
-    if (!read_options.topn_filter_source_node_ids.empty()) {
+    if (read_options.use_topn_opt) {
         auto* query_ctx = read_options.runtime_state->get_query_ctx();
         for (int id : read_options.topn_filter_source_node_ids) {
-            auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate(
-                    read_options.topn_filter_target_node_id);
+            if (!query_ctx->get_runtime_predicate(id).need_update()) {
+                continue;
+            }
+            auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate();
 
             int32_t uid =
                     read_options.tablet_schema->column(runtime_predicate->column_id()).unique_id();

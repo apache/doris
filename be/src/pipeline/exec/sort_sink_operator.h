@@ -100,6 +100,7 @@ private:
 
     bool _reuse_mem;
     const int64_t _limit;
+    const bool _use_topn_opt;
     SortAlgorithm _algorithm;
 
     const RowDescriptor _row_descriptor;

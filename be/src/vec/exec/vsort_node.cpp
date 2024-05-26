@@ -64,7 +64,8 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     // exclude cases which incoming blocks has string column which is sensitive to operations like
     // `filter` and `memcpy`
     if (_limit > 0 && _limit + _offset < HeapSorter::HEAP_SORT_THRESHOLD &&
-        (tnode.sort_node.sort_info.use_two_phase_read || !row_desc.has_varlen_slots())) {
+        (tnode.sort_node.sort_info.use_two_phase_read || tnode.sort_node.use_topn_opt ||
+         !row_desc.has_varlen_slots())) {
         _sorter = HeapSorter::create_unique(_vsort_exec_exprs, _limit, _offset, _pool,
                                             _is_asc_order, _nulls_first, row_desc);
         _reuse_mem = false;
@@ -77,6 +78,31 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _sorter =
                 FullSorter::create_unique(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
                                           _nulls_first, row_desc, state, _runtime_profile.get());
+    }
+    // init runtime predicate
+    _use_topn_opt = tnode.sort_node.use_topn_opt;
+    if (_use_topn_opt) {
+        auto* query_ctx = state->get_query_ctx();
+        auto first_sort_expr_node = tnode.sort_node.sort_info.ordering_exprs[0].nodes[0];
+        if (first_sort_expr_node.node_type == TExprNodeType::SLOT_REF) {
+            auto first_sort_slot = first_sort_expr_node.slot_ref;
+            for (auto* tuple_desc : this->intermediate_row_desc().tuple_descriptors()) {
+                if (tuple_desc->id() != first_sort_slot.tuple_id) {
+                    continue;
+                }
+                for (auto* slot : tuple_desc->slots()) {
+                    if (slot->id() == first_sort_slot.slot_id) {
+                        RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_id).init(
+                                slot->type().type, _nulls_first[0], _is_asc_order[0],
+                                slot->col_name()));
+                        break;
+                    }
+                }
+            }
+        }
+        if (!query_ctx->get_runtime_predicate(_id).inited()) {
+            return Status::InternalError("runtime predicate is not properly initialized");
+        }
     }
 
     _sorter->init_profile(_runtime_profile.get());
@@ -114,6 +140,18 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
     if (input_block->rows() > 0) {
         RETURN_IF_ERROR(_sorter->append_block(input_block));
         RETURN_IF_CANCELLED(state);
+
+        if (_use_topn_opt) {
+            auto& predicate = state->get_query_ctx()->get_runtime_predicate(_id);
+            if (predicate.need_update()) {
+                vectorized::Field new_top = _sorter->get_top_value();
+                if (!new_top.is_null() && new_top != old_top) {
+                    auto* query_ctx = state->get_query_ctx();
+                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_id).update(new_top));
+                    old_top = std::move(new_top);
+                }
+            }
+        }
         if (!_reuse_mem) {
             input_block->clear();
         }

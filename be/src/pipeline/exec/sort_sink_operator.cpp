@@ -79,6 +79,7 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TP
           _pool(pool),
           _reuse_mem(true),
           _limit(tnode.limit),
+          _use_topn_opt(tnode.sort_node.use_topn_opt),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _use_two_phase_read(tnode.sort_node.sort_info.use_two_phase_read),
           _merge_by_exchange(tnode.sort_node.merge_by_exchange),
@@ -95,10 +96,29 @@ Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
 
-    auto* query_ctx = state->get_query_ctx();
     // init runtime predicate
-    if (query_ctx->has_runtime_predicate(_node_id)) {
-        query_ctx->get_runtime_predicate(_node_id).set_detected_source();
+    if (_use_topn_opt) {
+        auto* query_ctx = state->get_query_ctx();
+        auto first_sort_expr_node = tnode.sort_node.sort_info.ordering_exprs[0].nodes[0];
+        if (first_sort_expr_node.node_type == TExprNodeType::SLOT_REF) {
+            auto first_sort_slot = first_sort_expr_node.slot_ref;
+            for (auto* tuple_desc : _row_descriptor.tuple_descriptors()) {
+                if (tuple_desc->id() != first_sort_slot.tuple_id) {
+                    continue;
+                }
+                for (auto* slot : tuple_desc->slots()) {
+                    if (slot->id() == first_sort_slot.slot_id) {
+                        RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_node_id).init(
+                                slot->type().type, _nulls_first[0], _is_asc_order[0],
+                                slot->col_name()));
+                        break;
+                    }
+                }
+            }
+        }
+        if (!query_ctx->get_runtime_predicate(_node_id).inited()) {
+            return Status::InternalError("runtime predicate is not properly initialized");
+        }
     }
     return Status::OK();
 }
@@ -112,8 +132,7 @@ Status SortSinkOperatorX::prepare(RuntimeState* state) {
     // exclude cases which incoming blocks has string column which is sensitive to operations like
     // `filter` and `memcpy`
     if (_limit > 0 && _limit + _offset < vectorized::HeapSorter::HEAP_SORT_THRESHOLD &&
-        (_use_two_phase_read || state->get_query_ctx()->has_runtime_predicate(_node_id) ||
-         !row_desc.has_varlen_slots())) {
+        (_use_two_phase_read || _use_topn_opt || !row_desc.has_varlen_slots())) {
         _algorithm = SortAlgorithm::HEAP_SORT;
         _reuse_mem = false;
     } else if (_limit > 0 && row_desc.has_varlen_slots() &&
@@ -139,9 +158,9 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
         local_state._mem_tracker->set_consumption(local_state._shared_state->sorter->data_size());
         RETURN_IF_CANCELLED(state);
 
-        if (state->get_query_ctx()->has_runtime_predicate(_node_id)) {
+        if (_use_topn_opt) {
             auto& predicate = state->get_query_ctx()->get_runtime_predicate(_node_id);
-            if (predicate.enable()) {
+            if (predicate.inited()) {
                 vectorized::Field new_top = local_state._shared_state->sorter->get_top_value();
                 if (!new_top.is_null() && new_top != local_state.old_top) {
                     auto* query_ctx = state->get_query_ctx();

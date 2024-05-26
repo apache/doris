@@ -93,6 +93,14 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                 fragment_exec_params.runtime_filter_params);
     }
+
+    if (_query_ctx) {
+        if (fragment_exec_params.__isset.topn_filter_source_node_ids) {
+            _query_ctx->init_runtime_predicates(fragment_exec_params.topn_filter_source_node_ids);
+        } else {
+            _query_ctx->init_runtime_predicates({0});
+        }
+    }
 }
 
 RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id,

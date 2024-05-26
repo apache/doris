@@ -19,8 +19,6 @@
 
 #include <gen_cpp/types.pb.h>
 
-#include <utility>
-
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
@@ -38,24 +36,21 @@ class VTopNPred : public VExpr {
     ENABLE_FACTORY_CREATOR(VTopNPred);
 
 public:
-    VTopNPred(const TExprNode& node, int source_node_id, VExprContextSPtr target_ctx)
+    VTopNPred(const TExprNode& node, int source_node_id)
             : VExpr(node),
               _source_node_id(source_node_id),
-              _expr_name(fmt::format("VTopNPred(source_node_id={})", _source_node_id)),
-              _target_ctx(std::move(target_ctx)) {}
+              _expr_name(fmt::format("VTopNPred(source_node_id={})", _source_node_id)) {}
 
-    static Status create_vtopn_pred(const TExpr& target_expr, int source_node_id,
+    // TODO: support general expr
+    static Status create_vtopn_pred(SlotDescriptor* slot_desc, int source_node_id,
                                     vectorized::VExprSPtr& expr) {
-        vectorized::VExprContextSPtr target_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(target_expr, target_ctx));
-
         TExprNode node;
         node.__set_node_type(TExprNodeType::FUNCTION_CALL);
         node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
-        node.__set_is_nullable(target_ctx->root()->is_nullable());
-        expr = vectorized::VTopNPred::create_shared(node, source_node_id, target_ctx);
+        node.__set_is_nullable(slot_desc->is_nullable());
+        expr = vectorized::VTopNPred::create_shared(node, source_node_id);
 
-        expr->add_child(target_ctx->root());
+        expr->add_child(VSlotRef::create_shared(slot_desc));
 
         return Status::OK();
     }
@@ -117,6 +112,5 @@ private:
     std::string _expr_name;
     RuntimePredicate* _predicate = nullptr;
     FunctionBasePtr _function;
-    VExprContextSPtr _target_ctx;
 };
 } // namespace doris::vectorized

@@ -135,18 +135,17 @@ public:
         return _shared_scanner_controller;
     }
 
-    bool has_runtime_predicate(int source_node_id) {
-        return _runtime_predicates.contains(source_node_id);
-    }
-
     vectorized::RuntimePredicate& get_runtime_predicate(int source_node_id) {
-        DCHECK(has_runtime_predicate(source_node_id));
-        return _runtime_predicates.find(source_node_id)->second;
+        DCHECK(_runtime_predicates.contains(source_node_id) || _runtime_predicates.contains(0));
+        if (_runtime_predicates.contains(source_node_id)) {
+            return _runtime_predicates[source_node_id];
+        }
+        return _runtime_predicates[0];
     }
 
-    void init_runtime_predicates(const std::vector<TTopnFilterDesc>& topn_filter_descs) {
-        for (auto desc : topn_filter_descs) {
-            _runtime_predicates.try_emplace(desc.source_node_id, desc);
+    void init_runtime_predicates(std::vector<int> source_node_ids) {
+        for (int id : source_node_ids) {
+            _runtime_predicates.try_emplace(id);
         }
     }
 
