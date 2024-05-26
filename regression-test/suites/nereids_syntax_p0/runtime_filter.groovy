@@ -92,6 +92,7 @@ suite("runtime_filter") {
     properties("replication_num" = "1");
     insert into table_20_undef_partitions2_keys3_properties4_distributed_by5(pk,col_int_undef_signed,col_varchar_10__undef_signed) values (0,null,'my'),(1,null,'a'),(2,5,''),(3,0,'that'),(4,0,'want'),(5,null,'g'),(6,null,null),(7,null,''),(8,null,null),(9,3,'b'),(10,null,'her'),(11,6,''),(12,null,'k'),(13,null,'then'),(14,2,null),(15,null,''),(16,null,'g'),(17,null,'x'),(18,null,'d'),(19,null,null);
 
+    drop table if exists table_8_undef_partitions2_keys3_properties4_distributed_by5;
     create table table_8_undef_partitions2_keys3_properties4_distributed_by5 (
     col_int_undef_signed int/*agg_type_placeholder*/   ,
     col_varchar_10__undef_signed varchar(10)/*agg_type_placeholder*/   ,

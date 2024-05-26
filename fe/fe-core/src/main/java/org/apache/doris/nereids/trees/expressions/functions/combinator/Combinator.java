@@ -15,20 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions.agg;
+package org.apache.doris.nereids.trees.expressions.functions.combinator;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 
 /**
- * Could roll up trait, it could be rolled up if a function appear in query which can be represented
- * by aggregate function in view.
- * Acquire the rolled up function by constructRollUp method.
+ * Combinator interface which identify the expression is Combinator
  */
-public interface CouldRollUp {
+public interface Combinator extends ExpressionTrait {
 
-    /**
-     * construct the roll up function with custom param
-     */
-    Function constructRollUp(Expression param, Expression... varParams);
+    AggregateFunction getNestedFunction();
 }

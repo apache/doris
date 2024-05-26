@@ -30,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import lombok.Getter;
+import lombok.Setter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -53,6 +54,13 @@ public class CreateTableAsSelectStmt extends DdlStmt {
 
     @Getter
     private final InsertStmt insertStmt;
+
+    /**
+     * If the table has already exists, set this flag to true.
+     */
+    @Setter
+    @Getter
+    private boolean tableHasExists = false;
 
     protected CreateTableAsSelectStmt(CreateTableStmt createTableStmt,
                                       List<String> columnNames, QueryStmt queryStmt) {

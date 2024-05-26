@@ -113,12 +113,12 @@ public abstract class MaterializationContext {
             viewStructInfos = MaterializedViewUtils.extractStructInfo(mvPlan, cascadesContext, new BitSet());
             if (viewStructInfos.size() > 1) {
                 // view struct info should only have one, log error and use the first struct info
-                LOG.warn(String.format("view strut info is more than one, materialization name is %s, mv plan is %s",
-                        getMaterializationQualifier(), getMvPlan().treeString()));
+                LOG.warn(String.format("view strut info is more than one, mv scan plan is %s, mv plan is %s",
+                        mvScanPlan.treeString(), mvPlan.treeString()));
             }
         } catch (Exception exception) {
-            LOG.warn(String.format("construct mv struct info fail, materialization name is %s, mv plan is %s",
-                    getMaterializationQualifier(), getMvPlan().treeString()), exception);
+            LOG.warn(String.format("construct mv struct info fail, mv scan plan is %s, mv plan is %s",
+                    mvScanPlan.treeString(), mvPlan.treeString()), exception);
             this.available = false;
             this.structInfo = null;
             return;
