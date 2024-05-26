@@ -68,7 +68,7 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id, uin
             try {
                 *table_id = std::stoull(req_table_id);
             } catch (const std::exception& e) {
-                return Status::InternalError("convert tablet_id or table_id failed, {}", e.what());
+                return Status::InternalError("convert table_id failed, {}", e.what());
             }
             return Status::OK();
         }
@@ -77,7 +77,7 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id, uin
             try {
                 *tablet_id = std::stoull(req_tablet_id);
             } catch (const std::exception& e) {
-                return Status::InternalError("convert tablet_id or table_id failed, {}", e.what());
+                return Status::InternalError("convert tablet_id failed, {}", e.what());
             }
             return Status::OK();
         } else {
@@ -87,11 +87,30 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id, uin
     }
 }
 
+/// retrieve specific id from req
+Status CompactionAction::_check_param(HttpRequest* req, uint64_t* id_param,
+                                      const std::string param_name) {
+    std::string req_id_param = req->param(param_name);
+    if (req_id_param != "") {
+        try {
+            *id_param = std::stoull(req_id_param);
+        } catch (const std::exception& e) {
+            return Status::InternalError("convert {} failed, {}", param_name, e.what());
+        }
+    }
+
+    return Status::OK();
+}
+
 // for viewing the compaction status
 Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
-    uint64_t table_id = 0;
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
+    // check & retrieve tablet_id from req if it contains
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY),
+                                   "check param failed");
+    if (tablet_id == 0) {
+        return Status::InternalError("check param failed: missing tablet_id");
+    }
 
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
@@ -177,10 +196,9 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
 
 Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
-    uint64_t table_id = 0;
-
-    // check req_tablet_id is not empty
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
+    // check & retrieve tablet_id from req if it contains
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY),
+                                   "check param failed");
 
     if (tablet_id == 0) {
         // overall compaction status
