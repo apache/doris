@@ -196,7 +196,7 @@ Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
 Status S3FileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader,
                                         const FileReaderOptions& opts) {
     auto key = DORIS_TRY(get_key(file));
-    *reader = DORIS_TRY(S3FileReader::create(_client, _bucket, key, opts.file_size));
+    *reader = DORIS_TRY(S3FileReader::create(_client, _bucket, key, opts.file_size, nullptr));
     return Status::OK();
 }
 

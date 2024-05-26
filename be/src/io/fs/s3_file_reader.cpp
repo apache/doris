@@ -37,6 +37,7 @@
 #include "io/fs/s3_common.h"
 #include "util/bvar_helper.h"
 #include "util/doris_metrics.h"
+#include "util/runtime_profile.h"
 #include "util/s3_util.h"
 
 namespace doris::io {
@@ -45,13 +46,14 @@ bvar::Adder<uint64_t> s3_file_reader_read_counter("s3_file_reader", "read_at");
 bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
 bvar::Adder<uint64_t> s3_bytes_read_total("s3_file_reader", "bytes_read");
 bvar::Adder<uint64_t> s3_file_being_read("s3_file_reader", "file_being_read");
+bvar::Adder<uint64_t> s3_file_reader_too_many_request_counter("s3_file_reader", "too_many_request");
 bvar::LatencyRecorder s3_bytes_per_read("s3_file_reader", "bytes_per_read"); // also QPS
 bvar::PerSecond<bvar::Adder<uint64_t>> s3_read_througthput("s3_file_reader", "s3_read_throughput",
                                                            &s3_bytes_read_total);
 
 Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolder> client,
                                             std::string bucket, std::string key,
-                                            int64_t file_size) {
+                                            int64_t file_size, RuntimeProfile* profile) {
     if (file_size < 0) {
         auto res = client->object_file_size(bucket, key);
         if (!res.has_value()) {
@@ -62,16 +64,17 @@ Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolde
     }
 
     return std::make_shared<S3FileReader>(std::move(client), std::move(bucket), std::move(key),
-                                          file_size);
+                                          file_size, profile);
 }
 
 S3FileReader::S3FileReader(std::shared_ptr<const ObjClientHolder> client, std::string bucket,
-                           std::string key, size_t file_size)
+                           std::string key, size_t file_size, RuntimeProfile* profile)
         : _path(fmt::format("s3://{}/{}", bucket, key)),
           _file_size(file_size),
           _bucket(std::move(bucket)),
           _key(std::move(key)),
-          _client(std::move(client)) {
+          _client(std::move(client)),
+          _profile(profile) {
     DorisMetrics::instance()->s3_file_open_reading->increment(1);
     DorisMetrics::instance()->s3_file_reader_total->increment(1);
     s3_file_reader_total << 1;
@@ -113,23 +116,76 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     if (!client) {
         return Status::InternalError("init s3 client error");
     }
-    // clang-format off
-    auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
-            to, offset, bytes_req, bytes_read);
-    // clang-format on
-    if (resp.status.code != ErrorCode::OK) {
-        return std::move(Status(resp.status.code, std::move(resp.status.msg))
-                                 .append(fmt::format("failed to read from {}", _path.native())));
+    // // clang-format off
+    // auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
+    //         to, offset, bytes_req, bytes_read);
+    // // clang-format on
+    // if (resp.status.code != ErrorCode::OK) {
+    //     return std::move(Status(resp.status.code, std::move(resp.status.msg))
+    //                              .append(fmt::format("failed to read from {}", _path.native())));
+    // }
+    // if (*bytes_read != bytes_req) {
+    //     return Status::InternalError("failed to read from {}(bytes read: {}, bytes req: {})",
+    //                                  _path.native(), *bytes_read, bytes_req);
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
+
+    int retry_count = 0;
+    const int base_wait_time = 1000; // Base wait time in milliseconds
+    const int max_wait_time = 8000;  // Maximum wait time in milliseconds
+    const int max_retries = 4;       // wait 1s, 2s, 4s, 8s for each backoff
+
+    while (retry_count <= max_retries) {
+        auto outcome = client->GetObject(request);
+        _s3_stats.total_get_request_counter++;
+        if (!outcome.IsSuccess()) {
+            auto error = outcome.GetError();
+            if (error.GetResponseCode() == Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS) {
+                s3_file_reader_too_many_request_counter << 1;
+                retry_count++;
+                int wait_time = std::min(base_wait_time * (1 << retry_count),
+                                         max_wait_time); // Exponential backoff
+                std::this_thread::sleep_for(std::chrono::milliseconds(wait_time));
+                _s3_stats.too_many_request_err_counter++;
+                _s3_stats.too_many_request_sleep_time_ms += wait_time;
+                continue;
+            } else {
+                // Handle other errors
+                return s3fs_error(outcome.GetError(), "failed to read");
+            }
+        }
+        *bytes_read = outcome.GetResult().GetContentLength();
+        if (*bytes_read != bytes_req) {
+            return Status::InternalError("failed to read (bytes read: {}, bytes req: {})",
+                                         *bytes_read, bytes_req);
+        }
+        _s3_stats.total_bytes_read += bytes_req;
+        s3_bytes_read_total << bytes_req;
+        s3_bytes_per_read << bytes_req;
+        s3_file_reader_read_counter << 1;
+        DorisMetrics::instance()->s3_bytes_read_total->increment(bytes_req);
+        return Status::OK();
     }
-    if (*bytes_read != bytes_req) {
-        return Status::InternalError("failed to read from {}(bytes read: {}, bytes req: {})",
-                                     _path.native(), *bytes_read, bytes_req);
+    return Status::InternalError("failed to read from s3, exceeded maximum retries");
+}
+
+void S3FileReader::_collect_profile_before_close() {
+    if (_profile != nullptr) {
+        const char* s3_profile_name = "S3Profile";
+        ADD_TIMER(_profile, s3_profile_name);
+        RuntimeProfile::Counter* total_get_request_counter =
+                ADD_CHILD_COUNTER(_profile, "TotalGetRequest", TUnit::UNIT, s3_profile_name);
+        RuntimeProfile::Counter* too_many_request_err_counter =
+                ADD_CHILD_COUNTER(_profile, "TooManyRequestErr", TUnit::UNIT, s3_profile_name);
+        RuntimeProfile::Counter* too_many_request_sleep_time = ADD_CHILD_COUNTER(
+                _profile, "TooManyRequestSleepTime", TUnit::TIME_MS, s3_profile_name);
+        RuntimeProfile::Counter* total_bytes_read =
+                ADD_CHILD_COUNTER(_profile, "TotalBytesRead", TUnit::BYTES, s3_profile_name);
+
+        COUNTER_UPDATE(total_get_request_counter, _s3_stats.total_get_request_counter);
+        COUNTER_UPDATE(too_many_request_err_counter, _s3_stats.too_many_request_err_counter);
+        COUNTER_UPDATE(too_many_request_sleep_time, _s3_stats.too_many_request_sleep_time_ms);
+        COUNTER_UPDATE(total_bytes_read, _s3_stats.total_bytes_read);
     }
-    s3_bytes_read_total << *bytes_read;
-    s3_bytes_per_read << *bytes_read;
-    s3_file_reader_read_counter << 1;
-    DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
-    return Status::OK();
 }
 
 } // namespace doris::io
