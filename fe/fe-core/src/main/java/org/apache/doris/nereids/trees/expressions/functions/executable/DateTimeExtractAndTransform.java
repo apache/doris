@@ -30,9 +30,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateUtils;
 
