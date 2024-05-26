@@ -16,21 +16,24 @@
 // under the License.
 
 suite("test_lakesoul_catalog", "p0,external,doris,external_docker,external_docker_doris") {
-            String catalog_name = "lakesoul"
-            String db_name = "default"
+    def enabled = false;
+    // open it when docker image is ready to run in regression test
+    if (enabled) {
+        String catalog_name = "lakesoul"
+        String db_name = "default"
 
-            sql """drop catalog if exists ${catalog_name}"""
-            sql """
-                create catalog lakesoul  properties ('type'='lakesoul','lakesoul.pg.username'='lakesoul_test','lakesoul.pg.password'='lakesoul_test','lakesoul.pg.url'='jdbc:postgresql://127.0.0.1:5432/lakesoul_test?stringtype=unspecified');
-		"""
+        sql """drop catalog if exists ${catalog_name}"""
+        sql """
+            create catalog lakesoul  properties ('type'='lakesoul','lakesoul.pg.username'='lakesoul_test','lakesoul.pg.password'='lakesoul_test','lakesoul.pg.url'='jdbc:postgresql://127.0.0.1:5432/lakesoul_test?stringtype=unspecified');"""
 
-            // analyze
-            sql """use `${catalog_name}`.`${db_name}`"""
+        // analyze
+        sql """use `${catalog_name}`.`${db_name}`"""
 
-	    sql """show tables;"""
-            // select
-            sql  """select * from nation;"""
+ sq     """show tables;"""
+        // select
+        sql  """select * from nation;"""
 
-            sql  """show create table nation;"""
+        sql  """show create table nation;"""
+    }
 }
 
