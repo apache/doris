@@ -178,7 +178,7 @@ std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr& ptr) noexcept
 
 void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
                                           const std::initializer_list<size_t>& parameters,
-                                          Block& block, const ColumnNumbers& arg_indexes) noexcept {
+                                          Block& block, const ColumnNumbers& arg_indexes) {
     if (std::all_of(parameters.begin(), parameters.end(),
                     [&](size_t const_index) -> bool { return col_const[const_index]; })) {
         // only need to avoid expanding when all parameters are const

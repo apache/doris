@@ -31,7 +31,6 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -163,7 +162,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     ctx.isTxnModel() ? null : String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
-                boolean emptyInsert = leafIsEmptyRelation(physicalSink);
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 if (GroupCommitInsertExecutor.canGroupCommit(ctx, sink, physicalSink, planner)) {
                     insertExecutor = new GroupCommitInsertExecutor(ctx, targetTableIf, label, planner, insertCtx,
                             emptyInsert);
@@ -183,13 +182,13 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 insertExecutor.getCoordinator().getQueryOptions()
                         .setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             } else if (physicalSink instanceof PhysicalHiveTableSink) {
-                boolean emptyInsert = leafIsEmptyRelation(physicalSink);
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
                 insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
                         Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))), emptyInsert);
                 // set hive query options
             } else if (physicalSink instanceof PhysicalIcebergTableSink) {
-                boolean emptyInsert = leafIsEmptyRelation(physicalSink);
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 IcebergExternalTable icebergExternalTable = (IcebergExternalTable) targetTableIf;
                 insertExecutor = new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
                         Optional.of(insertCtx.orElse((new BaseExternalTableInsertCommandContext()))), emptyInsert);
@@ -240,15 +239,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         return visitor.visitInsertIntoTableCommand(this, context);
     }
 
-    private boolean leafIsEmptyRelation(TreeNode<Plan> node) {
-        if (node.children() == null || node.children().isEmpty()) {
-            return node instanceof PhysicalEmptyRelation;
+    private boolean childIsEmptyRelation(PhysicalSink sink) {
+        if (sink.children() != null && sink.children().size() == 1
+                && sink.child(0) instanceof PhysicalEmptyRelation) {
+            return true;
         }
-        for (TreeNode<Plan> child : node.children()) {
-            if (!leafIsEmptyRelation(child)) {
-                return false;
-            }
-        }
-        return true;
+        return false;
     }
 }

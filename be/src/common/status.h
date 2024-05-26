@@ -412,7 +412,6 @@ public:
         if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
             // Delete the first one frame pointers, which are inside the status.h
             status._err_msg->_stack = get_stack_trace(1);
-            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
         return status;
@@ -431,7 +430,6 @@ public:
 #ifdef ENABLE_STACKTRACE
         if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
             status._err_msg->_stack = get_stack_trace(1);
-            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
         return status;
@@ -619,6 +617,13 @@ inline std::string Status::to_string_no_stack() const {
         if (UNLIKELY(!_status_.ok())) { \
             return _status_;            \
         }                               \
+    } while (false)
+
+#define PROPAGATE_FALSE(stmt)                     \
+    do {                                          \
+        if (UNLIKELY(!static_cast<bool>(stmt))) { \
+            return false;                         \
+        }                                         \
     } while (false)
 
 #define THROW_IF_ERROR(stmt)            \

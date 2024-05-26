@@ -32,7 +32,6 @@ under the License.
         <doris.home>${basedir}/../../</doris.home>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <fe_ut_parallel>1</fe_ut_parallel>
-        <antlr4.version>4.13.1</antlr4.version>
         <awssdk.version>2.20.131</awssdk.version>
         <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
         <tencentcos.version>8.2.7</tencentcos.version>
@@ -433,9 +432,26 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
+            when upgrade doris antlr-runtime version, should take care of trino-parser.-->
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr4.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
+            <exclusions>
+                <exclusion>
+                    <artifactId>antlr-runtime</artifactId>
+                    <groupId>org.antlr</groupId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>antlr4</artifactId>
+                    <groupId>org.antlr</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web -->
         <dependency>
@@ -655,14 +671,6 @@ under the License.
             <artifactId>mariadb-java-client</artifactId>
         </dependency>
 
-        <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
-            when upgrade doris antlr-runtime version, should take care of trino-parser.-->
-        <dependency>
-            <groupId>org.antlr</groupId>
-            <artifactId>antlr4-runtime</artifactId>
-            <version>${antlr4.version}</version>
-        </dependency>
-
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
@@ -807,6 +815,15 @@ under the License.
             <groupId>me.bechberger</groupId>
             <artifactId>ap-loader-all</artifactId>
             <version>3.0-8</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hbase</groupId>
+            <artifactId>hbase-server</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hbase</groupId>
+            <artifactId>hbase-hadoop-compat</artifactId>
+            <version>2.5.2-hadoop3</version>
         </dependency>
     </dependencies>
     <repositories>

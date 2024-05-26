@@ -294,6 +294,9 @@ struct TQueryOptions {
   108: optional i64 local_exchange_free_blocks_limit;
 
   109: optional bool enable_force_spill = false;
+
+  110: optional bool enable_parquet_filter_by_min_max = true
+  111: optional bool enable_orc_filter_by_min_max = true
   
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
@@ -754,6 +757,8 @@ struct TPipelineFragmentParams {
   38: optional i32 total_instances
   39: optional map<i32, i32> shuffle_idx_to_instance_idx
   40: optional bool is_nereids = true;
+  41: optional i64 wal_id
+  42: optional i64 content_length
 
   // For cloud
   1000: optional bool is_mow_table;

@@ -288,7 +288,6 @@ struct TimeDiffImpl {
     using ReturnType = DataTypeTimeV2;
 
     static constexpr auto name = "timediff";
-    static constexpr auto is_nullable = false;
     static constexpr int64_t limit_value = 3020399000000; // 838:59:59 convert to microsecond
     static inline ReturnType::FieldType execute(const ArgType1& t0, const ArgType2& t1,
                                                 bool& is_null) {
@@ -749,56 +748,11 @@ public:
         WhichDataType which1(remove_nullable(first_arg_type));
         WhichDataType which2(remove_nullable(second_arg_type));
 
-        if (which1.is_date() && which2.is_date()) {
-            return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform,
-                                           DataTypeDate::FieldType>::execute(block, arguments,
-                                                                             result,
-                                                                             input_rows_count);
-        } else if (which1.is_date_time() && which2.is_date()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTime::FieldType, Transform,
-                                           DataTypeDate::FieldType>::execute(block, arguments,
-                                                                             result,
-                                                                             input_rows_count);
-        } else if (which1.is_date_v2() && which2.is_date()) {
-            return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform,
-                                           DataTypeDate::FieldType>::execute(block, arguments,
-                                                                             result,
-                                                                             input_rows_count);
-        } else if (which1.is_date_time_v2() && which2.is_date()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTimeV2::FieldType, Transform,
-                                           DataTypeDate::FieldType>::execute(block, arguments,
-                                                                             result,
-                                                                             input_rows_count);
-        } else if (which1.is_date() && which2.is_date_time()) {
-            return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform,
-                                           DataTypeDateTime::FieldType>::execute(block, arguments,
-                                                                                 result,
-                                                                                 input_rows_count);
-        } else if (which1.is_date() && which2.is_date_v2()) {
-            return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform,
-                                           DataTypeDateV2::FieldType>::execute(block, arguments,
-                                                                               result,
-                                                                               input_rows_count);
-        } else if (which1.is_date() && which2.is_date_time_v2()) {
-            return DateTimeAddIntervalImpl<
-                    DataTypeDate::FieldType, Transform,
-                    DataTypeDateTimeV2::FieldType>::execute(block, arguments, result,
-                                                            input_rows_count);
-        } else if (which1.is_date_v2() && which2.is_date_time()) {
-            return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform,
-                                           DataTypeDateTime::FieldType>::execute(block, arguments,
-                                                                                 result,
-                                                                                 input_rows_count);
-        } else if (which1.is_date_v2() && which2.is_date_v2()) {
+        if (which1.is_date_v2() && which2.is_date_v2()) {
             return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform,
                                            DataTypeDateV2::FieldType>::execute(block, arguments,
                                                                                result,
                                                                                input_rows_count);
-        } else if (which1.is_date_time_v2() && which2.is_date_time()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTimeV2::FieldType, Transform,
-                                           DataTypeDateTime::FieldType>::execute(block, arguments,
-                                                                                 result,
-                                                                                 input_rows_count);
         } else if (which1.is_date_time_v2() && which2.is_date_time_v2()) {
             return DateTimeAddIntervalImpl<
                     DataTypeDateTimeV2::FieldType, Transform,
@@ -809,16 +763,6 @@ public:
                                            DataTypeDateTime::FieldType>::execute(block, arguments,
                                                                                  result,
                                                                                  input_rows_count);
-        } else if (which1.is_date_time() && which2.is_date_v2()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTime::FieldType, Transform,
-                                           DataTypeDateV2::FieldType>::execute(block, arguments,
-                                                                               result,
-                                                                               input_rows_count);
-        } else if (which1.is_date_time() && which2.is_date_time_v2()) {
-            return DateTimeAddIntervalImpl<
-                    DataTypeDateTime::FieldType, Transform,
-                    DataTypeDateTimeV2::FieldType>::execute(block, arguments, result,
-                                                            input_rows_count);
         } else if (which1.is_date_v2() && which2.is_date_time_v2()) {
             return DateTimeAddIntervalImpl<
                     DataTypeDateV2::FieldType, Transform,

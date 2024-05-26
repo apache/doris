@@ -42,13 +42,17 @@ SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* d
           spill_dir_(std::move(spill_dir)),
           batch_rows_(batch_rows),
           batch_bytes_(batch_bytes),
+          query_id_(state->query_id()),
           profile_(profile) {}
 
 SpillStream::~SpillStream() {
     bool exists = false;
     auto status = io::global_local_filesystem()->exists(spill_dir_, &exists);
     if (status.ok() && exists) {
-        auto gc_dir = fmt::format("{}/{}/{}", get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
+        auto query_dir = fmt::format("{}/{}/{}", get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
+                                     print_id(query_id_));
+        (void)io::global_local_filesystem()->create_directory(query_dir);
+        auto gc_dir = fmt::format("{}/{}", query_dir,
                                   std::filesystem::path(spill_dir_).filename().string());
         (void)io::global_local_filesystem()->rename(spill_dir_, gc_dir);
     }
@@ -79,7 +83,7 @@ void SpillStream::close() {
 }
 
 const TUniqueId& SpillStream::query_id() const {
-    return state_->query_id();
+    return query_id_;
 }
 
 const std::string& SpillStream::get_spill_root_dir() const {

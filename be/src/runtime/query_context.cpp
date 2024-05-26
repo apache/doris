@@ -55,11 +55,10 @@ public:
     std::unique_ptr<ThreadPoolToken> token_;
 };
 
-QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
+QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
                            bool is_pipeline, bool is_nereids)
-        : fragment_num(total_fragment_num),
-          _timeout_second(-1),
+        : _timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
           _is_pipeline(is_pipeline),
@@ -470,7 +469,8 @@ TReportExecStatusParams QueryContext::get_realtime_exec_status_x() const {
         }
 
         exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params_x(
-                this->_query_id, realtime_query_profile, load_channel_profiles, /*is_done=*/false);
+                this->_query_id, std::move(realtime_query_profile),
+                std::move(load_channel_profiles), /*is_done=*/false);
     } else {
         auto msg = fmt::format("Query {} is not pipelineX query", print_id(_query_id));
         LOG_ERROR(msg);

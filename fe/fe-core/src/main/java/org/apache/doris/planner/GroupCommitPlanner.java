@@ -37,13 +37,13 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.StreamLoadTask;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMergeType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
@@ -74,7 +74,7 @@ public class GroupCommitPlanner {
     protected OlapTable table;
     protected TUniqueId loadId;
     protected Backend backend;
-    private TExecPlanFragmentParamsList paramsList;
+    private TPipelineFragmentParamsList paramsList;
     private ByteString execPlanFragmentParamsBytes;
 
     public GroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames, TUniqueId queryId,
@@ -106,8 +106,9 @@ public class GroupCommitPlanner {
         StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
         // Will using load id as query id in fragment
         // TODO support pipeline
-        TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-        for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
+        TPipelineFragmentParams tRequest = planner.plan(streamLoadTask.getId());
+        for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.local_params.get(0)
+                .per_node_scan_ranges.entrySet()) {
             for (TScanRangeParams scanRangeParams : entry.getValue()) {
                 scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
                         TFileFormatType.FORMAT_PROTO);
@@ -115,13 +116,13 @@ public class GroupCommitPlanner {
                         TFileCompressType.PLAIN);
             }
         }
-        tRequest.query_options.setEnablePipelineEngine(false);
-        List<TScanRangeParams> scanRangeParams = tRequest.params.per_node_scan_ranges.values().stream()
+        tRequest.query_options.setEnablePipelineEngine(true);
+        List<TScanRangeParams> scanRangeParams = tRequest.local_params.get(0).per_node_scan_ranges.values().stream()
                 .flatMap(Collection::stream).collect(Collectors.toList());
         Preconditions.checkState(scanRangeParams.size() == 1);
         loadId = queryId;
         // see BackendServiceProxy#execPlanFragmentsAsync
-        paramsList = new TExecPlanFragmentParamsList();
+        paramsList = new TPipelineFragmentParamsList();
         paramsList.addToParamsList(tRequest);
         execPlanFragmentParamsBytes = ByteString.copyFrom(new TSerializer().serialize(paramsList));
     }
@@ -134,7 +135,7 @@ public class GroupCommitPlanner {
         PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
                 .setExecPlanFragmentRequest(InternalService.PExecPlanFragmentRequest.newBuilder()
                         .setRequest(execPlanFragmentParamsBytes)
-                        .setCompact(false).setVersion(InternalService.PFragmentRequestVersion.VERSION_2).build())
+                        .setCompact(false).setVersion(InternalService.PFragmentRequestVersion.VERSION_3).build())
                 .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
                 .build()).addAllData(rows)
                 .build();
@@ -173,7 +174,7 @@ public class GroupCommitPlanner {
         return backend;
     }
 
-    public TExecPlanFragmentParamsList getParamsList() {
+    public TPipelineFragmentParamsList getParamsList() {
         return paramsList;
     }
 

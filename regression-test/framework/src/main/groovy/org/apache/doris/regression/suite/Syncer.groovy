@@ -355,14 +355,15 @@ class Syncer {
         }
         String checkSQL = "SHOW BACKUP FROM ${dbName}"
         def records = suite.sql(checkSQL)
+        def allDone = true
         for (row in records) {
             logger.info("BACKUP row is ${row}")
             String state = (row[3] as String);
             if (state != "FINISHED" && state != "CANCELLED") {
-                return false
+                allDone = false
             }
         }
-        true
+        allDone
     }
 
     void waitSnapshotFinish(String dbName = null) {
@@ -404,14 +405,15 @@ class Syncer {
         }
         String checkSQL = "SHOW RESTORE FROM ${dbName}"
         def records = suite.sql(checkSQL)
+        def allDone = true
         for (row in records) {
             logger.info("Restore row is ${row}")
             String state = row[4]
             if (state != "FINISHED" && state != "CANCELLED") {
-                return false
+                allDone = false
             }
         }
-        true
+        allDone
     }
 
     void waitAllRestoreFinish(String dbName = null) {
