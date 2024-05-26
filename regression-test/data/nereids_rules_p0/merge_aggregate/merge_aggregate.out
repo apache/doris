@@ -297,3 +297,12 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalOlapScan[mal_test2]
 
+-- !agg_project_agg_the_project_has_duplicate_slot_output --
+1	7	7
+2	4	4
+6	\N	\N
+7	1	1
+8	2	2
+8	5	5
+9	3	3
+
