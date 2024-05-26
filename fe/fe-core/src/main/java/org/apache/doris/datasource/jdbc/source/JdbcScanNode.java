@@ -99,7 +99,6 @@ public class JdbcScanNode extends ExternalScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        getGraphQueryString();
     }
 
     /**
@@ -111,25 +110,6 @@ public class JdbcScanNode extends ExternalScanNode {
         numNodes = numNodes <= 0 ? 1 : numNodes;
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
         cardinality = (long) statsDeriveResult.getRowCount();
-    }
-
-    private boolean isNebula() {
-        return jdbcType == TOdbcTableType.NEBULA;
-    }
-
-    private void getGraphQueryString() {
-        if (!isNebula()) {
-            return;
-        }
-        for (Expr expr : conjuncts) {
-            FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
-            if ("g".equals(functionCallExpr.getFnName().getFunction())) {
-                graphQueryString = functionCallExpr.getChild(0).getStringValue();
-                break;
-            }
-        }
-        // clean conjusts cause graph sannnode no need conjuncts
-        conjuncts = Lists.newArrayList();
     }
 
     private void createJdbcFilters() {
@@ -195,9 +175,6 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     private String getJdbcQueryStr() {
-        if (isNebula()) {
-            return graphQueryString;
-        }
         StringBuilder sql = new StringBuilder("SELECT ");
 
         // Oracle use the where clause to do top n
