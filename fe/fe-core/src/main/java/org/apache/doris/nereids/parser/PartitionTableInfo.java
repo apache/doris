@@ -34,6 +34,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
@@ -160,11 +161,17 @@ public class PartitionTableInfo {
      * @param isEnableMergeOnWrite whether enable merge on write
      */
     public void validatePartitionInfo(
+            String engineName,
+            List<ColumnDefinition> columns,
             Map<String, ColumnDefinition> columnMap,
             Map<String, String> properties,
             ConnectContext ctx,
             boolean isEnableMergeOnWrite,
             boolean isExternal) {
+
+        // TODO 当engieName是hive的时候，增加分区列判断：
+        // 1. 必须在schema末尾
+        // 2. 顺序必须与partitionColumns相同
 
         if (partitionColumns != null) {
 
@@ -173,6 +180,21 @@ public class PartitionTableInfo {
                     throw new AnalysisException("internal catalog does not support functions in 'LIST' partition");
                 }
                 isAutoPartition = true;
+            }
+
+            if (engineName.equals(CreateTableInfo.ENGINE_HIVE)) {
+                // 1. The partition field must be at the end of the schema
+                // 2. The order of partition fields in the schema
+                //    must be consistent with the order defined in `PARTITIONED BY LIST()`
+                List<ColumnDefinition> partitionInSchema = columns.subList(0, partitionColumns.size());
+                for (int i = 0; i < partitionInSchema.size(); i++) {
+                    if (!partitionInSchema.get(i).getName().equals(partitionColumns.get(i))) {
+                        throw new AnalysisException("Partition information error. "
+                                + "1. The partition field must be at the end of the schema. "
+                                + "2. The order of partition fields in the schema"
+                                + "must be consistent with the order defined in `PARTITIONED BY LIST()`");
+                    }
+                }
             }
 
             partitionColumns.forEach(p -> {
