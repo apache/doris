@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.sqltest;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.LogicalCompatibilityContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
@@ -35,6 +37,11 @@ public abstract class SqlTestBase extends TestWithFeService implements MemoPatte
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("test");
+
+        // make table id is larger than Integer.MAX_VALUE
+        IdGeneratorBuffer idGeneratorBuffer =
+                Env.getCurrentEnv().getIdGeneratorBuffer(Integer.MAX_VALUE + 10L);
+        idGeneratorBuffer.getNextId();
 
         createTables(
                 "CREATE TABLE IF NOT EXISTS T0 (\n"

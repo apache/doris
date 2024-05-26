@@ -22,47 +22,35 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
+import org.apache.doris.nereids.rules.exploration.mv.rollup.AggFunctionRollUpHandler;
+import org.apache.doris.nereids.rules.exploration.mv.rollup.BothCombinatorRollupHandler;
+import org.apache.doris.nereids.rules.exploration.mv.rollup.DirectRollupHandler;
+import org.apache.doris.nereids.rules.exploration.mv.rollup.MappingRollupHandler;
+import org.apache.doris.nereids.rules.exploration.mv.rollup.SingleCombinatorRollupHandler;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Any;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
-import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CouldRollUp;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
-import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
-import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -72,91 +60,14 @@ import java.util.stream.Collectors;
  */
 public abstract class AbstractMaterializedViewAggregateRule extends AbstractMaterializedViewRule {
 
-    protected static final Multimap<Function, Expression>
-            AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP = ArrayListMultimap.create();
+    public static final List<AggFunctionRollUpHandler> ROLL_UP_HANDLERS =
+            ImmutableList.of(DirectRollupHandler.INSTANCE,
+                    MappingRollupHandler.INSTANCE,
+                    SingleCombinatorRollupHandler.INSTANCE,
+                    BothCombinatorRollupHandler.INSTANCE);
+
     protected static final AggregateExpressionRewriter AGGREGATE_EXPRESSION_REWRITER =
             new AggregateExpressionRewriter();
-
-    static {
-        // support roll up when count distinct is in query
-        // the column type is not bitMap
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new Count(true, Any.INSTANCE),
-                new BitmapUnion(new ToBitmap(Any.INSTANCE)));
-        // with bitmap_union, to_bitmap and cast
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new Count(true, Any.INSTANCE),
-                new BitmapUnion(new ToBitmap(new Cast(Any.INSTANCE, BigIntType.INSTANCE))));
-
-        // support roll up when bitmap_union_count is in query
-        // the column type is bitMap
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(
-                new BitmapUnionCount(Any.INSTANCE),
-                new BitmapUnion(Any.INSTANCE));
-        // the column type is not bitMap
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(
-                new BitmapUnionCount(new ToBitmap(Any.INSTANCE)),
-                new BitmapUnion(new ToBitmap(Any.INSTANCE)));
-        // with bitmap_union, to_bitmap and cast
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(
-                new BitmapUnionCount(new ToBitmap(new Cast(Any.INSTANCE, BigIntType.INSTANCE))),
-                new BitmapUnion(new ToBitmap(new Cast(Any.INSTANCE, BigIntType.INSTANCE))));
-
-        // support roll up when the column type is not hll
-        // query is approx_count_distinct
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new Ndv(Any.INSTANCE),
-                new HllUnion(new HllHash(Any.INSTANCE)));
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new Ndv(Any.INSTANCE),
-                new HllUnion(new HllHash(new Cast(Any.INSTANCE, VarcharType.SYSTEM_DEFAULT))));
-
-        // query is HLL_UNION_AGG
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new HllUnionAgg(new HllHash(Any.INSTANCE)),
-                new HllUnion(new HllHash(Any.INSTANCE)));
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new HllUnionAgg(new HllHash(Any.INSTANCE)),
-                new HllUnion(new HllHash(new Cast(Any.INSTANCE, VarcharType.SYSTEM_DEFAULT))));
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(
-                new HllUnionAgg(new HllHash(new Cast(Any.INSTANCE, VarcharType.SYSTEM_DEFAULT))),
-                new HllUnion(new HllHash(Any.INSTANCE)));
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(
-                new HllUnionAgg(new HllHash(new Cast(Any.INSTANCE, VarcharType.SYSTEM_DEFAULT))),
-                new HllUnion(new HllHash(new Cast(Any.INSTANCE, VarcharType.SYSTEM_DEFAULT))));
-
-        // query is HLL_CARDINALITY
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new HllCardinality(new HllUnion(new HllHash(Any.INSTANCE))),
-                new HllUnion(new HllHash(Any.INSTANCE)));
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new HllCardinality(new HllUnion(new HllHash(Any.INSTANCE))),
-                new HllUnion(new HllHash(new Cast(Any.INSTANCE, VarcharType.SYSTEM_DEFAULT))));
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(
-                new HllCardinality(new HllUnion(new HllHash(new Cast(Any.INSTANCE, VarcharType.SYSTEM_DEFAULT)))),
-                new HllUnion(new HllHash(Any.INSTANCE)));
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(
-                new HllCardinality(new HllUnion(new HllHash(new Cast(Any.INSTANCE, VarcharType.SYSTEM_DEFAULT)))),
-                new HllUnion(new HllHash(new Cast(Any.INSTANCE, VarcharType.SYSTEM_DEFAULT))));
-
-        // query is HLL_RAW_AGG or HLL_UNION
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new HllUnion(new HllHash(Any.INSTANCE)),
-                new HllUnion(new HllHash(Any.INSTANCE)));
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new HllUnion(new HllHash(Any.INSTANCE)),
-                new HllUnion(new HllHash(new Cast(Any.INSTANCE, VarcharType.SYSTEM_DEFAULT))));
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(
-                new HllUnion(new HllHash(new Cast(Any.INSTANCE, VarcharType.SYSTEM_DEFAULT))),
-                new HllUnion(new HllHash(Any.INSTANCE)));
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(
-                new HllUnion(new HllHash(new Cast(Any.INSTANCE, VarcharType.SYSTEM_DEFAULT))),
-                new HllUnion(new HllHash(new Cast(Any.INSTANCE, VarcharType.SYSTEM_DEFAULT))));
-
-        // support roll up when the column type is hll
-        // query is HLL_UNION_AGG
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new HllUnionAgg(Any.INSTANCE),
-                new HllUnion(Any.INSTANCE));
-
-        // query is HLL_CARDINALITY
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new HllCardinality(new HllUnion(Any.INSTANCE)),
-                new HllUnion(Any.INSTANCE));
-
-        // query is HLL_RAW_AGG or HLL_UNION
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new HllUnion(Any.INSTANCE),
-                new HllUnion(Any.INSTANCE));
-
-    }
 
     @Override
     protected Plan rewriteQueryByView(MatchMode matchMode,
@@ -375,35 +286,22 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     private static Function rollup(AggregateFunction queryAggregateFunction,
             Expression queryAggregateFunctionShuttled,
             Map<Expression, Expression> mvExprToMvScanExprQueryBased) {
-        if (!(queryAggregateFunction instanceof CouldRollUp)) {
-            return null;
-        }
-        Expression rollupParam = null;
-        Expression viewRollupFunction = null;
-        // handle simple aggregate function roll up which is not in the AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP
-        if (mvExprToMvScanExprQueryBased.containsKey(queryAggregateFunctionShuttled)
-                && AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.keySet().stream()
-                .noneMatch(aggFunction -> aggFunction.equals(queryAggregateFunction))) {
-            rollupParam = mvExprToMvScanExprQueryBased.get(queryAggregateFunctionShuttled);
-            viewRollupFunction = queryAggregateFunctionShuttled;
-        } else {
-            // handle complex functions roll up
-            // eg: query is count(distinct param), mv sql is bitmap_union(to_bitmap(param))
-            for (Expression mvExprShuttled : mvExprToMvScanExprQueryBased.keySet()) {
-                if (!(mvExprShuttled instanceof Function)) {
+        for (Map.Entry<Expression, Expression> expressionEntry : mvExprToMvScanExprQueryBased.entrySet()) {
+            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair = Pair.of(expressionEntry.getKey(),
+                    expressionEntry.getValue());
+            for (AggFunctionRollUpHandler rollUpHandler : ROLL_UP_HANDLERS) {
+                if (!rollUpHandler.canRollup(queryAggregateFunction, queryAggregateFunctionShuttled,
+                        mvExprToMvScanExprQueryBasedPair)) {
                     continue;
                 }
-                if (isAggregateFunctionEquivalent(queryAggregateFunction, (Function) mvExprShuttled)) {
-                    rollupParam = mvExprToMvScanExprQueryBased.get(mvExprShuttled);
-                    viewRollupFunction = mvExprShuttled;
+                Function rollupFunction = rollUpHandler.doRollup(queryAggregateFunction,
+                        queryAggregateFunctionShuttled, mvExprToMvScanExprQueryBasedPair);
+                if (rollupFunction != null) {
+                    return rollupFunction;
                 }
             }
         }
-        if (rollupParam == null || !canRollup(viewRollupFunction)) {
-            return null;
-        }
-        // do roll up
-        return ((CouldRollUp) queryAggregateFunction).constructRollUp(rollupParam);
+        return null;
     }
 
     // Check the aggregate function can roll up or not, return true if could roll up
@@ -418,7 +316,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
         if (rollupExpression instanceof AggregateFunction) {
             AggregateFunction aggregateFunction = (AggregateFunction) rollupExpression;
-            return !aggregateFunction.isDistinct() && aggregateFunction instanceof CouldRollUp;
+            return !aggregateFunction.isDistinct() && aggregateFunction instanceof RollUpTrait;
         }
         return true;
     }
@@ -478,60 +376,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // if query or mv contains more then one top aggregate, should fail
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
                 && checkContext.isContainsTopAggregate() && checkContext.getTopAggregateNum() <= 1;
-    }
-
-    /**
-     * Check the queryFunction is equivalent to view function when function roll up.
-     * Not only check the function name but also check the argument between query and view aggregate function.
-     * Such as query is
-     * select count(distinct a) + 1 from table group by b.
-     * mv is
-     * select bitmap_union(to_bitmap(a)) from table group by a, b.
-     * the queryAggregateFunction is count(distinct a), queryAggregateFunctionShuttled is count(distinct a) + 1
-     * mvExprToMvScanExprQueryBased is { bitmap_union(to_bitmap(a)) : MTMVScan(output#0) }
-     * This will check the count(distinct a) in query is equivalent to  bitmap_union(to_bitmap(a)) in mv,
-     * and then check their arguments is equivalent.
-     */
-    private static boolean isAggregateFunctionEquivalent(Function queryFunction, Function viewFunction) {
-        if (queryFunction.equals(viewFunction)) {
-            return true;
-        }
-        // check the argument of rollup function is equivalent to view function or not
-        for (Map.Entry<Function, Collection<Expression>> equivalentFunctionEntry :
-                AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.asMap().entrySet()) {
-            if (equivalentFunctionEntry.getKey().equals(queryFunction)) {
-                // check is have equivalent function or not
-                for (Expression equivalentFunction : equivalentFunctionEntry.getValue()) {
-                    if (!Any.equals(equivalentFunction, viewFunction)) {
-                        continue;
-                    }
-                    // check param in query function is same as the view function
-                    List<Expression> viewFunctionArguments = extractArguments(equivalentFunction, viewFunction);
-                    List<Expression> queryFunctionArguments =
-                            extractArguments(equivalentFunctionEntry.getKey(), queryFunction);
-                    // check argument size,we only support roll up function which has only one argument currently
-                    if (queryFunctionArguments.size() != 1 || viewFunctionArguments.size() != 1) {
-                        continue;
-                    }
-                    if (Objects.equals(queryFunctionArguments.get(0), viewFunctionArguments.get(0))) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Extract the function arguments by functionWithAny pattern
-     * Such as functionWithAny def is bitmap_union(to_bitmap(Any.INSTANCE)),
-     * actualFunction is bitmap_union(to_bitmap(case when a = 5 then 1 else 2 end))
-     * after extracting, the return argument is: case when a = 5 then 1 else 2 end
-     */
-    private static List<Expression> extractArguments(Expression functionWithAny, Function actualFunction) {
-        Set<Object> exprSetToRemove = functionWithAny.collectToSet(expr -> !(expr instanceof Any));
-        return actualFunction.collectFirst(expr ->
-                exprSetToRemove.stream().noneMatch(exprToRemove -> exprToRemove.equals(expr)));
     }
 
     /**

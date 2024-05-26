@@ -125,7 +125,9 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
         for (auto type_pair : arithmetic_scala_field_types) {
             auto type = std::get<0>(type_pair);
             DataTypePtr data_type_ptr;
-            if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
+            if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
+                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 27, 9);
+            } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
                 // decimal32(7, 2)
                 data_type_ptr = DataTypeFactory::instance().create_data_type(type, 9, 2);
             } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL64) {
@@ -442,8 +444,12 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
         // array type
         for (auto type_pair : nested_field_types) {
             auto type = std::get<0>(type_pair);
-            DataTypePtr nested_data_type_ptr =
-                    DataTypeFactory::instance().create_data_type(type, 0, 0);
+            DataTypePtr nested_data_type_ptr;
+            if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
+                nested_data_type_ptr = DataTypeFactory::instance().create_data_type(type, 27, 9);
+            } else {
+                nested_data_type_ptr = DataTypeFactory::instance().create_data_type(type, 0, 0);
+            }
             DataTypePtr array_data_type_ptr = make_nullable(
                     std::make_shared<DataTypeArray>(make_nullable(nested_data_type_ptr)));
 
@@ -611,8 +617,14 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
             auto value_type = std::get<1>(type_pair);
             DataTypePtr nested_key_type_ptr =
                     DataTypeFactory::instance().create_data_type(key_type, 0, 0);
-            DataTypePtr nested_value_type_ptr =
-                    DataTypeFactory::instance().create_data_type(value_type, 0, 0);
+            DataTypePtr nested_value_type_ptr;
+            if (value_type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
+                nested_value_type_ptr =
+                        DataTypeFactory::instance().create_data_type(value_type, 27, 9);
+            } else {
+                nested_value_type_ptr =
+                        DataTypeFactory::instance().create_data_type(value_type, 0, 0);
+            }
             DataTypePtr map_data_type_ptr = make_nullable(std::make_shared<DataTypeMap>(
                     make_nullable(nested_key_type_ptr), make_nullable(nested_value_type_ptr)));
 
@@ -697,8 +709,14 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
             auto value_type = std::get<1>(type_pair);
             DataTypePtr nested_key_type_ptr =
                     DataTypeFactory::instance().create_data_type(key_type, 0, 0);
-            DataTypePtr nested_value_type_ptr =
-                    DataTypeFactory::instance().create_data_type(value_type, 0, 0);
+            DataTypePtr nested_value_type_ptr;
+            if (value_type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
+                nested_value_type_ptr =
+                        DataTypeFactory::instance().create_data_type(value_type, 27, 9);
+            } else {
+                nested_value_type_ptr =
+                        DataTypeFactory::instance().create_data_type(value_type, 0, 0);
+            }
             DataTypePtr map_data_type_ptr = std::make_shared<DataTypeMap>(
                     make_nullable(nested_key_type_ptr), make_nullable(nested_value_type_ptr));
 

@@ -124,7 +124,6 @@ suite("test_s3_tvf", "p0") {
                             "s3.access_key"= "${ak}",
                             "s3.secret_key" = "${sk}",
                             "format" = "hive_text",
-                            "use_path_style" = "true",
                             "region" = "${region}"
                         ) order by c1,c2,c3;
                         """
@@ -137,7 +136,6 @@ suite("test_s3_tvf", "p0") {
                             "s3.access_key"= "${ak}",
                             "s3.secret_key" = "${sk}",
                             "format" = "hive_text",
-                            "use_path_style" = "true",
                             "region" = "${region}",
                             "csv_schema"="k1:int;k2:string;k3:double"
                         ) order by k1,k2,k3;
@@ -151,7 +149,6 @@ suite("test_s3_tvf", "p0") {
                             "s3.access_key"= "${ak}",
                             "s3.secret_key" = "${sk}",
                             "format" = "hive_text",
-                            "use_path_style" = "true",
                             "region" = "${region}",
                             "csv_schema"="k1:int;k2:string;k3:double"
                         )  where k3 > 1.5  order by k3,k2,k1;
@@ -165,7 +162,6 @@ suite("test_s3_tvf", "p0") {
                             "s3.access_key"= "${ak}",
                             "s3.secret_key" = "${sk}",
                             "format" = "hive_text",
-                            "use_path_style" = "true",
                             "region" = "${region}",
                             "csv_schema"="k1:int;k2:string;k3:double"
                         )  where k1 > 100  order by k3,k2,k1;

@@ -20,12 +20,10 @@ package org.apache.doris.datasource.paimon.source;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
@@ -115,17 +113,9 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
-        ExternalTable table = (ExternalTable) desc.getTable();
-        if (table.isView()) {
-            throw new AnalysisException(
-                    String.format("Querying external view '%s.%s' is not supported", table.getDbName(),
-                            table.getName()));
-        }
-        computeColumnsFilter();
-        initBackendPolicy();
-        source = new PaimonSource((PaimonExternalTable) table, desc, columnNameToRange);
+        super.doInitialize();
+        source = new PaimonSource(desc);
         Preconditions.checkNotNull(source);
-        initSchemaParams();
         PaimonPredicateConverter paimonPredicateConverter = new PaimonPredicateConverter(
                 source.getPaimonTable().rowType());
         predicates = paimonPredicateConverter.convertToPaimonExpr(conjuncts);
@@ -330,7 +320,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public TableIf getTargetTable() {
-        return source.getTargetTable();
+        return desc.getTable();
     }
 
     @Override

@@ -238,92 +238,98 @@ Status GroupCommitTable::get_first_block_load_queue(
 
 Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
                                                    std::shared_ptr<MemTrackerLimiter> mem_tracker) {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
     Status st = Status::OK();
     TStreamLoadPutRequest request;
     UniqueId load_id = UniqueId::gen_uid();
     TUniqueId tload_id;
-    tload_id.__set_hi(load_id.hi);
-    tload_id.__set_lo(load_id.lo);
-    std::regex reg("-");
-    std::string label = "group_commit_" + std::regex_replace(load_id.to_string(), reg, "_");
-    std::stringstream ss;
-    ss << "insert into doris_internal_table_id(" << _table_id << ") WITH LABEL " << label
-       << " select * from group_commit(\"table_id\"=\"" << _table_id << "\")";
-    request.__set_load_sql(ss.str());
-    request.__set_loadId(tload_id);
-    request.__set_label(label);
-    request.__set_token("group_commit"); // this is a fake, fe not check it now
-    request.__set_max_filter_ratio(1.0);
-    request.__set_strictMode(false);
-    // this is an internal interface, use admin to pass the auth check
-    request.__set_user("admin");
-    if (_exec_env->master_info()->__isset.backend_id) {
-        request.__set_backend_id(_exec_env->master_info()->backend_id);
-    } else {
-        LOG(WARNING) << "_exec_env->master_info not set backend_id";
-    }
+    bool is_pipeline = true;
     TStreamLoadPutResult result;
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-    st = ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&result, &request](FrontendServiceConnection& client) {
-                client->streamLoadPut(result, request);
-            },
-            10000L);
-    if (!st.ok()) {
-        LOG(WARNING) << "create group commit load rpc error, st=" << st.to_string();
-        return st;
-    }
-    st = Status::create<false>(result.status);
-    if (!st.ok()) {
-        LOG(WARNING) << "create group commit load error, st=" << st.to_string();
-        return st;
-    }
-    auto schema_version = result.base_schema_version;
-    auto is_pipeline = result.__isset.pipeline_params;
-    auto& params = result.params;
-    auto& pipeline_params = result.pipeline_params;
+    std::string label;
     int64_t txn_id;
     TUniqueId instance_id;
-    if (!is_pipeline) {
-        DCHECK(params.fragment.output_sink.olap_table_sink.db_id == _db_id);
-        txn_id = params.txn_conf.txn_id;
-        instance_id = params.params.fragment_instance_id;
-    } else {
-        DCHECK(pipeline_params.fragment.output_sink.olap_table_sink.db_id == _db_id);
-        txn_id = pipeline_params.txn_conf.txn_id;
-        DCHECK(pipeline_params.local_params.size() == 1);
-        instance_id = pipeline_params.local_params[0].fragment_instance_id;
-    }
-    VLOG_DEBUG << "create plan fragment, db_id=" << _db_id << ", table=" << _table_id
-               << ", schema version=" << schema_version << ", label=" << label
-               << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id)
-               << ", is_pipeline=" << is_pipeline;
     {
-        auto load_block_queue = std::make_shared<LoadBlockQueue>(
-                instance_id, label, txn_id, schema_version, _all_block_queues_bytes,
-                result.wait_internal_group_commit_finish, result.group_commit_interval_ms,
-                result.group_commit_data_bytes);
-        std::unique_lock l(_lock);
-        //create wal
-        if (!is_pipeline) {
-            RETURN_IF_ERROR(load_block_queue->create_wal(
-                    _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
-                    params.fragment.output_sink.olap_table_sink.schema.slot_descs, be_exe_version));
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
+        tload_id.__set_hi(load_id.hi);
+        tload_id.__set_lo(load_id.lo);
+        std::regex reg("-");
+        label = "group_commit_" + std::regex_replace(load_id.to_string(), reg, "_");
+        std::stringstream ss;
+        ss << "insert into doris_internal_table_id(" << _table_id << ") WITH LABEL " << label
+           << " select * from group_commit(\"table_id\"=\"" << _table_id << "\")";
+        request.__set_load_sql(ss.str());
+        request.__set_loadId(tload_id);
+        request.__set_label(label);
+        request.__set_token("group_commit"); // this is a fake, fe not check it now
+        request.__set_max_filter_ratio(1.0);
+        request.__set_strictMode(false);
+        // this is an internal interface, use admin to pass the auth check
+        request.__set_user("admin");
+        if (_exec_env->master_info()->__isset.backend_id) {
+            request.__set_backend_id(_exec_env->master_info()->backend_id);
         } else {
-            RETURN_IF_ERROR(load_block_queue->create_wal(
-                    _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
-                    pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs,
-                    be_exe_version));
+            LOG(WARNING) << "_exec_env->master_info not set backend_id";
         }
-        _load_block_queues.emplace(instance_id, load_block_queue);
-        _is_creating_plan_fragment = false;
-        _cv.notify_all();
+        TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+        st = ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&result, &request](FrontendServiceConnection& client) {
+                    client->streamLoadPut(result, request);
+                },
+                10000L);
+        if (!st.ok()) {
+            LOG(WARNING) << "create group commit load rpc error, st=" << st.to_string();
+            return st;
+        }
+        st = Status::create<false>(result.status);
+        if (!st.ok()) {
+            LOG(WARNING) << "create group commit load error, st=" << st.to_string();
+            return st;
+        }
+        auto schema_version = result.base_schema_version;
+        is_pipeline = result.__isset.pipeline_params;
+        auto& params = result.params;
+        auto& pipeline_params = result.pipeline_params;
+        if (!is_pipeline) {
+            DCHECK(params.fragment.output_sink.olap_table_sink.db_id == _db_id);
+            txn_id = params.txn_conf.txn_id;
+            instance_id = params.params.fragment_instance_id;
+        } else {
+            DCHECK(pipeline_params.fragment.output_sink.olap_table_sink.db_id == _db_id);
+            txn_id = pipeline_params.txn_conf.txn_id;
+            DCHECK(pipeline_params.local_params.size() == 1);
+            instance_id = pipeline_params.local_params[0].fragment_instance_id;
+        }
+        VLOG_DEBUG << "create plan fragment, db_id=" << _db_id << ", table=" << _table_id
+                   << ", schema version=" << schema_version << ", label=" << label
+                   << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id)
+                   << ", is_pipeline=" << is_pipeline;
+        {
+            auto load_block_queue = std::make_shared<LoadBlockQueue>(
+                    instance_id, label, txn_id, schema_version, _all_block_queues_bytes,
+                    result.wait_internal_group_commit_finish, result.group_commit_interval_ms,
+                    result.group_commit_data_bytes);
+            std::unique_lock l(_lock);
+            //create wal
+            if (!is_pipeline) {
+                RETURN_IF_ERROR(load_block_queue->create_wal(
+                        _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
+                        params.fragment.output_sink.olap_table_sink.schema.slot_descs,
+                        be_exe_version));
+            } else {
+                RETURN_IF_ERROR(load_block_queue->create_wal(
+                        _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
+                        pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs,
+                        be_exe_version));
+            }
+            _load_block_queues.emplace(instance_id, load_block_queue);
+            _is_creating_plan_fragment = false;
+            _cv.notify_all();
+        }
     }
-    st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, params,
-                             pipeline_params);
+    st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, result.params,
+                             result.pipeline_params);
     if (!st.ok()) {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
         auto finish_st = _finish_group_commit_load(_db_id, _table_id, label, txn_id, instance_id,
                                                    st, nullptr);
         if (!finish_st.ok()) {
@@ -441,10 +447,12 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     }
     LOG(INFO) << ss.str();
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
-        std ::string msg = _exec_env->wal_mgr()->get_wal_dirs_info_string();
-        LOG(INFO) << "debug promise set: " << msg;
-        ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
-                Status ::InternalError(msg));
+        if (dp->param<int64_t>("table_id", -1) == table_id) {
+            std ::string msg = _exec_env->wal_mgr()->get_wal_dirs_info_string();
+            LOG(INFO) << "table_id" << std::to_string(table_id) << " set debug promise: " << msg;
+            ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
+                    Status ::InternalError(msg));
+        }
     };);
     return st;
 }
