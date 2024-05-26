@@ -31,14 +31,6 @@ public class RangerHiveAuditLogFlusher extends TimerTask {
 
     @Override
     public void run() {
-        while (true) {
-            this.auditHandler.flushAudit();
-
-            try {
-                Thread.sleep(20000);
-            } catch (InterruptedException e) {
-                log.info("error ", e);
-            }
-        }
+        this.auditHandler.flushAudit();
     }
 }
