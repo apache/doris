@@ -26,6 +26,12 @@ CompactionPermitLimiter::CompactionPermitLimiter() : _used_permits(0) {}
 
 void CompactionPermitLimiter::request(int64_t permits) {
     DorisMetrics::instance()->compaction_waitting_permits->set_value(permits);
+    // 1. config::total_permits_for_compaction_score = 20000
+    // 2. Thread-B requests permits 11000， used_permits = 11000
+    // 3. Thread-A requests permits 12000，wait for used_permits + 12000 <= 20000
+    // 4. adjust config::total_permits_for_compaction_score = 10000
+    // 5. Thread-B releases permits，used_permits = 0，notify Thread-A，used_permits + 12000 <= 10000
+    // we need to initialize total_permits instead of using the config.
     int64_t total_permits = config::total_permits_for_compaction_score;
     if (permits > total_permits) {
         // when tablet's compaction score is larger than "config::total_permits_for_compaction_score",
