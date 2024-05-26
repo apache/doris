@@ -50,4 +50,8 @@ suite("insert_select_empty_table") {
     qt_test_shape_agg_filter_limit """ explain shape plan
     insert into insert_select_empty_table1 select pk,a,b from insert_select_empty_table2 where a > 10 group by pk,a,b  limit 10;
     """
+
+    qt_test_insert_empty_agg "insert into insert_select_empty_table1(a) select count(*) from insert_select_empty_table1"
+    qt_test_insert_empty_agg_select "select * from insert_select_empty_table1"
+
 }

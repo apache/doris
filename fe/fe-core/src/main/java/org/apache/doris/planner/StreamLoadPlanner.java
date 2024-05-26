@@ -52,12 +52,10 @@ import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineInstanceParams;
-import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
@@ -113,13 +111,13 @@ public class StreamLoadPlanner {
     }
 
     // the caller should get table read lock when call this method
-    public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
+    public TPipelineFragmentParams plan(TUniqueId loadId) throws UserException {
         return this.plan(loadId, 1);
     }
 
     // the caller should get table read lock when call this method
     // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
-    public TExecPlanFragmentParams plan(TUniqueId loadId, int fragmentInstanceIdIndex) throws UserException {
+    public TPipelineFragmentParams plan(TUniqueId loadId, int fragmentInstanceIdIndex) throws UserException {
         if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
                 && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
@@ -290,19 +288,19 @@ public class StreamLoadPlanner {
 
         fragment.finalize(null);
 
-        TExecPlanFragmentParams params = new TExecPlanFragmentParams();
+        TPipelineFragmentParams params = new TPipelineFragmentParams();
         params.setProtocolVersion(PaloInternalServiceVersion.V1);
         params.setFragment(fragment.toThrift());
 
         params.setDescTbl(analyzer.getDescTbl().toThrift());
         params.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
 
-        TPlanFragmentExecParams execParams = new TPlanFragmentExecParams();
+        TPipelineInstanceParams execParams = new TPipelineInstanceParams();
         // user load id (streamLoadTask.id) as query id
-        execParams.setQueryId(loadId);
+        params.setQueryId(loadId);
         execParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + fragmentInstanceIdIndex));
-        execParams.per_exch_num_senders = Maps.newHashMap();
-        execParams.destinations = Lists.newArrayList();
+        params.per_exch_num_senders = Maps.newHashMap();
+        params.destinations = Lists.newArrayList();
         Map<Integer, List<TScanRangeParams>> perNodeScanRange = Maps.newHashMap();
         List<TScanRangeParams> scanRangeParams = Lists.newArrayList();
         for (TScanRangeLocations locations : scanNode.getScanRangeLocations(0)) {
@@ -310,10 +308,10 @@ public class StreamLoadPlanner {
         }
         // For stream load, only one sender
         execParams.setSenderId(0);
-        execParams.setNumSenders(1);
+        params.setNumSenders(1);
         perNodeScanRange.put(scanNode.getId().asInt(), scanRangeParams);
         execParams.setPerNodeScanRanges(perNodeScanRange);
-        params.setParams(execParams);
+        params.addToLocalParams(execParams);
         params.setLoadStreamPerNode(taskInfo.getStreamPerNode());
         params.setTotalLoadStreams(taskInfo.getStreamPerNode());
         params.setNumLocalSink(1);

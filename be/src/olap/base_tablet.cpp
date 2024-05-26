@@ -541,7 +541,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         if (UNLIKELY(segment_caches[i] == nullptr)) {
             segment_caches[i] = std::make_unique<SegmentCacheHandle>();
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true));
+                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true, true));
         }
         auto& segments = segment_caches[i]->get_segments();
         DCHECK_EQ(segments.size(), num_segments);

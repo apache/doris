@@ -147,7 +147,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void createTable(CreateTableStmt stmt) throws UserException {
+    public boolean createTable(CreateTableStmt stmt) throws UserException {
         String dbName = stmt.getDbName();
         String tblName = stmt.getTableName();
         ExternalDatabase<?> db = catalog.getDbNullable(dbName);
@@ -157,7 +157,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         if (tableExist(dbName, tblName)) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tblName);
-                return;
+                return true;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tblName);
             }
@@ -225,6 +225,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         } catch (Exception e) {
             throw new UserException(e.getMessage(), e);
         }
+        return false;
     }
 
     @Override
