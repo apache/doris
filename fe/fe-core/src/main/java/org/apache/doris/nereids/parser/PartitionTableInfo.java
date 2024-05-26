@@ -169,10 +169,6 @@ public class PartitionTableInfo {
             boolean isEnableMergeOnWrite,
             boolean isExternal) {
 
-        // TODO 当engieName是hive的时候，增加分区列判断：
-        // 1. 必须在schema末尾
-        // 2. 顺序必须与partitionColumns相同
-
         if (partitionColumns != null) {
 
             if (partitionColumns.size() != partitionList.size()) {
@@ -180,21 +176,6 @@ public class PartitionTableInfo {
                     throw new AnalysisException("internal catalog does not support functions in 'LIST' partition");
                 }
                 isAutoPartition = true;
-            }
-
-            if (engineName.equals(CreateTableInfo.ENGINE_HIVE)) {
-                // 1. The partition field must be at the end of the schema
-                // 2. The order of partition fields in the schema
-                //    must be consistent with the order defined in `PARTITIONED BY LIST()`
-                List<ColumnDefinition> partitionInSchema = columns.subList(0, partitionColumns.size());
-                for (int i = 0; i < partitionInSchema.size(); i++) {
-                    if (!partitionInSchema.get(i).getName().equals(partitionColumns.get(i))) {
-                        throw new AnalysisException("Partition information error. "
-                                + "1. The partition field must be at the end of the schema. "
-                                + "2. The order of partition fields in the schema"
-                                + "must be consistent with the order defined in `PARTITIONED BY LIST()`");
-                    }
-                }
             }
 
             partitionColumns.forEach(p -> {
@@ -211,6 +192,27 @@ public class PartitionTableInfo {
             if (!duplicatesKeys.isEmpty()) {
                 throw new AnalysisException(
                         "Duplicated partition column " + duplicatesKeys.get(0));
+            }
+
+            if (engineName.equals(CreateTableInfo.ENGINE_HIVE)) {
+                // 1. Not all columns can be partition fields
+                // 2. The partition field must be at the end of the schema
+                // 3. The order of partition fields in the schema
+                //    must be consistent with the order defined in `PARTITIONED BY LIST()`
+                if (partitionColumns.size() == columns.size()) {
+                    throw new AnalysisException("Not all columns can be partition fields.");
+                }
+                List<ColumnDefinition> partitionInSchema = columns.subList(
+                        columns.size() - partitionColumns.size(), columns.size());
+                for (int i = 0; i < partitionInSchema.size(); i++) {
+                    if (!partitionColumns.contains(partitionInSchema.get(i).getName())) {
+                        throw new AnalysisException("The partition field must be at the end of the schema.");
+                    }
+                    if (!partitionInSchema.get(i).getName().equals(partitionColumns.get(i))) {
+                        throw new AnalysisException("The order of partition fields in the schema "
+                            + "must be consistent with the order defined in `PARTITIONED BY LIST()`");
+                    }
+                }
             }
 
             if (partitionDefs != null) {
