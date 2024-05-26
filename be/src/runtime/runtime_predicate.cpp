@@ -220,6 +220,9 @@ Status RuntimePredicate::update(const Field& value) {
 
     for (auto p : _contexts) {
         auto ctx = p.second;
+        if (!ctx.tablet_schema) {
+            continue;
+        }
         std::unique_ptr<ColumnPredicate> pred {_pred_constructor(
                 ctx.tablet_schema->column(ctx.col_name), ctx.predicate->column_id(),
                 _get_value_fn(_orderby_extrem), false, &_predicate_arena)};
