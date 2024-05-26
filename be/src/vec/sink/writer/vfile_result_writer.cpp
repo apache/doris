@@ -373,7 +373,7 @@ Status VFileResultWriter::_delete_dir() {
         std::shared_ptr<io::S3FileSystem> s3_fs = nullptr;
         RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(
                 _file_opts->broker_properties, s3_uri, &s3_conf));
-        RETURN_IF_ERROR(io::S3FileSystem::create(s3_conf, "", &s3_fs));
+        RETURN_IF_ERROR(io::S3FileSystem::create(s3_conf, "", nullptr, &s3_fs));
         file_system = s3_fs;
         break;
     }
