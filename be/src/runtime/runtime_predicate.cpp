@@ -35,8 +35,10 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
         _contexts[p.first].expr = p.second;
     }
 
-    PrimitiveType type =
-            thrift_to_type(desc.target_node_id_to_target_expr.begin()->second.nodes[0].child_type);
+    PrimitiveType type = thrift_to_type(desc.target_node_id_to_target_expr.begin()
+                                                ->second.nodes[0]
+                                                .type.types[0]
+                                                .scalar_type.type);
     if (!_init(type)) {
         std::stringstream ss;
         desc.target_node_id_to_target_expr.begin()->second.nodes[0].printTo(ss);
