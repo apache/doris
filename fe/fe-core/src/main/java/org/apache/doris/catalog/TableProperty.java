@@ -82,7 +82,7 @@ public class TableProperty implements Writable {
 
     private TInvertedIndexStorageFormat invertedIndexStorageFormat = TInvertedIndexStorageFormat.DEFAULT;
 
-    private TCompressionType compressionType = TCompressionType.LZ4F;
+    private TCompressionType compressionType = TCompressionType.SNAPPY;
 
     private boolean enableLightSchemaChange = false;
 
