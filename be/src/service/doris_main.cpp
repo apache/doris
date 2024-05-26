@@ -298,7 +298,7 @@ int main(int argc, char** argv) {
     int fd = open(pid_file.c_str(), O_RDWR | O_CREAT,
                   S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
     if (fd < 0) {
-        fprintf(stderr, "fail to create pid file.");
+        fprintf(stderr, "fail to create pid file...");
         exit(-1);
     }
 
