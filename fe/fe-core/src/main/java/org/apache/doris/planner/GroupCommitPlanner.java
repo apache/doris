@@ -98,7 +98,8 @@ public class GroupCommitPlanner {
         }
         streamLoadPutRequest
                 .setDb(db.getFullName())
-                .setMaxFilterRatio(ConnectContext.get().getSessionVariable().enableInsertStrict ? 0 : 1)
+                .setMaxFilterRatio(ConnectContext.get().getSessionVariable().enableInsertStrict ? 0
+                        : ConnectContext.get().getSessionVariable().maxFilterRatio)
                 .setTbl(table.getName())
                 .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(queryId)

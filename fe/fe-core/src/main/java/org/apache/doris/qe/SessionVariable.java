@@ -128,6 +128,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PROFILE_LEVEL = "profile_level";
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
+    public static final String MAX_FILTER_RATIO = "max_filter_ratio";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
 
@@ -853,6 +854,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
+
+    @VariableMgr.VarAttr(name = MAX_FILTER_RATIO, needForward = true)
+    public float maxFilterRatio = 0;
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
@@ -2521,6 +2525,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableInsertStrict(boolean enableInsertStrict) {
         this.enableInsertStrict = enableInsertStrict;
+    }
+
+    public float getMaxFilterRatio() {
+        return maxFilterRatio;
+    }
+
+    public void setMaxFilterRatio(float maxFilterRatio) {
+        this.maxFilterRatio = maxFilterRatio;
     }
 
     public boolean isEnableSqlCache() {

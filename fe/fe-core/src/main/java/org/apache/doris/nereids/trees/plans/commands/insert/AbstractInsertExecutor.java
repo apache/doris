@@ -173,6 +173,11 @@ public abstract class AbstractInsertExecutor {
                 ErrorReport.reportDdlException("Insert has filtered data in strict mode",
                         ErrorCode.ERR_FAILED_WHEN_INSERT);
             }
+        } else {
+            if (filteredRows > ctx.getSessionVariable().getMaxFilterRatio() * (filteredRows + loadedRows)) {
+                ErrorReport.reportDdlException("Insert has too many filtered data %s/%s",
+                        ErrorCode.ERR_FAILED_WHEN_INSERT, filteredRows, filteredRows + loadedRows);
+            }
         }
     }
 
