@@ -578,8 +578,8 @@ Status TabletReader::_init_conditions_param_except_leafnode_of_andnode(
     for (int id : read_params.topn_filter_source_node_ids) {
         auto& runtime_predicate =
                 read_params.runtime_state->get_query_ctx()->get_runtime_predicate(id);
-        RETURN_IF_ERROR(runtime_predicate.set_tablet_schema(
-                _reader_context.topn_filter_target_node_id, _tablet_schema));
+        RETURN_IF_ERROR(runtime_predicate.set_tablet_schema(read_params.topn_filter_target_node_id,
+                                                            _tablet_schema));
     }
     return Status::OK();
 }
