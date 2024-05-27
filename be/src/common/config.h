@@ -1267,6 +1267,8 @@ DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
+DECLARE_mInt32(s3_read_base_wait_time_ms);
+DECLARE_mInt32(s3_read_max_wait_time_ms);
 
 // write as inverted index tmp directory
 DECLARE_String(tmp_file_dir);
