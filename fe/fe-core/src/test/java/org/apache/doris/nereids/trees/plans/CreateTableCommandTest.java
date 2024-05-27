@@ -843,7 +843,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                     + ")();");
             Assertions.assertTrue(false);
         } catch (Exception e) {
-            Assertions.assertEquals("Not all columns can be partition fields.", e.getMessage());
+            Assertions.assertEquals("Cannot set all columns as partitioning columns.", e.getMessage());
         }
         try {
             getCreateTableStmt("CREATE TABLE `tb11`(\n"

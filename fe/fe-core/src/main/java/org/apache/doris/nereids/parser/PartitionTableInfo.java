@@ -195,12 +195,12 @@ public class PartitionTableInfo {
             }
 
             if (engineName.equals(CreateTableInfo.ENGINE_HIVE)) {
-                // 1. Not all columns can be partition fields
+                // 1. Cannot set all columns as partitioning columns
                 // 2. The partition field must be at the end of the schema
                 // 3. The order of partition fields in the schema
                 //    must be consistent with the order defined in `PARTITIONED BY LIST()`
                 if (partitionColumns.size() == columns.size()) {
-                    throw new AnalysisException("Not all columns can be partition fields.");
+                    throw new AnalysisException("Cannot set all columns as partitioning columns.");
                 }
                 List<ColumnDefinition> partitionInSchema = columns.subList(
                         columns.size() - partitionColumns.size(), columns.size());
