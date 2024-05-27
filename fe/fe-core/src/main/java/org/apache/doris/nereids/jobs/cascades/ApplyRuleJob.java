@@ -33,6 +33,8 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
+import com.google.common.collect.Lists;
+
 import java.util.HashMap;
 import java.util.List;
 
@@ -67,6 +69,7 @@ public class ApplyRuleJob extends Job {
         }
         countJobExecutionTimesOfGroupExpressions(groupExpression);
 
+        List<DeriveStatsJob> deriveStatsJobs = Lists.newArrayList();
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
@@ -86,10 +89,21 @@ public class ApplyRuleJob extends Job {
                     pushJob(new CostAndEnforcerJob(newGroupExpression, context));
                 }
                 // we should derive stats for new logical/physical plan if the plan missing the stats
-                pushJob(new DeriveStatsJob(newGroupExpression, context));
+                deriveStatsJobs.add(new DeriveStatsJob(newGroupExpression, context));
                 NereidsTracer.logApplyRuleEvent(rule.toString(), plan, newGroupExpression.getPlan());
                 APPLY_RULE_TRACER.log(TransformEvent.of(groupExpression, plan, newPlans, rule.getRuleType()),
                         rule::isRewrite);
+            }
+            // we do derive stats job eager to avoid un derive stats due to merge group and optimize group
+            // consider:
+            //   we have two groups burned by order: G1 and G2
+            //   then we have job by order derive G2, optimize group expression in G2,
+            //     derive G1, optimize group expression in G1
+            //   if G1 merged into G2, then we maybe generated job optimize group G2 before derive G1
+            //   in this case, we will do get stats from G1's child before derive G1's child stats
+            //   then we will meet NPE in CostModel.
+            for (DeriveStatsJob deriveStatsJob : deriveStatsJobs) {
+                pushJob(deriveStatsJob);
             }
         }
         groupExpression.setApplied(rule);
