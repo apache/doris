@@ -70,7 +70,8 @@ public:
     class SenderQueue;
     VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
                      const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                     int num_senders, bool is_merging, RuntimeProfile* profile);
+                     int num_senders, bool is_merging, RuntimeProfile* profile, int64_t limit,
+                     bool is_empty_conjuncts);
 
     virtual ~VDataStreamRecvr();
 
@@ -114,6 +115,7 @@ public:
     bool is_closed() const { return _is_closed; }
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
+    bool could_eos_sink();
 
 private:
     class PipSenderQueue;
@@ -134,7 +136,9 @@ private:
 
     // Row schema, copied from the caller of CreateRecvr().
     RowDescriptor _row_desc;
-
+    // used for sink could eos early. when sink total rows have reached limit, and no conjuncts to filters data.
+    int _limit = -1;
+    bool _is_empty_conjuncts;
     // True if this reciver merges incoming rows from different senders. Per-sender
     // row batch queues are maintained in this case.
     bool _is_merging;
@@ -143,6 +147,7 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
     // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
+    std::vector<int64_t> _queue_total_rows;
 
     std::unique_ptr<VSortedRunMerger> _merger;
 
@@ -198,7 +203,7 @@ public:
     virtual Status get_batch(Block* next_block, bool* eos);
 
     Status add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
-                     ::google::protobuf::Closure** done);
+                     ::google::protobuf::Closure** done, int64_t* current_pblock_rows);
 
     virtual void add_block(Block* block, bool use_move);
 

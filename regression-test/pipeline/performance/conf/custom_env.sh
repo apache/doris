@@ -16,5 +16,5 @@
 # specific language governing permissions and limitations
 # under the License.
 
-export DORIS_TOOLCHAIN=gcc
+export DORIS_TOOLCHAIN=clang
 export BUILD_TYPE=release

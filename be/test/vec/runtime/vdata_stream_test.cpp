@@ -170,7 +170,7 @@ TEST_F(VDataStreamTest, BasicTest) {
     RuntimeProfile profile("profile");
     bool is_merge = false;
     auto recv = _instance.create_recvr(&runtime_stat, row_desc, uid, nid, num_senders, &profile,
-                                       is_merge);
+                                       is_merge, -1, false);
 
     // Test Sender
     int sender_id = 1;

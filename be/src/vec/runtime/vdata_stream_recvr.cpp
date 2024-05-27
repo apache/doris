@@ -23,6 +23,7 @@
 #include <gen_cpp/data.pb.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <string>
 
@@ -132,7 +133,8 @@ void VDataStreamRecvr::SenderQueue::try_set_dep_ready_without_lock() {
 
 Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
                                                 int64_t packet_seq,
-                                                ::google::protobuf::Closure** done) {
+                                                ::google::protobuf::Closure** done,
+                                                int64_t* current_pblock_rows) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
@@ -170,6 +172,7 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
     if (rows == 0) {
         return Status::OK();
     }
+    *current_pblock_rows = rows;
     auto block_byte_size = block->allocated_bytes();
     VLOG_ROW << "added #rows=" << rows << " batch_size=" << block_byte_size << "\n";
 
@@ -329,7 +332,8 @@ void VDataStreamRecvr::SenderQueue::close() {
 VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state,
                                    const RowDescriptor& row_desc,
                                    const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                                   int num_senders, bool is_merging, RuntimeProfile* profile)
+                                   int num_senders, bool is_merging, RuntimeProfile* profile,
+                                   int64_t limit, bool is_empty_conjuncts)
         : HasTaskExecutionCtx(state),
           _mgr(stream_mgr),
 #ifdef USE_MEM_TRACKER
@@ -339,6 +343,8 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
           _fragment_instance_id(fragment_instance_id),
           _dest_node_id(dest_node_id),
           _row_desc(row_desc),
+          _limit(limit),
+          _is_empty_conjuncts(is_empty_conjuncts),
           _is_merging(is_merging),
           _is_closed(false),
           _profile(profile),
@@ -358,6 +364,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
         }
     }
     _sender_queues.reserve(num_queues);
+    _queue_total_rows.resize(num_queues, 0);
     int num_sender_per_queue = is_merging ? 1 : num_senders;
     for (int i = 0; i < num_queues; ++i) {
         SenderQueue* queue = nullptr;
@@ -418,12 +425,29 @@ Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_n
                                    int64_t packet_seq, ::google::protobuf::Closure** done) {
     SCOPED_ATTACH_TASK_WITH_ID(_query_mem_tracker, _query_id);
     int use_sender_id = _is_merging ? sender_id : 0;
-    return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
+    int64_t current_pblock_rows = 0;
+    RETURN_IF_ERROR(_sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done,
+                                                             &current_pblock_rows));
+    _queue_total_rows[use_sender_id] = _queue_total_rows[use_sender_id] + current_pblock_rows;
+    return Status::OK();
 }
 
 void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(block, use_move);
+    _queue_total_rows[use_sender_id] = _queue_total_rows[use_sender_id] + block->rows();
+}
+
+// the sink could eos early. when sink rows have reached limit for all queue, and no conjuncts to filters data.
+// in this way, we could eos sink as soon as possible, so could reduce sender total rows.
+bool VDataStreamRecvr::could_eos_sink() {
+    if (_is_empty_conjuncts && _limit != -1) {
+        bool all_greater_than_limit =
+                std::all_of(_queue_total_rows.begin(), _queue_total_rows.end(),
+                            [&](int x) { return x > _limit; });
+        return all_greater_than_limit;
+    }
+    return false;
 }
 
 bool VDataStreamRecvr::sender_queue_empty(int sender_id) {

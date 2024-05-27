@@ -53,7 +53,8 @@ public:
                                                    const RowDescriptor& row_desc,
                                                    const TUniqueId& fragment_instance_id,
                                                    PlanNodeId dest_node_id, int num_senders,
-                                                   RuntimeProfile* profile, bool is_merging);
+                                                   RuntimeProfile* profile, bool is_merging,
+                                                   int64_t limit, bool is_empty_conjuncts);
 
     Status find_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id,
                       std::shared_ptr<VDataStreamRecvr>* res, bool acquire_lock = true);
