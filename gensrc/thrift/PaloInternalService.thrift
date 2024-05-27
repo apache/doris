@@ -297,6 +297,8 @@ struct TQueryOptions {
 
   110: optional bool enable_parquet_filter_by_min_max = true
   111: optional bool enable_orc_filter_by_min_max = true
+
+  112: optional i32 max_column_reader_num = 0
   
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
