@@ -2449,19 +2449,30 @@ bool Tablet::_has_data_to_cooldown() {
     int64_t min_local_version = std::numeric_limits<int64_t>::max();
     RowsetSharedPtr rowset;
     std::shared_lock meta_rlock(_meta_lock);
+    // Ususally once the tablet has done cooldown successfully then the first
+    // rowset would always be remote rowset
+    bool has_cooldowned = false;
+    for (const auto& [_, rs] : _rs_version_map) {
+        if (!rs->is_local()) {
+            has_cooldowned = true;
+            break;
+        }
+    }
     for (auto& [v, rs] : _rs_version_map) {
-        if (rs->is_local() && v.first < min_local_version && rs->data_disk_size() > 0) {
+        auto predicate = rs->is_local() && v.first < min_local_version;
+        if (!has_cooldowned) {
+            predicate = predicate && (rs->data_disk_size() > 0);
+        }
+        if (predicate) {
             // this is a local rowset and has data
             min_local_version = v.first;
             rowset = rs;
         }
     }
-
     int64_t newest_cooldown_time = 0;
     if (rowset != nullptr) {
         newest_cooldown_time = _get_newest_cooldown_time(rowset);
     }
-
     return (newest_cooldown_time != 0) && (newest_cooldown_time < UnixSeconds());
 }
 
