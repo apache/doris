@@ -433,44 +433,6 @@ void ColumnStr<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
 }
 
 template <typename T>
-template <typename Type>
-ColumnPtr ColumnStr<T>::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
-    if (limit == 0) {
-        return ColumnStr<T>::create();
-    }
-
-    auto res = ColumnStr<T>::create();
-
-    Chars& res_chars = res->chars;
-    auto& res_offsets = res->offsets;
-
-    size_t new_chars_size = 0;
-    for (size_t i = 0; i < limit; ++i) {
-        new_chars_size += size_at(indexes[i]);
-    }
-    check_chars_length(new_chars_size, limit);
-    res_chars.resize(new_chars_size);
-
-    res_offsets.resize(limit);
-
-    T current_new_offset = 0;
-
-    for (size_t i = 0; i < limit; ++i) {
-        size_t j = indexes[i];
-        size_t string_offset = offsets[j - 1];
-        size_t string_size = offsets[j] - string_offset;
-
-        memcpy_small_allow_read_write_overflow15(&res_chars[current_new_offset],
-                                                 &chars[string_offset], string_size);
-
-        current_new_offset += string_size;
-        res_offsets[i] = current_new_offset;
-    }
-
-    return res;
-}
-
-template <typename T>
 template <bool positive>
 struct ColumnStr<T>::less {
     const ColumnStr<T>& parent;
@@ -599,11 +561,6 @@ void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
         }
         begin = simd::find_zero(cmp_res, end + 1);
     }
-}
-
-template <typename T>
-ColumnPtr ColumnStr<T>::index(const IColumn& indexes, size_t limit) const {
-    return select_index_impl(*this, indexes, limit);
 }
 
 template <typename T>
