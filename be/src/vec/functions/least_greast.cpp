@@ -76,7 +76,7 @@ struct CompareMultiImpl {
         if (result_column->is_column_string()) {
             result_column->reserve(input_rows_count);
             const auto& column_string = reinterpret_cast<const ColumnString&>(*cols[0]);
-            auto& column_res = reinterpret_cast<ColumnString&>(*result_column);
+            auto& column_res = assert_cast<ColumnString&>(*result_column);
 
             for (int i = 0; i < input_rows_count; ++i) {
                 auto str_data = column_string.get_data_at(index_check_const(i, col_const[0]));
@@ -124,7 +124,7 @@ private:
                                    const ColumnPtr& argument_column,
                                    const size_t input_rows_count) {
         auto* __restrict result_raw_data =
-                reinterpret_cast<ColumnType*>(result_column.get())->get_data().data();
+                assert_cast<ColumnType*>(result_column.get())->get_data().data();
         auto* __restrict column_raw_data =
                 reinterpret_cast<const ColumnType*>(argument_column.get())->get_data().data();
 
@@ -172,7 +172,7 @@ struct FunctionFieldImpl {
                              size_t input_rows_count) {
         const auto& data_type = block.get_by_position(arguments[0]).type;
         auto result_column = ColumnInt32::create(input_rows_count, 0);
-        auto& res_data = static_cast<ColumnInt32*>(result_column)->get_data();
+        auto& res_data = assert_cast<ColumnInt32*>(result_column)->get_data();
 
         const auto& column_size = arguments.size();
         std::vector<ColumnPtr> argument_columns(column_size);

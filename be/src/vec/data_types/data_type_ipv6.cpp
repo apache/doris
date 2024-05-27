@@ -52,7 +52,7 @@ void DataTypeIPv6::to_string(const IColumn& column, size_t row_num, BufferWritab
 }
 
 Status DataTypeIPv6::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnIPv6*>(column);
+    auto* column_data = assert_cast<ColumnIPv6*>(column);
     IPv6 val = 0;
     if (!read_ipv6_text_impl<IPv6>(val, rb)) {
         return Status::InvalidArgument("parse ipv6 fail, string: '{}'",

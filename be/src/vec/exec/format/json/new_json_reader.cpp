@@ -813,7 +813,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
 
     ColumnNullable* nullable_column = nullptr;
     if (slot_desc->is_nullable()) {
-        nullable_column = reinterpret_cast<ColumnNullable*>(column_ptr);
+        nullable_column = assert_cast<ColumnNullable*>(column_ptr);
         // kNullType will put 1 into the Null map, so there is no need to push 0 for kNullType.
         if (value->GetType() != rapidjson::Type::kNullType) {
             nullable_column->get_null_map_data().push_back(0);
@@ -1722,7 +1722,7 @@ Status NewJsonReader::_get_column_default_value(
 Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc, IColumn* column_ptr,
                                            bool* valid) {
     if (slot_desc->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<ColumnNullable*>(column_ptr);
+        auto* nullable_column = assert_cast<ColumnNullable*>(column_ptr);
         column_ptr = &nullable_column->get_nested_column();
         auto col_value = _col_default_value_map.find(slot_desc->col_name());
         if (col_value == _col_default_value_map.end()) {

@@ -63,7 +63,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
                                     IColumn& dest_nested_column,
                                     ColumnArray::Offsets64& dest_offsets,
                                     NullMapType* dest_nested_null_map) const {
-    ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+    ColumnString& dest_column_string = assert_cast<ColumnString&>(dest_nested_column);
     ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
     ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
     column_string_chars.reserve(0);
@@ -126,7 +126,7 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
     dest_offsets.reserve(0);
 
     NullMapType* dest_nested_null_map = nullptr;
-    ColumnNullable* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
+    ColumnNullable* dest_nullable_col = assert_cast<ColumnNullable*>(dest_nested_column);
     dest_nested_column = dest_nullable_col->get_nested_column_ptr();
     dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 

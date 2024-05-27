@@ -188,8 +188,8 @@ private:
             dst_column = dst_nested_column;
         }
 
-        auto& dst_offs = reinterpret_cast<ColumnString&>(*dst_column).get_offsets();
-        auto& dst_chars = reinterpret_cast<ColumnString&>(*dst_column).get_chars();
+        auto& dst_offs = assert_cast<ColumnString&>(*dst_column).get_offsets();
+        auto& dst_chars = assert_cast<ColumnString&>(*dst_column).get_chars();
         dst_offs.reserve(src_offs.size());
         dst_chars.reserve(src_offs.back());
 

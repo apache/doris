@@ -129,7 +129,7 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
 void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int start,
                                                      int end, const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<ColumnVector<Int64>&>(column).get_data();
+    auto& col_data = assert_cast<ColumnVector<Int64>&>(column).get_data();
     int64_t divisor = 1;
     if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
         auto concrete_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);

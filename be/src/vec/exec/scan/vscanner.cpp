@@ -220,7 +220,7 @@ Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Bl
         //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
         if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
             DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
-            reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
+            assert_cast<ColumnNullable*>(mutable_columns[i].get())
                     ->insert_range_from_not_nullable(*column_ptr, 0, rows);
         } else {
             mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);

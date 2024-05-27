@@ -98,7 +98,7 @@ std::string DataTypeDecimal<T>::to_string(const T& value) const {
 
 template <typename T>
 Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto& column_data = static_cast<ColumnType&>(*column).get_data();
+    auto& column_data = assert_cast<ColumnType&>(*column).get_data();
     T val {};
     StringParser::ParseResult res =
             read_decimal_text_impl<DataTypeDecimalSerDe<T>::get_primitive_type(), T>(

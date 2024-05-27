@@ -110,7 +110,7 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
 template <typename T>
 Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                               const FormatOptions& options) const {
-    auto& column_data = reinterpret_cast<ColumnType&>(column);
+    auto& column_data = assert_cast<ColumnType&>(column);
     ReadBuffer rb(slice.data, slice.size);
     if constexpr (std::is_same<T, UInt128>::value) {
         // TODO: support for Uint128
@@ -185,7 +185,7 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                                                     const arrow::Array* arrow_array, int start,
                                                     int end, const cctz::time_zone& ctz) const {
     int row_count = end - start;
-    auto& col_data = static_cast<ColumnVector<T>&>(column).get_data();
+    auto& col_data = assert_cast<ColumnVector<T>&>(column).get_data();
 
     // now uint8 for bool
     if constexpr (std::is_same_v<T, UInt8>) {

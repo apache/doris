@@ -71,7 +71,7 @@ public:
                         size_t result, size_t input_rows_count) const override {
         size_t num_element = arguments.size();
         auto result_col = block.get_by_position(result).type->create_column();
-        auto* result_array_col = static_cast<ColumnArray*>(result_col.get());
+        auto* result_array_col = assert_cast<ColumnArray*>(result_col.get());
         IColumn& result_nested_col = result_array_col->get_data();
         ColumnArray::Offsets64& result_offset_col = result_array_col->get_offsets();
         result_nested_col.reserve(input_rows_count * num_element);

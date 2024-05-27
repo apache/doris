@@ -213,7 +213,7 @@ Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues&
 
 // read from PValues to column
 Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    auto& col = reinterpret_cast<ColumnNullable&>(column);
+    auto& col = assert_cast<ColumnNullable&>(column);
     auto& null_map_data = col.get_null_map_data();
     auto& nested = col.get_nested_column();
     auto old_size = nested.size();
@@ -248,7 +248,7 @@ void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, Jsonb
 }
 
 void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    auto& col = reinterpret_cast<ColumnNullable&>(column);
+    auto& col = assert_cast<ColumnNullable&>(column);
     if (!arg || arg->isNull()) {
         col.insert_default();
         return;
@@ -274,7 +274,7 @@ void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const N
 void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                    int start, int end,
                                                    const cctz::time_zone& ctz) const {
-    auto& col = reinterpret_cast<ColumnNullable&>(column);
+    auto& col = assert_cast<ColumnNullable&>(column);
     NullMap& map_data = col.get_null_map_data();
     for (size_t i = start; i < end; ++i) {
         auto is_null = arrow_array->IsNull(i);
@@ -352,7 +352,7 @@ Status DataTypeNullableSerDe::write_one_cell_to_json(const IColumn& column,
 
 Status DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
                                                       const rapidjson::Value& result) const {
-    auto& col = static_cast<ColumnNullable&>(column);
+    auto& col = assert_cast<ColumnNullable&>(column);
     auto& nested_col = col.get_nested_column();
     if (result.IsNull()) {
         col.insert_default();

@@ -248,7 +248,7 @@ Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjs
 
 Status DataTypeArraySerDe::read_one_cell_from_json(IColumn& column,
                                                    const rapidjson::Value& result) const {
-    auto& column_array = static_cast<ColumnArray&>(column);
+    auto& column_array = assert_cast<ColumnArray&>(column);
     auto& offsets_data = column_array.get_offsets();
     auto& nested_data = column_array.get_data();
     if (!result.IsArray()) {
@@ -291,7 +291,7 @@ void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const Null
 void DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                 int start, int end,
                                                 const cctz::time_zone& ctz) const {
-    auto& column_array = static_cast<ColumnArray&>(column);
+    auto& column_array = assert_cast<ColumnArray&>(column);
     auto& offsets_data = column_array.get_offsets();
     auto concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
     auto arrow_offsets_array = concrete_array->offsets();

@@ -78,7 +78,7 @@ Status DataTypeIPv4SerDe::serialize_one_cell_to_json(const IColumn& column, int 
 
 Status DataTypeIPv4SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                          const FormatOptions& options) const {
-    auto& column_data = reinterpret_cast<ColumnIPv4&>(column);
+    auto& column_data = assert_cast<ColumnIPv4&>(column);
     ReadBuffer rb(slice.data, slice.size);
     IPv4 val = 0;
     if (!read_ipv4_text_impl(val, rb)) {

@@ -200,7 +200,7 @@ static int64_t time_unit_divisor(arrow::TimeUnit::type unit) {
 void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                  int start, int end,
                                                  const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<ColumnVector<Int64>&>(column).get_data();
+    auto& col_data = assert_cast<ColumnVector<Int64>&>(column).get_data();
     int64_t divisor = 1;
     int64_t multiplier = 1;
     if (arrow_array->type()->id() == arrow::Type::DATE64) {

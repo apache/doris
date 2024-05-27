@@ -90,7 +90,7 @@ public:
     Status decode_fixed_byte_array(const std::vector<Slice>& decoded_vals,
                                    MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                    ColumnSelectVector& select_vector) {
-        auto& column_data = reinterpret_cast<ColumnVector<Int8>&>(*doris_column).get_data();
+        auto& column_data = assert_cast<ColumnVector<Int8>&>(*doris_column).get_data();
         size_t data_index = column_data.size();
         column_data.resize(data_index + _type_length * (select_vector.num_values() -
                                                         select_vector.num_filtered()));

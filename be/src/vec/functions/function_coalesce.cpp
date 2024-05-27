@@ -231,7 +231,7 @@ public:
                               const UInt8* __restrict null_map_data, UInt8* __restrict filled_flag,
                               const size_t input_rows_count) const {
         auto* __restrict result_raw_data =
-                reinterpret_cast<ColumnType*>(result_column.get())->get_data().data();
+                assert_cast<ColumnType*>(result_column.get())->get_data().data();
         auto* __restrict column_raw_data =
                 reinterpret_cast<const ColumnType*>(argument_column.get())->get_data().data();
 
@@ -251,7 +251,7 @@ public:
                                      UInt8* __restrict filled_flag,
                                      const size_t input_rows_count) const {
         auto* __restrict result_raw_data =
-                reinterpret_cast<ColumnBitmap*>(result_column.get())->get_data().data();
+                assert_cast<ColumnBitmap*>(result_column.get())->get_data().data();
         auto* __restrict column_raw_data =
                 reinterpret_cast<const ColumnBitmap*>(argument_column.get())->get_data().data();
 

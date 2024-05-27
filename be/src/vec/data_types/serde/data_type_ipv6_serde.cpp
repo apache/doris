@@ -80,7 +80,7 @@ Status DataTypeIPv6SerDe::serialize_one_cell_to_json(const IColumn& column, int 
 
 Status DataTypeIPv6SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                          const FormatOptions& options) const {
-    auto& column_data = reinterpret_cast<ColumnIPv6&>(column);
+    auto& column_data = assert_cast<ColumnIPv6&>(column);
     ReadBuffer rb(slice.data, slice.size);
     IPv6 val = 0;
     if (!read_ipv6_text_impl(val, rb)) {

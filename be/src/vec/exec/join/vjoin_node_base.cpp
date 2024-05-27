@@ -203,7 +203,7 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
     auto insert_column_datas = [keep_origin](auto& to, ColumnPtr& from, size_t rows) {
         if (to->is_nullable() && !from->is_nullable()) {
             if (keep_origin || !from->is_exclusive()) {
-                auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
+                auto& null_column = assert_cast<ColumnNullable&>(*to);
                 null_column.get_nested_column().insert_range_from(*from, 0, rows);
                 null_column.get_null_map_column().get_data().resize_fill(rows, 0);
             } else {
@@ -310,8 +310,8 @@ Status VJoinNodeBase::alloc_resource(doris::RuntimeState* state) {
 
 void VJoinNodeBase::_reset_tuple_is_null_column() {
     if (_is_outer_join) {
-        reinterpret_cast<ColumnUInt8&>(*_tuple_is_null_left_flag_column).clear();
-        reinterpret_cast<ColumnUInt8&>(*_tuple_is_null_right_flag_column).clear();
+        assert_cast<ColumnUInt8&>(*_tuple_is_null_left_flag_column).clear();
+        assert_cast<ColumnUInt8&>(*_tuple_is_null_right_flag_column).clear();
     }
 }
 

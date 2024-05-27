@@ -138,12 +138,12 @@ struct StrToDate {
             if (col_const[1]) {
                 execute_impl_const_right<DataTypeDateTimeV2>(
                         context, ldata, loffsets, specific_char_column->get_data_at(0),
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
+                        assert_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             } else {
                 execute_impl<DataTypeDateTimeV2>(
                         context, ldata, loffsets, rdata, roffsets,
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
+                        assert_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
         } else if (which.is_date_v2()) {
@@ -151,12 +151,12 @@ struct StrToDate {
             if (col_const[1]) {
                 execute_impl_const_right<DataTypeDateV2>(
                         context, ldata, loffsets, specific_char_column->get_data_at(0),
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
+                        assert_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             } else {
                 execute_impl<DataTypeDateV2>(
                         context, ldata, loffsets, rdata, roffsets,
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
+                        assert_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
         } else {
@@ -164,12 +164,12 @@ struct StrToDate {
             if (col_const[1]) {
                 execute_impl_const_right<DataTypeDateTime>(
                         context, ldata, loffsets, specific_char_column->get_data_at(0),
-                        static_cast<ColumnDateTime*>(res->assume_mutable().get())->get_data(),
+                        assert_cast<ColumnDateTime*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             } else {
                 execute_impl<DataTypeDateTime>(
                         context, ldata, loffsets, rdata, roffsets,
-                        static_cast<ColumnDateTime*>(res->assume_mutable().get())->get_data(),
+                        assert_cast<ColumnDateTime*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
         }
@@ -277,7 +277,7 @@ struct MakeDateImpl {
                                 ->get_data(),
                         static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
                                 ->get_element(0),
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
+                        assert_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             } else {
                 execute_impl<DataTypeDateV2>(
@@ -285,7 +285,7 @@ struct MakeDateImpl {
                                 ->get_data(),
                         static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
                                 ->get_data(),
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
+                        assert_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
         } else if (which.is_date_time_v2()) {
@@ -296,7 +296,7 @@ struct MakeDateImpl {
                                 ->get_data(),
                         static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
                                 ->get_element(0),
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
+                        assert_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             } else {
                 execute_impl<DataTypeDateTimeV2>(
@@ -304,7 +304,7 @@ struct MakeDateImpl {
                                 ->get_data(),
                         static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
                                 ->get_data(),
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
+                        assert_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
         } else {
@@ -315,7 +315,7 @@ struct MakeDateImpl {
                                 ->get_data(),
                         static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
                                 ->get_element(0),
-                        static_cast<ColumnDateTime*>(res->assume_mutable().get())->get_data(),
+                        assert_cast<ColumnDateTime*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             } else {
                 execute_impl<DataTypeDateTime>(
@@ -323,7 +323,7 @@ struct MakeDateImpl {
                                 ->get_data(),
                         static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
                                 ->get_data(),
-                        static_cast<ColumnDateTime*>(res->assume_mutable().get())->get_data(),
+                        assert_cast<ColumnDateTime*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
         }
@@ -476,7 +476,7 @@ private:
     static void execute_impl_right_const(const ColumnPtr& datetime_column, ColumnPtr& result_column,
                                          NullMap& null_map, size_t input_rows_count) {
         auto& data = static_cast<const ColumnType*>(datetime_column.get())->get_data();
-        auto& res = static_cast<ColumnType*>(result_column->assume_mutable().get())->get_data();
+        auto& res = assert_cast<ColumnType*>(result_column->assume_mutable().get())->get_data();
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto dt = binary_cast<ArgType, DateValueType>(data[i]);
             null_map[i] = !dt.template datetime_trunc<Unit>();
@@ -514,12 +514,12 @@ public:
             res_column = ColumnInt64::create(input_rows_count);
             execute_straight<VecDateTimeValue, Int64>(
                     input_rows_count, null_map->get_data(), data_col->get_data(),
-                    static_cast<ColumnDateTime*>(res_column->assume_mutable().get())->get_data());
+                    assert_cast<ColumnDateTime*>(res_column->assume_mutable().get())->get_data());
         } else {
             res_column = ColumnDateV2::create(input_rows_count);
             execute_straight<DateV2Value<DateV2ValueType>, UInt32>(
                     input_rows_count, null_map->get_data(), data_col->get_data(),
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+                    assert_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
         }
 
         block.replace_by_position(

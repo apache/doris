@@ -152,7 +152,7 @@ public:
         auto& to_arr = assert_cast<ColumnArray&>(to);
         auto& to_nested_col = to_arr.get_data();
         if (to_nested_col.is_nullable()) {
-            auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
+            auto col_null = assert_cast<ColumnNullable*>(&to_nested_col);
             this->data(place).insert_result_into(col_null->get_nested_column(),
                                                  get_argument_types().size(),
                                                  this->data(place).events);

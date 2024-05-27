@@ -71,7 +71,7 @@ Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& r
 }
 
 Status DataTypeBitMapSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    auto& col = reinterpret_cast<ColumnBitmap&>(column);
+    auto& col = assert_cast<ColumnBitmap&>(column);
     for (int i = 0; i < arg.bytes_value_size(); ++i) {
         BitmapValue value(arg.bytes_value(i).data());
         col.insert_value(value);
@@ -96,7 +96,7 @@ void DataTypeBitMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
 }
 
 void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    auto& col = reinterpret_cast<ColumnBitmap&>(column);
+    auto& col = assert_cast<ColumnBitmap&>(column);
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     BitmapValue bitmap_value(blob->getBlob());
     col.insert_value(bitmap_value);

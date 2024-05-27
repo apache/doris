@@ -137,7 +137,7 @@ struct RangeImplUtil {
                                                          ColumnArray::ColumnOffsets::create());
         IColumn* dest_nested_column = &dest_array_column_ptr->get_data();
         ColumnNullable* dest_nested_nullable_col =
-                reinterpret_cast<ColumnNullable*>(dest_nested_column);
+                assert_cast<ColumnNullable*>(dest_nested_column);
         dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
         auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_column().get_data();
 
@@ -163,7 +163,7 @@ struct RangeImplUtil {
 
         DCHECK(dest_nested_column != nullptr);
         auto& dest_offsets = dest_array_column_ptr->get_offsets();
-        auto nested_column = reinterpret_cast<ColumnVector<SourceDataType>*>(dest_nested_column);
+        auto nested_column = assert_cast<ColumnVector<SourceDataType>*>(dest_nested_column);
         dest_offsets.reserve(input_rows_count);
         dest_nested_column->reserve(input_rows_count);
         dest_nested_null_map.reserve(input_rows_count);

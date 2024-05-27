@@ -58,7 +58,7 @@ const char* DataTypeFixedLengthObject::deserialize(const char* buf, IColumn* col
     DCHECK(item_size > 0)
             << "[deserialize]item size of DataTypeFixedLengthObject should be greater than 0";
 
-    auto& dst_col = static_cast<ColumnType&>(*column);
+    auto& dst_col = assert_cast<ColumnType&>(*column);
     dst_col.set_item_size(item_size);
     // column data
     dst_col.resize(row_num);

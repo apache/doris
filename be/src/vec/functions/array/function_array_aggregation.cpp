@@ -204,7 +204,7 @@ struct ArrayAggregateImpl {
             res_column = ColVecResultType::create();
         }
         res_column = make_nullable(res_column);
-        static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
+        assert_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
 
         auto function = Function::create(type);
         auto guard = AggregateFunctionGuard(function.get());

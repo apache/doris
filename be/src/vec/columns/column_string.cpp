@@ -87,7 +87,7 @@ MutableColumnPtr ColumnStr<T>::get_shrinked_column() {
     shrinked_column->get_chars().reserve(chars.size());
     for (int i = 0; i < size(); i++) {
         StringRef str = get_data_at(i);
-        reinterpret_cast<ColumnStr<T>*>(shrinked_column.get())
+        assert_cast<ColumnStr<T>*>(shrinked_column.get())
                 ->insert_data(str.data, strnlen(str.data, str.size));
     }
     return shrinked_column;
@@ -268,7 +268,7 @@ size_t ColumnStr<T>::filter(const IColumn::Filter& filter) {
 template <typename T>
 Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
     if constexpr (std::is_same_v<UInt32, T>) {
-        auto* col = static_cast<ColumnStr<T>*>(col_ptr);
+        auto* col = assert_cast<ColumnStr<T>*>(col_ptr);
         Chars& res_chars = col->chars;
         IColumn::Offsets& res_offsets = col->offsets;
         IColumn::Filter filter;

@@ -1260,7 +1260,7 @@ struct JsonbLengthImpl {
         std::string root_path = "$";
 
         for (int i = 0; i < input_rows_count; i++) {
-            reinterpret_cast<ColumnString*>(path.get())
+            assert_cast<ColumnString*>(path.get())
                     ->insert_data(root_path.data(), root_path.size());
         }
 
@@ -1397,7 +1397,7 @@ struct JsonbContainsImpl {
         std::string root_path = "$";
 
         for (int i = 0; i < input_rows_count; i++) {
-            reinterpret_cast<ColumnString*>(path.get())
+            assert_cast<ColumnString*>(path.get())
                     ->insert_data(root_path.data(), root_path.size());
         }
 

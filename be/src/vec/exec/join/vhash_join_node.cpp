@@ -367,10 +367,10 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                                _right_table_column_names[i]});
         }
         if (_is_outer_join) {
-            reinterpret_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
+            assert_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
                     ->get_data()
                     .resize_fill(block_rows, 0);
-            reinterpret_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
+            assert_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
                     ->get_data()
                     .resize_fill(block_rows, 1);
         }
@@ -556,8 +556,8 @@ void HashJoinNode::_add_tuple_is_null_column(Block* block) {
     }
     auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
     auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
-    auto& left_null_map = reinterpret_cast<ColumnUInt8&>(*p0);
-    auto& right_null_map = reinterpret_cast<ColumnUInt8&>(*p1);
+    auto& left_null_map = assert_cast<ColumnUInt8&>(*p0);
+    auto& right_null_map = assert_cast<ColumnUInt8&>(*p1);
     auto left_size = left_null_map.size();
     auto right_size = right_null_map.size();
 
