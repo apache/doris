@@ -334,6 +334,8 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
                 _cur_reader_eof = true;
                 COUNTER_UPDATE(_empty_file_counter, 1);
                 continue;
+            } else if (!st) {
+                return st;
             }
         }
 
