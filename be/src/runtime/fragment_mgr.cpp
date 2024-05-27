@@ -179,9 +179,6 @@ void FragmentMgr::stop() {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_instance_map.clear();
         _query_ctx_map.clear();
-        for (auto& pipeline : _pipeline_map) {
-            pipeline.second->close_sink();
-        }
         _pipeline_map.clear();
     }
     _async_report_thread_pool->shutdown();
@@ -860,7 +857,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         SCOPED_RAW_TIMER(&duration_ns);
         auto prepare_st = context->prepare(params);
         if (!prepare_st.ok()) {
-            context->close_if_prepare_failed(prepare_st);
+            query_ctx->cancel(prepare_st, params.fragment_id);
             query_ctx->set_execution_dependency_ready();
             return prepare_st;
         }

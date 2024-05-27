@@ -449,10 +449,6 @@ Status PipelineTask::close(Status exec_status) {
     return s;
 }
 
-Status PipelineTask::close_sink(Status exec_status) {
-    return _sink->close(_state, exec_status);
-}
-
 std::string PipelineTask::debug_string() {
     std::unique_lock<std::mutex> lc(_release_lock);
     fmt::memory_buffer debug_string_buffer;
