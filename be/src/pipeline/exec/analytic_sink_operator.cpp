@@ -199,10 +199,8 @@ AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id,
                                      : 0),
           _is_colocate(tnode.analytic_node.__isset.is_colocate && tnode.analytic_node.is_colocate &&
                        require_bucket_distribution),
-          _partition_exprs(require_bucket_distribution ? (tnode.__isset.distribute_expr_lists
-                                                                  ? tnode.distribute_expr_lists[0]
-                                                                  : std::vector<TExpr> {})
-                                                       : tnode.analytic_node.partition_exprs) {}
+          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
+                                                               : std::vector<TExpr> {}) {}
 
 Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
