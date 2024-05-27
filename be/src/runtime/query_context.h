@@ -72,17 +72,10 @@ class QueryContext {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
 public:
-    QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline,
-                 bool is_nereids);
+    QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
+                 TNetworkAddress coord_addr, bool is_pipeline, bool is_nereids);
 
     ~QueryContext();
-
-    // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
-    // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
-    bool countdown(int instance_num) {
-        return fragment_num.fetch_sub(instance_num) <= instance_num;
-    }
 
     ExecEnv* exec_env() { return _exec_env; }
 
@@ -142,17 +135,18 @@ public:
         return _shared_scanner_controller;
     }
 
-    vectorized::RuntimePredicate& get_runtime_predicate(int source_node_id) {
-        DCHECK(_runtime_predicates.contains(source_node_id) || _runtime_predicates.contains(0));
-        if (_runtime_predicates.contains(source_node_id)) {
-            return _runtime_predicates[source_node_id];
-        }
-        return _runtime_predicates[0];
+    bool has_runtime_predicate(int source_node_id) {
+        return _runtime_predicates.contains(source_node_id);
     }
 
-    void init_runtime_predicates(std::vector<int> source_node_ids) {
-        for (int id : source_node_ids) {
-            _runtime_predicates.try_emplace(id);
+    vectorized::RuntimePredicate& get_runtime_predicate(int source_node_id) {
+        DCHECK(has_runtime_predicate(source_node_id));
+        return _runtime_predicates.find(source_node_id)->second;
+    }
+
+    void init_runtime_predicates(const std::vector<TTopnFilterDesc>& topn_filter_descs) {
+        for (auto desc : topn_filter_descs) {
+            _runtime_predicates.try_emplace(desc.source_node_id, desc);
         }
     }
 
@@ -260,14 +254,6 @@ public:
     TNetworkAddress coord_addr;
     TQueryGlobals query_globals;
 
-    /// In the current implementation, for multiple fragments executed by a query on the same BE node,
-    /// we store some common components in QueryContext, and save QueryContext in FragmentMgr.
-    /// When all Fragments are executed, QueryContext needs to be deleted from FragmentMgr.
-    /// Here we use a counter to store the number of Fragments that have not yet been completed,
-    /// and after each Fragment is completed, this value will be reduced by one.
-    /// When the last Fragment is completed, the counter is cleared, and the worker thread of the last Fragment
-    /// will clean up QueryContext.
-    std::atomic<int> fragment_num;
     ObjectPool obj_pool;
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;

@@ -748,6 +748,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public void replayAddJob(AbstractJob job) {
+        LOG.info("replay backup/restore job: {}", job);
+
         if (job.isCancelled()) {
             AbstractJob existingJob = getCurrentJob(job.getDbId());
             if (existingJob == null || existingJob.isDone()) {

@@ -732,12 +732,12 @@ struct TOlapScanNode {
   10: optional i64 sort_limit
   11: optional bool enable_unique_key_merge_on_write
   12: optional TPushAggOp push_down_agg_type_opt //Deprecated
-  13: optional bool use_topn_opt
+  13: optional bool use_topn_opt // Deprecated
   14: optional list<Descriptors.TOlapTableIndex> indexes_desc
   15: optional set<i32> output_column_unique_ids
   16: optional list<i32> distribute_column_ids
   17: optional i32 schema_version
-  18: optional list<i32> topn_filter_source_node_ids
+  18: optional list<i32> topn_filter_source_node_ids //deprecated, move to TPlanNode.106
 }
 
 struct TEqJoinCondition {
@@ -904,7 +904,7 @@ struct TAggregationNode {
   7: optional list<TSortInfo> agg_sort_infos
   8: optional bool is_first_phase
   9: optional bool is_colocate
-  // 9: optional bool use_fixed_length_serialization_opt
+  10: optional TSortInfo agg_sort_info_by_group_key
 }
 
 struct TRepeatNode {
@@ -935,7 +935,7 @@ struct TSortNode {
 
   // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.           
   6: optional bool is_default_limit                                              
-  7: optional bool use_topn_opt
+  7: optional bool use_topn_opt // Deprecated
   8: optional bool merge_by_exchange
   9: optional bool is_analytic_sort
   10: optional bool is_colocate
@@ -1186,7 +1186,7 @@ struct TTopnFilterDesc {
   2: required bool is_asc
   3: required bool null_first 
   // scan node id -> expr on scan node
-  4: required map<Types.TPlanNodeId, Exprs.TExpr> targetNodeId_to_target_expr
+  4: required map<Types.TPlanNodeId, Exprs.TExpr> target_node_id_to_target_expr
 }
 
 // Specification of a runtime filter.
@@ -1228,7 +1228,7 @@ struct TRuntimeFilterDesc {
   // for bitmap filter
   11: optional bool bitmap_filter_not_in
 
-  12: optional bool opt_remote_rf;
+  12: optional bool opt_remote_rf; // Deprecated
   
   // for min/max rf
   13: optional TMinMaxRuntimeFilterType min_max_type;

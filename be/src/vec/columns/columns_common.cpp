@@ -88,18 +88,6 @@ std::vector<size_t> count_columns_size_in_selector(IColumn::ColumnIndex num_colu
     return counts;
 }
 
-bool memory_is_byte(const void* data, size_t size, uint8_t byte) {
-    if (size == 0) {
-        return true;
-    }
-    auto ptr = reinterpret_cast<const uint8_t*>(data);
-    return *ptr == byte && memcmp(ptr, ptr + 1, size - 1) == 0;
-}
-
-bool memory_is_zero(const void* data, size_t size) {
-    return memory_is_byte(data, size, 0x0);
-}
-
 namespace {
 /// Implementation details of filterArraysImpl function, used as template parameter.
 /// Allow to build or not to build offsets array.
@@ -390,22 +378,5 @@ INSTANTIATE(Float64, IColumn::Offset)
 INSTANTIATE(Float64, ColumnArray::Offset64)
 
 #undef INSTANTIATE
-
-namespace detail {
-template <typename T>
-const PaddedPODArray<T>* get_indexes_data(const IColumn& indexes) {
-    auto* column = typeid_cast<const ColumnVector<T>*>(&indexes);
-    if (column) {
-        return &column->get_data();
-    }
-
-    return nullptr;
-}
-
-template const PaddedPODArray<UInt8>* get_indexes_data<UInt8>(const IColumn& indexes);
-template const PaddedPODArray<UInt16>* get_indexes_data<UInt16>(const IColumn& indexes);
-template const PaddedPODArray<UInt32>* get_indexes_data<UInt32>(const IColumn& indexes);
-template const PaddedPODArray<UInt64>* get_indexes_data<UInt64>(const IColumn& indexes);
-} // namespace detail
 
 } // namespace doris::vectorized

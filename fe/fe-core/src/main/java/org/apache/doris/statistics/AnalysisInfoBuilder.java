@@ -27,6 +27,7 @@ import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.logging.log4j.core.util.CronExpression;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class AnalysisInfoBuilder {
@@ -65,6 +66,7 @@ public class AnalysisInfoBuilder {
     private boolean userInject;
     private long updateRows;
     private JobPriority priority;
+    private Map<Long, Long> partitionUpdateRows;
 
     public AnalysisInfoBuilder() {
     }
@@ -105,6 +107,7 @@ public class AnalysisInfoBuilder {
         userInject = info.userInject;
         updateRows = info.updateRows;
         priority = info.priority;
+        partitionUpdateRows = info.partitionUpdateRows;
     }
 
     public AnalysisInfoBuilder setJobId(long jobId) {
@@ -282,13 +285,18 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public AnalysisInfoBuilder setPartitionUpdateRows(Map<Long, Long> partitionUpdateRows) {
+        this.partitionUpdateRows = partitionUpdateRows;
+        return this;
+    }
+
     public AnalysisInfo build() {
         return new AnalysisInfo(jobId, taskId, taskIds, catalogId, dbId, tblId, jobColumns, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
                 partitionOnly, samplingPartition, isAllPartition, partitionCount,
                 cronExpression, forceFull, usingSqlForExternalTable, tblUpdateTime, rowCount, userInject, updateRows,
-                priority);
+                priority, partitionUpdateRows);
     }
 
 }

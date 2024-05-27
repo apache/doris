@@ -20,6 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
@@ -35,6 +37,7 @@ import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ResultRow;
+import org.apache.doris.statistics.TableStatsMeta;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -186,22 +189,39 @@ public class ShowColumnStatsStmt extends ShowStmt {
 
     public ShowResultSet constructPartitionResultSet(List<ResultRow> resultRows, TableIf tableIf) {
         List<List<String>> result = Lists.newArrayList();
-        resultRows.forEach(r -> {
+        for (ResultRow r : resultRows) {
             List<String> row = Lists.newArrayList();
-            row.add(r.get(0));
-            row.add(r.get(1));
-            row.add(r.get(2)); // TODO: Get index name.
-            row.add(r.get(3));
-            row.add(r.get(4));
-            row.add(r.get(5));
-            row.add(r.get(6));
-            row.add(r.get(7));
-            row.add(r.get(8));
-            row.add(r.get(9));
-            row.add("N/A");
-            row.add("Manual");
+            row.add(r.get(0)); // column_name
+            row.add(r.get(1)); // partition_name
+            long indexId = Long.parseLong(r.get(2));
+            String indexName = indexId == -1 ? tableIf.getName() : ((OlapTable) tableIf).getIndexNameById(indexId);
+            row.add(indexName); // index_name.
+            row.add(r.get(3)); // count
+            row.add(r.get(4)); // ndv
+            row.add(r.get(5)); // num_null
+            row.add(r.get(6)); // min
+            row.add(r.get(7)); // max
+            row.add(r.get(8)); // data_size
+            row.add(r.get(9)); // updated_time
+            String updateRows = "N/A";
+            TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
+            if (tableStats != null && tableIf instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) tableIf;
+                ColStatsMeta columnStatsMeta = tableStats.findColumnStatsMeta(indexName, r.get(0));
+                if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
+                    Partition partition = olapTable.getPartition(r.get(1));
+                    if (partition != null) {
+                        Long rows = columnStatsMeta.partitionUpdateRows.get(partition.getId());
+                        if (rows != null) {
+                            updateRows = rows.toString();
+                        }
+                    }
+                }
+            }
+            row.add(updateRows); // update_rows
+            row.add("Manual"); // trigger. Manual or System
             result.add(row);
-        });
+        }
         return new ShowResultSet(getMetaData(), result);
     }
 

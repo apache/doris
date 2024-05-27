@@ -2914,8 +2914,7 @@ public:
         std::mt19937 gen(rd());
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            UInt64 length = length_col->get64(i);
-            random_bytes.resize(length);
+            random_bytes.resize(length_col->get_element(i));
 
             std::uniform_int_distribution<uint8_t> distribution(0, 255);
             for (auto& byte : random_bytes) {
@@ -3100,7 +3099,7 @@ struct MoneyFormatDoubleImpl {
 
     static void execute(FunctionContext* context, ColumnString* result_column,
                         const ColumnPtr col_ptr, size_t input_rows_count) {
-        const auto* data_column = assert_cast<const ColumnVector<Float64>*>(col_ptr.get());
+        const auto* data_column = assert_cast<const ColumnFloat64*>(col_ptr.get());
         // when scale is above 38, we will go here
         for (size_t i = 0; i < input_rows_count; i++) {
             // round to 2 decimal places

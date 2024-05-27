@@ -16,8 +16,7 @@
 // under the License.
 
 suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
-
-
+    def dbName = "regression_test_fault_injection_p0"
     def tableName = "wal_test"
  
     // test successful group commit async load
@@ -34,10 +33,11 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
         """
 
     GetDebugPoint().clearDebugPointsForAllBEs()
+    def tableId = getTableId(dbName, tableName)
 
     def exception = false;
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg")
+            GetDebugPoint().enableDebugPointForAllBEs("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", [table_id:"${tableId}"])
             streamLoad {
                 table "${tableName}"
                 set 'column_separator', ','
@@ -70,10 +70,11 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
         """
 
     GetDebugPoint().clearDebugPointsForAllBEs()
+    tableId = getTableId(dbName, tableName)
 
     exception = false;
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg")
+            GetDebugPoint().enableDebugPointForAllBEs("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", [table_id:"${tableId}"])
             GetDebugPoint().enableDebugPointForAllBEs("LoadBlockQueue._finish_group_commit_load.err_st")
             streamLoad {
                 table "${tableName}"
@@ -108,10 +109,11 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
         """
 
     GetDebugPoint().clearDebugPointsForAllBEs()
+    tableId = getTableId(dbName, tableName)
 
     exception = false;
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg")
+            GetDebugPoint().enableDebugPointForAllBEs("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", [table_id:"${tableId}"])
             GetDebugPoint().enableDebugPointForAllBEs("LoadBlockQueue._finish_group_commit_load.err_status")
             streamLoad {
                 table "${tableName}"

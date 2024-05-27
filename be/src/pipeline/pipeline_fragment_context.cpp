@@ -51,11 +51,13 @@
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/group_commit_block_sink_operator.h"
+#include "pipeline/exec/group_commit_scan_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/hive_table_sink_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
+#include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
@@ -127,9 +129,11 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
     auto st = _query_ctx->exec_status();
     _query_ctx.reset();
+    for (size_t i = 0; i < _tasks.size(); i++) {
+        _call_back(_tasks[i].front()->runtime_state(), &st);
+    }
     _tasks.clear();
     for (auto& runtime_state : _task_runtime_states) {
-        _call_back(runtime_state.get(), &st);
         runtime_state.reset();
     }
     _pipelines.clear();
@@ -221,6 +225,10 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
+    if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
+        _timeout = request.query_options.execution_timeout;
+    }
+
     _runtime_profile = std::make_unique<RuntimeProfile>("PipelineContext");
     _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
     SCOPED_TIMER(_prepare_timer);
@@ -283,10 +291,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                     local_params.runtime_filter_params);
         }
-        if (local_params.__isset.topn_filter_source_node_ids) {
-            _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
-        } else {
-            _query_ctx->init_runtime_predicates({0});
+        if (local_params.__isset.topn_filter_descs) {
+            _query_ctx->init_runtime_predicates(local_params.topn_filter_descs);
         }
 
         _need_local_merge = request.__isset.parallel_instances;
@@ -985,6 +991,15 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         }
         break;
     }
+    case TDataSinkType::MEMORY_SCRATCH_SINK: {
+        if (!thrift_sink.__isset.memory_scratch_sink) {
+            return Status::InternalError("Missing data buffer sink.");
+        }
+
+        _sink.reset(
+                new MemoryScratchSinkOperatorX(row_desc, next_sink_operator_id(), output_exprs));
+        break;
+    }
     case TDataSinkType::RESULT_FILE_SINK: {
         if (!thrift_sink.__isset.result_file_sink) {
             return Status::InternalError("Missing result file sink.");
@@ -1081,6 +1096,15 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
         op.reset(new OlapScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
+            op->set_ignore_data_distribution();
+        }
+        break;
+    }
+    case TPlanNodeType::GROUP_COMMIT_SCAN_NODE: {
+        op.reset(new GroupCommitOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
         if (request.__isset.parallel_instances) {
             cur_pipe->set_num_tasks(request.parallel_instances);

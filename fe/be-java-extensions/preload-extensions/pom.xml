@@ -182,23 +182,8 @@ under the License.
         </dependency>
         <!-- For JDBC Scanner PreLoad-->
         <dependency>
-            <groupId>com.oracle.database.jdbc</groupId>
-            <artifactId>ojdbc8</artifactId>
-        </dependency>
-        <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.clickhouse</groupId>
-            <artifactId>clickhouse-jdbc</artifactId>
-            <classifier>all</classifier>
-            <scope>compile</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.oracle.ojdbc</groupId>
-            <artifactId>orai18n</artifactId>
-            <version>19.3.0.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>

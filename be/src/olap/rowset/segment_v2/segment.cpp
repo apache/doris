@@ -164,13 +164,12 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             return Status::OK();
         }
     }
-    if (read_options.use_topn_opt) {
+
+    if (!read_options.topn_filter_source_node_ids.empty()) {
         auto* query_ctx = read_options.runtime_state->get_query_ctx();
         for (int id : read_options.topn_filter_source_node_ids) {
-            if (!query_ctx->get_runtime_predicate(id).need_update()) {
-                continue;
-            }
-            auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate();
+            auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate(
+                    read_options.topn_filter_target_node_id);
 
             int32_t uid =
                     read_options.tablet_schema->column(runtime_predicate->column_id()).unique_id();
@@ -283,6 +282,15 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
 }
 
 Status Segment::_load_pk_bloom_filter() {
+#ifdef BE_TEST
+    if (_pk_index_meta == nullptr) {
+        // for BE UT "segment_cache_test"
+        return _load_pk_bf_once.call([this] {
+            _meta_mem_usage += 100;
+            return Status::OK();
+        });
+    }
+#endif
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS);
     DCHECK(_pk_index_meta != nullptr);
     DCHECK(_pk_index_reader != nullptr);
@@ -312,6 +320,7 @@ Status Segment::load_pk_index_and_bf() {
     RETURN_IF_ERROR(_load_pk_bloom_filter());
     return Status::OK();
 }
+
 Status Segment::load_index() {
     auto status = [this]() { return _load_index_impl(); }();
     if (!status.ok()) {

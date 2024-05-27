@@ -30,8 +30,6 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.task.StreamLoadTask;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -72,7 +70,6 @@ public class InsertStreamTxnExecutor {
         StreamLoadPlanner planner = new StreamLoadPlanner((Database) txnEntry.getDb(), table, streamLoadTask);
         boolean enablePipelineLoad = Config.enable_pipeline_load;
         TPipelineFragmentParamsList pipelineParamsList = new TPipelineFragmentParamsList();
-        TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
         if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
             throw new UserException("get table read lock timeout, database=" + table.getDatabase().getId() + ",table="
                     + table.getName());
@@ -99,23 +96,7 @@ public class InsertStreamTxnExecutor {
 
                 pipelineParamsList.addToParamsList(tRequest);
             } else {
-                TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-                tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
-                for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges
-                        .entrySet()) {
-                    for (TScanRangeParams scanRangeParams : entry.getValue()) {
-                        scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
-                                TFileFormatType.FORMAT_PROTO);
-                        scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
-                                TFileCompressType.PLAIN);
-                    }
-                }
-                txnConf.setFragmentInstanceId(tRequest.params.fragment_instance_id);
-                this.loadId = request.getLoadId();
-                this.txnEntry.setpLoadId(Types.PUniqueId.newBuilder()
-                        .setHi(loadId.getHi())
-                        .setLo(loadId.getLo()).build());
-                paramsList.addToParamsList(tRequest);
+                throw new UserException("Pipeline load should be enabled");
             }
             TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(table.getDatabase().getId(), streamLoadTask.getTxnId());
@@ -141,7 +122,7 @@ public class InsertStreamTxnExecutor {
             if (enablePipelineLoad) {
                 future = BackendServiceProxy.getInstance().execPlanFragmentsAsync(address, pipelineParamsList, false);
             } else {
-                future = BackendServiceProxy.getInstance().execPlanFragmentsAsync(address, paramsList, false);
+                throw new UserException("Pipeline load should be enabled");
             }
             InternalService.PExecPlanFragmentResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());

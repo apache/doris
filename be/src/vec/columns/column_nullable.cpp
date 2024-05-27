@@ -652,12 +652,6 @@ ColumnPtr remove_nullable(const ColumnPtr& column) {
     return column;
 }
 
-ColumnPtr ColumnNullable::index(const IColumn& indexes, size_t limit) const {
-    ColumnPtr indexed_data = get_nested_column().index(indexes, limit);
-    ColumnPtr indexed_null_map = get_null_map_column().index(indexes, limit);
-    return ColumnNullable::create(indexed_data, indexed_null_map);
-}
-
 void check_set_nullable(ColumnPtr& argument_column, ColumnVector<UInt8>::MutablePtr& null_map,
                         bool is_single) {
     if (const auto* nullable = check_and_get_column<ColumnNullable>(*argument_column)) {

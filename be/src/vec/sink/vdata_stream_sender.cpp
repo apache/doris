@@ -178,11 +178,7 @@ Status Channel<Parent>::open(RuntimeState* state) {
 
 std::shared_ptr<pipeline::Dependency> PipChannel::get_local_channel_dependency() {
     if (!Channel<pipeline::ExchangeSinkLocalState>::_local_recvr) {
-        throw Exception(
-                ErrorCode::INTERNAL_ERROR,
-                "_local_recvr is null: " +
-                        std::to_string(Channel<pipeline::ExchangeSinkLocalState>::_parent->parent()
-                                               ->node_id()));
+        return nullptr;
     }
     return Channel<pipeline::ExchangeSinkLocalState>::_local_recvr->get_local_channel_dependency(
             Channel<pipeline::ExchangeSinkLocalState>::_parent->sender_id());
