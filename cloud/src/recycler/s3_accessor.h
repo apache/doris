@@ -92,6 +92,7 @@ private:
     std::shared_ptr<Aws::S3::S3Client> s3_client_;
     S3Conf conf_;
     std::string path_;
+    std::shared_ptr<ObjStorageClient> obj_client_;
 };
 
 class GcsAccessor final : public S3Accessor {
