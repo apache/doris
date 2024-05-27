@@ -553,28 +553,27 @@ class AtomicStatus {
 public:
     AtomicStatus() : error_st_(Status::OK()) {}
 
-    bool ok() const { return error_code_.load() == 0; }
+    bool ok() const { return error_code_.load(std::memory_order_acquire) == 0; }
 
     bool update(const Status& new_status) {
         // If new status is normal, or the old status is abnormal, then not need update
-        if (new_status.ok() || error_code_.load() != 0) {
+        if (new_status.ok() || error_code_.load(std::memory_order_acquire) != 0) {
             return false;
         }
-        int16_t expected_error_code = 0;
-        if (error_code_.compare_exchange_strong(expected_error_code, new_status.code(),
-                                                std::memory_order_acq_rel)) {
-            // lock here for read status, to avoid core during return error_st_
-            std::lock_guard l(mutex_);
-            error_st_ = new_status;
-            return true;
-        } else {
+        std::lock_guard l(mutex_);
+        if (error_code_.load(std::memory_order_acquire) != 0) {
             return false;
         }
+        error_st_ = new_status;
+        error_code_.store(new_status.code(), std::memory_order_release);
+        return true;
     }
 
     // will copy a new status object to avoid concurrency
+    // This stauts could only be called when ok==false
     Status status() const {
         std::lock_guard l(mutex_);
+        DCHECK(error_code_.load(std::memory_order_acquire) != 0);
         return error_st_;
     }
 
