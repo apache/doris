@@ -290,7 +290,7 @@ Status PipelineTask::execute(bool* eos) {
         return Status::OK();
     }
     // The status must be runnable
-    if (!_opened) {
+    if (!_opened && !_fragment_context->is_canceled()) {
         RETURN_IF_ERROR(_open());
     }
 
@@ -447,10 +447,6 @@ Status PipelineTask::close(Status exec_status) {
         COUNTER_UPDATE(_task_profile->total_time_counter(), close_ns);
     }
     return s;
-}
-
-Status PipelineTask::close_sink(Status exec_status) {
-    return _sink->close(_state, exec_status);
 }
 
 std::string PipelineTask::debug_string() {
