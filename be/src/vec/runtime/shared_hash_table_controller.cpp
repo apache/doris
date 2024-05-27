@@ -25,8 +25,7 @@
 
 #include "pipeline/exec/hashjoin_build_sink.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 
 void SharedHashTableController::set_builder_and_consumers(TUniqueId builder, int node_id) {
     // Only need to set builder and consumers with pipeline engine enabled.
@@ -74,5 +73,4 @@ TUniqueId SharedHashTableController::get_builder_fragment_instance_id(int my_nod
     return it->second;
 }
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

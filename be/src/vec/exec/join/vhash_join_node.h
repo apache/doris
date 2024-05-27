@@ -46,7 +46,6 @@
 #include "vec/core/types.h"
 #include "vec/exec/join/join_op.h" // IWYU pragma: keep
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/runtime/shared_hash_table_controller.h"
 #include "vjoin_node_base.h"
 
 template <typename T>
