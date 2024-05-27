@@ -162,9 +162,6 @@ private:
     template <typename Param>
     void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
 
-    void _setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
-                                                    QueryContext* query_ctx);
-
     template <typename Params>
     Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                           std::shared_ptr<QueryContext>& query_ctx);

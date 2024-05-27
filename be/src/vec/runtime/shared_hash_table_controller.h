@@ -78,13 +78,13 @@ public:
     SharedHashTableContextPtr get_context(int my_node_id);
     void signal(int my_node_id);
     void signal_finish(int my_node_id);
-    void signal(int my_node_id, Status status);
-    Status wait_for_signal(RuntimeState* state, const SharedHashTableContextPtr& context);
-    bool should_build_hash_table(const TUniqueId& fragment_instance_id, int my_node_id);
-    void set_pipeline_engine_enabled(bool enabled) { _pipeline_engine_enabled = enabled; }
     void append_dependency(int node_id, std::shared_ptr<pipeline::Dependency> dep,
                            std::shared_ptr<pipeline::Dependency> finish_dep) {
         std::lock_guard<std::mutex> lock(_mutex);
+        if (!_dependencies.contains(node_id)) {
+            _dependencies.insert({node_id, {}});
+            _finish_dependencies.insert({node_id, {}});
+        }
         _dependencies[node_id].push_back(dep);
         _finish_dependencies[node_id].push_back(finish_dep);
     }
