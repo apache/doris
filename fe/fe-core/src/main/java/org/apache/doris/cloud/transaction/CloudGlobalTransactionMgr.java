@@ -70,6 +70,8 @@ import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.metric.MetricRepo;
@@ -450,6 +452,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
 
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of transaction
+        // Generating an event here, rather than after the response returns,
+        // is because if the response returns before the event is generated, FE hangs up,
+        // this message will be lost. We can give more notifications, but we cannot lose messages
+        produceEvent(dbId, tableList);
+
         final CommitTxnRequest commitTxnRequest = builder.build();
         CommitTxnResponse commitTxnResponse = null;
         int retryTime = 0;
@@ -512,6 +522,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(txnState.getCommitTime() - txnState.getPrepareTime());
         }
         afterCommitTxnResp(commitTxnResponse);
+    }
+
+    private void produceEvent(long dbId, List<Table> tableList) {
+        for (Table table : tableList) {
+            Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new DataChangeEvent(InternalCatalog.INTERNAL_CATALOG_ID, dbId, table.getId()));
+        }
     }
 
     private List<OlapTable> getMowTableList(List<Table> tableList) {
