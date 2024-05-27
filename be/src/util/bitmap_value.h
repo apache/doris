@@ -1258,11 +1258,9 @@ public:
         return *this;
     }
 
-    static std::string empty_bitmap() {
-        std::string buf(sizeof(BitmapValue), 0);
-        BitmapValue* bitmap_value = reinterpret_cast<BitmapValue*>(buf.data());
-        bitmap_value->_type = EMPTY;
-        return buf;
+    static BitmapValue empty_bitmap() {
+        static BitmapValue bitmap_value;
+        return bitmap_value;
     }
 
     BitmapValue& operator=(BitmapValue&& other) noexcept {

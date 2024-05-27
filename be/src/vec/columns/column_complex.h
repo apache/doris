@@ -26,10 +26,10 @@
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_common.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
@@ -37,7 +37,7 @@ namespace doris::vectorized {
 template <typename T>
 class ColumnComplexType final : public COWHelper<IColumn, ColumnComplexType<T>> {
 private:
-    ColumnComplexType() {}
+    ColumnComplexType() = default;
     ColumnComplexType(const size_t n) : data(n) {}
     friend class COWHelper<IColumn, ColumnComplexType<T>>;
 
@@ -55,7 +55,7 @@ public:
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
-        return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
+        return {reinterpret_cast<const char*>(&data[n]), sizeof(data[n])};
     }
 
     void insert_from(const IColumn& src, size_t n) override {
@@ -130,18 +130,18 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
 
     void insert(const Field& x) override {
-        const String& s = doris::vectorized::get<const String&>(x);
-        data.push_back(*reinterpret_cast<const T*>(s.c_str()));
+        const T& s = doris::vectorized::get<const T&>(x);
+        data.push_back(s);
     }
 
     Field operator[](size_t n) const override {
         assert(n < size());
-        return Field(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
+        return {reinterpret_cast<const char*>(&data[n]), sizeof(data[n])};
     }
 
     void get(size_t n, Field& res) const override {
         assert(n < size());
-        res.assign_string(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
+        res = Field(data[n]);
     }
 
     [[noreturn]] bool get_bool(size_t n) const override {
@@ -260,18 +260,24 @@ ColumnPtr ColumnComplexType<T>::filter(const IColumn::Filter& filt,
     size_t size = data.size();
     column_match_filter_size(size, filt.size());
 
-    if (data.size() == 0) return this->create();
+    if (data.size() == 0) {
+        return this->create();
+    }
     auto res = this->create();
     Container& res_data = res->get_data();
 
-    if (result_size_hint) res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
+    if (result_size_hint) {
+        res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
+    }
 
     const UInt8* filt_pos = filt.data();
     const UInt8* filt_end = filt_pos + size;
     const T* data_pos = data.data();
 
     while (filt_pos < filt_end) {
-        if (*filt_pos) res_data.push_back(*data_pos);
+        if (*filt_pos) {
+            res_data.push_back(*data_pos);
+        }
 
         ++filt_pos;
         ++data_pos;
@@ -335,7 +341,9 @@ ColumnPtr ColumnComplexType<T>::replicate(const IColumn::Offsets& offsets) const
     size_t size = data.size();
     column_match_offsets_size(size, offsets.size());
 
-    if (0 == size) return this->create();
+    if (0 == size) {
+        return this->create();
+    }
 
     auto res = this->create();
     typename Self::Container& res_data = res->get_data();

@@ -48,7 +48,7 @@ TEST(ColumnComplexTest, BasicTest) {
 }
 
 // Test the compile failed
-TEST(ColumnComplexType, DataTypeBitmapTest) {
+TEST(ColumnComplexTest, DataTypeBitmapTest) {
     std::make_shared<DataTypeBitMap>();
 }
 
@@ -149,10 +149,9 @@ TEST_F(ColumnBitmapTest, ColumnBitmapReadWrite) {
 
     Field field;
     column->get(0, field);
-    auto str = field.get<String>();
-    auto* bitmap = reinterpret_cast<const BitmapValue*>(str.c_str());
-    EXPECT_TRUE(bitmap->contains(10));
-    EXPECT_TRUE(bitmap->contains(1000000));
+    auto bitmap = field.get<BitmapValue>();
+    EXPECT_TRUE(bitmap.contains(10));
+    EXPECT_TRUE(bitmap.contains(1000000));
 }
 
 TEST_F(ColumnQuantileStateTest, ColumnQuantileStateReadWrite) {
