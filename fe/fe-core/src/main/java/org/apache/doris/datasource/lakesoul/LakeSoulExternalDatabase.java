@@ -15,25 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.datasource.lakesoul;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive"),
-    LAKESOUL("lakesoul"),
-    TRINO_CONNECTOR("trino_connector");
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.InitDatabaseLog;
 
-    private final String tableFormatType;
+public class LakeSoulExternalDatabase extends ExternalDatabase<LakeSoulExternalTable> {
 
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
+    public LakeSoulExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
+        super(extCatalog, id, name, InitDatabaseLog.Type.LAKESOUL);
     }
 
-    public String value() {
-        return tableFormatType;
+    @Override
+    protected LakeSoulExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
+        return new LakeSoulExternalTable(tblId, tableName, name, (LakeSoulExternalCatalog) catalog);
     }
 }
+
