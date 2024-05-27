@@ -226,15 +226,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
         boolean createHistoryPartition = dynamicPartitionProperty.isCreateHistoryPartition();
         int idx;
-        int start = dynamicPartitionProperty.getStart();
-        int historyPartitionNum = dynamicPartitionProperty.getHistoryPartitionNum();
         // When enable create_history_partition, will check the valid value from start and history_partition_num.
         if (createHistoryPartition) {
-            if (historyPartitionNum == DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM) {
-                idx = start;
-            } else {
-                idx = Math.max(start, -historyPartitionNum);
-            }
+            idx = DynamicPartitionUtil.getRealStart(dynamicPartitionProperty.getStart(),
+                    dynamicPartitionProperty.getHistoryPartitionNum());
         } else {
             idx = 0;
         }
@@ -263,11 +258,13 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 PartitionKey upperBound = PartitionKey.createPartitionKey(Collections.singletonList(upperValue),
                         Collections.singletonList(partitionColumn));
                 addPartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
-            } catch (AnalysisException | IllegalArgumentException e) {
+            } catch (Exception e) {
                 // AnalysisException: keys.size is always equal to column.size, cannot reach this exception
                 // IllegalArgumentException: lb is greater than ub
                 LOG.warn("Error in gen addPartitionKeyRange. Error={}, db: {}, table: {}", e.getMessage(),
                         db.getFullName(), olapTable.getName());
+                recordCreatePartitionFailedMsg(db.getFullName(), olapTable.getName(),
+                        e.getMessage(), olapTable.getId());
                 continue;
             }
             for (PartitionItem partitionItem : rangePartitionInfo.getIdToItem(false).values()) {
@@ -416,9 +413,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             return dropPartitionClauses;
         }
 
+        int realStart = DynamicPartitionUtil.getRealStart(dynamicPartitionProperty.getStart(),
+                dynamicPartitionProperty.getHistoryPartitionNum());
         ZonedDateTime now = ZonedDateTime.now(dynamicPartitionProperty.getTimeZone().toZoneId());
         String lowerBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
-                now, dynamicPartitionProperty.getStart(), partitionFormat);
+                now, realStart, partitionFormat);
         PartitionValue lowerPartitionValue = new PartitionValue(lowerBorder);
         List<Range<PartitionKey>> reservedHistoryPartitionKeyRangeList = new ArrayList<Range<PartitionKey>>();
         Range<PartitionKey> reservePartitionKeyRange;
@@ -427,11 +426,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     Collections.singletonList(partitionColumn));
             reservePartitionKeyRange = Range.atLeast(lowerBound);
             reservedHistoryPartitionKeyRangeList.add(reservePartitionKeyRange);
-        } catch (AnalysisException | IllegalArgumentException e) {
+        } catch (Exception e) {
             // AnalysisException: keys.size is always equal to column.size, cannot reach this exception
             // IllegalArgumentException: lb is greater than ub
             LOG.warn("Error in gen reservePartitionKeyRange. Error={}, db: {}, table: {}", e.getMessage(),
                     db.getFullName(), olapTable.getName());
+            recordDropPartitionFailedMsg(db.getFullName(), olapTable.getName(), e.getMessage(), olapTable.getId());
             return dropPartitionClauses;
         }
 
