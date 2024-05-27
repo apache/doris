@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -44,6 +45,8 @@ public class StatisticProcNode implements ProcNodeInterface {
             .build();
     private Env env;
 
+    private ForkJoinPool taskPool = new ForkJoinPool();
+
     public StatisticProcNode(Env env) {
         Preconditions.checkNotNull(env);
         this.env = env;
@@ -51,12 +54,14 @@ public class StatisticProcNode implements ProcNodeInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        List<DBStatistic> statistics = env.getInternalCatalog().getDbIds().parallelStream()
-                // skip information_schema database
-                .flatMap(id -> Stream.of(id == 0 ? null : env.getCatalogMgr().getDbNullable(id)))
-                .filter(Objects::nonNull).map(DBStatistic::new)
-                // sort by dbName
-                .sorted(Comparator.comparing(db -> db.db.getFullName())).collect(Collectors.toList());
+        List<DBStatistic> statistics = taskPool.submit(() ->
+                env.getInternalCatalog().getDbIds().parallelStream()
+                    // skip information_schema database
+                    .flatMap(id -> Stream.of(id == 0 ? null : env.getCatalogMgr().getDbNullable(id)))
+                    .filter(Objects::nonNull).map(DBStatistic::new)
+                    // sort by dbName
+                    .sorted(Comparator.comparing(db -> db.db.getFullName())).collect(Collectors.toList())
+        ).join();
 
         List<List<String>> rows = new ArrayList<>(statistics.size() + 1);
         for (DBStatistic statistic : statistics) {
