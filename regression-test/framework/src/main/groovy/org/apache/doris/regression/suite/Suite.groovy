@@ -1147,6 +1147,31 @@ class Suite implements GroovyInterceptable {
         return debugPoint
     }
 
+    void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
+        Thread.sleep(2000);
+        String showPartitions = "show partitions from ${tableName}"
+        Boolean status = null;
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 1 * 60 * 1000 // 1 min
+        do {
+            result = sql(showPartitions)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                for (List<Object> row : result) {
+                    if (String.valueOf(row.get(1).equals(partitionName))) {
+                        status = Boolean.valueOf(row.get(row.size() - 2).toString())
+                    }
+                }
+            }
+            Thread.sleep(500);
+        } while (timeoutTimestamp > System.currentTimeMillis() && !Objects.equals(status, expectedStatus))
+        if (!Objects.equals(status, expectedStatus)) {
+            logger.info("status is not expected")
+        }
+        Assert.assertEquals(expectedStatus, status)
+    }
+
     void waitingMTMVTaskFinished(String jobName) {
         Thread.sleep(2000);
         String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"

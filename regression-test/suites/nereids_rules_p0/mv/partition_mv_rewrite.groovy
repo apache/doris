@@ -165,7 +165,7 @@ suite("partition_mv_rewrite") {
     insert into lineitem values
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
     """
-    sleep(5000)
+    waitingPartitionIsExpected("${mv_name}", "p_20231017_20231018", false)
 
     sql "SET enable_materialized_view_union_rewrite=false;"
     sql "SET enable_materialized_view_rewrite=false"
@@ -173,6 +173,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${all_partition_sql}")
+        // should rewrite fail when union rewrite disable if sub partition is invalid
         notContains("${mv_name}(${mv_name})")
     }
     order_qt_query_1_0_after "${all_partition_sql}"
@@ -182,6 +183,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${partition_sql}")
+        // should rewrite successfully when union rewrite disable if doesn't query invalid partition
         contains("${mv_name}(${mv_name})")
     }
     order_qt_query_2_0_after "${partition_sql}"
@@ -193,6 +195,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${all_partition_sql}")
+        // should rewrite successful when union rewrite enalbe if sub partition is invalid
         contains("${mv_name}(${mv_name})")
     }
     order_qt_query_3_0_after "${all_partition_sql}"
@@ -202,6 +205,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${partition_sql}")
+        // should rewrite successfully when union rewrite enable if doesn't query invalid partition
         contains("${mv_name}(${mv_name})")
     }
     order_qt_query_4_0_after "${partition_sql}"
@@ -216,12 +220,14 @@ suite("partition_mv_rewrite") {
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-21', '2023-10-21', '2023-10-21', 'a', 'b', 'yyyyyyyyy');
     """
 
-    sleep(5000)
+
+    waitingPartitionIsExpected("${mv_name}", "p_20231021_20231022", false)
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_5_0_before "${all_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${all_partition_sql}")
+        // should rewrite fail when union rewrite disable if base table add new partition
         notContains("${mv_name}(${mv_name})")
     }
     order_qt_query_5_0_after "${all_partition_sql}"
@@ -231,6 +237,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${partition_sql}")
+        // should rewrite successfully when union rewrite disable if doesn't query new partition
         contains("${mv_name}(${mv_name})")
     }
     order_qt_query_6_0_after "${partition_sql}"
@@ -242,7 +249,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${all_partition_sql}")
-        // mv doesn't contain all valid partitions, rewrite by union
+        // should rewrite successful when union rewrite enalbe if base table add new partition
         contains("${mv_name}(${mv_name})")
     }
     order_qt_query_7_0_after "${all_partition_sql}"
@@ -252,6 +259,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${partition_sql}")
+        // should rewrite successfully when union rewrite enable if doesn't query new partition
         contains("${mv_name}(${mv_name})")
     }
     order_qt_query_8_0_after "${partition_sql}"
@@ -264,13 +272,13 @@ suite("partition_mv_rewrite") {
     sql """ ALTER TABLE lineitem DROP PARTITION IF EXISTS p_20231017 FORCE;
     """
 
-    sleep(3000)
+    waitingPartitionIsExpected("${mv_name}", "p_20231017_20231018", false)
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_9_0_before "${all_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${all_partition_sql}")
-        // mv doesn't contain all valid partitions, can not use materialized view
+        // should rewrite fail when union rewrite disable if base table delete partition
         notContains("${mv_name}(${mv_name})")
     }
     order_qt_query_9_0_after "${all_partition_sql}"
@@ -280,6 +288,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${partition_sql}")
+        // should rewrite successfully when union rewrite disable if doesn't query deleted partition
         contains("${mv_name}(${mv_name})")
     }
     order_qt_query_10_0_after "${partition_sql}"
@@ -291,7 +300,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${all_partition_sql}")
-        // mv doesn't contain all valid partitions, can not use materialized view
+        // should rewrite successful when union rewrite enalbe if base table delete partition
         contains("${mv_name}(${mv_name})")
     }
     order_qt_query_11_0_after "${all_partition_sql}"
@@ -301,6 +310,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${partition_sql}")
+        // should rewrite successfully when union rewrite enable if doesn't query deleted partition
         contains("${mv_name}(${mv_name})")
     }
     order_qt_query_12_0_after "${partition_sql}"
@@ -416,7 +426,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${ttl_all_partition_sql}")
-        // mv doesn't contain all valid partitions, can not use materialized view
+        // should rewrite fail when union rewrite disable and mv is ttl
         notContains("${ttl_mv_name}(${ttl_mv_name})")
     }
     order_qt_query_13_0_after "${ttl_all_partition_sql}"
@@ -426,6 +436,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${ttl_partition_sql}")
+        // should rewrite fail when union rewrite disable and mv is ttl
         notContains("${ttl_mv_name}(${ttl_mv_name})")
     }
     order_qt_query_14_0_after "${ttl_partition_sql}"
@@ -437,7 +448,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${ttl_all_partition_sql}")
-        // mv doesn't contain all valid partitions, can not use materialized view
+        // should rewrite successful when union rewrite enalbe and mv is ttl, query the partition which is in mv
         contains("${ttl_mv_name}(${ttl_mv_name})")
     }
     order_qt_query_15_0_after "${ttl_all_partition_sql}"
@@ -447,6 +458,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${ttl_partition_sql}")
+        // should rewrite fail when union rewrite enalbe and query the partition which is not in mv
         notContains("${ttl_mv_name}(${ttl_mv_name})")
     }
     order_qt_query_16_0_after "${ttl_partition_sql}"
