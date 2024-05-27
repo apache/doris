@@ -56,10 +56,15 @@ public:
 
     void set_min_rows_per_scanner(int64_t size) { _min_rows_per_scanner = size; }
 
+    void set_min_bytes_per_scanner(int64_t bytes) { _min_bytes_per_scanner = bytes; }
+
+    void set_segment_count_factor(int64_t factor) { _segment_count_factor = factor; }
+
 private:
     Status _load();
 
     Status _build_scanners_by_rowid(std::list<VScannerSPtr>& scanners);
+    Status _build_scanners_by_segment_size(std::list<VScannerSPtr>& scanners);
 
     std::shared_ptr<vectorized::NewOlapScanner> _build_scanner(
             BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
@@ -77,11 +82,19 @@ private:
 
     size_t _rows_per_scanner {_min_rows_per_scanner};
 
+    /// used if `_split_by_segment_size` is true.
+    size_t _bytes_per_scanner {0};
+    size_t _min_bytes_per_scanner {32 * 1024 * 1024};
+    size_t _segment_count_factor {10};
+
+    std::map<RowsetId, std::vector<size_t>> _segments_size;
+
     std::map<RowsetId, SegmentCacheHandle> _segment_cache_handles;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeState* _state;
     int64_t _limit_per_scanner;
+    bool _split_by_segment_size {false};
     bool _is_dup_mow_key;
     bool _is_preaggregation;
     std::vector<TabletWithVersion> _tablets;
