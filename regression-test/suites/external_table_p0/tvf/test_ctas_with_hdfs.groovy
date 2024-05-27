@@ -1,0 +1,49 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_ctas_with_hdfs","external,hive,tvf,external_docker") {
+    String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
+    // It's okay to use random `hdfsUser`, but can not be empty.
+    def hdfsUserName = "doris"
+    def format = "parquet"
+    def defaultFS = "hdfs://${externalEnvIp}:${hdfs_port}"
+
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String tableName = "ctas_tvf";
+        sql """drop table if exists ${tableName}; """
+        def uri = "${defaultFS}" + "/user/doris/preinstalled_data/parquet/partition_table/nation=cn/city=beijing/beijing1"
+        sql """ create table ${tableName}
+            PARTITION BY LIST(nation, city) (
+                PARTITION p1 VALUES IN (("cn", "beijing")),
+                PARTITION p2 VALUES IN (("usa", "newyork"))
+            )
+            PROPERTIES("replication_num" = "1") 
+            as
+            select * from HDFS(
+                "uri" = "${uri}",
+                "hadoop.username" = "${hdfsUserName}",
+                "path_partition_keys"="nation,city",
+                "format" = "${format}") where l_orderkey < 50;
+        """
+
+        order_qt_desc """desc ${tableName};"""
+        order_qt_select """ select * from ${tableName} order by l_orderkey"""
+    }
+}
