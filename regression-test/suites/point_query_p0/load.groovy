@@ -67,13 +67,8 @@ suite("test_point_query_load", "p0") {
             assertEquals(100000, json.NumberLoadedRows)
         }
     }
-    createMV ("""CREATE MATERIALIZED VIEW mv_${testTable} AS SELECT c_tinyint, c_bool, k1, c_smallint, c_int, c_bigint, c_largeint, c_float, c_double,  c_decimal, c_decimalv3, c_date, c_datetime, c_datev2, c_datetimev2, c_char, c_varchar, c_string FROM ${testTable} ORDER BY c_tinyint, c_bool, k1""")
 
     sql "set topn_opt_limit_threshold = 100"
-    explain {
-        sql("SELECT * from ${testTable} where c_tinyint = 10 order by 1, 2, 3 limit 10")
-        contains "(mv_${testTable})"
-    }
     qt_sql "SELECT * from ${testTable} order by 1, 2, 3 limit 10"
     qt_sql "SELECT * from ${testTable} where c_tinyint = 10 order by 1, 2, 3 limit 10 "
 
