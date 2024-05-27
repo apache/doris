@@ -336,8 +336,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                 auto segment_path =
                         local_segment_path(local_tablet->tablet_path(),
                                            rowset_meta->rowset_id().to_string(), segment_index);
-                segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_path_v1(
-                        InvertedIndexDescriptor::get_index_path_prefix(segment_path), index_id,
+                segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_file_path_v1(
+                        InvertedIndexDescriptor::get_index_file_path_prefix(segment_path), index_id,
                         index.get_index_suffix()));
 
                 status = HttpClient::execute_with_retry(max_retry, 1,
@@ -374,8 +374,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                 auto segment_path =
                         local_segment_path(local_tablet->tablet_path(),
                                            rowset_meta->rowset_id().to_string(), segment_index);
-                segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_path_v2(
-                        InvertedIndexDescriptor::get_index_path_prefix(segment_path)));
+                segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_file_path_v2(
+                        InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)));
 
                 status = HttpClient::execute_with_retry(max_retry, 1,
                                                         get_segment_index_file_size_cb);

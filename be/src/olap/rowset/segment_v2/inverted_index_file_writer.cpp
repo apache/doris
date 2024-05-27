@@ -31,10 +31,6 @@
 
 namespace doris::segment_v2 {
 
-std::string InvertedIndexFileWriter::get_index_file_path() const {
-    return InvertedIndexDescriptor::get_index_path_v2(_index_path_prefix);
-}
-
 Status InvertedIndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_dirs) {
     _indices_dirs = std::move(indices_dirs);
     return Status::OK();
@@ -46,7 +42,7 @@ Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index
     auto local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
             tmp_file_dir.native(), _rowset_id, _seg_id, index_meta->index_id(),
             index_meta->get_index_suffix());
-    auto index_path = InvertedIndexDescriptor::get_index_path_v1(
+    auto index_path = InvertedIndexDescriptor::get_index_file_path_v1(
             _index_path_prefix, index_meta->index_id(), index_meta->get_index_suffix());
     // FIXME(plat1ko): hardcode
     index_path =
@@ -125,9 +121,9 @@ Status InvertedIndexFileWriter::close() {
     if (_indices_dirs.empty()) {
         return Status::OK();
     }
-    try {
-        if (_storage_format == InvertedIndexStorageFormatPB::V1) {
-            for (const auto& entry : _indices_dirs) {
+    if (_storage_format == InvertedIndexStorageFormatPB::V1) {
+        for (const auto& entry : _indices_dirs) {
+            try {
                 const auto& dir = entry.second;
                 auto* cfsWriter = _CLNEW DorisCompoundFileWriter(dir.get());
                 // write compound file
@@ -138,8 +134,18 @@ Status InvertedIndexFileWriter::close() {
                     compound_dir->deleteDirectory();
                 }
                 _CLDELETE(cfsWriter)
+            } catch (CLuceneError& err) {
+                auto index_id = entry.first.first;
+                auto index_suffix = entry.first.second;
+                return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "CLuceneError occur when close idx file {}, error msg: {}",
+                        InvertedIndexDescriptor::get_index_file_path_v1(
+                                _index_path_prefix, index_id, index_suffix),
+                        err.what());
             }
-        } else {
+        }
+    } else {
+        try {
             _file_size = write();
             for (const auto& entry : _indices_dirs) {
                 const auto& dir = entry.second;
@@ -149,11 +155,12 @@ Status InvertedIndexFileWriter::close() {
                     compound_dir->deleteDirectory();
                 }
             }
+        } catch (CLuceneError& err) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "CLuceneError occur when close idx file {}, error msg: {}",
+                    InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix),
+                    err.what());
         }
-    } catch (CLuceneError& err) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "CLuceneError occur when close idx file {}, error msg: {}",
-                InvertedIndexDescriptor::get_index_path_v2(_index_path_prefix), err.what());
     }
     return Status::OK();
 }
@@ -162,7 +169,7 @@ size_t InvertedIndexFileWriter::write() {
     // Create the output stream to write the compound file
     int64_t current_offset = headerLength();
 
-    io::Path index_path {InvertedIndexDescriptor::get_index_path_v2(_index_path_prefix)};
+    io::Path index_path {InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)};
 
     auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, index_path.parent_path().c_str());
 

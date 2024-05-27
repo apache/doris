@@ -77,7 +77,6 @@ public:
     size_t write();
     Status close();
     size_t headerLength();
-    std::string get_index_file_path() const;
     size_t get_index_file_size() const { return _file_size; }
     const io::FileSystemSPtr& get_fs() const { return _fs; }
 

@@ -1784,25 +1784,25 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                     std::string remote_inverted_index_file;
                     std::string local_inverted_index_file;
                     std::string remote_inverted_index_file_url;
-                    if (tablet_scheme->get_inverted_index_storage_format() !=
+                    if (tablet_scheme->get_inverted_index_storage_format() ==
                         InvertedIndexStorageFormatPB::V1) {
-                        remote_inverted_index_file = InvertedIndexDescriptor::get_index_path_v2(
-                                InvertedIndexDescriptor::get_index_path_prefix(remote_file_path));
+                        remote_inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v1(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(remote_file_path),
+                                index_id, suffix_path);
                         remote_inverted_index_file_url = construct_url(
                                 get_host_port(host, http_port), token, remote_inverted_index_file);
 
-                        local_inverted_index_file = InvertedIndexDescriptor::get_index_path_v2(
-                                InvertedIndexDescriptor::get_index_path_prefix(local_file_path));
+                        local_inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v1(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(local_file_path),
+                                index_id, suffix_path);
                     } else {
-                        remote_inverted_index_file = InvertedIndexDescriptor::get_index_path_v1(
-                                InvertedIndexDescriptor::get_index_path_prefix(remote_file_path),
-                                index_id, suffix_path);
+                        remote_inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(remote_file_path));
                         remote_inverted_index_file_url = construct_url(
                                 get_host_port(host, http_port), token, remote_inverted_index_file);
 
-                        local_inverted_index_file = InvertedIndexDescriptor::get_index_path_v1(
-                                InvertedIndexDescriptor::get_index_path_prefix(local_file_path),
-                                index_id, suffix_path);
+                        local_inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(local_file_path));
                     }
                     st = download_file_action(remote_inverted_index_file_url,
                                               local_inverted_index_file, estimate_timeout, size);

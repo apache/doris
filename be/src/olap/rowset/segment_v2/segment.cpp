@@ -138,7 +138,7 @@ Status Segment::_open_inverted_index() {
     _inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
             _fs,
             std::string {
-                    InvertedIndexDescriptor::get_index_path_prefix(_file_reader->path().native())},
+                    InvertedIndexDescriptor::get_index_file_path_prefix(_file_reader->path().native())},
             _tablet_schema->get_inverted_index_storage_format());
     bool open_idx_file_cache = true;
     auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
