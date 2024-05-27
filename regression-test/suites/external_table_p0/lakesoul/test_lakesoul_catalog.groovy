@@ -15,25 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+suite("test_lakesoul_catalog", "p0,external,doris,external_docker,external_docker_doris") {
+    def enabled = false;
+    // open it when docker image is ready to run in regression test
+    if (enabled) {
+        String catalog_name = "lakesoul"
+        String db_name = "default"
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive"),
-    LAKESOUL("lakesoul"),
-    TRINO_CONNECTOR("trino_connector");
+        sql """drop catalog if exists ${catalog_name}"""
+        sql """
+            create catalog lakesoul  properties ('type'='lakesoul','lakesoul.pg.username'='lakesoul_test','lakesoul.pg.password'='lakesoul_test','lakesoul.pg.url'='jdbc:postgresql://127.0.0.1:5432/lakesoul_test?stringtype=unspecified');"""
 
-    private final String tableFormatType;
+        // analyze
+        sql """use `${catalog_name}`.`${db_name}`"""
 
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
-    }
+ sq     """show tables;"""
+        // select
+        sql  """select * from nation;"""
 
-    public String value() {
-        return tableFormatType;
+        sql  """show create table nation;"""
     }
 }
+
