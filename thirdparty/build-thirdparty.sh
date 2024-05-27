@@ -1861,8 +1861,10 @@ build_azure() {
     # export DISABLE_AZURE_CORE_OPENTELEMETRY=TRUE
     # export AZURE_SDK_DISABLE_AUTO_VCPKG=TRUE
     # export AZURE_SDK_VCPKG_COMMIT=3b3bd424827a1f7f4813216f6b32b6c61e386b2e
+    AZURE_PORTS="vcpkg-custom-ports"
+    AZURE_MANIFEST_DIR="."
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS=/mnt/disk1/yuejing/projects/doris/thirdparty/src/azure-sdk-for-cpp-azure-core_1.10.3/vcpkg-custom-ports -DVCPKG_MANIFEST_DIR=/mnt/disk1/yuejing/projects/doris/thirdparty/src/azure-sdk-for-cpp-azure-core_1.10.3 -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 
