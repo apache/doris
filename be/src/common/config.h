@@ -118,6 +118,9 @@ DECLARE_String(priority_networks);
 // performance moderate or compact, only tcmalloc compile
 DECLARE_String(memory_mode);
 
+// if true, process memory limit and memory usage based on cgroup memory info.
+DECLARE_mBool(enable_use_cgroup_memory_info);
+
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
 // or percentage of the physical memory ('<int>%').
