@@ -414,7 +414,7 @@ Status VCollectIterator::_topn_next(Block* block) {
             }
 
             // update runtime_predicate
-            if (_reader->_reader_context.use_topn_opt && changed &&
+            if (!_reader->_reader_context.topn_filter_source_node_ids.empty() && changed &&
                 sorted_row_pos.size() >= _topn_limit) {
                 // get field value from column
                 size_t last_sorted_row = *sorted_row_pos.rbegin();

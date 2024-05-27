@@ -291,10 +291,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                     local_params.runtime_filter_params);
         }
-        if (local_params.__isset.topn_filter_source_node_ids) {
-            _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
-        } else {
-            _query_ctx->init_runtime_predicates({0});
+        if (local_params.__isset.topn_filter_descs) {
+            _query_ctx->init_runtime_predicates(local_params.topn_filter_descs);
         }
 
         _need_local_merge = request.__isset.parallel_instances;
@@ -1500,28 +1498,6 @@ Status PipelineFragmentContext::submit() {
     } else {
         return st;
     }
-}
-
-void PipelineFragmentContext::close_sink() {
-    for (auto& tasks : _tasks) {
-        auto& root_task = *tasks.begin();
-        auto st = root_task->close_sink(_prepared ? Status::RuntimeError("prepare failed")
-                                                  : Status::OK());
-        if (!st.ok()) {
-            LOG_WARNING("PipelineFragmentContext::close_sink() error").tag("msg", st.msg());
-        }
-    }
-}
-
-void PipelineFragmentContext::close_if_prepare_failed(Status st) {
-    for (auto& task : _tasks) {
-        for (auto& t : task) {
-            DCHECK(!t->is_pending_finish());
-            WARN_IF_ERROR(t->close(st), "close_if_prepare_failed failed: ");
-            close_a_pipeline();
-        }
-    }
-    _query_ctx->cancel(st, _fragment_id);
 }
 
 // If all pipeline tasks binded to the fragment instance are finished, then we could

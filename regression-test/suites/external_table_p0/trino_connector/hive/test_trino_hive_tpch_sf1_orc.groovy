@@ -864,8 +864,8 @@ order by
         sql """drop catalog if exists ${catalog_name}"""
         sql """create catalog if not exists ${catalog_name} properties (
             "type"="trino-connector",
-            "connector.name"="hive",
-            'hive.metastore.uri' = 'thrift://${externalEnvIp}:${hms_port}'
+            "trino.connector.name"="hive",
+            'trino.hive.metastore.uri' = 'thrift://${externalEnvIp}:${hms_port}'
         );"""
         sql """switch ${catalog_name}"""
         sql """use `tpch1_orc`"""
