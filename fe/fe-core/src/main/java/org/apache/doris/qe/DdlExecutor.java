@@ -136,6 +136,7 @@ import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.JobState;
@@ -199,6 +200,11 @@ public class DdlExecutor {
             CancelLoadStmt cs = (CancelLoadStmt) ddlStmt;
             // cancel all
             env.getJobManager().cancelLoadJob(cs);
+            try {
+                env.getJobManager().cancelLoadJob(cs);
+            } catch (JobException e) {
+                LOG.warn("cancel load job failed", e);
+            }
             env.getLoadManager().cancelLoadJob(cs);
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             env.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
