@@ -21,7 +21,9 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -56,6 +58,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -733,5 +736,28 @@ public class TypeCoercionUtilsTest {
         expression = TypeCoercionUtils.processBinaryArithmetic(sub, sub.left(), sub.right());
         Assertions.assertEquals(expression.child(0),
                 new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(10, 3)));
+    }
+
+    @Test
+    public void testProcessInStringCoercion() {
+        // BigInt slot vs String literal
+        InPredicate bigintString = new InPredicate(
+                new SlotReference("c1", BigIntType.INSTANCE),
+                ImmutableList.of(
+                        new VarcharLiteral("200"),
+                        new VarcharLiteral("922337203685477001")));
+        bigintString = (InPredicate) TypeCoercionUtils.processInPredicate(bigintString);
+        Assertions.assertEquals(BigIntType.INSTANCE, bigintString.getCompareExpr().getDataType());
+        Assertions.assertEquals(BigIntType.INSTANCE, bigintString.getOptions().get(0).getDataType());
+
+        // SmallInt slot vs String literal
+        InPredicate smallIntString = new InPredicate(
+                new SlotReference("c1", SmallIntType.INSTANCE),
+                ImmutableList.of(
+                        new DecimalLiteral(new BigDecimal("987654.321")),
+                        new VarcharLiteral("922337203685477001")));
+        smallIntString = (InPredicate) TypeCoercionUtils.processInPredicate(smallIntString);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(23, 3), smallIntString.getCompareExpr().getDataType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(23, 3), smallIntString.getOptions().get(0).getDataType());
     }
 }
