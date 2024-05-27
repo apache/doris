@@ -162,13 +162,6 @@ private:
     template <typename Param>
     void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
 
-    void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
-                                                    QueryContext* query_ctx);
-
-    void _setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
-                                                    const TPipelineInstanceParams& local_params,
-                                                    QueryContext* query_ctx);
-
     void _setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
                                                     QueryContext* query_ctx);
 
