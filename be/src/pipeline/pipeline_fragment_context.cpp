@@ -376,6 +376,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
             if (request.__isset.load_job_id) {
                 runtime_state->set_load_job_id(request.load_job_id);
             }
+            if (request.__isset.wal_id) {
+                runtime_state->set_wal_id(request.wal_id);
+            }
 
             runtime_state->set_desc_tbl(_desc_tbl);
             runtime_state->set_per_fragment_instance_idx(local_params.sender_id);
