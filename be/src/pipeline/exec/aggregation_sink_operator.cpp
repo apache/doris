@@ -20,6 +20,7 @@
 #include <memory>
 #include <string>
 
+#include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/hash_table/hash.h"
@@ -100,7 +101,7 @@ Status AggSinkLocalState::open(RuntimeState* state) {
             _executor = std::make_unique<Executor<true, false>>();
         }
     } else {
-        _init_hash_method(Base::_shared_state->probe_expr_ctxs);
+        RETURN_IF_ERROR(_init_hash_method(Base::_shared_state->probe_expr_ctxs));
 
         std::visit(vectorized::Overload {
                            [&](std::monostate& arg) {
@@ -302,8 +303,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                                     _places.data(),
                                     Base::_parent->template cast<AggSinkOperatorX>()
                                             ._offsets_of_aggregate_states[i],
-                                    _deserialize_buffer.data(),
-                                    (vectorized::ColumnString*)(column.get()), _agg_arena_pool,
+                                    _deserialize_buffer.data(), column.get(), _agg_arena_pool,
                                     rows);
                 }
             } else {
@@ -347,8 +347,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                                     _places.data(),
                                     Base::_parent->template cast<AggSinkOperatorX>()
                                             ._offsets_of_aggregate_states[i],
-                                    _deserialize_buffer.data(),
-                                    (vectorized::ColumnString*)(column.get()), _agg_arena_pool,
+                                    _deserialize_buffer.data(), column.get(), _agg_arena_pool,
                                     rows);
                 }
             } else {
@@ -565,9 +564,11 @@ void AggSinkLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places
                _agg_data->method_variant);
 }
 
-void AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
-    init_agg_hash_method(_agg_data, probe_exprs,
-                         Base::_parent->template cast<AggSinkOperatorX>()._is_first_phase);
+Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
+    RETURN_IF_ERROR(
+            init_agg_hash_method(_agg_data, probe_exprs,
+                                 Base::_parent->template cast<AggSinkOperatorX>()._is_first_phase));
+    return Status::OK();
 }
 
 AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,

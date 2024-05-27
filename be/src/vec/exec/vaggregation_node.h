@@ -224,16 +224,15 @@ using ArenaUPtr = std::unique_ptr<Arena>;
 struct AggregateDataContainer {
 public:
     AggregateDataContainer(size_t size_of_key, size_t size_of_aggregate_states)
-            : _size_of_key(size_of_key), _size_of_aggregate_states(size_of_aggregate_states) {
-        _expand();
-    }
+            : _size_of_key(size_of_key), _size_of_aggregate_states(size_of_aggregate_states) {}
 
     int64_t memory_usage() const { return _arena_pool.size(); }
 
     template <typename KeyType>
     AggregateDataPtr append_data(const KeyType& key) {
         DCHECK_EQ(sizeof(KeyType), _size_of_key);
-        if (UNLIKELY(_index_in_sub_container == SUB_CONTAINER_CAPACITY)) {
+        // SUB_CONTAINER_CAPACITY should add a new sub container, and also expand when it is zero
+        if (UNLIKELY(_index_in_sub_container % SUB_CONTAINER_CAPACITY == 0)) {
             _expand();
         }
 
@@ -351,7 +350,7 @@ private:
     Arena _arena_pool;
     std::vector<char*> _key_containers;
     std::vector<AggregateDataPtr> _value_containers;
-    AggregateDataPtr _current_agg_data;
+    AggregateDataPtr _current_agg_data = nullptr;
     char* _current_keys = nullptr;
     size_t _size_of_key {};
     size_t _size_of_aggregate_states {};
@@ -533,7 +532,7 @@ private:
     Status _merge_with_serialized_key(Block* block);
     void _update_memusage_with_serialized_key();
     void _close_with_serialized_key();
-    void _init_hash_method(const VExprContextSPtrs& probe_exprs);
+    Status _init_hash_method(const VExprContextSPtrs& probe_exprs);
 
     template <bool limit>
     Status _execute_with_serialized_key_helper(Block* block) {
@@ -638,8 +637,8 @@ private:
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_and_merge_vec_selected(
                                 _places.data(), _offsets_of_aggregate_states[i],
-                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
-                                _agg_arena_pool.get(), rows);
+                                _deserialize_buffer.data(), column.get(), _agg_arena_pool.get(),
+                                rows);
                     }
                 } else {
                     RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add_selected(
@@ -673,8 +672,8 @@ private:
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_and_merge_vec(
                                 _places.data(), _offsets_of_aggregate_states[i],
-                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
-                                _agg_arena_pool.get(), rows);
+                                _deserialize_buffer.data(), column.get(), _agg_arena_pool.get(),
+                                rows);
                     }
                 } else {
                     RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(

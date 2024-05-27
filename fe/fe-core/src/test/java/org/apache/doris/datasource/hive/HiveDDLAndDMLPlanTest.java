@@ -82,7 +82,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
     private List<FieldSchema> checkedHiveCols;
 
     private final Set<String> createdDbs = new HashSet<>();
-    private final Set<String> createdTables = new HashSet<>();
+    private final Set<Table> createdTables = new HashSet<>();
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -142,7 +142,12 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
 
             @Mock
             public boolean tableExists(String dbName, String tblName) {
-                return createdTables.contains(tblName);
+                for (Table table : createdTables) {
+                    if (table.getDbName().equals(dbName) && table.getTableName().equals(tblName)) {
+                        return true;
+                    }
+                }
+                return false;
             }
 
             @Mock
@@ -154,7 +159,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
             public void createTable(TableMetadata tbl, boolean ignoreIfExists) {
                 if (tbl instanceof HiveTableMetadata) {
                     Table table = HiveUtil.toHiveTable((HiveTableMetadata) tbl);
-                    createdTables.add(table.getTableName());
+                    createdTables.add(table);
                     if (checkedHiveCols == null) {
                         // if checkedHiveCols is null, skip column check
                         return;
@@ -168,6 +173,16 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                         Assertions.assertEquals(checkedCol.getType(), actualCol.getType().toLowerCase());
                     }
                 }
+            }
+
+            @Mock
+            public Table getTable(String dbName, String tblName) {
+                for (Table createdTable : createdTables) {
+                    if (createdTable.getDbName().equals(dbName) && createdTable.getTableName().equals(tblName)) {
+                        return createdTable;
+                    }
+                }
+                return null;
             }
         };
         CreateDbStmt createDbStmt = new CreateDbStmt(true, new DbName("hive", mockedDbName), dbProps);
@@ -213,8 +228,10 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
             // mock after ThriftHMSCachedClient is mocked
             @Mock
             HMSExternalTable getTableNullable(String tableName) {
-                if (createdTables.contains(tableName)) {
-                    return new HMSExternalTable(0, tableName, mockedDbName, hmsExternalCatalog);
+                for (Table table : createdTables) {
+                    if (table.getTableName().equals(tableName)) {
+                        return new HMSExternalTable(0, tableName, mockedDbName, hmsExternalCatalog);
+                    }
                 }
                 return null;
             }

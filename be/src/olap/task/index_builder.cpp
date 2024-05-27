@@ -61,7 +61,7 @@ Status IndexBuilder::update_inverted_index_info() {
     LOG(INFO) << "begin to update_inverted_index_info, tablet=" << _tablet->tablet_id()
               << ", is_drop_op=" << _is_drop_op;
     // index ids that will not be linked
-    std::set<int32_t> without_index_uids;
+    std::set<int64_t> without_index_uids;
     _output_rowsets.reserve(_input_rowsets.size());
     _pending_rs_guards.reserve(_input_rowsets.size());
     for (auto&& input_rowset : _input_rowsets) {
@@ -113,7 +113,6 @@ Status IndexBuilder::update_inverted_index_info() {
                         drop_index_size += index_size;
                     }
                 }
-                output_rs_tablet_schema->remove_index(t_inverted_index.index_id);
             }
         } else {
             // base on input rowset's tablet_schema to build
@@ -276,6 +275,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         continue;
                     }
                     RETURN_IF_ERROR(inverted_index_file_writer->delete_index(index_meta));
+                    output_rs_tablet_schema->remove_index(t_inverted_index.index_id);
                 }
                 _inverted_index_file_writers.emplace(seg_ptr->id(),
                                                      std::move(inverted_index_file_writer));

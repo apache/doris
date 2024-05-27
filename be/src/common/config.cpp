@@ -78,6 +78,8 @@ DEFINE_String(priority_networks, "");
 // performance or compact
 DEFINE_String(memory_mode, "moderate");
 
+DEFINE_mBool(enable_use_cgroup_memory_info, "true");
+
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
 // or percentage of the physical memory ('<int>%').
@@ -335,6 +337,7 @@ DEFINE_mBool(disable_storage_page_cache, "false");
 DEFINE_mBool(disable_storage_row_cache, "true");
 // whether to disable pk page cache feature in storage
 DEFINE_Bool(disable_pk_storage_page_cache, "false");
+DEFINE_Bool(enable_non_pipeline, "false");
 
 // Cache for mow primary key storage page size
 DEFINE_String(pk_storage_page_cache_limit, "10%");
@@ -498,6 +501,7 @@ DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
 DEFINE_Int32(brpc_light_work_pool_threads, "-1");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
+DEFINE_mBool(enable_bthread_transmit_block, "true");
 
 // The maximum amount of data that can be processed by a stream load
 DEFINE_mInt64(streaming_load_max_mb, "10240");
@@ -833,7 +837,7 @@ DEFINE_String(kafka_debug, "disable");
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
-DEFINE_Int32(routine_load_consumer_pool_size, "1024");
+DEFINE_mInt32(routine_load_consumer_pool_size, "1024");
 
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
@@ -1024,7 +1028,7 @@ DEFINE_mBool(inverted_index_compaction_enable, "false");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
-DEFINE_mBool(inverted_index_ram_dir_enable, "false");
+DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1075,6 +1079,7 @@ DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 // max_write_buffer_number for rocksdb
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
+DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 DEFINE_mString(kerberos_ccache_path, "");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
@@ -1268,6 +1273,9 @@ DEFINE_mInt64(hdfs_jni_write_max_retry_time, "3");
 DEFINE_Int64(min_nonblock_close_thread_num, "12");
 // The max thread num for NonBlockCloseThreadPool
 DEFINE_Int64(max_nonblock_close_thread_num, "64");
+// The possibility that mem allocator throws an exception during memory allocation
+// This config is for test usage, be careful when changing it.
+DEFINE_mDouble(mem_alloc_fault_probability, "0.0");
 
 // clang-format off
 #ifdef BE_TEST

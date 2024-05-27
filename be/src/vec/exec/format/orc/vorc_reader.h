@@ -127,6 +127,7 @@ public:
         int64_t set_fill_column_time = 0;
         int64_t decode_value_time = 0;
         int64_t decode_null_map_time = 0;
+        int64_t filter_block_time = 0;
     };
 
     OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
@@ -163,6 +164,8 @@ public:
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
+    Status get_next_block_impl(Block* block, size_t* read_rows, bool* eof);
 
     void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
                          orc::ColumnVectorBatch* batch, int idx);
@@ -222,19 +225,24 @@ private:
         RuntimeProfile::Counter* set_fill_column_time = nullptr;
         RuntimeProfile::Counter* decode_value_time = nullptr;
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
+        RuntimeProfile::Counter* filter_block_time = nullptr;
     };
 
     class ORCFilterImpl : public orc::ORCFilter {
     public:
-        ORCFilterImpl(OrcReader* orcReader) : orcReader(orcReader) {}
+        ORCFilterImpl(OrcReader* orcReader) : _orcReader(orcReader) {}
         ~ORCFilterImpl() override = default;
         void filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
                     void* arg) const override {
-            static_cast<void>(orcReader->filter(data, sel, size, arg));
+            if (_status.ok()) {
+                _status = _orcReader->filter(data, sel, size, arg);
+            }
         }
+        Status get_status() { return _status; }
 
     private:
-        OrcReader* orcReader = nullptr;
+        mutable Status _status = Status::OK();
+        OrcReader* _orcReader = nullptr;
     };
 
     class StringDictFilterImpl : public orc::StringDictFilter {
@@ -245,17 +253,24 @@ private:
         virtual void fillDictFilterColumnNames(
                 std::unique_ptr<orc::StripeInformation> current_strip_information,
                 std::list<std::string>& column_names) const override {
-            static_cast<void>(_orc_reader->fill_dict_filter_column_names(
-                    std::move(current_strip_information), column_names));
+            if (_status.ok()) {
+                _status = _orc_reader->fill_dict_filter_column_names(
+                        std::move(current_strip_information), column_names);
+            }
         }
         virtual void onStringDictsLoaded(
                 std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
                 bool* is_stripe_filtered) const override {
-            static_cast<void>(_orc_reader->on_string_dicts_loaded(column_name_to_dict_map,
-                                                                  is_stripe_filtered));
+            if (_status.ok()) {
+                _status = _orc_reader->on_string_dicts_loaded(column_name_to_dict_map,
+                                                              is_stripe_filtered);
+            }
         }
 
+        Status get_status() { return _status; }
+
     private:
+        mutable Status _status = Status::OK();
         OrcReader* _orc_reader = nullptr;
     };
 
@@ -573,6 +588,7 @@ private:
 
     io::IOContext* _io_ctx = nullptr;
     bool _enable_lazy_mat = true;
+    bool _enable_filter_by_min_max = true;
 
     std::vector<DecimalScaleParams> _decimal_scale_params;
     size_t _decimal_scale_params_index;
@@ -594,7 +610,7 @@ private:
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
     std::shared_ptr<ObjectPool> _obj_pool;
-    std::unique_ptr<orc::StringDictFilter> _string_dict_filter;
+    std::unique_ptr<StringDictFilterImpl> _string_dict_filter;
     bool _dict_cols_has_converted = false;
     bool _has_complex_type = false;
     std::vector<orc::TypeKind>* _unsupported_pushdown_types;

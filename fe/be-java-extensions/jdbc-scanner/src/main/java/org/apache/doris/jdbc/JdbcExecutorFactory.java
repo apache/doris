@@ -38,8 +38,11 @@ public class JdbcExecutorFactory {
                 return "org/apache/doris/jdbc/ClickHouseJdbcExecutor";
             case SAP_HANA:
                 return "org/apache/doris/jdbc/SapHanaJdbcExecutor";
+            case TRINO:
+            case PRESTO:
+                return "org/apache/doris/jdbc/TrinoJdbcExecutor";
             default:
-                return "org/apache/doris/jdbc/DefaultJdbcExecutor";
+                throw new IllegalArgumentException("Unsupported jdbc type: " + type);
         }
     }
 }

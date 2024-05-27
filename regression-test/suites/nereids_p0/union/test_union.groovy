@@ -16,8 +16,11 @@
 // under the License.
 
 suite("test_union") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
+    multi_sql """
+        SET enable_nereids_planner=true;
+        SET enable_fallback_to_original_planner=false;
+        set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+    """
     def db = "nereids_test_query_db"
     sql "use ${db}"
 

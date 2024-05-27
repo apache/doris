@@ -46,6 +46,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
@@ -62,6 +63,7 @@ import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.LocationUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -90,6 +92,13 @@ public class IcebergUtils {
     public static final String TOTAL_RECORDS = "total-records";
     public static final String TOTAL_POSITION_DELETES = "total-position-deletes";
     public static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
+
+    // nickname in flink and spark
+    public static final String WRITE_FORMAT = "write-format";
+    public static final String COMPRESSION_CODEC = "compression-codec";
+
+    // nickname in spark
+    public static final String SPARK_SQL_COMPRESSION_CODEC = "spark.sql.iceberg.compression-codec";
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
@@ -576,12 +585,49 @@ public class IcebergUtils {
     }
 
     public static String getFileFormat(Table table) {
-        Snapshot snapshot = table.currentSnapshot();
-        if (snapshot == null) {
-            return TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
-        } else {
-            return snapshot.summary().getOrDefault(
-                    TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
+        Map<String, String> properties = table.properties();
+        if (properties.containsKey(WRITE_FORMAT)) {
+            return properties.get(WRITE_FORMAT);
         }
+        if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+            return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
+        }
+        return TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
+    }
+
+    public static String getFileCompress(Table table) {
+        Map<String, String> properties = table.properties();
+        if (properties.containsKey(COMPRESSION_CODEC)) {
+            return properties.get(COMPRESSION_CODEC);
+        } else if (properties.containsKey(SPARK_SQL_COMPRESSION_CODEC)) {
+            return properties.get(SPARK_SQL_COMPRESSION_CODEC);
+        }
+        String fileFormat = getFileFormat(table);
+        if (fileFormat.equalsIgnoreCase("parquet")) {
+            return properties.getOrDefault(
+                    TableProperties.PARQUET_COMPRESSION, TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0);
+        } else if (fileFormat.equalsIgnoreCase("orc")) {
+            return properties.getOrDefault(
+                    TableProperties.ORC_COMPRESSION, TableProperties.ORC_COMPRESSION_DEFAULT);
+        }
+        throw new NotSupportedException("Unsupported file format: " + fileFormat);
+    }
+
+    public static String dataLocation(Table table) {
+        Map<String, String> properties = table.properties();
+        if (properties.containsKey(TableProperties.WRITE_LOCATION_PROVIDER_IMPL)) {
+            throw new NotSupportedException(
+                "Table " + table.name() + " specifies " + properties.get(TableProperties.WRITE_LOCATION_PROVIDER_IMPL)
+                    + " as a location provider. "
+                    + "Writing to Iceberg tables with custom location provider is not supported.");
+        }
+        String dataLocation = properties.get(TableProperties.WRITE_DATA_LOCATION);
+        if (dataLocation == null) {
+            dataLocation = properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION);
+            if (dataLocation == null) {
+                dataLocation = String.format("%s/data", LocationUtil.stripTrailingSlash(table.location()));
+            }
+        }
+        return dataLocation;
     }
 }

@@ -82,7 +82,10 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_prepare_timer);
-
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::prepare", {
+        Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task prepare failed");
+        return status;
+    });
     {
         // set sink local state
         LocalSinkStateInfo info {_task_idx,
@@ -134,6 +137,11 @@ Status PipelineTask::_extract_dependencies() {
         }
         i++;
     }
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::_extract_dependencies", {
+        Status status = Status::Error<INTERNAL_ERROR>(
+                "fault_inject pipeline_task _extract_dependencies failed");
+        return status;
+    });
     {
         auto* local_state = _state->get_sink_local_state();
         _write_dependencies = local_state->dependencies();
@@ -190,6 +198,10 @@ Status PipelineTask::_open() {
     RETURN_IF_ERROR(_state->get_sink_local_state()->open(_state));
     RETURN_IF_ERROR(_extract_dependencies());
     _block = doris::vectorized::Block::create_unique();
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::open", {
+        Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task open failed");
+        return status;
+    });
     _opened = true;
     return Status::OK();
 }
@@ -257,7 +269,10 @@ Status PipelineTask::execute(bool* eos) {
         return Status::OK();
     }
     int64_t time_spent = 0;
-
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::execute", {
+        Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");
+        return status;
+    });
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();
     Defer defer {[&]() {
@@ -275,7 +290,7 @@ Status PipelineTask::execute(bool* eos) {
         return Status::OK();
     }
     // The status must be runnable
-    if (!_opened) {
+    if (!_opened && !_fragment_context->is_canceled()) {
         RETURN_IF_ERROR(_open());
     }
 
@@ -303,18 +318,17 @@ Status PipelineTask::execute(bool* eos) {
             RETURN_IF_ERROR(_sink->revoke_memory(_state));
             continue;
         }
-
         *eos = _eos;
+        DBUG_EXECUTE_IF("fault_inject::PipelineXTask::executing", {
+            Status status =
+                    Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task executing failed");
+            return status;
+        });
         // Pull block from operator chain
         if (!_dry_run) {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            try {
-                RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
-            } catch (const Exception& e) {
-                return Status::InternalError(e.to_string() +
-                                             " task debug string: " + debug_string());
-            }
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_root->get_block_after_projects(_state, block, eos));
         } else {
             *eos = true;
             _eos = true;
@@ -323,7 +337,14 @@ Status PipelineTask::execute(bool* eos) {
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             Status status = Status::OK();
-            status = _sink->sink(_state, block, *eos);
+            // Define a lambda function to catch sink exception, because sink will check
+            // return error status with EOF, it is special, could not return directly.
+            auto sink_function = [&]() -> Status {
+                Status internal_st;
+                RETURN_IF_CATCH_EXCEPTION(internal_st = _sink->sink(_state, block, *eos));
+                return internal_st;
+            };
+            status = sink_function();
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }

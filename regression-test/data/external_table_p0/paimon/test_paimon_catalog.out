@@ -558,3 +558,23 @@ bbb
 2	{"c_boolean": 1, "c_tinyint": 5, "c_smallint": 6, "c_int": 7, "c_bigint": 8, "c_float": 10.2, "c_double": 11.4, "c_decimal": 12.60, "c_char": "7", "c_varchar": "10", "c_binary": "c", "c_varbinary": "dddd", "c_date": "2021-06-15", "c_timestamp": "2021-06-15 06:00:00.000000", "c_array": [4, 5, 6], "c_map": {"a":6, "b":7}, "c_row": {"c_int": 8, "c_float": 9.2, "c_varchar": "10"}}
 3	{"c_boolean": 1, "c_tinyint": 9, "c_smallint": 10, "c_int": 11, "c_bigint": 12, "c_float": 13.3, "c_double": 14.6, "c_decimal": 15.90, "c_char": "8", "c_varchar": "11", "c_binary": "e", "c_varbinary": "ffff", "c_date": "2022-12-31", "c_timestamp": "2022-12-31 12:59:59.000000", "c_array": [7, 8, 9], "c_map": {"a":11, "b":12}, "c_row": {"c_int": 13, "c_float": 14.3, "c_varchar": "15"}}
 
+-- !c104 --
+2	2_2
+3	3_1
+4	4_1
+
+-- !c105 --
+2	2_2
+3	3_1
+4	4_1
+
+-- !c106 --
+2	2_2
+3	3_1
+4	4_1
+
+-- !c107 --
+2	2_2
+3	3_1
+4	4_1
+

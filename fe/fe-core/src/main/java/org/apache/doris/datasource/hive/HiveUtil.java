@@ -110,7 +110,7 @@ public final class HiveUtil {
     }
 
     public static boolean isSplittable(RemoteFileSystem remoteFileSystem, String inputFormat,
-            String location, JobConf jobConf) throws UserException {
+            String location) throws UserException {
         if (remoteFileSystem instanceof BrokerFileSystem) {
             return ((BrokerFileSystem) remoteFileSystem).isSplittable(location, inputFormat);
         }
@@ -263,7 +263,7 @@ public final class HiveUtil {
             serDe = "org.apache.hadoop.hive.ql.io.orc.OrcSerde";
         } else if (fileFormat.equalsIgnoreCase("parquet")) {
             inputFormat = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat";
-            outputFormat = "'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat";
+            outputFormat = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat";
             serDe = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe";
         } else {
             throw new IllegalArgumentException("Creating table with an unsupported file format: " + fileFormat);

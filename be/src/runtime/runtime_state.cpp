@@ -58,7 +58,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(fragment_exec_params.query_id),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
@@ -94,14 +93,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                 fragment_exec_params.runtime_filter_params);
     }
-
-    if (_query_ctx) {
-        if (fragment_exec_params.__isset.topn_filter_source_node_ids) {
-            _query_ctx->init_runtime_predicates(fragment_exec_params.topn_filter_source_node_ids);
-        } else {
-            _query_ctx->init_runtime_predicates({0});
-        }
-    }
 }
 
 RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id,
@@ -114,7 +105,6 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
           _unreported_error_idx(0),
           _query_id(query_id),
           _fragment_id(fragment_id),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
@@ -152,7 +142,6 @@ RuntimeState::RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& 
           _unreported_error_idx(0),
           _query_id(query_id),
           _fragment_id(fragment_id),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
@@ -186,7 +175,6 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
           _unreported_error_idx(0),
           _query_id(query_id),
           _fragment_id(fragment_id),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
@@ -219,7 +207,6 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
           _obj_pool(new ObjectPool()),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
     if (query_globals.__isset.time_zone && query_globals.__isset.nano_seconds) {
@@ -254,7 +241,6 @@ RuntimeState::RuntimeState()
           _obj_pool(new ObjectPool()),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
     _timezone = TimezoneUtils::default_time_zone;
@@ -358,20 +344,13 @@ void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
     }
 }
 
-Status RuntimeState::query_status() {
-    auto st = _query_ctx->exec_status();
-    RETURN_IF_ERROR(st);
-    std::lock_guard<std::mutex> l(_process_status_lock);
-    return _process_status;
-}
-
 bool RuntimeState::is_cancelled() const {
     // Maybe we should just return _is_cancelled.load()
-    return _is_cancelled.load() || (_query_ctx && _query_ctx->is_cancelled());
+    return !_exec_status.ok() || (_query_ctx && _query_ctx->is_cancelled());
 }
 
-std::string RuntimeState::cancel_reason() const {
-    return _cancel_reason;
+Status RuntimeState::cancel_reason() const {
+    return _exec_status.status();
 }
 
 const int64_t MAX_ERROR_NUM = 50;

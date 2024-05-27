@@ -355,7 +355,7 @@ public class HiveMetaStoreCache {
         RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                 new FileSystemCache.FileSystemCacheKey(LocationPath.getFSIdentity(
                         location, bindBrokerName), properties, bindBrokerName));
-        result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, location, jobConf));
+        result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, location));
         // For Tez engine, it may generate subdirectoies for "union" query.
         // So there may be files and directories in the table directory at the same time. eg:
         //      /user/hive/warehouse/region_tmp_union_all2/000000_0

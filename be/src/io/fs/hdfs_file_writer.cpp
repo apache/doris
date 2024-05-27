@@ -49,7 +49,7 @@ namespace doris::io {
 bvar::Adder<uint64_t> hdfs_file_writer_total("hdfs_file_writer_total_num");
 bvar::Adder<uint64_t> hdfs_bytes_written_total("hdfs_file_writer_bytes_written");
 bvar::Adder<uint64_t> hdfs_file_created_total("hdfs_file_writer_file_created");
-bvar::Adder<uint64_t> hdfs_file_being_written("hdfs_file_writer_file_being_written");
+bvar::Adder<uint64_t> inflight_hdfs_file_writer("inflight_hdfs_file_writer");
 
 static constexpr size_t MB = 1024 * 1024;
 #ifndef USE_LIBHDFS3
@@ -140,7 +140,6 @@ HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, 
                         BlockFileCache::hash(_path.filename().native()))});
     }
     hdfs_file_writer_total << 1;
-    hdfs_file_being_written << 1;
 
     TEST_SYNC_POINT("HdfsFileWriter");
 }
@@ -154,10 +153,9 @@ HdfsFileWriter::~HdfsFileWriter() {
     if (_hdfs_file) {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
+        inflight_hdfs_file_writer << -1;
         _flush_and_reset_approximate_jni_buffer_size();
     }
-
-    hdfs_file_being_written << -1;
 }
 
 void HdfsFileWriter::_flush_and_reset_approximate_jni_buffer_size() {
@@ -270,6 +268,7 @@ Status HdfsFileWriter::_close_impl() {
         // the HDFS response, but won't guarantee the synchronization of data to HDFS.
         ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file),
                                            "HdfsFileWriter::close::hdfsCloseFile");
+        inflight_hdfs_file_writer << -1;
         _flush_and_reset_approximate_jni_buffer_size();
     }
     _hdfs_file = nullptr;
@@ -451,6 +450,7 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<Hdf
         return ResultError(Status::InternalError(ss.str()));
     }
     VLOG_NOTICE << "open file. fs_name:" << fs_name << ", path:" << path;
+    inflight_hdfs_file_writer << 1;
     return std::make_unique<HdfsFileWriter>(std::move(path), handler, hdfs_file, fs_name, opts);
 }
 

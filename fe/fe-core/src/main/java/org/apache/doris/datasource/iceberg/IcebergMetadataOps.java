@@ -119,7 +119,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void createTable(CreateTableStmt stmt) throws UserException {
+    public boolean createTable(CreateTableStmt stmt) throws UserException {
         String dbName = stmt.getDbName();
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db == null) {
@@ -129,7 +129,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (tableExist(dbName, tableName)) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableName);
-                return;
+                return true;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
@@ -147,6 +147,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(stmt.getPartitionDesc(), schema);
         catalog.createTable(TableIdentifier.of(dbName, tableName), schema, partitionSpec, properties);
         db.setUnInitialized(true);
+        return false;
     }
 
     @Override

@@ -71,6 +71,7 @@ public abstract class FileScanNode extends ExternalScanNode {
     protected long totalPartitionNum = 0;
     protected long readPartitionNum = 0;
     protected long fileSplitSize;
+    public long rowCount = 0;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
             boolean needCheckColumnPriv) {
@@ -180,6 +181,7 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     protected void setDefaultValueExprs(TableIf tbl,
                                         Map<String, SlotDescriptor> slotDescByName,
+                                        Map<String, Expr> exprByName,
                                         TFileScanRangeParams params,
                                         boolean useVarcharAsNull) throws UserException {
         Preconditions.checkNotNull(tbl);
@@ -206,6 +208,13 @@ public abstract class FileScanNode extends ExternalScanNode {
                 } else {
                     expr = null;
                 }
+            }
+            // if there is already an expr , just skip it.
+            // eg:
+            // (a, b, c, c=hll_hash(c)) in stream load
+            // c will be filled with hll_hash(column c) , don't need to specify it.
+            if (exprByName != null && exprByName.containsKey(column.getName())) {
+                continue;
             }
             SlotDescriptor slotDesc = slotDescByName.get(column.getName());
             // if slot desc is null, which mean it is an unrelated slot, just skip.

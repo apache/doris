@@ -107,13 +107,21 @@ public abstract class MaterializationContext {
         // mv output expression shuttle, this will be used to expression rewrite
         this.mvExprToMvScanExprMapping = ExpressionMapping.generate(this.mvPlanOutputShuttledExpressions,
                 this.mvScanPlan.getOutput());
-        // copy the plan from cache, which the plan in cache may change
-        List<StructInfo> viewStructInfos = MaterializedViewUtils.extractStructInfo(
-                mvPlan, cascadesContext, new BitSet());
-        if (viewStructInfos.size() > 1) {
-            // view struct info should only have one, log error and use the first struct info
-            LOG.warn(String.format("view strut info is more than one, materialization name is %s, mv plan is %s",
-                    getMaterializationQualifier(), getMvPlan().treeString()));
+        // Construct mv struct info, catch exception which may cause planner roll back
+        List<StructInfo> viewStructInfos;
+        try {
+            viewStructInfos = MaterializedViewUtils.extractStructInfo(mvPlan, cascadesContext, new BitSet());
+            if (viewStructInfos.size() > 1) {
+                // view struct info should only have one, log error and use the first struct info
+                LOG.warn(String.format("view strut info is more than one, mv scan plan is %s, mv plan is %s",
+                        mvScanPlan.treeString(), mvPlan.treeString()));
+            }
+        } catch (Exception exception) {
+            LOG.warn(String.format("construct mv struct info fail, mv scan plan is %s, mv plan is %s",
+                    mvScanPlan.treeString(), mvPlan.treeString()), exception);
+            this.available = false;
+            this.structInfo = null;
+            return;
         }
         this.structInfo = viewStructInfos.get(0);
     }
@@ -134,15 +142,14 @@ public abstract class MaterializationContext {
      * Try to generate scan plan for materialization
      * if MaterializationContext is already rewritten successfully, then should generate new scan plan in later
      * query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
-     * should be different
+     * should be different.
+     * This method should be called when query rewrite successfully
      */
     public void tryReGenerateMvScanPlan(CascadesContext cascadesContext) {
-        if (!this.matchedSuccessGroups.isEmpty()) {
-            this.mvScanPlan = doGenerateMvPlan(cascadesContext);
-            // mv output expression shuttle, this will be used to expression rewrite
-            this.mvExprToMvScanExprMapping = ExpressionMapping.generate(this.mvPlanOutputShuttledExpressions,
-                    this.mvScanPlan.getExpressions());
-        }
+        this.mvScanPlan = doGenerateMvPlan(cascadesContext);
+        // mv output expression shuttle, this will be used to expression rewrite
+        this.mvExprToMvScanExprMapping = ExpressionMapping.generate(this.mvPlanOutputShuttledExpressions,
+                this.mvScanPlan.getOutput());
     }
 
     public void addSlotMappingToCache(RelationMapping relationMapping, SlotMapping slotMapping) {
@@ -277,9 +284,8 @@ public abstract class MaterializationContext {
         // rewrite success and chosen
         builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
         if (!chosenMaterializationQualifiers.isEmpty()) {
-            builder.append("  Names: ");
             chosenMaterializationQualifiers.forEach(materializationQualifier ->
-                    builder.append(generateQualifierName(materializationQualifier)).append(", "));
+                    builder.append(generateQualifierName(materializationQualifier)).append(", \n"));
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");

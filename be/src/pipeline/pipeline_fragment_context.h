@@ -76,6 +76,8 @@ public:
 
     uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
+    int timeout_second() const { return _timeout; }
+
     PipelinePtr add_pipeline();
 
     PipelinePtr add_pipeline(PipelinePtr parent, int idx = -1);
@@ -106,14 +108,6 @@ public:
     void close_a_pipeline();
 
     Status send_report(bool);
-
-    Status update_status(Status status) {
-        std::lock_guard<std::mutex> l(_status_lock);
-        if (!status.ok() && _query_ctx->exec_status().ok()) {
-            _query_ctx->set_exec_status(status);
-        }
-        return _query_ctx->exec_status();
-    }
 
     void trigger_report_if_necessary();
     void refresh_next_report_time();
@@ -207,8 +201,6 @@ private:
     std::atomic_bool _prepared = false;
     bool _submitted = false;
 
-    std::mutex _status_lock;
-
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
     std::mutex _task_mutex;
@@ -228,6 +220,11 @@ private:
 
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _prepare_timer = nullptr;
+    RuntimeProfile::Counter* _init_context_timer = nullptr;
+    RuntimeProfile::Counter* _build_pipelines_timer = nullptr;
+    RuntimeProfile::Counter* _plan_local_shuffle_timer = nullptr;
+    RuntimeProfile::Counter* _prepare_all_pipelines_timer = nullptr;
+    RuntimeProfile::Counter* _build_tasks_timer = nullptr;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
     bool _is_fragment_instance_closed = false;

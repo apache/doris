@@ -1442,21 +1442,24 @@ public class StmtExecutor {
                 reAnalyze = true;
             }
             if (parsedStmt instanceof SelectStmt) {
-                if (StmtRewriter.rewriteByPolicy(parsedStmt, analyzer)) {
+                if (StmtRewriter.rewriteByPolicy(parsedStmt, analyzer)
+                        || StmtRewriter.rewriteForRandomDistribution(parsedStmt, analyzer)) {
                     reAnalyze = true;
                 }
             }
             if (parsedStmt instanceof SetOperationStmt) {
                 List<SetOperationStmt.SetOperand> operands = ((SetOperationStmt) parsedStmt).getOperands();
                 for (SetOperationStmt.SetOperand operand : operands) {
-                    if (StmtRewriter.rewriteByPolicy(operand.getQueryStmt(), analyzer)) {
+                    if (StmtRewriter.rewriteByPolicy(operand.getQueryStmt(), analyzer)
+                            || StmtRewriter.rewriteForRandomDistribution(operand.getQueryStmt(), analyzer)) {
                         reAnalyze = true;
                     }
                 }
             }
             if (parsedStmt instanceof InsertStmt) {
                 QueryStmt queryStmt = ((InsertStmt) parsedStmt).getQueryStmt();
-                if (queryStmt != null && StmtRewriter.rewriteByPolicy(queryStmt, analyzer)) {
+                if (queryStmt != null && (StmtRewriter.rewriteByPolicy(queryStmt, analyzer)
+                        || StmtRewriter.rewriteForRandomDistribution(queryStmt, analyzer))) {
                     reAnalyze = true;
                 }
             }
@@ -2965,6 +2968,9 @@ public class StmtExecutor {
             // Maybe our bug
             LOG.warn("CTAS create table error, stmt={}", originStmt.originStmt, e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            return;
+        }
+        if (ctasStmt.isTableHasExists()) {
             return;
         }
         // after success create table insert data
