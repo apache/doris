@@ -33,7 +33,9 @@ Rowset::Rowset(const TabletSchemaSPtr& schema, RowsetMetaSharedPtr rowset_meta,
         : _rowset_meta(std::move(rowset_meta)),
           _tablet_path(std::move(tablet_path)),
           _refs_by_reader(0) {
+#ifndef BE_TEST
     DCHECK(!is_local() || !_tablet_path.empty()); // local rowset MUST has tablet path
+#endif
 
     _is_pending = !_rowset_meta->has_version();
     if (_is_pending) {

@@ -123,6 +123,7 @@ Result<const StorageResource*> RowsetMeta::remote_storage_resource() {
 
 void RowsetMeta::set_remote_storage_resource(StorageResource resource) {
     _storage_resource = std::move(resource);
+    _rowset_meta_pb.set_resource_id(_storage_resource.fs->id());
 }
 
 bool RowsetMeta::has_variant_type_in_schema() const {
