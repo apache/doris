@@ -473,6 +473,9 @@ public class MaterializedViewHandler extends AlterHandler {
         if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
             throw new DdlException("MergeOnWrite table can't create materialized view.");
         }
+        if (olapTable.getRowStoreCol() != null) {
+            throw new DdlException("RowStore table can't create materialized view.");
+        }
         // check if mv columns are valid
         // a. Aggregate table:
         // 1. all slot's aggregationType must same with value mv column
@@ -629,6 +632,9 @@ public class MaterializedViewHandler extends AlterHandler {
             throws DdlException {
         if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
             throw new DdlException("MergeOnWrite table can't create materialized view.");
+        }
+        if (olapTable.getRowStoreCol() != null) {
+            throw new DdlException("RowStore table can't create materialized view.");
         }
         String rollupIndexName = addRollupClause.getRollupName();
         List<String> rollupColumnNames = addRollupClause.getColumnNames();
