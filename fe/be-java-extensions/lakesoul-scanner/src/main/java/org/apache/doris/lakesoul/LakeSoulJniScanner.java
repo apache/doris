@@ -23,7 +23,6 @@ import org.apache.doris.lakesoul.parquet.ParquetFilter;
 
 import com.dmetasoul.lakesoul.LakeSoulArrowReader;
 import com.dmetasoul.lakesoul.lakesoul.io.NativeIOReader;
-import com.google.common.base.Preconditions;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -92,7 +91,9 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
                 break;
             }
             String[] kv = partitionKV.split(LakeSoulUtils.PARTITIONS_KV_DELIM);
-            Preconditions.checkArgument(kv.length == 2, "Invalid partition column = " + partitionKV);
+            if (kv.length != 2) {
+                throw new IllegalArgumentException("Invalid partition column = " + partitionKV);
+            }
             partitionColumn.add(kv[0]);
         }
 
