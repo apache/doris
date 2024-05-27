@@ -758,7 +758,6 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
                                         "filter_size={}",
                                         result_size, count);
                     }
-                    CHECK_EQ(result_size, count);
                 } else {
                     column = column->filter(filter, count);
                 }

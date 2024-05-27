@@ -182,7 +182,7 @@ public:
         if (std::isnan(result)) {
             nullable_column.insert_default();
         } else {
-            auto& col = assert_cast<ColumnVector<Float64>&>(nullable_column.get_nested_column());
+            auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
             col.get_data().push_back(result);
             nullable_column.get_null_map_data().push_back(0);
         }
@@ -215,13 +215,13 @@ public:
             for (int i = 0; i < 2; ++i) {
                 const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
                 if (nullable_column == nullptr) { //Not Nullable column
-                    const auto& column = assert_cast<const ColumnVector<Float64>&>(*columns[i]);
-                    column_data[i] = column.get_float64(row_num);
+                    const auto& column = assert_cast<const ColumnFloat64&>(*columns[i]);
+                    column_data[i] = column.get_element(row_num);
                 } else if (!nullable_column->is_null_at(
                                    row_num)) { // Nullable column && Not null data
-                    const auto& column = assert_cast<const ColumnVector<Float64>&>(
-                            nullable_column->get_nested_column());
-                    column_data[i] = column.get_float64(row_num);
+                    const auto& column =
+                            assert_cast<const ColumnFloat64&>(nullable_column->get_nested_column());
+                    column_data[i] = column.get_element(row_num);
                 } else { // Nullable column && null data
                     if (i == 0) {
                         return;
@@ -233,11 +233,11 @@ public:
             this->data(place).add(column_data[0], column_data[1]);
 
         } else {
-            const auto& sources = assert_cast<const ColumnVector<Float64>&>(*columns[0]);
-            const auto& quantile = assert_cast<const ColumnVector<Float64>&>(*columns[1]);
+            const auto& sources = assert_cast<const ColumnFloat64&>(*columns[0]);
+            const auto& quantile = assert_cast<const ColumnFloat64&>(*columns[1]);
 
             this->data(place).init();
-            this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
+            this->data(place).add(sources.get_element(row_num), quantile.get_element(row_num));
         }
     }
 };
@@ -255,13 +255,13 @@ public:
             for (int i = 0; i < 3; ++i) {
                 const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
                 if (nullable_column == nullptr) { //Not Nullable column
-                    const auto& column = assert_cast<const ColumnVector<Float64>&>(*columns[i]);
-                    column_data[i] = column.get_float64(row_num);
+                    const auto& column = assert_cast<const ColumnFloat64&>(*columns[i]);
+                    column_data[i] = column.get_element(row_num);
                 } else if (!nullable_column->is_null_at(
                                    row_num)) { // Nullable column && Not null data
-                    const auto& column = assert_cast<const ColumnVector<Float64>&>(
-                            nullable_column->get_nested_column());
-                    column_data[i] = column.get_float64(row_num);
+                    const auto& column =
+                            assert_cast<const ColumnFloat64&>(nullable_column->get_nested_column());
+                    column_data[i] = column.get_element(row_num);
                 } else { // Nullable column && null data
                     if (i == 0) {
                         return;
@@ -273,12 +273,12 @@ public:
             this->data(place).add(column_data[0], column_data[1]);
 
         } else {
-            const auto& sources = assert_cast<const ColumnVector<Float64>&>(*columns[0]);
-            const auto& quantile = assert_cast<const ColumnVector<Float64>&>(*columns[1]);
-            const auto& compression = assert_cast<const ColumnVector<Float64>&>(*columns[2]);
+            const auto& sources = assert_cast<const ColumnFloat64&>(*columns[0]);
+            const auto& quantile = assert_cast<const ColumnFloat64&>(*columns[1]);
+            const auto& compression = assert_cast<const ColumnFloat64&>(*columns[2]);
 
-            this->data(place).init(compression.get_float64(row_num));
-            this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
+            this->data(place).init(compression.get_element(row_num));
+            this->data(place).add(sources.get_element(row_num), quantile.get_element(row_num));
         }
     }
 };
@@ -360,7 +360,7 @@ struct PercentileState {
     double get() const { return vec_counts[0].terminate(vec_quantile[0]); }
 
     void insert_result_into(IColumn& to) const {
-        auto& column_data = assert_cast<ColumnVector<Float64>&>(to).get_data();
+        auto& column_data = assert_cast<ColumnFloat64&>(to).get_data();
         for (int i = 0; i < vec_counts.size(); ++i) {
             column_data.push_back(vec_counts[i].terminate(vec_quantile[i]));
         }
@@ -382,7 +382,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& sources = assert_cast<const ColVecType&>(*columns[0]);
-        const auto& quantile = assert_cast<const ColumnVector<Float64>&>(*columns[1]);
+        const auto& quantile = assert_cast<const ColumnFloat64&>(*columns[1]);
         AggregateFunctionPercentile::data(place).add(sources.get_data()[row_num],
                                                      quantile.get_data(), 1);
     }
@@ -406,7 +406,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& col = assert_cast<ColumnVector<Float64>&>(to);
+        auto& col = assert_cast<ColumnFloat64&>(to);
         col.insert_value(AggregateFunctionPercentile::data(place).get());
     }
 };
@@ -434,7 +434,7 @@ public:
         const auto& offset_column_data = quantile_array.get_offsets();
         const auto& nested_column =
                 assert_cast<const ColumnNullable&>(quantile_array.get_data()).get_nested_column();
-        const auto& nested_column_data = assert_cast<const ColumnVector<Float64>&>(nested_column);
+        const auto& nested_column_data = assert_cast<const ColumnFloat64&>(nested_column);
 
         AggregateFunctionPercentileArray::data(place).add(
                 sources.get_int(row_num), nested_column_data.get_data(),
