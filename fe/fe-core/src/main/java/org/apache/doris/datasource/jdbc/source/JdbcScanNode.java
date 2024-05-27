@@ -241,6 +241,10 @@ public class JdbcScanNode extends ExternalScanNode {
                             .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
             output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
         }
+        if (!runtimeFilters.isEmpty()) {
+            output.append(prefix).append("runtime filters: ");
+            output.append(getRuntimeFilterExplainString(false));
+        }
         return output.toString();
     }
 
