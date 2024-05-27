@@ -38,6 +38,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -130,6 +131,10 @@ public class ShowPartitionsStmt extends ShowStmt {
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP,
                 TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE, TableType.ICEBERG_EXTERNAL_TABLE);
+
+        if (table instanceof IcebergExternalTable) {
+            return;
+        }
 
         if (table instanceof HMSExternalTable) {
             if (((HMSExternalTable) table).isView()) {
