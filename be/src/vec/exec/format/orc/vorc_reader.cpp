@@ -690,7 +690,7 @@ bool static build_search_argument(std::vector<OrcPredicate>& predicates, int ind
 
 bool OrcReader::_init_search_argument(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    if (_enable_filter_by_min_max || colname_to_value_range->empty()) {
+    if ((!_enable_filter_by_min_max) || colname_to_value_range->empty()) {
         return false;
     }
     std::vector<OrcPredicate> predicates;
