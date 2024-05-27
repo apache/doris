@@ -999,6 +999,30 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static double balance_load_score_threshold = 0.1; // 10%
 
+    // if disk usage > balance_load_score_threshold + urgent_disk_usage_extra_threshold
+    // then this disk need schedule quickly
+    // this value could less than 0.
+    @ConfField(mutable = true, masterOnly = true)
+    public static double urgent_balance_disk_usage_extra_threshold = 0.05;
+
+    // when run urgent disk balance, shuffle the top large tablets
+    // range: [ 0 ~ 100 ]
+    @ConfField(mutable = true, masterOnly = true)
+    public static int urgent_balance_shuffle_large_tablet_percentage = 1;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static double urgent_balance_pick_large_tablet_num_threshold = 1000;
+
+    // range: 0 ~ 100
+    @ConfField(mutable = true, masterOnly = true)
+    public static int urgent_balance_pick_large_disk_usage_percentage = 80;
+
+    // there's a case, all backend has a high disk, by default, it will not run urgent disk balance.
+    // if set this value to true, urgent disk balance will always run,
+    // the backends will exchange tablets among themselves.
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_urgent_balance_no_low_backend = true;
+
     /**
      * if set to true, TabletScheduler will not do balance.
      */
@@ -1016,6 +1040,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_disk_balance = false;
+
+    // balance order
+    // ATTN: a temporary config, may delete later.
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean balance_be_then_disk = true;
 
     /**
      * if set to false, TabletScheduler will not do disk balance for replica num = 1.
