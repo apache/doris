@@ -191,14 +191,18 @@ vectorized::BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
 }
 
 AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id,
-                                             const TPlanNode& tnode, const DescriptorTbl& descs)
+                                             const TPlanNode& tnode, const DescriptorTbl& descs,
+                                             bool require_bucket_distribution)
         : DataSinkOperatorX(operator_id, tnode.node_id),
           _buffered_tuple_id(tnode.analytic_node.__isset.buffered_tuple_id
                                      ? tnode.analytic_node.buffered_tuple_id
                                      : 0),
-          _is_colocate(tnode.analytic_node.__isset.is_colocate && tnode.analytic_node.is_colocate),
-          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
-                                                               : std::vector<TExpr> {}) {}
+          _is_colocate(tnode.analytic_node.__isset.is_colocate && tnode.analytic_node.is_colocate &&
+                       require_bucket_distribution),
+          _partition_exprs(require_bucket_distribution ? (tnode.__isset.distribute_expr_lists
+                                                                  ? tnode.distribute_expr_lists[0]
+                                                                  : std::vector<TExpr> {})
+                                                       : tnode.analytic_node.partition_exprs) {}
 
 Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));

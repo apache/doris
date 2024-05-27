@@ -96,7 +96,7 @@ class DistinctStreamingAggOperatorX final
         : public StatefulOperatorX<DistinctStreamingAggLocalState> {
 public:
     DistinctStreamingAggOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                  const DescriptorTbl& descs);
+                                  const DescriptorTbl& descs, bool require_bucket_distribution);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
