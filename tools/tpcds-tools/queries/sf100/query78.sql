@@ -34,7 +34,7 @@ ss as
    where sr_ticket_number is null
    group by d_year, ss_item_sk, ss_customer_sk
    )
- select 
+select 
 ss_item_sk,
 round(ss_qty/(coalesce(ws_qty,0)+coalesce(cs_qty,0)),2) ratio,
 ss_qty store_qty, ss_wc store_wholesale_cost, ss_sp store_sales_price,
