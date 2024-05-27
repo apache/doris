@@ -25,6 +25,7 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 import org.apache.doris.thrift.TTrinoConnectorTable;
@@ -69,9 +70,6 @@ import java.util.Map.Entry;
 import java.util.Optional;
 
 public class TrinoConnectorExternalTable extends ExternalTable {
-    private Optional<ConnectorTableHandle> connectorTableHandle;
-    private Map<String, ColumnHandle> columnHandleMap;
-    private Map<String, ColumnMetadata> columnMetadataMap;
 
     public TrinoConnectorExternalTable(long id, String name, String dbName, TrinoConnectorExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.TRINO_CONNECTOR_EXTERNAL_TABLE);
@@ -86,7 +84,7 @@ public class TrinoConnectorExternalTable extends ExternalTable {
     }
 
     @Override
-    public List<Column> initSchema() {
+    public Optional<SchemaCacheValue> initSchema() {
         // 1. Get necessary objects
         TrinoConnectorExternalCatalog trinoConnectorCatalog = (TrinoConnectorExternalCatalog) catalog;
         CatalogHandle catalogHandle = trinoConnectorCatalog.getTrinoCatalogHandle();
@@ -100,14 +98,17 @@ public class TrinoConnectorExternalTable extends ExternalTable {
         ConnectorMetadata connectorMetadata = connector.getMetadata(connectorSession, connectorTransactionHandle);
 
         // 3. Get ConnectorTableHandle
-        connectorTableHandle = Optional.empty();
+        Optional<ConnectorTableHandle> connectorTableHandle = Optional.empty();
         QualifiedObjectName qualifiedTable = new QualifiedObjectName(trinoConnectorCatalog.getName(), dbName,
                 name);
         if (!qualifiedTable.getCatalogName().isEmpty()
                 && !qualifiedTable.getSchemaName().isEmpty()
                 && !qualifiedTable.getObjectName().isEmpty()) {
-            connectorTableHandle = Optional.of(connectorMetadata.getTableHandle(connectorSession,
+            connectorTableHandle = Optional.ofNullable(connectorMetadata.getTableHandle(connectorSession,
                     qualifiedTable.asSchemaTableName(), Optional.empty(), Optional.empty()));
+        }
+        if (!connectorTableHandle.isPresent()) {
+            throw new RuntimeException(String.format("Table does not exist: %s.%s.%s", qualifiedTable));
         }
 
         // 4. Get ColumnHandle
@@ -117,7 +118,7 @@ public class TrinoConnectorExternalTable extends ExternalTable {
         for (Entry<String, ColumnHandle> mapEntry : handles.entrySet()) {
             columnHandleMapBuilder.put(mapEntry.getKey().toLowerCase(Locale.ENGLISH), mapEntry.getValue());
         }
-        columnHandleMap = columnHandleMapBuilder.buildOrThrow();
+        Map<String, ColumnHandle> columnHandleMap = columnHandleMapBuilder.buildOrThrow();
 
         // 5. Get ColumnMetadata
         ImmutableMap.Builder<String, ColumnMetadata> columnMetadataMapBuilder = ImmutableMap.builder();
@@ -140,8 +141,10 @@ public class TrinoConnectorExternalTable extends ExternalTable {
                     Column.COLUMN_UNIQUE_ID_INIT_VALUE);
             columns.add(column);
         }
-        columnMetadataMap = columnMetadataMapBuilder.buildOrThrow();
-        return columns;
+        Map<String, ColumnMetadata> columnMetadataMap = columnMetadataMapBuilder.buildOrThrow();
+        return Optional.of(
+                new TrinoSchemaCacheValue(columns, connectorMetadata, connectorTableHandle, connectorTransactionHandle,
+                        columnHandleMap, columnMetadataMap));
     }
 
     @Override
@@ -158,11 +161,7 @@ public class TrinoConnectorExternalTable extends ExternalTable {
         return tTableDescriptor;
     }
 
-    protected Type trinoConnectorTypeToDorisType(io.trino.spi.type.Type type) {
-        return trinoConnectorPrimitiveTypeToDorisType(type);
-    }
-
-    private Type trinoConnectorPrimitiveTypeToDorisType(io.trino.spi.type.Type type) {
+    private Type trinoConnectorTypeToDorisType(io.trino.spi.type.Type type) {
         if (type instanceof BooleanType) {
             return Type.BOOLEAN;
         } else if (type instanceof TinyintType) {
@@ -199,19 +198,19 @@ public class TrinoConnectorExternalTable extends ExternalTable {
             TimestampWithTimeZoneType timestampWithTimeZoneType = (TimestampWithTimeZoneType) type;
             return ScalarType.createDatetimeV2Type(timestampWithTimeZoneType.getPrecision());
         } else if (type instanceof io.trino.spi.type.ArrayType) {
-            Type elementType = trinoConnectorPrimitiveTypeToDorisType(
+            Type elementType = trinoConnectorTypeToDorisType(
                     ((io.trino.spi.type.ArrayType) type).getElementType());
             return ArrayType.create(elementType, true);
         } else if (type instanceof io.trino.spi.type.MapType) {
-            Type keyType = trinoConnectorPrimitiveTypeToDorisType(
+            Type keyType = trinoConnectorTypeToDorisType(
                     ((io.trino.spi.type.MapType) type).getKeyType());
-            Type valueType = trinoConnectorPrimitiveTypeToDorisType(
+            Type valueType = trinoConnectorTypeToDorisType(
                     ((io.trino.spi.type.MapType) type).getValueType());
             return new MapType(keyType, valueType, true, true);
         } else if (type instanceof RowType) {
             ArrayList<StructField> dorisFields = Lists.newArrayList();
             for (Field field : ((RowType) type).getFields()) {
-                Type childType = trinoConnectorPrimitiveTypeToDorisType(field.getType());
+                Type childType = trinoConnectorTypeToDorisType(field.getType());
                 if (field.getName().isPresent()) {
                     dorisFields.add(new StructField(field.getName().get(), childType));
                 } else {
@@ -225,14 +224,34 @@ public class TrinoConnectorExternalTable extends ExternalTable {
     }
 
     public ConnectorTableHandle getConnectorTableHandle() {
-        return connectorTableHandle.get();
+        makeSureInitialized();
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(value -> ((TrinoSchemaCacheValue) value).getConnectorTableHandle().get())
+                .orElse(null);
+    }
+
+    public ConnectorMetadata getConnectorMetadata() {
+        makeSureInitialized();
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(value -> ((TrinoSchemaCacheValue) value).getConnectorMetadata()).orElse(null);
+    }
+
+    public ConnectorTransactionHandle getConnectorTransactionHandle() {
+        makeSureInitialized();
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(value -> ((TrinoSchemaCacheValue) value).getConnectorTransactionHandle())
+                .orElse(null);
     }
 
     public Map<String, ColumnHandle> getColumnHandleMap() {
-        return columnHandleMap;
+        makeSureInitialized();
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(value -> ((TrinoSchemaCacheValue) value).getColumnHandleMap()).orElse(null);
     }
 
     public Map<String, ColumnMetadata> getColumnMetadataMap() {
-        return columnMetadataMap;
+        makeSureInitialized();
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(value -> ((TrinoSchemaCacheValue) value).getColumnMetadataMap()).orElse(null);
     }
 }

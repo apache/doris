@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
-#include "vec//utils/util.hpp"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -88,12 +87,7 @@ Status PartitionedAggLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    {
-        std::unique_lock<std::mutex> lk(_merge_spill_lock);
-        if (_is_merging) {
-            _merge_spill_cv.wait(lk);
-        }
-    }
+    dec_running_big_mem_op_num(state);
     return Base::close(state);
 }
 PartitionedAggSourceOperatorX::PartitionedAggSourceOperatorX(ObjectPool* pool,
@@ -128,25 +122,38 @@ Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {
 Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
+    Defer defer {[&]() {
+        if (!local_state._status.ok() || *eos) {
+            local_state._shared_state->close();
+        }
+    }};
+
+    local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._status);
 
-    RETURN_IF_ERROR(local_state.initiate_merge_spill_partition_agg_data(state));
+    if (local_state._shared_state->is_spilled) {
+        local_state._status = local_state.initiate_merge_spill_partition_agg_data(state);
+        RETURN_IF_ERROR(local_state._status);
 
-    /// When `_is_merging` is true means we are reading spilled data and merging the data into hash table.
-    if (local_state._is_merging) {
-        return Status::OK();
+        /// When `_is_merging` is true means we are reading spilled data and merging the data into hash table.
+        if (local_state._is_merging) {
+            return Status::OK();
+        }
     }
 
+    // not spilled in sink or current partition still has data
     auto* runtime_state = local_state._runtime_state.get();
-    RETURN_IF_ERROR(_agg_source_operator->get_block(runtime_state, block, eos));
+    local_state._status = _agg_source_operator->get_block(runtime_state, block, eos);
+    RETURN_IF_ERROR(local_state._status);
     if (local_state._runtime_state) {
         auto* source_local_state =
                 local_state._runtime_state->get_local_state(_agg_source_operator->operator_id());
         local_state.update_profile(source_local_state->profile());
     }
     if (*eos) {
-        if (!local_state._shared_state->spill_partitions.empty()) {
+        if (local_state._shared_state->is_spilled &&
+            !local_state._shared_state->spill_partitions.empty()) {
             *eos = false;
         }
     }
@@ -158,7 +165,6 @@ Status PartitionedAggLocalState::setup_in_memory_agg_op(RuntimeState* state) {
     _runtime_state = RuntimeState::create_unique(
             nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
-    _runtime_state->set_query_mem_tracker(state->query_mem_tracker());
     _runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     _runtime_state->set_be_number(state->be_number());
 
@@ -191,69 +197,100 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
     }
 
     _is_merging = true;
-    LOG(INFO) << "agg node " << _parent->node_id() << " merge spilled agg data";
+    VLOG_DEBUG << "query " << print_id(state->query_id()) << " agg node " << _parent->node_id()
+               << " merge spilled agg data";
 
     RETURN_IF_ERROR(Base::_shared_state->in_mem_shared_state->reset_hash_table());
     _dependency->Dependency::block();
 
-    RETURN_IF_ERROR(
-            ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool()->submit_func(
-                    [this, state] {
-                        SCOPED_ATTACH_TASK(state);
-                        Defer defer {[&]() {
-                            if (!_status.ok()) {
-                                LOG(WARNING) << "agg node " << _parent->node_id()
-                                             << " merge spilled agg data error: " << _status;
-                            } else if (_shared_state->spill_partitions.empty()) {
-                                LOG(INFO) << "agg node " << _parent->node_id()
-                                          << " merge spilled agg data finish";
-                            }
-                            Base::_shared_state->in_mem_shared_state->aggregate_data_container
-                                    ->init_once();
-                            {
-                                std::unique_lock<std::mutex> lk(_merge_spill_lock);
-                                _is_merging = false;
-                                _dependency->Dependency::set_ready();
-                                _merge_spill_cv.notify_one();
-                            }
-                        }};
-                        bool has_agg_data = false;
-                        auto& parent = Base::_parent->template cast<Parent>();
-                        while (!state->is_cancelled() && !has_agg_data &&
-                               !_shared_state->spill_partitions.empty()) {
-                            for (auto& stream :
-                                 _shared_state->spill_partitions[0]->spill_streams_) {
-                                stream->set_read_counters(Base::_spill_read_data_time,
-                                                          Base::_spill_deserialize_time,
-                                                          Base::_spill_read_bytes);
-                                vectorized::Block block;
-                                bool eos = false;
-                                while (!eos) {
-                                    {
-                                        SCOPED_TIMER(Base::_spill_recover_time);
-                                        _status = stream->read_next_block_sync(&block, &eos);
-                                    }
-                                    RETURN_IF_ERROR(_status);
+    auto execution_context = state->get_task_execution_context();
+    /// Resources in shared state will be released when the operator is closed,
+    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
+    /// So, we need hold the pointer of shared state.
+    std::weak_ptr<PartitionedAggSharedState> shared_state_holder =
+            _shared_state->shared_from_this();
+    auto query_id = state->query_id();
+    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
 
-                                    if (!block.empty()) {
-                                        has_agg_data = true;
-                                        _status = parent._agg_source_operator
-                                                          ->merge_with_serialized_key_helper<false>(
-                                                                  _runtime_state.get(), &block);
-                                        RETURN_IF_ERROR(_status);
-                                    }
-                                }
-                                (void)ExecEnv::GetInstance()
-                                        ->spill_stream_mgr()
-                                        ->delete_spill_stream(stream);
-                            }
-                            _shared_state->spill_partitions.pop_front();
-                        }
-                        if (_shared_state->spill_partitions.empty()) {
-                            _shared_state->close();
-                        }
-                        return _status;
-                    }));
+    MonotonicStopWatch submit_timer;
+    submit_timer.start();
+    auto spill_func = [this, state, query_id, execution_context, submit_timer] {
+        _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
+        Defer defer {[&]() {
+            if (!_status.ok() || state->is_cancelled()) {
+                if (!_status.ok()) {
+                    LOG(WARNING) << "query " << print_id(query_id) << " agg node "
+                                 << _parent->node_id()
+                                 << " merge spilled agg data error: " << _status;
+                }
+                _shared_state->close();
+            } else if (_shared_state->spill_partitions.empty()) {
+                VLOG_DEBUG << "query " << print_id(query_id) << " agg node " << _parent->node_id()
+                           << " merge spilled agg data finish";
+            }
+            Base::_shared_state->in_mem_shared_state->aggregate_data_container->init_once();
+            _is_merging = false;
+            _dependency->Dependency::set_ready();
+        }};
+        bool has_agg_data = false;
+        auto& parent = Base::_parent->template cast<Parent>();
+        while (!state->is_cancelled() && !has_agg_data &&
+               !_shared_state->spill_partitions.empty()) {
+            for (auto& stream : _shared_state->spill_partitions[0]->spill_streams_) {
+                stream->set_read_counters(Base::_spill_read_data_time,
+                                          Base::_spill_deserialize_time, Base::_spill_read_bytes,
+                                          Base::_spill_read_wait_io_timer);
+                vectorized::Block block;
+                bool eos = false;
+                while (!eos && !state->is_cancelled()) {
+                    {
+                        SCOPED_TIMER(Base::_spill_recover_time);
+                        _status = stream->read_next_block_sync(&block, &eos);
+                    }
+                    RETURN_IF_ERROR(_status);
+
+                    if (!block.empty()) {
+                        has_agg_data = true;
+                        _status = parent._agg_source_operator
+                                          ->merge_with_serialized_key_helper<false>(
+                                                  _runtime_state.get(), &block);
+                        RETURN_IF_ERROR(_status);
+                    }
+                }
+                (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
+            }
+            _shared_state->spill_partitions.pop_front();
+        }
+        if (_shared_state->spill_partitions.empty()) {
+            _shared_state->close();
+        }
+        return _status;
+    };
+
+    auto exception_catch_func = [spill_func, query_id, mem_tracker, shared_state_holder,
+                                 execution_context, this]() {
+        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+        std::shared_ptr<TaskExecutionContext> execution_context_lock;
+        auto shared_state_sptr = shared_state_holder.lock();
+        if (shared_state_sptr) {
+            execution_context_lock = execution_context.lock();
+        }
+        if (!shared_state_sptr || !execution_context_lock) {
+            LOG(INFO) << "query " << print_id(query_id)
+                      << " execution_context released, maybe query was cancelled.";
+            return;
+        }
+
+        auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return spill_func(); }); }();
+
+        if (!status.ok()) {
+            _status = status;
+        }
+    };
+
+    RETURN_IF_ERROR(
+            ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
+                    exception_catch_func));
     return Status::OK();
 }
 } // namespace doris::pipeline

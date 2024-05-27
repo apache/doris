@@ -93,17 +93,17 @@ Status LocalFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
 }
 
 Status LocalFileSystem::create_directory_impl(const Path& dir, bool failed_if_exists) {
-    if (failed_if_exists) {
-        bool exists = true;
-        RETURN_IF_ERROR(exists_impl(dir, &exists));
-        if (exists) {
-            return Status::AlreadyExist("failed to create {}, already exists", dir.native());
-        }
+    bool exists = true;
+    RETURN_IF_ERROR(exists_impl(dir, &exists));
+    if (exists && failed_if_exists) {
+        return Status::AlreadyExist("failed to create {}, already exists", dir.native());
     }
-    std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
-    if (ec) {
-        return localfs_error(ec, fmt::format("failed to create {}", dir.native()));
+    if (!exists) {
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        if (ec) {
+            return localfs_error(ec, fmt::format("failed to create {}", dir.native()));
+        }
     }
     return Status::OK();
 }
@@ -294,13 +294,11 @@ Status LocalFileSystem::md5sum_impl(const Path& file, std::string* md5sum) {
         return localfs_error(errno, fmt::format("failed to stat file {}", file.native()));
     }
     size_t file_len = statbuf.st_size;
-    CONSUME_THREAD_MEM_TRACKER(file_len);
     void* buf = mmap(nullptr, file_len, PROT_READ, MAP_SHARED, fd, 0);
 
     unsigned char result[MD5_DIGEST_LENGTH];
     MD5((unsigned char*)buf, file_len, result);
     munmap(buf, file_len);
-    RELEASE_THREAD_MEM_TRACKER(file_len);
 
     std::stringstream ss;
     for (int32_t i = 0; i < MD5_DIGEST_LENGTH; i++) {

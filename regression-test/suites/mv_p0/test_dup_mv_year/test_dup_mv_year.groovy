@@ -47,7 +47,6 @@ suite ("test_dup_mv_year") {
     createMV "create materialized view k13y as select k1,year(k3) from d_table;"
 
     sql "insert into d_table select 4,'2033-12-31','2033-12-31 01:02:03';"
-    Thread.sleep(1000)
 
     qt_select_star "select * from d_table order by k1;"
 

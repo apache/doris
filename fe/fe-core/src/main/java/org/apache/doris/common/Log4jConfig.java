@@ -19,6 +19,7 @@ package org.apache.doris.common;
 
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
@@ -38,75 +39,101 @@ import java.util.Map;
 public class Log4jConfig extends XmlConfiguration {
     private static final long serialVersionUID = 1L;
 
-    // CHECKSTYLE OFF
-    private static String xmlConfTemplate = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-            + "\n<!-- Auto Generated. DO NOT MODIFY IT! -->\n"
-            + "<Configuration status=\"info\" packages=\"org.apache.doris.common\">\n"
-            + "  <Appenders>\n"
-            + "    <Console name=\"Console\" target=\"SYSTEM_OUT\">"
-            + "      <PatternLayout charset=\"UTF-8\">\n"
-            + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n"
-            + "      </PatternLayout>\n"
-            + "    </Console>"
-            + "    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i${sys_file_postfix}\" immediateFlush=\"${immediate_flush_flag}\">\n"
-            + "      <PatternLayout charset=\"UTF-8\">\n"
-            + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n"
-            + "      </PatternLayout>\n"
-            + "      <Policies>\n"
-            + "        <TimeBasedTriggeringPolicy/>\n"
-            + "        <SizeBasedTriggeringPolicy size=\"${sys_roll_maxsize}MB\"/>\n"
-            + "      </Policies>\n"
-            + "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"max\">\n"
-            + "        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\">\n"
-            + "          <IfFileName glob=\"fe.log.*\" />\n"
-            + "          <IfLastModified age=\"${sys_log_delete_age}\" />\n"
-            + "        </Delete>\n"
-            + "      </DefaultRolloverStrategy>\n"
-            + "    </RollingFile>\n"
-            + "    <RollingFile name=\"SysWF\" fileName=\"${sys_log_dir}/fe.warn.log\" filePattern=\"${sys_log_dir}/fe.warn.log.${sys_file_pattern}-%i${sys_file_postfix}\" immediateFlush=\"${immediate_flush_flag}\">\n"
-            + "      <PatternLayout charset=\"UTF-8\">\n"
-            + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n"
-            + "      </PatternLayout>\n"
-            + "      <Policies>\n"
-            + "        <TimeBasedTriggeringPolicy/>\n"
-            + "        <SizeBasedTriggeringPolicy size=\"${sys_roll_maxsize}MB\"/>\n"
-            + "      </Policies>\n"
-            + "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"max\">\n"
-            + "        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\">\n"
-            + "          <IfFileName glob=\"fe.warn.log.*\" />\n"
-            + "          <IfLastModified age=\"${sys_log_delete_age}\" />\n"
-            + "        </Delete>\n"
-            + "      </DefaultRolloverStrategy>\n"
-            + "    </RollingFile>\n"
-            + "    <RollingFile name=\"Auditfile\" fileName=\"${audit_log_dir}/fe.audit.log\" filePattern=\"${audit_log_dir}/fe.audit.log.${audit_file_pattern}-%i${audit_file_postfix}\">\n"
-            + "      <PatternLayout charset=\"UTF-8\">\n"
-            + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n</Pattern>\n"
-            + "      </PatternLayout>\n"
-            + "      <Policies>\n"
-            + "        <TimeBasedTriggeringPolicy/>\n"
-            + "        <SizeBasedTriggeringPolicy size=\"${audit_roll_maxsize}MB\"/>\n"
-            + "      </Policies>\n"
-            + "      <DefaultRolloverStrategy max=\"${audit_roll_num}\" fileIndex=\"max\">\n"
-            + "        <Delete basePath=\"${audit_log_dir}/\" maxDepth=\"1\">\n"
-            + "          <IfFileName glob=\"fe.audit.log.*\" />\n"
-            + "          <IfLastModified age=\"${audit_log_delete_age}\" />\n"
-            + "        </Delete>\n"
-            + "      </DefaultRolloverStrategy>\n"
-            + "    </RollingFile>\n"
-            + "  </Appenders>\n"
-            + "  <Loggers>\n"
-            + "    <Root level=\"${sys_log_level}\" includeLocation=\"${include_location_flag}\">\n"
-            + "      <AppenderRef ref=\"Sys\"/>\n"
-            + "      <AppenderRef ref=\"SysWF\" level=\"WARN\"/>\n"
-            + "      <!--REPLACED BY Console Logger-->\n"
-            + "    </Root>\n"
-            + "    <Logger name=\"audit\" level=\"ERROR\" additivity=\"false\">\n"
-            + "      <AppenderRef ref=\"Auditfile\"/>\n"
-            + "    </Logger>\n"
-            + "    <!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->\n"
-            + "  </Loggers>\n"
-            + "</Configuration>";
-    // CHECKSTYLE ON
+    private static StringBuilder xmlConfTemplateBuilder = new StringBuilder();
+
+    private static void getXmlConfByStrategy(final String size, final String age) {
+        if (Config.log_rollover_strategy.equalsIgnoreCase("size")) {
+            xmlConfTemplateBuilder
+                    .append("          <IfAny>\n")
+                    .append("             <IfAccumulatedFileSize exceeds=\"${").append(size).append("}GB\"/>\n")
+                    .append("           </IfAny>\n");
+        } else {
+            // default age
+            xmlConfTemplateBuilder
+                    .append("          <IfLastModified age=\"${").append(age).append("}\" />\n");
+        }
+    }
+
+    static {
+        // CHECKSTYLE OFF
+        xmlConfTemplateBuilder.append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n")
+            .append("\n<!-- Auto Generated. DO NOT MODIFY IT! -->\n")
+            .append("<Configuration status=\"info\" packages=\"org.apache.doris.common\">\n")
+            .append("  <Appenders>\n")
+            .append("    <Console name=\"Console\" target=\"SYSTEM_OUT\">")
+            .append("      <PatternLayout charset=\"UTF-8\">\n")
+            .append("        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n")
+            .append("      </PatternLayout>\n")
+            .append("    </Console>\n")
+            .append("    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i${sys_file_postfix}\" immediateFlush=\"${immediate_flush_flag}\">\n")
+            .append("      <PatternLayout charset=\"UTF-8\">\n")
+            .append("        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n")
+            .append("      </PatternLayout>\n")
+            .append("      <Policies>\n")
+            .append("        <TimeBasedTriggeringPolicy/>\n")
+            .append("        <SizeBasedTriggeringPolicy size=\"${sys_roll_maxsize}MB\"/>\n")
+            .append("      </Policies>\n")
+            .append("      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"max\">\n")
+            .append("        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\">\n")
+            .append("          <IfFileName glob=\"fe.log.*\" />\n");
+
+        getXmlConfByStrategy("info_sys_accumulated_file_size", "sys_log_delete_age");
+
+        xmlConfTemplateBuilder
+            .append("        </Delete>\n")
+            .append("      </DefaultRolloverStrategy>\n")
+            .append("    </RollingFile>\n")
+            .append("    <RollingFile name=\"SysWF\" fileName=\"${sys_log_dir}/fe.warn.log\" filePattern=\"${sys_log_dir}/fe.warn.log.${sys_file_pattern}-%i${sys_file_postfix}\" immediateFlush=\"${immediate_flush_flag}\">\n")
+            .append("      <PatternLayout charset=\"UTF-8\">\n")
+            .append("        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n")
+            .append("      </PatternLayout>\n")
+            .append("      <Policies>\n")
+            .append("        <TimeBasedTriggeringPolicy/>\n")
+            .append("        <SizeBasedTriggeringPolicy size=\"${sys_roll_maxsize}MB\"/>\n")
+            .append("      </Policies>\n")
+            .append("      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"max\">\n")
+            .append("        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\">\n")
+            .append("          <IfFileName glob=\"fe.warn.log.*\" />\n");
+
+        getXmlConfByStrategy("warn_sys_accumulated_file_size", "sys_log_delete_age");
+
+        xmlConfTemplateBuilder
+            .append("        </Delete>\n")
+            .append("      </DefaultRolloverStrategy>\n")
+            .append("    </RollingFile>\n")
+            .append("    <RollingFile name=\"Auditfile\" fileName=\"${audit_log_dir}/fe.audit.log\" filePattern=\"${audit_log_dir}/fe.audit.log.${audit_file_pattern}-%i${audit_file_postfix}\">\n")
+            .append("      <PatternLayout charset=\"UTF-8\">\n")
+            .append("        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n</Pattern>\n")
+            .append("      </PatternLayout>\n")
+            .append("      <Policies>\n")
+            .append("        <TimeBasedTriggeringPolicy/>\n")
+            .append("        <SizeBasedTriggeringPolicy size=\"${audit_roll_maxsize}MB\"/>\n")
+            .append("      </Policies>\n")
+            .append("      <DefaultRolloverStrategy max=\"${audit_roll_num}\" fileIndex=\"max\">\n")
+            .append("        <Delete basePath=\"${audit_log_dir}/\" maxDepth=\"1\">\n")
+            .append("          <IfFileName glob=\"fe.audit.log.*\" />\n");
+
+        getXmlConfByStrategy("audit_sys_accumulated_file_size", "audit_log_delete_age");
+
+        xmlConfTemplateBuilder
+            .append("        </Delete>\n")
+            .append("      </DefaultRolloverStrategy>\n")
+            .append("    </RollingFile>\n")
+            .append("  </Appenders>\n")
+            .append("  <Loggers>\n")
+            .append("    <Root level=\"${sys_log_level}\" includeLocation=\"${include_location_flag}\">\n")
+            .append("      <AppenderRef ref=\"Sys\"/>\n")
+            .append("      <AppenderRef ref=\"SysWF\" level=\"WARN\"/>\n")
+            .append("      <!--REPLACED BY Console Logger-->\n")
+            .append("    </Root>\n")
+            .append("    <Logger name=\"audit\" level=\"ERROR\" additivity=\"false\">\n")
+            .append("      <AppenderRef ref=\"Auditfile\"/>\n")
+            .append("    </Logger>\n")
+            .append("    <!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->\n")
+            .append("  </Loggers>\n")
+            .append("</Configuration>");
+        // CHECKSTYLE ON
+    }
 
     private static StrSubstitutor strSub;
     private static String sysLogLevel;
@@ -127,10 +154,12 @@ public class Log4jConfig extends XmlConfiguration {
     public static boolean foreground = false;
 
     private static void reconfig() throws IOException {
-        String newXmlConfTemplate = xmlConfTemplate;
+        String newXmlConfTemplate = xmlConfTemplateBuilder.toString();
 
         // sys log config
-        String sysLogDir = Config.sys_log_dir;
+        // ATTN, sys_log_dir is deprecated, use LOG_DIR instead
+        String sysLogDir = Strings.isNullOrEmpty(Config.sys_log_dir) ? System.getenv("LOG_DIR") :
+                Config.sys_log_dir;
         String sysRollNum = String.valueOf(Config.sys_log_roll_num);
         String sysDeleteAge = String.valueOf(Config.sys_log_delete_age);
         boolean compressSysLog = Config.sys_log_enable_compress;
@@ -215,6 +244,11 @@ public class Log4jConfig extends XmlConfiguration {
         properties.put("audit_roll_maxsize", auditRollMaxSize);
         properties.put("audit_roll_num", auditRollNum);
         properties.put("audit_log_delete_age", auditDeleteAge);
+
+        properties.put("info_sys_accumulated_file_size", String.valueOf(Config.info_sys_accumulated_file_size));
+        properties.put("warn_sys_accumulated_file_size", String.valueOf(Config.warn_sys_accumulated_file_size));
+        properties.put("audit_sys_accumulated_file_size", String.valueOf(Config.audit_sys_accumulated_file_size));
+
         properties.put("include_location_flag", sysLogMode.equalsIgnoreCase("NORMAL") ? "true" : "false");
         properties.put("immediate_flush_flag", sysLogMode.equalsIgnoreCase("ASYNC") ? "false" : "true");
         properties.put("audit_file_postfix", compressAuditLog ? ".gz" : "");

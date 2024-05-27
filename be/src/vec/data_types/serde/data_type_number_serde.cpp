@@ -84,7 +84,7 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
                                      end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
                 column.get_name(), array_builder->type()->name());
-    } else if constexpr (std::is_same_v<T, Int128> || std::is_same_v<T, IPv6>) {
+    } else if constexpr (std::is_same_v<T, Int128>) {
         auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t i = start; i < end; ++i) {
             auto& data_value = col_data[i];
@@ -97,7 +97,7 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
                                  column.get_name(), array_builder->type()->name());
             }
         }
-    } else if constexpr (std::is_same_v<T, UInt128>) {
+    } else if constexpr (std::is_same_v<T, UInt128> || std::is_same_v<T, IPv6>) {
     } else {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         checkArrowStatus(
@@ -244,9 +244,19 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
     } else if constexpr (std::is_same_v<T, Int128>) {
         buf_ret = result.push_largeint(data[col_index]);
     } else if constexpr (std::is_same_v<T, float>) {
-        buf_ret = result.push_float(data[col_index]);
+        if (std::isnan(data[col_index])) {
+            // Handle NaN for float, we should push null value
+            buf_ret = result.push_null();
+        } else {
+            buf_ret = result.push_float(data[col_index]);
+        }
     } else if constexpr (std::is_same_v<T, double>) {
-        buf_ret = result.push_double(data[col_index]);
+        if (std::isnan(data[col_index])) {
+            // Handle NaN for double, we should push null value
+            buf_ret = result.push_null();
+        } else {
+            buf_ret = result.push_double(data[col_index]);
+        }
     }
     if (UNLIKELY(buf_ret != 0)) {
         return Status::InternalError("pack mysql buffer failed.");
@@ -334,6 +344,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::FloatVectorBatch)
     } else if constexpr (std::is_same_v<T, Float64>) { // double
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::DoubleVectorBatch)
+    } else if constexpr (std::is_same_v<T, IPv4>) { // ipv4
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::IntVectorBatch)
     }
     return Status::OK();
 }

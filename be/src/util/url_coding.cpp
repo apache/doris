@@ -88,7 +88,7 @@ bool url_decode(const std::string& in, std::string* out) {
 }
 
 void base64_encode(const std::string& in, std::string* out) {
-    out->resize(in.length() * (4.0 / 3) + 1);
+    out->resize(size_t(in.length() * (4.0 / 3) + 1));
     auto len = base64_encode(reinterpret_cast<const unsigned char*>(in.c_str()), in.length(),
                              (unsigned char*)out->c_str());
     out->resize(len);

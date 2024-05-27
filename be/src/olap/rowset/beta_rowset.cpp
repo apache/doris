@@ -26,6 +26,7 @@
 #include <ostream>
 #include <utility>
 
+#include "beta_rowset.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -41,6 +42,7 @@
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 
@@ -124,6 +126,21 @@ Status BetaRowset::get_inverted_index_size(size_t* index_size) {
     return Status::OK();
 }
 
+void BetaRowset::clear_inverted_index_cache() {
+    for (int i = 0; i < num_segments(); ++i) {
+        auto seg_path = segment_file_path(i);
+        for (auto& column : tablet_schema()->columns()) {
+            const TabletIndex* index_meta = tablet_schema()->get_inverted_index(*column);
+            if (index_meta) {
+                std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                        seg_path, index_meta->index_id(), index_meta->get_index_suffix());
+                (void)segment_v2::InvertedIndexSearcherCache::instance()->erase(
+                        inverted_index_file);
+            }
+        }
+    }
+}
+
 Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
     auto fs = _rowset_meta->fs();
     if (!fs || _schema == nullptr) {
@@ -188,8 +205,8 @@ Status BetaRowset::remove() {
                 << ", version:" << start_version() << "-" << end_version()
                 << ", tabletid:" << _rowset_meta->tablet_id();
     // If the rowset was removed, it need to remove the fds in segment cache directly
-    SegmentLoader::instance()->erase_segments(_rowset_meta->rowset_id(),
-                                              _rowset_meta->num_segments());
+    clear_cache();
+
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
@@ -227,10 +244,6 @@ Status BetaRowset::remove() {
                         success = false;
                     }
                 }
-                if (success) {
-                    RETURN_IF_ERROR(segment_v2::InvertedIndexSearcherCache::instance()->erase(
-                            inverted_index_file));
-                }
             }
         }
     }
@@ -247,7 +260,7 @@ void BetaRowset::do_close() {
 
 Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                                  size_t new_rowset_start_seg_id,
-                                 std::set<int32_t>* without_index_uids) {
+                                 std::set<int64_t>* without_index_uids) {
     DCHECK(is_local());
     auto fs = _rowset_meta->fs();
     if (!fs) {
@@ -576,25 +589,113 @@ Status BetaRowset::add_to_binlog() {
         }
         linked_success_files.push_back(binlog_file);
 
-        for (const auto& index : _schema->indexes()) {
-            if (index.index_type() != IndexType::INVERTED) {
-                continue;
+        if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+            for (const auto& index : _schema->indexes()) {
+                if (index.index_type() != IndexType::INVERTED) {
+                    continue;
+                }
+                auto index_id = index.index_id();
+                auto index_file = InvertedIndexDescriptor::get_index_file_name(
+                        seg_file, index_id, index.get_index_suffix());
+                auto binlog_index_file = (std::filesystem::path(binlog_dir) /
+                                          std::filesystem::path(index_file).filename())
+                                                 .string();
+                VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
+                if (!local_fs->link_file(index_file, binlog_index_file).ok()) {
+                    status = Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}", index_file,
+                            binlog_index_file, Errno::no());
+                    return status;
+                }
+                linked_success_files.push_back(binlog_index_file);
             }
-            auto index_id = index.index_id();
-            auto index_file = InvertedIndexDescriptor::get_index_file_name(
-                    seg_file, index_id, index.get_index_suffix());
-            auto binlog_index_file = (std::filesystem::path(binlog_dir) /
-                                      std::filesystem::path(index_file).filename())
-                                             .string();
-            VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-            if (!local_fs->link_file(index_file, binlog_index_file).ok()) {
-                status = Status::Error<OS_ERROR>(
-                        "fail to create hard link. from={}, to={}, errno={}", index_file,
-                        binlog_index_file, Errno::no());
-                return status;
+        } else {
+            if (_schema->has_inverted_index()) {
+                auto index_file = InvertedIndexDescriptor::get_index_file_name(seg_file);
+                auto binlog_index_file = (std::filesystem::path(binlog_dir) /
+                                          std::filesystem::path(index_file).filename())
+                                                 .string();
+                VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
+                if (!local_fs->link_file(index_file, binlog_index_file).ok()) {
+                    status = Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}", index_file,
+                            binlog_index_file, Errno::no());
+                    return status;
+                }
+                linked_success_files.push_back(binlog_index_file);
             }
-            linked_success_files.push_back(binlog_index_file);
         }
+    }
+
+    return Status::OK();
+}
+
+Status BetaRowset::calc_local_file_crc(uint32_t* crc_value, int64_t* file_count) {
+    DCHECK(is_local());
+    auto fs = _rowset_meta->fs();
+    if (!fs) {
+        return Status::Error<INIT_FAILED>("get fs failed");
+    }
+    if (fs->type() != io::FileSystemType::LOCAL) {
+        return Status::InternalError("should be local file system");
+    }
+
+    if (num_segments() < 1) {
+        *crc_value = 0x92a8fc17; // magic code from crc32c table
+        return Status::OK();
+    }
+
+    // 1. pick up all the files including dat file and idx file
+    std::vector<io::Path> local_paths;
+    for (int i = 0; i < num_segments(); ++i) {
+        auto local_seg_path = segment_file_path(i);
+        local_paths.emplace_back(local_seg_path);
+        if (_schema->get_inverted_index_storage_format() != InvertedIndexStorageFormatPB::V1) {
+            if (_schema->has_inverted_index()) {
+                std::string local_inverted_index_file =
+                        InvertedIndexDescriptor::get_index_file_name(local_seg_path);
+                local_paths.emplace_back(local_inverted_index_file);
+            }
+        } else {
+            for (auto& column : _schema->columns()) {
+                const TabletIndex* index_meta = _schema->get_inverted_index(*column);
+                if (index_meta) {
+                    std::string local_inverted_index_file =
+                            InvertedIndexDescriptor::get_index_file_name(
+                                    local_seg_path, index_meta->index_id(),
+                                    index_meta->get_index_suffix());
+                    local_paths.emplace_back(local_inverted_index_file);
+                }
+            }
+        }
+    }
+
+    // 2. calculate the md5sum of each file
+    auto* local_fs = static_cast<io::LocalFileSystem*>(fs.get());
+    DCHECK(local_paths.size() > 0);
+    std::vector<std::string> all_file_md5;
+    all_file_md5.reserve(local_paths.size());
+    for (const auto& file_path : local_paths) {
+        DBUG_EXECUTE_IF("fault_inject::BetaRowset::calc_local_file_crc", {
+            return Status::Error<OS_ERROR>("fault_inject calc_local_file_crc error");
+        });
+        std::string file_md5sum;
+        auto status = local_fs->md5sum(file_path, &file_md5sum);
+        if (!status.ok()) {
+            return status;
+        }
+        VLOG_CRITICAL << fmt::format("calc file_md5sum finished. file_path={}, md5sum={}",
+                                     file_path.string(), file_md5sum);
+        all_file_md5.emplace_back(std::move(file_md5sum));
+    }
+    std::sort(all_file_md5.begin(), all_file_md5.end());
+
+    // 3. calculate the crc_value based on all_file_md5
+    DCHECK(local_paths.size() == all_file_md5.size());
+    *crc_value = 0;
+    *file_count = local_paths.size();
+    for (int i = 0; i < all_file_md5.size(); i++) {
+        *crc_value = crc32c::Extend(*crc_value, all_file_md5[i].data(), all_file_md5[i].size());
     }
 
     return Status::OK();

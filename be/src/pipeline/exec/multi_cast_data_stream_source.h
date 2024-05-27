@@ -23,11 +23,9 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/runtime_filter_consumer.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace vectorized {
@@ -36,61 +34,6 @@ class Block;
 
 namespace pipeline {
 class MultiCastDataStreamer;
-
-class MultiCastDataStreamerSourceOperatorBuilder final : public OperatorBuilderBase {
-public:
-    MultiCastDataStreamerSourceOperatorBuilder(int32_t id, const int consumer_id,
-                                               std::shared_ptr<MultiCastDataStreamer>&,
-                                               const TDataStreamSink&);
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-
-    const RowDescriptor& row_desc() const override;
-
-private:
-    const int _consumer_id;
-    std::shared_ptr<MultiCastDataStreamer> _multi_cast_data_streamer;
-    TDataStreamSink _t_data_stream_sink;
-};
-
-class MultiCastDataStreamerSourceOperator final : public OperatorBase,
-                                                  public vectorized::RuntimeFilterConsumer {
-public:
-    MultiCastDataStreamerSourceOperator(OperatorBuilderBase* operator_builder,
-                                        const int consumer_id,
-                                        std::shared_ptr<MultiCastDataStreamer>& data_streamer,
-                                        const TDataStreamSink& sink);
-
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
-
-    Status prepare(RuntimeState* state) override;
-
-    Status open(RuntimeState* state) override;
-
-    bool runtime_filters_are_ready_or_timeout() override;
-
-    Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override {
-        return Status::OK();
-    }
-
-    bool can_read() override;
-
-    Status close(doris::RuntimeState* state) override;
-
-    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override;
-
-private:
-    const int _consumer_id;
-    std::shared_ptr<MultiCastDataStreamer> _multi_cast_data_streamer;
-    const TDataStreamSink _t_data_stream_sink;
-
-    vectorized::VExprContextSPtrs _output_expr_contexts;
-    vectorized::VExprContextSPtrs _conjuncts;
-};
-
 class MultiCastDataStreamerSourceOperatorX;
 
 class MultiCastDataStreamSourceLocalState final : public PipelineXLocalState<MultiCastSharedState>,
@@ -102,18 +45,27 @@ public:
     MultiCastDataStreamSourceLocalState(RuntimeState* state, OperatorXBase* parent);
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::open(state));
-        RETURN_IF_ERROR(_acquire_runtime_filter());
-        return Status::OK();
-    }
+    Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state) override;
     friend class MultiCastDataStreamerSourceOperatorX;
 
-    RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); }
+    std::vector<Dependency*> filter_dependencies() override {
+        if (_filter_dependencies.empty()) {
+            return {};
+        }
+        std::vector<Dependency*> res;
+        res.resize(_filter_dependencies.size());
+        for (size_t i = 0; i < _filter_dependencies.size(); i++) {
+            res[i] = _filter_dependencies[i].get();
+        }
+        return res;
+    }
 
 private:
     vectorized::VExprContextSPtrs _output_expr_contexts;
-    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
+    std::vector<std::shared_ptr<RuntimeFilterDependency>> _filter_dependencies;
+
+    RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
 };
 
 class MultiCastDataStreamerSourceOperatorX final

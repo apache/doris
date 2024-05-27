@@ -5,32 +5,34 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = revenue0.supplier_no)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[supplier]
+----------hashJoin[INNER_JOIN] hashCondition=((revenue0.total_revenue = max(total_revenue))) otherCondition=()
 ------------PhysicalDistribute[DistributionSpecHash]
---------------hashJoin[INNER_JOIN] hashCondition=((revenue0.total_revenue = max(total_revenue))) otherCondition=()
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecGather]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------hashAgg[GLOBAL]
---------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------hashAgg[LOCAL]
-------------------------------PhysicalProject
---------------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
-----------------------------------PhysicalOlapScan[lineitem]
-----------------PhysicalDistribute[DistributionSpecReplicated]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = revenue0.supplier_no)) otherCondition=()
 ------------------PhysicalProject
---------------------hashAgg[GLOBAL]
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------hashAgg[LOCAL]
---------------------------PhysicalProject
-----------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
-------------------------------PhysicalOlapScan[lineitem]
+--------------------PhysicalOlapScan[supplier]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------hashAgg[GLOBAL]
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------hashAgg[LOCAL]
+----------------------------PhysicalProject
+------------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
+--------------------------------PhysicalOlapScan[lineitem]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecGather]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------hashAgg[GLOBAL]
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------hashAgg[LOCAL]
+----------------------------PhysicalProject
+------------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
+--------------------------------PhysicalOlapScan[lineitem]
 
 Hint log:
-Used: leading(revenue0 supplier )
+Used: leading(supplier revenue0 )
 UnUsed:
 SyntaxError:
 

@@ -23,9 +23,9 @@ import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.base.Preconditions;
@@ -266,14 +266,9 @@ public class RangePartitionInfo extends PartitionInfo {
         if (enableAutomaticPartition()) {
             sb.append("AUTO PARTITION BY RANGE ");
             for (Expr e : partitionExprs) {
-                boolean isSlotRef = (e instanceof SlotRef);
-                if (isSlotRef) {
-                    sb.append("(");
-                }
+                sb.append("(");
                 sb.append(e.toSql());
-                if (isSlotRef) {
-                    sb.append(")");
-                }
+                sb.append(")");
             }
             sb.append("\n(");
         } else {
@@ -305,7 +300,7 @@ public class RangePartitionInfo extends PartitionInfo {
 
             Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
                 if (!p.equals("")) {
-                    sb.append("PROPERTIES (\"STORAGE POLICY\" = \"");
+                    sb.append(" (\"" + PropertyAnalyzer.PROPERTIES_STORAGE_POLICY + "\" = \"");
                     sb.append(p).append("\")");
                 }
             });

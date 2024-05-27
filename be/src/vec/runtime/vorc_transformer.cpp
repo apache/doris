@@ -62,14 +62,23 @@ VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
 
 VOrcOutputStream::~VOrcOutputStream() {
     if (!_is_closed) {
-        close();
+        try {
+            close();
+        } catch (...) {
+            /*
+         * Under normal circumstances, close() will be called first, and then the destructor will be called.
+         * If the task is canceled, close() will not be executed, but the destructor will be called directly,
+         * which will cause the be core.When the task is canceled, since the log file has been written during
+         * close(), no operation is performed here.
+         */
+        }
     }
 }
 
 void VOrcOutputStream::close() {
     if (!_is_closed) {
+        Defer defer {[this] { _is_closed = true; }};
         Status st = _file_writer->close();
-        _is_closed = true;
         if (!st.ok()) {
             LOG(WARNING) << "close orc output stream failed: " << st;
             throw std::runtime_error(st.to_string());
@@ -82,7 +91,10 @@ void VOrcOutputStream::write(const void* data, size_t length) {
         Status st = _file_writer->append({static_cast<const uint8_t*>(data), length});
         if (!st.ok()) {
             LOG(WARNING) << "Write to ORC file failed: " << st;
-            return;
+            // When a write error occurs,
+            // the error needs to be thrown to the upper layer.
+            // so that fe can get the exception.
+            throw std::runtime_error(st.to_string());
         }
         _cur_pos += length;
         _written_len += length;
@@ -99,41 +111,128 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
           _write_options(new orc::WriterOptions()),
-          _schema_str(&schema),
-          _schema(nullptr) {
+          _schema_str(&schema) {
     _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
 }
 
 VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                                  const VExprContextSPtrs& output_vexpr_ctxs,
-                                 std::unique_ptr<orc::Type> schema, bool output_object_data,
+                                 std::vector<std::string> column_names, bool output_object_data,
                                  orc::CompressionKind compression)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
+          _column_names(std::move(column_names)),
           _write_options(new orc::WriterOptions()),
-          _schema_str(nullptr),
-          _schema(std::move(schema)) {
+          _schema_str(nullptr) {
     _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
     _write_options->setCompression(compression);
 }
 
 Status VOrcTransformer::open() {
-    try {
-        if (_schema == nullptr && _schema_str != nullptr) {
+    if (_schema_str != nullptr) {
+        try {
             _schema = orc::Type::buildTypeFromString(*_schema_str);
+        } catch (const std::exception& e) {
+            return Status::InternalError("Orc build schema from \"{}\" failed: {}", *_schema_str,
+                                         e.what());
         }
-    } catch (const std::exception& e) {
-        return Status::InternalError("Orc build schema from \"{}\" failed: {}", *_schema_str,
-                                     e.what());
+    } else {
+        _schema = orc::createStructType();
+        for (int i = 0; i < _output_vexpr_ctxs.size(); i++) {
+            VExprSPtr column_expr = _output_vexpr_ctxs[i]->root();
+            try {
+                _schema->addStructField(_column_names[i], _build_orc_type(column_expr->type()));
+            } catch (doris::Exception& e) {
+                return e.to_status();
+            }
+        }
     }
+
     _output_stream = std::make_unique<VOrcOutputStream>(_file_writer);
-    _writer = orc::createWriter(*_schema, _output_stream.get(), *_write_options);
-    if (_writer == nullptr) {
-        return Status::InternalError("Failed to create file writer");
+    try {
+        _writer = orc::createWriter(*_schema, _output_stream.get(), *_write_options);
+    } catch (const std::exception& e) {
+        return Status::InternalError("failed to create writer: {}", e.what());
     }
     return Status::OK();
+}
+
+std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(const TypeDescriptor& type_descriptor) {
+    std::pair<Status, std::unique_ptr<orc::Type>> result;
+    switch (type_descriptor.type) {
+    case TYPE_BOOLEAN: {
+        return orc::createPrimitiveType(orc::BOOLEAN);
+    }
+    case TYPE_TINYINT: {
+        return orc::createPrimitiveType(orc::BYTE);
+    }
+    case TYPE_SMALLINT: {
+        return orc::createPrimitiveType(orc::SHORT);
+    }
+    case TYPE_IPV4:
+    case TYPE_INT: {
+        return orc::createPrimitiveType(orc::INT);
+    }
+    case TYPE_BIGINT: {
+        return orc::createPrimitiveType(orc::LONG);
+    }
+    case TYPE_FLOAT: {
+        return orc::createPrimitiveType(orc::FLOAT);
+    }
+    case TYPE_DOUBLE: {
+        return orc::createPrimitiveType(orc::DOUBLE);
+    }
+    case TYPE_CHAR: {
+        return orc::createCharType(orc::CHAR, type_descriptor.len);
+    }
+    case TYPE_VARCHAR: {
+        return orc::createCharType(orc::VARCHAR, type_descriptor.len);
+    }
+    case TYPE_STRING: {
+        return orc::createPrimitiveType(orc::STRING);
+    }
+    case TYPE_IPV6:
+    case TYPE_BINARY: {
+        return orc::createPrimitiveType(orc::STRING);
+    }
+    case TYPE_DATEV2: {
+        return orc::createPrimitiveType(orc::DATE);
+    }
+    case TYPE_DATETIMEV2: {
+        return orc::createPrimitiveType(orc::TIMESTAMP);
+    }
+    case TYPE_DECIMAL32: {
+        return orc::createDecimalType(type_descriptor.precision, type_descriptor.scale);
+    }
+    case TYPE_DECIMAL64: {
+        return orc::createDecimalType(type_descriptor.precision, type_descriptor.scale);
+    }
+    case TYPE_DECIMAL128I: {
+        return orc::createDecimalType(type_descriptor.precision, type_descriptor.scale);
+    }
+    case TYPE_STRUCT: {
+        std::unique_ptr<orc::Type> struct_type = orc::createStructType();
+        for (int j = 0; j < type_descriptor.children.size(); ++j) {
+            struct_type->addStructField(type_descriptor.field_names[j],
+                                        _build_orc_type(type_descriptor.children[j]));
+        }
+        return struct_type;
+    }
+    case TYPE_ARRAY: {
+        return orc::createListType(_build_orc_type(type_descriptor.children[0]));
+    }
+    case TYPE_MAP: {
+        return orc::createMapType(_build_orc_type(type_descriptor.children[0]),
+                                  _build_orc_type(type_descriptor.children[1]));
+    }
+    default: {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Unsupported type {} to build orc type",
+                               type_descriptor.debug_string());
+    }
+    }
 }
 
 std::unique_ptr<orc::ColumnVectorBatch> VOrcTransformer::_create_row_batch(size_t sz) {

@@ -75,9 +75,9 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
+#include "util/mem_info.h"
 #include "util/metrics.h"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
@@ -108,9 +108,10 @@ bvar::Adder<uint64_t> unused_rowsets_counter("ununsed_rowsets_counter");
 BaseStorageEngine::BaseStorageEngine(Type type, const UniqueId& backend_uid)
         : _type(type),
           _rowset_id_generator(std::make_unique<UniqueRowsetIdGenerator>(backend_uid)),
-          _stop_background_threads_latch(1),
-          _segment_meta_mem_tracker(std::make_shared<MemTracker>(
-                  "SegmentMeta", ExecEnv::GetInstance()->experimental_mem_tracker())) {}
+          _stop_background_threads_latch(1) {
+    _memory_limitation_bytes_for_schema_change =
+            static_cast<int64_t>(MemInfo::soft_mem_limit() * config::schema_change_mem_limit_frac);
+}
 
 BaseStorageEngine::~BaseStorageEngine() = default;
 
@@ -126,6 +127,11 @@ StorageEngine& BaseStorageEngine::to_local() {
 CloudStorageEngine& BaseStorageEngine::to_cloud() {
     CHECK_EQ(_type, Type::CLOUD);
     return *static_cast<CloudStorageEngine*>(this);
+}
+
+int64_t BaseStorageEngine::memory_limitation_bytes_per_thread_for_schema_change() const {
+    return std::max(_memory_limitation_bytes_for_schema_change / config::alter_tablet_worker_count,
+                    config::memory_limitation_per_thread_for_schema_change_bytes);
 }
 
 static Status _validate_options(const EngineOptions& options) {
@@ -149,7 +155,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _available_storage_medium_type_count(0),
           _is_all_cluster_id_exist(true),
           _stopped(false),
-          _segcompaction_mem_tracker(std::make_shared<MemTracker>("SegCompaction")),
           _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
           _default_rowset_type(BETA_ROWSET),
@@ -652,7 +657,6 @@ void StorageEngine::stop() {
     }
 
     THREADS_JOIN(_path_gc_threads);
-    THREADS_JOIN(_path_scan_threads);
 #undef THREADS_JOIN
 
     if (_base_compaction_thread_pool) {
@@ -673,6 +677,10 @@ void StorageEngine::stop() {
     }
     if (_cold_data_compaction_thread_pool) {
         _cold_data_compaction_thread_pool->shutdown();
+    }
+
+    if (_cooldown_thread_pool) {
+        _cooldown_thread_pool->shutdown();
     }
 
     _memtable_flush_executor.reset(nullptr);
@@ -1320,6 +1328,12 @@ bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* repli
 }
 
 bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
+#ifdef BE_TEST
+    if (tablet_id % 2 == 0) {
+        return true;
+    }
+    return false;
+#endif
     TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
@@ -1396,6 +1410,30 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         path_obj2.AddMember(path_key, arr, path_obj2.GetAllocator());
     }
     root.AddMember(base_key, path_obj2, root.GetAllocator());
+
+    // full
+    const std::string& full = "FullCompaction";
+    rapidjson::Value full_key;
+    full_key.SetString(full.c_str(), full.length(), root.GetAllocator());
+    rapidjson::Document path_obj3;
+    path_obj3.SetObject();
+    for (auto& it : _tablet_submitted_full_compaction) {
+        const std::string& dir = it.first->path();
+        rapidjson::Value path_key;
+        path_key.SetString(dir.c_str(), dir.length(), path_obj3.GetAllocator());
+
+        rapidjson::Document arr;
+        arr.SetArray();
+
+        for (auto& tablet_id : it.second) {
+            rapidjson::Value key;
+            const std::string& key_str = std::to_string(tablet_id);
+            key.SetString(key_str.c_str(), key_str.length(), path_obj3.GetAllocator());
+            arr.PushBack(key, root.GetAllocator());
+        }
+        path_obj3.AddMember(path_key, arr, path_obj3.GetAllocator());
+    }
+    root.AddMember(full_key, path_obj3, root.GetAllocator());
 
     rapidjson::StringBuffer strbuf;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);

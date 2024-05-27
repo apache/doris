@@ -185,6 +185,8 @@ public:
         return safe;
     }
 
+    const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema);
@@ -210,6 +212,12 @@ private:
     io::FileReaderSPtr _file_reader;
     uint32_t _segment_id;
     uint32_t _num_rows;
+
+    // 1. Tracking memory use by segment meta data such as footer or index page.
+    // 2. Tracking memory use by segment column reader
+    // The memory consumed by querying is tracked in segment iterator.
+    // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
+    // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
     int64_t _meta_mem_usage;
 
     RowsetId _rowset_id;
@@ -245,8 +253,6 @@ private:
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
     // primary key index reader
     std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
-    // Segment may be destructed after StorageEngine, in order to exit gracefully.
-    std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
     std::mutex _open_lock;
     // inverted index file reader
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;

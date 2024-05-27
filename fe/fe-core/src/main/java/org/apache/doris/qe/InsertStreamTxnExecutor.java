@@ -30,8 +30,6 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.task.StreamLoadTask;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -43,6 +41,7 @@ import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
+import org.apache.doris.transaction.TransactionState;
 
 import org.apache.thrift.TException;
 
@@ -65,92 +64,73 @@ public class InsertStreamTxnExecutor {
     public void beginTransaction(TStreamLoadPutRequest request) throws UserException, TException, TimeoutException,
             InterruptedException, ExecutionException {
         TTxnParams txnConf = txnEntry.getTxnConf();
+        OlapTable table = (OlapTable) txnEntry.getTable();
         // StreamLoadTask's id == request's load_id
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-        StreamLoadPlanner planner = new StreamLoadPlanner(
-                (Database) txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
-        // Will using load id as query id in fragment
-        if (Config.enable_pipeline_load) {
-            TPipelineFragmentParams tRequest = planner.planForPipeline(streamLoadTask.getId());
-            BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().needQueryAvailable().build();
-            List<Long> beIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
-            if (beIds.isEmpty()) {
-                throw new UserException("No available backend to match the policy: " + policy);
-            }
-
-            tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
-            for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.local_params.get(0)
-                    .per_node_scan_ranges.entrySet()) {
-                for (TScanRangeParams scanRangeParams : entry.getValue()) {
-                    scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
-                            TFileFormatType.FORMAT_PROTO);
-                    scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
-                            TFileCompressType.PLAIN);
+        StreamLoadPlanner planner = new StreamLoadPlanner((Database) txnEntry.getDb(), table, streamLoadTask);
+        boolean enablePipelineLoad = Config.enable_pipeline_load;
+        TPipelineFragmentParamsList pipelineParamsList = new TPipelineFragmentParamsList();
+        if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
+            throw new UserException("get table read lock timeout, database=" + table.getDatabase().getId() + ",table="
+                    + table.getName());
+        }
+        try {
+            // Will using load id as query id in fragment
+            if (enablePipelineLoad) {
+                TPipelineFragmentParams tRequest = planner.planForPipeline(streamLoadTask.getId());
+                tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
+                for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.local_params.get(0)
+                        .per_node_scan_ranges.entrySet()) {
+                    for (TScanRangeParams scanRangeParams : entry.getValue()) {
+                        scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
+                                TFileFormatType.FORMAT_PROTO);
+                        scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
+                                TFileCompressType.PLAIN);
+                    }
                 }
-            }
-            txnConf.setFragmentInstanceId(tRequest.local_params.get(0).fragment_instance_id);
-            this.loadId = request.getLoadId();
-            this.txnEntry.setpLoadId(Types.PUniqueId.newBuilder()
-                    .setHi(loadId.getHi())
-                    .setLo(loadId.getLo()).build());
+                txnConf.setFragmentInstanceId(tRequest.local_params.get(0).fragment_instance_id);
+                this.loadId = request.getLoadId();
+                this.txnEntry.setpLoadId(Types.PUniqueId.newBuilder()
+                        .setHi(loadId.getHi())
+                        .setLo(loadId.getLo()).build());
 
-            Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beIds.get(0));
-            txnConf.setUserIp(backend.getHost());
-            txnEntry.setBackend(backend);
-            TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-            try {
-                TPipelineFragmentParamsList paramsList = new TPipelineFragmentParamsList();
-                paramsList.addToParamsList(tRequest);
-                Future<InternalService.PExecPlanFragmentResult> future =
-                        BackendServiceProxy.getInstance().execPlanFragmentsAsync(address, paramsList, false);
-                InternalService.PExecPlanFragmentResult result = future.get(5, TimeUnit.SECONDS);
-                TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-                if (code != TStatusCode.OK) {
-                    throw new TException("failed to execute plan fragment: " + result.getStatus().getErrorMsgsList());
-                }
-            } catch (RpcException e) {
-                throw new TException(e);
+                pipelineParamsList.addToParamsList(tRequest);
+            } else {
+                throw new UserException("Pipeline load should be enabled");
             }
-        } else {
-            TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-            BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().needQueryAvailable().build();
-            List<Long> beIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
-            if (beIds.isEmpty()) {
-                throw new UserException("No available backend to match the policy: " + policy);
+            TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                    .getTransactionState(table.getDatabase().getId(), streamLoadTask.getTxnId());
+            if (transactionState != null) {
+                transactionState.addTableIndexes(table);
             }
+        } finally {
+            table.readUnlock();
+        }
 
-            tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
-            for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
-                for (TScanRangeParams scanRangeParams : entry.getValue()) {
-                    scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
-                            TFileFormatType.FORMAT_PROTO);
-                    scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
-                            TFileCompressType.PLAIN);
-                }
-            }
-            txnConf.setFragmentInstanceId(tRequest.params.fragment_instance_id);
-            this.loadId = request.getLoadId();
-            this.txnEntry.setpLoadId(Types.PUniqueId.newBuilder()
-                    .setHi(loadId.getHi())
-                    .setLo(loadId.getLo()).build());
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().needQueryAvailable().build();
+        List<Long> beIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        if (beIds.isEmpty()) {
+            throw new UserException("No available backend to match the policy: " + policy);
+        }
 
-            Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beIds.get(0));
-            txnConf.setUserIp(backend.getHost());
-            txnEntry.setBackend(backend);
-            TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-            try {
-                TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
-                paramsList.addToParamsList(tRequest);
-                Future<InternalService.PExecPlanFragmentResult> future =
-                        BackendServiceProxy.getInstance().execPlanFragmentsAsync(address, paramsList, false);
-                InternalService.PExecPlanFragmentResult result = future.get(5, TimeUnit.SECONDS);
-                TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-                if (code != TStatusCode.OK) {
-                    throw new TException("failed to execute plan fragment: " + result.getStatus().getErrorMsgsList());
-                }
-            } catch (RpcException e) {
-                throw new TException(e);
+        Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beIds.get(0));
+        txnConf.setUserIp(backend.getHost());
+        txnEntry.setBackend(backend);
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        try {
+            Future<InternalService.PExecPlanFragmentResult> future;
+            if (enablePipelineLoad) {
+                future = BackendServiceProxy.getInstance().execPlanFragmentsAsync(address, pipelineParamsList, false);
+            } else {
+                throw new UserException("Pipeline load should be enabled");
             }
+            InternalService.PExecPlanFragmentResult result = future.get(5, TimeUnit.SECONDS);
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            if (code != TStatusCode.OK) {
+                throw new TException("failed to execute plan fragment: " + result.getStatus().getErrorMsgsList());
+            }
+        } catch (RpcException e) {
+            throw new TException(e);
         }
     }
 

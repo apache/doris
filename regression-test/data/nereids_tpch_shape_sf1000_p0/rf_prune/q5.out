@@ -20,17 +20,19 @@ PhysicalResultSink
 ------------------------------filter((orders.o_orderdate < '1995-01-01') and (orders.o_orderdate >= '1994-01-01'))
 --------------------------------PhysicalOlapScan[orders]
 ------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[s_nationkey]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[supplier] apply RFs: RF1
-----------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------hashJoin[INNER_JOIN] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF0 r_regionkey->[n_regionkey]
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[s_nationkey]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[supplier] apply RFs: RF1
+------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[nation] apply RFs: RF0
---------------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------------PhysicalProject
-------------------------------------filter((region.r_name = 'ASIA'))
---------------------------------------PhysicalOlapScan[region]
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF0 r_regionkey->[n_regionkey]
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[nation] apply RFs: RF0
+------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------------PhysicalProject
+----------------------------------------filter((region.r_name = 'ASIA'))
+------------------------------------------PhysicalOlapScan[region]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[customer]

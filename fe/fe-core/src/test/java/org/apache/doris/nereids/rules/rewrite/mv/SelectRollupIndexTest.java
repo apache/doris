@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.mv;
 
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
+import org.apache.doris.nereids.rules.rewrite.AdjustPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -110,6 +111,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         PlanChecker.from(connectContext)
                 .analyze(" select k1, sum(v1) from t group by k1")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     Assertions.assertTrue(scan.getPreAggStatus().isOn());
                     Assertions.assertEquals("t", scan.getSelectedMaterializedIndexName().get());
@@ -122,6 +124,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         PlanChecker.from(connectContext)
                 .analyze("select k2, sum(v1) from t where k3=0 group by k2")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     Assertions.assertTrue(scan.getPreAggStatus().isOn());
                     Assertions.assertEquals("r2", scan.getSelectedMaterializedIndexName().get());
@@ -139,8 +142,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
     public void testTranslateWhenPreAggIsOff() {
         singleTableTest("select k2, min(v1) from t group by k2", scan -> {
             Assertions.assertFalse(scan.isPreAggregation());
-            Assertions.assertEquals("Aggregate operator don't match, "
-                            + "aggregate function: min(v1), column aggregate type: SUM",
+            Assertions.assertEquals("min(v1) is not match agg mode SUM or has distinct param",
                     scan.getReasonOfPreAggregation());
         });
     }
@@ -150,6 +152,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         PlanChecker.from(connectContext)
                 .analyze("select k2, sum(v1) from t where k3=0 group by k2")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     Assertions.assertTrue(scan.getPreAggStatus().isOn());
                     Assertions.assertEquals("r2", scan.getSelectedMaterializedIndexName().get());
@@ -162,6 +165,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         PlanChecker.from(connectContext)
                 .analyze("select k2, sum(v1) from t where k3>0 group by k2")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     Assertions.assertTrue(scan.getPreAggStatus().isOn());
                     Assertions.assertEquals("r2", scan.getSelectedMaterializedIndexName().get());
@@ -174,6 +178,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         PlanChecker.from(connectContext)
                 .analyze("select k2, sum(v1) from t where k2>3 group by k2")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     Assertions.assertTrue(scan.getPreAggStatus().isOn());
                     Assertions.assertEquals("r1", scan.getSelectedMaterializedIndexName().get());
@@ -193,6 +198,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .applyBottomUp(new MergeProjects())
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     Assertions.assertTrue(scan.getPreAggStatus().isOn());
                     Assertions.assertEquals("r2", scan.getSelectedMaterializedIndexName().get());
@@ -210,6 +216,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .analyze("select k1, v1 from t")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOff());
@@ -224,11 +231,11 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .analyze("select k1, min(v1) from t group by k1")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOff());
-                    Assertions.assertEquals("Aggregate operator don't match, "
-                            + "aggregate function: min(v1), column aggregate type: SUM", preAgg.getOffReason());
+                    Assertions.assertEquals("min(v1) is not match agg mode SUM or has distinct param", preAgg.getOffReason());
                     return true;
                 }));
     }
@@ -239,10 +246,11 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .analyze("select k1, sum(v1 + 1) from t group by k1")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOff());
-                    Assertions.assertEquals("do not support compound expression [(v1 + 1)] in SUM.",
+                    Assertions.assertEquals("sum((v1 + 1)) is not supported.",
                             preAgg.getOffReason());
                     return true;
                 }));
@@ -254,22 +262,23 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .analyze("select k1, sum(k2) from t group by k1")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOff());
-                    Assertions.assertEquals("Aggregate function sum(k2) contains key column k2.",
+                    Assertions.assertEquals("Aggregate function sum(k2) contains key column k2",
                             preAgg.getOffReason());
                     return true;
                 }));
     }
 
-    @Disabled("reopen it if we fix rollup select bugs")
     @Test
     public void testMaxCanUseKeyColumn() {
         PlanChecker.from(connectContext)
-                .analyze("select k2, max(k3) from t group by k3")
+                .analyze("select k2, max(k3) from t group by k2")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOn());
@@ -278,17 +287,48 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 }));
     }
 
-    @Disabled("reopen it if we fix rollup select bugs")
     @Test
     public void testMinCanUseKeyColumn() {
         PlanChecker.from(connectContext)
-                .analyze("select k2, min(k3) from t group by k3")
+                .analyze("select k2, min(k3) from t group by k2")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOn());
                     Assertions.assertEquals("r4", scan.getSelectedMaterializedIndexName().get());
+                    return true;
+                }));
+    }
+
+    @Test
+    public void testMinMaxCanUseKeyColumnWithBaseTable() {
+        PlanChecker.from(connectContext)
+                .analyze("select k1, min(k2), max(k2) from t group by k1")
+                .applyTopDown(new SelectMaterializedIndexWithAggregate())
+                .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
+                .matches(logicalOlapScan().when(scan -> {
+                    PreAggStatus preAgg = scan.getPreAggStatus();
+                    Assertions.assertTrue(preAgg.isOn());
+                    Assertions.assertEquals("t", scan.getSelectedMaterializedIndexName().get());
+                    return true;
+                }));
+    }
+
+    @Test
+    public void testFilterAggWithBaseTable() {
+        PlanChecker.from(connectContext)
+                .analyze("select k1 from t where k1 = 0 group by k1")
+                .applyTopDown(new SelectMaterializedIndexWithAggregate())
+                .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
+                .applyTopDown(new MergeProjects())
+                .applyTopDown(new AdjustPreAggStatus())
+                .matches(logicalOlapScan().when(scan -> {
+                    PreAggStatus preAgg = scan.getPreAggStatus();
+                    Assertions.assertTrue(preAgg.isOn());
+                    Assertions.assertEquals("t", scan.getSelectedMaterializedIndexName().get());
                     return true;
                 }));
     }
@@ -299,6 +339,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .analyze("select k1, sum(k1) from duplicate_tbl group by k1")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOn());
@@ -312,6 +353,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .analyze("select k1, v1 from duplicate_tbl")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
+                .applyTopDown(new AdjustPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOn());
@@ -376,7 +418,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
     public void testCountDistinctValueColumn() {
         singleTableTest("select k1, count(distinct v1) from t group by k1", scan -> {
             Assertions.assertFalse(scan.isPreAggregation());
-            Assertions.assertEquals("Count distinct is only valid for key columns, but meet count(DISTINCT v1).",
+            Assertions.assertEquals("count(DISTINCT v1) is not supported.",
                     scan.getReasonOfPreAggregation());
             Assertions.assertEquals("t", scan.getSelectedIndexName());
         });

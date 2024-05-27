@@ -239,6 +239,10 @@ public final class RuntimeFilter {
                 tFilter.setNullAware(false);
             }
         }
+        tFilter.setSyncFilterSize(
+                ConnectContext.get() != null && ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
+                        && ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
+                        && ConnectContext.get().getSessionVariable().enableSyncRuntimeFilterSize());
         return tFilter;
     }
 
@@ -670,7 +674,7 @@ public final class RuntimeFilter {
      * Assigns this runtime filter to the corresponding plan nodes.
      */
     public void assignToPlanNodes() {
-        Preconditions.checkState(hasTargets());
+        Preconditions.checkState(hasTargets(), this.toString() + " has no target");
         builderNode.addRuntimeFilter(this);
         builderNode.fragment.setBuilderRuntimeFilterIds(getFilterId());
         for (RuntimeFilterTarget target : targets) {
@@ -685,7 +689,7 @@ public final class RuntimeFilter {
         if (node instanceof HashJoinNode) {
             setIsBroadcast(((HashJoinNode) node).getDistributionMode() == HashJoinNode.DistributionMode.BROADCAST);
         } else {
-            setIsBroadcast(false);
+            setIsBroadcast(true);
         }
         if (LOG.isTraceEnabled()) {
             LOG.trace("Runtime filter: " + debugString());

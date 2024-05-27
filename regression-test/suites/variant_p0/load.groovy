@@ -206,13 +206,14 @@ suite("regression_test_variant", "nonConcurrent"){
         load_json_data.call(table_name, """${getS3Url() + '/load/ghdata_sample.json'}""")
         qt_sql_26 "select count() from ${table_name}"
 
-        // FIXME: this case it not passed
-        // // 8. json empty string
-        // // table_name = "empty_string"
-        // // create_table table_name
-        // // sql """INSERT INTO empty_string VALUES (1, ''), (2, '{"k1": 1, "k2": "v1"}'), (3, '{}'), (4, '{"k1": 2}');"""
-        // // sql """INSERT INTO empty_string VALUES (3, null), (4, '{"k1": 1, "k2": "v1"}'), (3, '{}'), (4, '{"k1": 2}');"""
-        // // qt_sql_27 "SELECT * FROM ${table_name} ORDER BY k;"
+        // 8. json empty string
+        table_name = "empty_string"
+        create_table table_name
+        sql """INSERT INTO empty_string VALUES (1, ''), (2, '{"k1": 1, "k2": "v1"}'), (3, '{}'), (4, '{"k1": 2}');"""
+        sql """INSERT INTO empty_string VALUES (3, null), (4, '{"k1": 1, "k2": "v1"}'), (3, '{}'), (4, '{"k1": 2}');"""
+        sql """INSERT INTO empty_string VALUES (3, null), (4, null), (3, '{}'), (4, '{"k1": 2}');"""
+        sql """INSERT INTO empty_string VALUES (3, ''), (4, null), (3, '{}'), (4, null);"""
+        qt_sql_27 "SELECT count() FROM ${table_name};"
 
         // // // 9. btc data
         // // table_name = "btcdata"
@@ -253,6 +254,23 @@ suite("regression_test_variant", "nonConcurrent"){
         qt_sql_29 "select cast(v['a'] as string) from ${table_name} order by k"
         // b? 7.111  [123,{"xx":1}]  {"b":{"c":456,"e":7.111}}       456
         qt_sql_30 "select v['b']['e'], v['a'], v['b'], v['b']['c'] from jsonb_values where cast(v['b']['e'] as double) > 1;"
+
+        test {
+            sql "select v['a'] from ${table_name} group by v['a']"
+            exception("errCode = 2, detailMessage = Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by")
+        }
+
+        test {
+            sql """
+            create table var(
+                `content` variant
+            )distributed by hash(`content`) buckets 8
+            properties(
+              "replication_allocation" = "tag.location.default: 1"
+            );
+            """
+            exception("errCode = 2, detailMessage = Hash distribution info should not contain variant columns")
+        }
 
         // 13. sparse columns
         table_name = "sparse_columns"
@@ -327,7 +345,6 @@ suite("regression_test_variant", "nonConcurrent"){
         sql """UPDATE ${table_name} set v = '{"updated_value" : 10}' where k = 2"""
         qt_sql_36_3 """select * from ${table_name} where k = 2"""
 
-
         // delete sign
         load_json_data.call(table_name, """delete.json""")
 
@@ -377,6 +394,16 @@ suite("regression_test_variant", "nonConcurrent"){
         qt_sql_31 """select cast(v['xxxx'] as string) from sparse_columns where cast(v['xxxx'] as string) != 'null' order by k limit 1;"""
         sql "truncate table sparse_columns"
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
+
+        // test cast
+        table_name = "variant_cast"         
+        create_table.call(table_name,  "DUPLICATE", "1")
+        sql """
+            insert into variant_cast values(1,'["CXO0N: 1045901740", "HMkTa: 1348450505", "44 HHD: 915015173", "j9WoJ: -1517316688"]'),(2,'"[1]"'),(3,'123456'),(4,'1.11111')
+        """
+        qt_sql_39 "select k, json_type(cast(v as json), '\$')  from variant_cast order by k" 
+        qt_sql_39 "select cast(v as array<text>)  from variant_cast where k = 1 order by k" 
+        qt_sql_39 "select cast(v as string)  from variant_cast where k = 2 order by k" 
     } finally {
         // reset flags
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")

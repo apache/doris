@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
@@ -32,6 +33,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcase_expr.h"
@@ -101,7 +103,7 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         break;
     }
     case TYPE_DATETIMEV2: {
-        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node));
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node, precision, scale));
         break;
     }
     case TYPE_DATE: {
@@ -403,6 +405,39 @@ Status VExpr::create_expr_trees(const std::vector<TExpr>& texprs, VExprContextSP
         VExprContextSPtr ctx;
         RETURN_IF_ERROR(create_expr_tree(texpr, ctx));
         ctxs.push_back(ctx);
+    }
+    return Status::OK();
+}
+
+Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
+                                     const RowDescriptor& output_row_desc) {
+    if (ctxs.empty()) {
+        return Status::OK();
+    }
+    auto name_and_types = VectorizedUtils::create_name_and_data_types(output_row_desc);
+    if (ctxs.size() != name_and_types.size()) {
+        return Status::InternalError(
+                "output type size not match expr size {} , expected output size {} ", ctxs.size(),
+                name_and_types.size());
+    }
+    auto check_type_can_be_converted = [](DataTypePtr& from, DataTypePtr& to) -> bool {
+        if (to->equals(*from)) {
+            return true;
+        }
+        if (to->is_nullable() && !from->is_nullable()) {
+            return remove_nullable(to)->equals(*from);
+        }
+        return false;
+    };
+    for (int i = 0; i < ctxs.size(); i++) {
+        auto real_expr_type = ctxs[i]->root()->data_type();
+        auto&& [name, expected_type] = name_and_types[i];
+        if (!check_type_can_be_converted(real_expr_type, expected_type)) {
+            return Status::InternalError(
+                    "output type not match expr type  , col name {} , expected type {} , real type "
+                    "{}",
+                    name, expected_type->get_name(), real_expr_type->get_name());
+        }
     }
     return Status::OK();
 }

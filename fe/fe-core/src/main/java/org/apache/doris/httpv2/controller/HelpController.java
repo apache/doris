@@ -18,8 +18,8 @@
 package org.apache.doris.httpv2.controller;
 
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.qe.HelpModule;
-import org.apache.doris.qe.HelpTopic;
+import org.apache.doris.qe.help.HelpModule;
+import org.apache.doris.qe.help.HelpTopic;
 
 import com.google.common.base.Strings;
 import org.springframework.web.bind.annotation.RequestMapping;

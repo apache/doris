@@ -39,6 +39,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "common/sync_point.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
@@ -47,6 +48,7 @@
 #include "olap/data_dir.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
@@ -65,6 +67,7 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -110,7 +113,7 @@ bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
 
 Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
         : _mem_tracker(
-                  std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label)),
+                  MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, label)),
           _tablet(std::move(tablet)),
           _is_vertical(config::enable_vertical_compaction),
           _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction) {
@@ -118,7 +121,14 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
     init_profile(label);
 }
 
-Compaction::~Compaction() = default;
+Compaction::~Compaction() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    _output_rs_writer.reset();
+    _tablet.reset();
+    _input_rowsets.clear();
+    _output_rowset.reset();
+    _cur_tablet_schema.reset();
+}
 
 void Compaction::init_profile(const std::string& label) {
     _profile = std::make_unique<RuntimeProfile>(label);
@@ -319,6 +329,12 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         _tablet->enable_unique_key_merge_on_write()) {
         return false;
     }
+
+    if (_tablet->tablet_meta()->tablet_schema()->skip_write_index_on_load()) {
+        // Expected to create index through normal compaction
+        return false;
+    }
+
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction
     if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
@@ -346,6 +362,11 @@ bool CompactionMixin::handle_ordered_data_compaction() {
     // most rowset of current compaction is nonoverlapping
     // just handle nonoverlappint rowsets
     auto st = do_compact_ordered_rowsets();
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to compact ordered rowsets: " << st;
+        _pending_rs_guard.drop();
+    }
+
     return st.ok();
 }
 
@@ -438,7 +459,7 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
     return Status::OK();
 }
 
-Status CompactionMixin::do_inverted_index_compaction() {
+Status Compaction::do_inverted_index_compaction() {
     const auto& ctx = _output_rs_writer->context();
     if (!config::inverted_index_compaction_enable || _input_row_num <= 0 ||
         !_stats.rowid_conversion || ctx.skip_inverted_index.empty()) {
@@ -447,18 +468,23 @@ Status CompactionMixin::do_inverted_index_compaction() {
 
     OlapStopWatch inverted_watch;
 
-    Version version = tablet()->max_version();
+    int64_t cur_max_version = 0;
+    {
+        std::shared_lock rlock(_tablet->get_header_lock());
+        cur_max_version = _tablet->max_version_unlocked();
+    }
+
     DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
     std::set<RowLocation> missed_rows;
     std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
     // Convert the delete bitmap of the input rowsets to output rowset.
-    tablet()->calc_compaction_output_rowset_delete_bitmap(
-            _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows, &location_map,
+    _tablet->calc_compaction_output_rowset_delete_bitmap(
+            _input_rowsets, _rowid_conversion, 0, cur_max_version + 1, &missed_rows, &location_map,
             _tablet->tablet_meta()->delete_bitmap(), &output_rowset_delete_bitmap);
 
     if (!_allow_delete_in_cumu_compaction) {
         if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
-            _stats.merged_rows != missed_rows.size()) {
+            _stats.merged_rows != missed_rows.size() && _tablet->tablet_state() == TABLET_RUNNING) {
             std::string err_msg = fmt::format(
                     "cumulative compaction: the merged rows({}) is not equal to missed "
                     "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
@@ -466,10 +492,11 @@ Status CompactionMixin::do_inverted_index_compaction() {
                     _tablet->table_id());
             DCHECK(false) << err_msg;
             LOG(WARNING) << err_msg;
+            return Status::InternalError(err_msg);
         }
     }
 
-    RETURN_IF_ERROR(tablet()->check_rowid_conversion(_output_rowset, location_map));
+    RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
 
     // translation vec
     // <<dest_idx_num, dest_docId>>
@@ -502,11 +529,9 @@ Status CompactionMixin::do_inverted_index_compaction() {
     // src index files
     // format: rowsetId_segmentId
     std::vector<std::string> src_index_files(src_segment_num);
-    std::vector<RowsetId> src_rowset_ids;
     for (const auto& m : src_seg_to_id_map) {
         std::pair<RowsetId, uint32_t> p = m.first;
         src_index_files[m.second] = p.first.to_string() + "_" + std::to_string(p.second);
-        src_rowset_ids.push_back(p.first);
     }
 
     // dest index files
@@ -523,7 +548,8 @@ Status CompactionMixin::do_inverted_index_compaction() {
         auto write_json_to_file = [&](const nlohmann::json& json_obj,
                                       const std::string& file_name) {
             io::FileWriterPtr file_writer;
-            std::string file_path = fmt::format("{}/{}.json", config::sys_log_dir, file_name);
+            std::string file_path =
+                    fmt::format("{}/{}.json", std::string(getenv("LOG_DIR")), file_name);
             RETURN_IF_ERROR(io::global_local_filesystem()->create_file(file_path, &file_writer));
             RETURN_IF_ERROR(file_writer->append(json_obj.dump()));
             RETURN_IF_ERROR(file_writer->append("\n"));
@@ -617,7 +643,8 @@ Status CompactionMixin::do_inverted_index_compaction() {
 
     // we choose the first destination segment name as the temporary index writer path
     // Used to distinguish between different index compaction
-    auto index_tmp_path = tablet_path + "/" + dest_rowset_id.to_string() + "_" + "tmp";
+    auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
+    auto index_tmp_path = tmp_file_dir / dest_rowset_id.to_string();
     LOG(INFO) << "start index compaction"
               << ". tablet=" << _tablet->tablet_id() << ", source index size=" << src_segment_num
               << ", destination index size=" << dest_segment_num << ".";
@@ -642,9 +669,8 @@ Status CompactionMixin::do_inverted_index_compaction() {
         // if index properties are different, index compaction maybe needs to be skipped.
         bool is_continue = false;
         std::optional<std::map<std::string, std::string>> first_properties;
-        for (const auto& rowset_id : src_rowset_ids) {
-            auto rowset_ptr = _tablet->get_rowset(rowset_id);
-            const auto* tablet_index = rowset_ptr->tablet_schema()->get_inverted_index(col);
+        for (const auto& rowset : _input_rowsets) {
+            const auto* tablet_index = rowset->tablet_schema()->get_inverted_index(col);
             const auto& properties = tablet_index->properties();
             if (!first_properties.has_value()) {
                 first_properties = properties;
@@ -707,7 +733,7 @@ Status CompactionMixin::do_inverted_index_compaction() {
     return Status::OK();
 }
 
-void CompactionMixin::construct_skip_inverted_index(RowsetWriterContext& ctx) {
+void Compaction::construct_skip_inverted_index(RowsetWriterContext& ctx) {
     for (const auto& index : _cur_tablet_schema->indexes()) {
         if (index.index_type() != IndexType::INVERTED) {
             continue;
@@ -842,6 +868,7 @@ Status CompactionMixin::modify_rowsets() {
         if (!_allow_delete_in_cumu_compaction) {
             missed_rows_size = missed_rows.size();
             if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                _tablet->tablet_state() == TABLET_RUNNING &&
                 _stats.merged_rows != missed_rows_size) {
                 std::string err_msg = fmt::format(
                         "cumulative compaction: the merged rows({}) is not equal to missed "
@@ -1033,6 +1060,8 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 
     RETURN_IF_ERROR(merge_input_rowsets());
 
+    RETURN_IF_ERROR(do_inverted_index_compaction());
+
     RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // 4. modify rowsets in memory
@@ -1058,7 +1087,23 @@ Status CloudCompactionMixin::modify_rowsets() {
 }
 
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
-    ctx.fs = _engine.latest_fs();
+    // only do index compaction for dup_keys and unique_keys with mow enabled
+    if (config::inverted_index_compaction_enable &&
+        (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+           _tablet->enable_unique_key_merge_on_write()) ||
+          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+        construct_skip_inverted_index(ctx);
+    }
+    // Use the vault id of the previous rowset
+    for (const auto& rs : _input_rowsets) {
+        if (nullptr != rs->rowset_meta()->fs()) {
+            ctx.fs = rs->rowset_meta()->fs();
+            break;
+        }
+    }
+    if (nullptr == ctx.fs) [[unlikely]] {
+        return Status::InternalError("Failed to find fs");
+    }
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive
     ctx.txn_expiration = _expiration;
@@ -1069,9 +1114,31 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
+
+    auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
+    ctx.compaction_level =
+            _engine.cumu_compaction_policy(compaction_policy)->new_compaction_level(_input_rowsets);
+
+    ctx.write_file_cache = compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION;
+    ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get()));
     return Status::OK();
+}
+
+void CloudCompactionMixin::garbage_collection() {
+    if (!config::enable_file_cache) {
+        return;
+    }
+    if (_output_rs_writer) {
+        auto* beta_rowset_writer = dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get());
+        DCHECK(beta_rowset_writer);
+        for (const auto& [_, file_writer] : beta_rowset_writer->get_file_writers()) {
+            auto file_key = io::BlockFileCache::hash(file_writer->path().filename().native());
+            auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+            file_cache->remove_if_cached(file_key);
+        }
+    }
 }
 
 } // namespace doris

@@ -240,6 +240,11 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
+            if (properties.get(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).equalsIgnoreCase("true")) {
+                throw new AnalysisException(
+                    "Property "
+                    + PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD + " is forbidden now");
+            }
             if (!properties.get(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).equalsIgnoreCase("true")
                     && !properties.get(PropertyAnalyzer
                                                 .PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).equalsIgnoreCase("false")) {
@@ -299,6 +304,15 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME)) {
+            throw new AnalysisException("You can not modify storage vault name");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID)) {
+            throw new AnalysisException("You can not modify storage vault id");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
+            throw new AnalysisException("You can not modify estimate partition size");
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
@@ -307,6 +321,11 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
     @Override
     public Map<String, String> getProperties() {
         return this.properties;
+    }
+
+    @Override
+    public boolean allowOpMTMV() {
+        return true;
     }
 
     @Override

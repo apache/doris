@@ -56,6 +56,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_reader.h"
 #include "olap/tablet_schema.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
 #include "util/mem_info.h"
@@ -209,9 +210,9 @@ Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
 }
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
-    SCOPED_CONSUME_MEM_TRACKER(_writer->_engine.segcompaction_mem_tracker());
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->segcompaction_mem_tracker());
     /* throttle segcompaction task if memory depleted */
-    if (MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+    if (GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::Error<FETCH_MEMORY_EXCEEDED>("skip segcompaction due to memory shortage");
     }
 
@@ -281,7 +282,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     RETURN_IF_ERROR(
             _writer->flush_segment_writer_for_segcompaction(&writer, total_index_size, key_bounds));
 
-    if (_file_writer != nullptr) {
+    if (_file_writer != nullptr && _file_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_file_writer->close());
     }
 

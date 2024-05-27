@@ -99,19 +99,19 @@ public:
 
     ~FileWriterMock() override = default;
 
-    Status close() override { return _local_file_writer->close(); }
+    Status close(bool /*non_block*/) override { return _local_file_writer->close(); }
 
     Status appendv(const Slice* data, size_t data_cnt) override {
         return _local_file_writer->appendv(data, data_cnt);
     }
 
-    Status finalize() override { return _local_file_writer->finalize(); }
-
-    bool closed() const override { return _local_file_writer->closed(); }
+    io::FileWriter::State state() const override { return _local_file_writer->state(); }
 
     size_t bytes_appended() const override { return _local_file_writer->bytes_appended(); }
 
     const Path& path() const override { return _local_file_writer->path(); }
+
+    io::FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
 private:
     std::unique_ptr<io::FileWriter> _local_file_writer;
@@ -232,6 +232,7 @@ public:
         st = engine->open();
         EXPECT_TRUE(st.ok()) << st.to_string();
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_write_cooldown_meta_executors(); // default cons
         exec_env->set_storage_engine(std::move(engine));
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     }

@@ -169,6 +169,8 @@ public:
     // TODO should we rename the method to remove_files() to be more specific?
     virtual Status remove() = 0;
 
+    virtual std::string segment_file_path(int segment_id) const = 0;
+
     // close to clear the resource owned by rowset
     // including: open files, indexes and so on
     // NOTICE: can not call this function in multithreads
@@ -202,7 +204,7 @@ public:
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
     virtual Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
                                  size_t new_rowset_start_seg_id = 0,
-                                 std::set<int32_t>* without_index_uids = nullptr) = 0;
+                                 std::set<int64_t>* without_index_uids = nullptr) = 0;
 
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
@@ -301,6 +303,8 @@ public:
 
     std::string get_rowset_info_str();
 
+    void clear_cache();
+
 protected:
     friend class RowsetFactory;
 
@@ -318,6 +322,8 @@ protected:
     virtual void do_close() = 0;
 
     virtual bool check_current_rowset_segment() = 0;
+
+    virtual void clear_inverted_index_cache() { LOG(INFO) << "should not reach here"; }
 
     TabletSchemaSPtr _schema;
 

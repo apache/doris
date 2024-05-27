@@ -24,11 +24,8 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
-class ExecNode;
 
 namespace vectorized {
 class NewEsScanner;
@@ -51,7 +48,7 @@ private:
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
-    Status _process_conjuncts() override;
+    Status _process_conjuncts(RuntimeState* state) override;
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 
     std::vector<std::unique_ptr<TEsScanRange>> _scan_ranges;

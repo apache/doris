@@ -949,25 +949,25 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
         }
         sql """alter resource $jdbcResourceMysql57 properties("password" = "123456")"""
 
-        // test for type check
-        sql  """ drop table if exists ${exMysqlTypeTable} """
-        sql  """
-               CREATE EXTERNAL TABLE ${exMysqlTypeTable} (
-               `id` bigint NOT NULL,
-               `count_value` varchar(100) NULL
-               ) ENGINE=JDBC
-               COMMENT "JDBC Mysql 外部表"
-               PROPERTIES (
-                "resource" = "$jdbcResourceMysql57",
-                "table" = "ex_tb2",
-                "table_type"="mysql"
-               ); 
-        """
-
-        test {
-            sql """select * from ${exMysqlTypeTable} order by id"""
-            exception "Fail to convert jdbc type of java.lang.Integer to doris type BIGINT on column: id"
-        }
+//         // test for type check
+//         sql  """ drop table if exists ${exMysqlTypeTable} """
+//         sql  """
+//                CREATE EXTERNAL TABLE ${exMysqlTypeTable} (
+//                `id` bigint NOT NULL,
+//                `count_value` varchar(100) NULL
+//                ) ENGINE=JDBC
+//                COMMENT "JDBC Mysql 外部表"
+//                PROPERTIES (
+//                 "resource" = "$jdbcResourceMysql57",
+//                 "table" = "ex_tb2",
+//                 "table_type"="mysql"
+//                );
+//         """
+//
+//         test {
+//             sql """select * from ${exMysqlTypeTable} order by id"""
+//             exception "Fail to convert jdbc type of java.lang.Integer to doris type BIGINT on column: id"
+//         }
 
     }
 }

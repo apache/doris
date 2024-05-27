@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
@@ -67,5 +68,15 @@ public class LogicalTestScan extends LogicalCatalogRelation {
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalTestScan(relationId, table, qualifier, groupExpression, logicalProperties);
+    }
+
+    @Override
+    public LogicalTestScan withRelationId(RelationId relationId) {
+        throw new RuntimeException("should not call LogicalTestScan's withRelationId method");
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitLogicalTestScan(this, context);
     }
 }

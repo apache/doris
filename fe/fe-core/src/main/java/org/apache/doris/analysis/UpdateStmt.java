@@ -30,7 +30,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 
@@ -87,7 +86,7 @@ public class UpdateStmt extends DdlStmt {
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isInDebugMode()) {
             throw new AnalysisException("Update is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
-                    + String.join(", ", SessionVariable.DEBUG_VARIABLES));
+                    + ConnectContext.get().getSessionVariable().printDebugModeVariables());
         }
         analyzeTargetTable(analyzer);
         analyzeSetExprs(analyzer);
@@ -139,7 +138,8 @@ public class UpdateStmt extends DdlStmt {
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         // check load privilege, select privilege will check when analyze insert stmt
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.LOAD)) {
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(), tableName.getTbl(),
+                        PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
         }
 

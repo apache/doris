@@ -82,15 +82,16 @@ public:
     }
 
     MutableColumnPtr get_shrinked_column() override;
+    bool could_shrinked_column() override;
+    bool is_variable_length() const override { return nested_column->is_variable_length(); }
 
     const char* get_family_name() const override { return "Nullable"; }
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return assert_cast<const ColumnUInt8&>(*null_map).size(); }
-    bool is_null_at(size_t n) const override {
+    PURE bool is_null_at(size_t n) const override {
         return assert_cast<const ColumnUInt8&>(*null_map).get_data()[n] != 0;
     }
-    bool is_default_at(size_t n) const override { return is_null_at(n); }
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
@@ -101,8 +102,6 @@ public:
         return is_null_at(n) ? false
                              : assert_cast<const ColumnUInt8*>(nested_column.get())->get_bool(n);
     }
-    UInt64 get64(size_t n) const override { return nested_column->get64(n); }
-    Float64 get_float64(size_t n) const override { return nested_column->get_float64(n); }
     StringRef get_data_at(size_t n) const override;
 
     /// Will insert null value if pos=nullptr
@@ -119,6 +118,10 @@ public:
     void deserialize_vec(std::vector<StringRef>& keys, size_t num_rows) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+
+    void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                           size_t length) override;
+
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
     void insert_indices_from_not_has_null(const IColumn& src, const uint32_t* indices_begin,
@@ -142,18 +145,18 @@ public:
     void insert_many_from_not_nullable(const IColumn& src, size_t position, size_t length);
 
     void insert_many_fix_len_data(const char* pos, size_t num) override {
-        _get_null_map_column().fill(0, num);
+        _get_null_map_column().insert_many_vals(0, num);
         get_nested_column().insert_many_fix_len_data(pos, num);
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {
-        _get_null_map_column().fill(0, num);
+        _get_null_map_column().insert_many_vals(0, num);
         get_nested_column().insert_many_raw_data(pos, num);
     }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t data_num, uint32_t dict_num) override {
-        _get_null_map_column().fill(0, data_num);
+        _get_null_map_column().insert_many_vals(0, data_num);
         get_nested_column().insert_many_dict_data(data_array, start_index, dict, data_num,
                                                   dict_num);
     }
@@ -163,13 +166,13 @@ public:
         if (UNLIKELY(num == 0)) {
             return;
         }
-        _get_null_map_column().fill(0, num);
+        _get_null_map_column().insert_many_vals(0, num);
         get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
     }
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
-        _get_null_map_column().fill(0, num);
+        _get_null_map_column().insert_many_vals(0, num);
         get_nested_column().insert_many_binary_data(data_array, len_array, start_offset_array, num);
     }
 
@@ -187,13 +190,13 @@ public:
 
     void insert_not_null_elements(size_t num) {
         get_nested_column().insert_many_defaults(num);
-        _get_null_map_column().fill(0, num);
+        _get_null_map_column().insert_many_vals(0, num);
         _has_null = false;
     }
 
     void insert_null_elements(int num) {
         get_nested_column().insert_many_defaults(num);
-        _get_null_map_column().fill(1, num);
+        _get_null_map_column().insert_many_vals(1, num);
         _has_null = true;
     }
 
@@ -206,6 +209,10 @@ public:
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int null_direction_hint) const override;
+
+    void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                          int direction, std::vector<uint8>& cmp_res,
+                          uint8* __restrict filter) const override;
     void get_permutation(bool reverse, size_t limit, int null_direction_hint,
                          Permutation& res) const override;
     void reserve(size_t n) override;
@@ -225,16 +232,20 @@ public:
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
 
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
-        return scatter_impl<ColumnNullable>(num_columns, selector);
-    }
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         append_data_by_selector_impl<ColumnNullable>(res, selector);
     }
 
-    //    void gather(ColumnGathererStream & gatherer_stream) override;
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        append_data_by_selector_impl<ColumnNullable>(res, selector, begin, end);
+    }
+
+    ColumnPtr convert_column_if_overflow() override {
+        nested_column = nested_column->convert_column_if_overflow();
+        return get_ptr();
+    }
 
     void for_each_subcolumn(ColumnCallback callback) override {
         callback(nested_column);
@@ -262,7 +273,6 @@ public:
     bool is_column_map() const override { return get_nested_column().is_column_map(); }
     bool is_column_struct() const override { return get_nested_column().is_column_struct(); }
     bool is_fixed_and_contiguous() const override { return false; }
-    bool values_have_fixed_size() const override { return nested_column->values_have_fixed_size(); }
 
     bool is_exclusive() const override {
         return IColumn::is_exclusive() && nested_column->is_exclusive() && null_map->is_exclusive();
@@ -339,13 +349,7 @@ public:
 
         if (!nullable_rhs.is_null_at(row)) {
             nested_column->replace_column_data(*nullable_rhs.nested_column, row, self_row);
-        } else {
-            nested_column->replace_column_data_default(self_row);
         }
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "should not call the method in column nullable";
     }
 
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
@@ -354,7 +358,32 @@ public:
     }
 
     double get_ratio_of_default_rows(double sample_ratio) const override {
-        return get_ratio_of_default_rows_impl<ColumnNullable>(sample_ratio);
+        if (sample_ratio <= 0.0 || sample_ratio > 1.0) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "invalid sample_ratio {}",
+                                   sample_ratio);
+        }
+        static constexpr auto MAX_NUMBER_OF_ROWS_FOR_FULL_SEARCH = 1000;
+        size_t num_rows = size();
+        size_t num_sampled_rows = std::min(static_cast<size_t>(num_rows * sample_ratio), num_rows);
+        size_t num_checked_rows = 0;
+        size_t res = 0;
+        if (num_sampled_rows == num_rows || num_rows <= MAX_NUMBER_OF_ROWS_FOR_FULL_SEARCH) {
+            for (size_t i = 0; i < num_rows; ++i) {
+                res += is_null_at(i);
+            }
+            num_checked_rows = num_rows;
+        } else if (num_sampled_rows != 0) {
+            for (size_t i = 0; i < num_rows; ++i) {
+                if (num_checked_rows * num_rows <= i * num_sampled_rows) {
+                    res += is_null_at(i);
+                    ++num_checked_rows;
+                }
+            }
+        }
+        if (num_checked_rows == 0) {
+            return 0.0;
+        }
+        return static_cast<double>(res) / num_checked_rows;
     }
 
     void convert_dict_codes_if_necessary() override {
@@ -375,12 +404,6 @@ public:
     std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
         return nested_column->get_rowset_segment_id();
     }
-    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        get_indices_of_non_default_rows_impl<ColumnNullable>(indices, from, limit);
-    }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
 private:
     // the two functions will not update `_need_update_has_null`

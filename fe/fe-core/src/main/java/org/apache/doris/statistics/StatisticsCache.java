@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -91,16 +92,16 @@ public class StatisticsCache {
         return ColumnStatistic.UNKNOWN;
     }
 
-    public Histogram getHistogram(long tblId, String colName) {
-        return getHistogram(tblId, -1, colName).orElse(null);
+    public Histogram getHistogram(long ctlId, long dbId, long tblId, String colName) {
+        return getHistogram(ctlId, dbId, tblId, -1, colName).orElse(null);
     }
 
-    public Optional<Histogram> getHistogram(long tblId, long idxId, String colName) {
+    private Optional<Histogram> getHistogram(long ctlId, long dbId, long tblId, long idxId, String colName) {
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getSessionVariable().internalSession) {
             return Optional.empty();
         }
-        StatisticsCacheKey k = new StatisticsCacheKey(tblId, idxId, colName);
+        StatisticsCacheKey k = new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName);
         try {
             CompletableFuture<Optional<Histogram>> f = histogramCache.get(k);
             if (f.isDone()) {
@@ -112,28 +113,28 @@ public class StatisticsCache {
         return Optional.empty();
     }
 
-    public void invalidate(long tblId, long idxId, String colName) {
-        columnStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(tblId, idxId, colName));
+    public void invalidate(long ctlId, long dbId, long tblId, long idxId, String colName) {
+        columnStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
     }
 
-    public void updateColStatsCache(long tblId, long idxId, String colName, ColumnStatistic statistic) {
-        columnStatisticsCache.synchronous().put(new StatisticsCacheKey(tblId, idxId, colName), Optional.of(statistic));
+    public void updateColStatsCache(long ctlId, long dbId, long tblId, long idxId, String colName,
+            ColumnStatistic statistic) {
+        columnStatisticsCache.synchronous()
+                .put(new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName), Optional.of(statistic));
     }
 
-    public void refreshColStatsSync(long tblId, long idxId, String colName) {
-        columnStatisticsCache.synchronous().refresh(new StatisticsCacheKey(-1, -1, tblId, idxId, colName));
+    public void refreshColStatsSync(long ctlId, long dbId, long tblId, long idxId, String colName) {
+        columnStatisticsCache.synchronous().refresh(new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
     }
 
-    public void refreshColStatsSync(long catalogId, long dbId, long tblId, long idxId, String colName) {
-        columnStatisticsCache.synchronous().refresh(new StatisticsCacheKey(catalogId, dbId, tblId, idxId, colName));
-    }
-
-    public void refreshHistogramSync(long tblId, long idxId, String colName) {
-        histogramCache.synchronous().refresh(new StatisticsCacheKey(tblId, idxId, colName));
+    public void refreshHistogramSync(long ctlId, long dbId, long tblId, long idxId, String colName) {
+        histogramCache.synchronous().refresh(new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
     }
 
     public void preHeat() {
-        threadPool.submit(this::doPreHeat);
+        if (!FeConstants.disablePreHeat) {
+            threadPool.submit(this::doPreHeat);
+        }
     }
 
     private void doPreHeat() {
@@ -168,18 +169,16 @@ public class StatisticsCache {
         for (ResultRow r : recentStatsUpdatedCols) {
             try {
                 StatsId statsId = new StatsId(r);
-                long tblId = statsId.tblId;
-                long idxId = statsId.idxId;
-                String colId = statsId.colId;
                 final StatisticsCacheKey k =
-                        new StatisticsCacheKey(tblId, idxId, colId);
+                        new StatisticsCacheKey(statsId.catalogId, statsId.dbId, statsId.tblId, statsId.idxId,
+                                statsId.colId);
                 ColumnStatistic c = ColumnStatistic.fromResultRow(r);
                 if (c.count > 0 && c.ndv == 0 && c.count != c.numNulls) {
                     c = ColumnStatistic.UNKNOWN;
                 }
                 putCache(k, c);
             } catch (Throwable t) {
-                LOG.warn("Error when preheating stats cache", t);
+                LOG.warn("Error when preheating stats cache. Row:[{}]", r, t);
             }
         }
     }
@@ -189,10 +188,11 @@ public class StatisticsCache {
      */
     public void syncColStats(ColStatsData data) {
         StatsId statsId = data.statsId;
-        final StatisticsCacheKey k = new StatisticsCacheKey(statsId.tblId, statsId.idxId, statsId.colId);
+        final StatisticsCacheKey k = new StatisticsCacheKey(statsId.catalogId, statsId.dbId, statsId.tblId,
+                statsId.idxId, statsId.colId);
         ColumnStatistic columnStatistic = data.toColumnStatistic();
         if (columnStatistic == ColumnStatistic.UNKNOWN) {
-            invalidate(k.tableId, k.idxId, k.colName);
+            invalidate(k.catalogId, k.dbId, k.tableId, k.idxId, k.colName);
         } else {
             putCache(k, columnStatistic);
         }

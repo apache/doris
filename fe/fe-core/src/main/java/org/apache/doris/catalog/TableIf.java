@@ -25,12 +25,12 @@ import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.ImmutableList;
@@ -119,7 +119,11 @@ public interface TableIf {
 
     List<Column> getBaseSchema();
 
-    List<Column> getSchemaAllIndexes(boolean full);
+    default Set<Column> getSchemaAllIndexes(boolean full) {
+        Set<Column> ret = Sets.newHashSet();
+        ret.addAll(getBaseSchema());
+        return ret;
+    }
 
     default List<Column> getBaseSchemaOrEmpty() {
         try {
@@ -159,6 +163,11 @@ public interface TableIf {
 
     long getRowCount();
 
+    // Get the row count from cache,
+    // If miss, just return 0
+    // This is used for external table, because for external table, the fetching row count may be expensive
+    long getCachedRowCount();
+
     long fetchRowCount();
 
     long getDataLength();
@@ -182,9 +191,11 @@ public interface TableIf {
 
     Optional<ColumnStatistic> getColumnStatistic(String colName);
 
-    boolean needReAnalyzeTable(TableStatsMeta tblStats);
-
-    Map<String, Set<String>> findReAnalyzeNeededPartitions();
+    /**
+     * @param columns Set of column names.
+     * @return Set of pairs. Each pair is <IndexName, ColumnName>. For external table, index name is table name.
+     */
+    Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns);
 
     // Get all the chunk sizes of this table. Now, only HMS external table implemented this interface.
     // For HMS external table, the return result is a list of all the files' size.
@@ -548,5 +559,9 @@ public interface TableIf {
 
     default Set<String> getDistributionColumnNames() {
         return Sets.newHashSet();
+    }
+
+    default boolean isPartitionedTable() {
+        return false;
     }
 }

@@ -17,31 +17,36 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
- * convert "<=>" to "=", if any side is not nullable
+ * convert "<=>" to "=", if both sides are not nullable
  * convert "A <=> null" to "A is null"
+ * null <=> null : true
+ * null <=> 1 : false
  */
-public class NullSafeEqualToEqual extends DefaultExpressionRewriter<ExpressionRewriteContext> implements
-        ExpressionRewriteRule<ExpressionRewriteContext> {
+public class NullSafeEqualToEqual implements ExpressionPatternRuleFactory {
     public static final NullSafeEqualToEqual INSTANCE = new NullSafeEqualToEqual();
 
     @Override
-    public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-        return expr.accept(this, null);
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesType(NullSafeEqual.class).then(NullSafeEqualToEqual::rewrite)
+        );
     }
 
-    @Override
-    public Expression visitNullSafeEqual(NullSafeEqual nullSafeEqual, ExpressionRewriteContext ctx) {
+    private static Expression rewrite(NullSafeEqual nullSafeEqual) {
         if (nullSafeEqual.left() instanceof NullLiteral) {
             if (nullSafeEqual.right().nullable()) {
                 return new IsNull(nullSafeEqual.right());

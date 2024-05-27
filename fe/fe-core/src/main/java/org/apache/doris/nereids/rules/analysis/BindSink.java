@@ -29,8 +29,11 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
+import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -43,8 +46,10 @@ import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -52,10 +57,14 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
+import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
@@ -64,14 +73,13 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -83,15 +91,24 @@ public class BindSink implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 RuleType.BINDING_INSERT_TARGET_TABLE.build(unboundTableSink().thenApply(this::bindOlapTableSink)),
-                RuleType.BINDING_INSERT_FILE.build(
-                        logicalFileSink().when(s -> s.getOutputExprs().isEmpty())
-                                .then(fileSink -> fileSink.withOutputExprs(
-                                        fileSink.child().getOutput().stream()
-                                                .map(NamedExpression.class::cast)
-                                                .collect(ImmutableList.toImmutableList())))
+                RuleType.BINDING_INSERT_FILE.build(logicalFileSink().when(s -> s.getOutputExprs().isEmpty())
+                        .then(fileSink -> {
+                            ImmutableListMultimap.Builder<ExprId, Integer> exprIdToIndexMapBuilder =
+                                    ImmutableListMultimap.builder();
+                            List<Slot> childOutput = fileSink.child().getOutput();
+                            for (int index = 0; index < childOutput.size(); index++) {
+                                exprIdToIndexMapBuilder.put(childOutput.get(index).getExprId(), index);
+                            }
+                            InferPlanOutputAlias aliasInfer = new InferPlanOutputAlias(childOutput);
+                            List<NamedExpression> output = aliasInfer.infer(fileSink.child(),
+                                    exprIdToIndexMapBuilder.build());
+                            return fileSink.withOutputExprs(output);
+                        })
                 ),
                 // TODO: bind hive taget table
-                RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink))
+                RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
+                RuleType.BINDING_INSERT_ICEBERG_TABLE.build(
+                    unboundIcebergTableSink().thenApply(this::bindIcebergTableSink))
         );
     }
 
@@ -186,6 +203,67 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
 
+        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, isPartialUpdate,
+                boundSink, child);
+        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
+        return boundSink.withChildAndUpdateOutput(fullOutputProject);
+    }
+
+    private LogicalProject<?> getOutputProjectByCoercion(List<Column> tableSchema, LogicalPlan child,
+                                                         Map<String, NamedExpression> columnToOutput) {
+        List<NamedExpression> fullOutputExprs = ImmutableList.copyOf(columnToOutput.values());
+        if (child instanceof LogicalOneRowRelation) {
+            // remove default value slot in one row relation
+            child = ((LogicalOneRowRelation) child).withProjects(((LogicalOneRowRelation) child)
+                    .getProjects().stream()
+                    .filter(p -> !(p instanceof DefaultValueSlot))
+                    .collect(ImmutableList.toImmutableList()));
+        }
+        LogicalProject<?> fullOutputProject = new LogicalProject<>(fullOutputExprs, child);
+
+        // add cast project
+        List<NamedExpression> castExprs = Lists.newArrayList();
+        for (int i = 0; i < tableSchema.size(); ++i) {
+            Column col = tableSchema.get(i);
+            NamedExpression expr = columnToOutput.get(col.getName());
+            if (expr == null) {
+                // If `expr` is null, it means that the current load is a partial update
+                // and `col` should not be contained in the output of the sink node so
+                // we skip it.
+                continue;
+            }
+            DataType inputType = expr.getDataType();
+            DataType targetType = DataType.fromCatalogType(tableSchema.get(i).getType());
+            Expression castExpr = expr;
+            // TODO move string like type logic into TypeCoercionUtils#castIfNotSameType
+            if (isSourceAndTargetStringLikeType(inputType, targetType) && !inputType.equals(targetType)) {
+                int sourceLength = ((CharacterType) inputType).getLen();
+                int targetLength = ((CharacterType) targetType).getLen();
+                if (sourceLength == targetLength) {
+                    castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
+                } else if (sourceLength > targetLength && targetLength >= 0) {
+                    castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
+                } else if (targetType.isStringType()) {
+                    castExpr = new Cast(castExpr, StringType.INSTANCE);
+                }
+            } else {
+                castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
+            }
+            if (castExpr instanceof NamedExpression) {
+                castExprs.add(((NamedExpression) castExpr));
+            } else {
+                castExprs.add(new Alias(castExpr));
+            }
+        }
+        if (!castExprs.equals(fullOutputExprs)) {
+            fullOutputProject = new LogicalProject<Plan>(castExprs, fullOutputProject);
+        }
+        return fullOutputProject;
+    }
+
+    private static Map<String, NamedExpression> getColumnToOutput(
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
+            TableIf table, boolean isPartialUpdate, LogicalTableSink<?> boundSink, LogicalPlan child) {
         // we need to insert all the columns of the target table
         // although some columns are not mentions.
         // so we add a projects to supply the default value.
@@ -225,11 +303,11 @@ public class BindSink implements AnalysisRuleFactory {
                     && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
                 columnToOutput.put(column.getName(), columnToChildOutput.get(column));
             } else {
-                if (table.hasSequenceCol()
+                if (table instanceof OlapTable && ((OlapTable) table).hasSequenceCol()
                         && column.getName().equals(Column.SEQUENCE_COL)
-                        && table.getSequenceMapCol() != null) {
+                        && ((OlapTable) table).getSequenceMapCol() != null) {
                     Optional<Column> seqCol = table.getFullSchema().stream()
-                            .filter(col -> col.getName().equals(table.getSequenceMapCol()))
+                            .filter(col -> col.getName().equals(((OlapTable) table).getSequenceMapCol()))
                             .findFirst();
                     if (!seqCol.isPresent()) {
                         throw new AnalysisException("sequence column is not contained in"
@@ -303,55 +381,7 @@ public class BindSink implements AnalysisRuleFactory {
                 }
             }
         }
-        List<NamedExpression> fullOutputExprs = ImmutableList.copyOf(columnToOutput.values());
-        if (child instanceof LogicalOneRowRelation) {
-            // remove default value slot in one row relation
-            child = ((LogicalOneRowRelation) child).withProjects(((LogicalOneRowRelation) child)
-                    .getProjects().stream()
-                    .filter(p -> !(p instanceof DefaultValueSlot))
-                    .collect(ImmutableList.toImmutableList()));
-        }
-        LogicalProject<?> fullOutputProject = new LogicalProject<>(fullOutputExprs, child);
-
-        // add cast project
-        List<NamedExpression> castExprs = Lists.newArrayList();
-        for (int i = 0; i < table.getFullSchema().size(); ++i) {
-            Column col = table.getFullSchema().get(i);
-            NamedExpression expr = columnToOutput.get(col.getName());
-            if (expr == null) {
-                // If `expr` is null, it means that the current load is a partial update
-                // and `col` should not be contained in the output of the sink node so
-                // we skip it.
-                continue;
-            }
-            DataType inputType = expr.getDataType();
-            DataType targetType = DataType.fromCatalogType(table.getFullSchema().get(i).getType());
-            Expression castExpr = expr;
-            // TODO move string like type logic into TypeCoercionUtils#castIfNotSameType
-            if (isSourceAndTargetStringLikeType(inputType, targetType) && !inputType.equals(targetType)) {
-                int sourceLength = ((CharacterType) inputType).getLen();
-                int targetLength = ((CharacterType) targetType).getLen();
-                if (sourceLength == targetLength) {
-                    castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
-                } else if (sourceLength > targetLength && targetLength >= 0) {
-                    castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
-                } else if (targetType.isStringType()) {
-                    castExpr = new Cast(castExpr, StringType.INSTANCE);
-                }
-            } else {
-                castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
-            }
-            if (castExpr instanceof NamedExpression) {
-                castExprs.add(((NamedExpression) castExpr));
-            } else {
-                castExprs.add(new Alias(castExpr));
-            }
-        }
-        if (!castExprs.equals(fullOutputExprs)) {
-            fullOutputProject = new LogicalProject<Plan>(castExprs, fullOutputProject);
-        }
-
-        return boundSink.withChildAndUpdateOutput(fullOutputProject);
+        return columnToOutput;
     }
 
     private Plan bindHiveTableSink(MatchingContext<UnboundHiveTableSink<Plan>> ctx) {
@@ -369,20 +399,56 @@ public class BindSink implements AnalysisRuleFactory {
                 Column column = table.getColumn(cn);
                 if (column == null) {
                     throw new AnalysisException(String.format("column %s is not found in table %s",
+                        cn, table.getName()));
+                }
+                return column;
+            }).collect(ImmutableList.toImmutableList());
+        }
+        LogicalHiveTableSink<?> boundSink = new LogicalHiveTableSink<>(
+                database,
+                table,
+                bindColumns,
+                child.getOutput().stream()
+                    .map(NamedExpression.class::cast)
+                    .collect(ImmutableList.toImmutableList()),
+                sink.getDMLCommandType(),
+                Optional.empty(),
+                Optional.empty(),
+                child);
+        // we need to insert all the columns of the target table
+        if (boundSink.getCols().size() != child.getOutput().size()) {
+            throw new AnalysisException("insert into cols should be corresponding to the query output");
+        }
+        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false,
+                boundSink, child);
+        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
+        return boundSink.withChildAndUpdateOutput(fullOutputProject);
+    }
+
+    private Plan bindIcebergTableSink(MatchingContext<UnboundIcebergTableSink<Plan>> ctx) {
+        UnboundIcebergTableSink<?> sink = ctx.root;
+        Pair<IcebergExternalDatabase, IcebergExternalTable> pair = bind(ctx.cascadesContext, sink);
+        IcebergExternalDatabase database = pair.first;
+        IcebergExternalTable table = pair.second;
+        LogicalPlan child = ((LogicalPlan) sink.child());
+
+        List<Column> bindColumns;
+        if (sink.getColNames().isEmpty()) {
+            bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
+        } else {
+            bindColumns = sink.getColNames().stream().map(cn -> {
+                Column column = table.getColumn(cn);
+                if (column == null) {
+                    throw new AnalysisException(String.format("column %s is not found in table %s",
                             cn, table.getName()));
                 }
                 return column;
             }).collect(ImmutableList.toImmutableList());
         }
-        Set<String> hivePartitionKeys = table.getRemoteTable()
-                .getPartitionKeys().stream()
-                .map(FieldSchema::getName)
-                .collect(Collectors.toSet());
-        LogicalHiveTableSink<?> boundSink = new LogicalHiveTableSink<>(
+        LogicalIcebergTableSink<?> boundSink = new LogicalIcebergTableSink<>(
                 database,
                 table,
                 bindColumns,
-                hivePartitionKeys,
                 child.getOutput().stream()
                         .map(NamedExpression.class::cast)
                         .collect(ImmutableList.toImmutableList()),
@@ -394,7 +460,10 @@ public class BindSink implements AnalysisRuleFactory {
         if (boundSink.getCols().size() != child.getOutput().size()) {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
-        return boundSink;
+        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false,
+                boundSink, child);
+        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
+        return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }
 
     private Pair<Database, OlapTable> bind(CascadesContext cascadesContext, UnboundTableSink<? extends Plan> sink) {
@@ -420,9 +489,24 @@ public class BindSink implements AnalysisRuleFactory {
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
                 cascadesContext.getConnectContext().getEnv());
         if (pair.second instanceof HMSExternalTable) {
-            return Pair.of(((HMSExternalDatabase) pair.first), (HMSExternalTable) pair.second);
+            HMSExternalTable table = (HMSExternalTable) pair.second;
+            if (table.getDlaType() == HMSExternalTable.DLAType.HIVE) {
+                return Pair.of(((HMSExternalDatabase) pair.first), table);
+            }
         }
         throw new AnalysisException("the target table of insert into is not a Hive table");
+    }
+
+    private Pair<IcebergExternalDatabase, IcebergExternalTable> bind(CascadesContext cascadesContext,
+                                                                     UnboundIcebergTableSink<? extends Plan> sink) {
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                sink.getNameParts());
+        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
+                cascadesContext.getConnectContext().getEnv());
+        if (pair.second instanceof IcebergExternalTable) {
+            return Pair.of(((IcebergExternalDatabase) pair.first), (IcebergExternalTable) pair.second);
+        }
+        throw new AnalysisException("the target table of insert into is not an iceberg table");
     }
 
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions, boolean temp) {

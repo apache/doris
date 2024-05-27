@@ -79,6 +79,7 @@ struct RowsetWriterContext {
 
     int64_t newest_write_timestamp = -1;
     bool enable_unique_key_merge_on_write = false;
+    // store column_unique_id to skip write inverted index
     std::set<int32_t> skip_inverted_index;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     BaseTabletSPtr tablet = nullptr;
@@ -102,6 +103,8 @@ struct RowsetWriterContext {
     // In semi-structure senario tablet_schema will be updated concurrently,
     // this lock need to be held when update.Use shared_ptr to avoid delete copy contructor
     std::shared_ptr<std::mutex> schema_lock;
+
+    int64_t compaction_level = 0;
 };
 
 } // namespace doris

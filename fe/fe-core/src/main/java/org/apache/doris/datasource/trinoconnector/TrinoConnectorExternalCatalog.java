@@ -28,7 +28,6 @@ import org.apache.doris.trinoconnector.TrinoConnectorServicesProvider;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.MoreExecutors;
 import io.airlift.node.NodeInfo;
 import io.opentelemetry.api.OpenTelemetry;
@@ -71,18 +70,20 @@ import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.security.Identity;
 import io.trino.spi.transaction.IsolationLevel;
+import io.trino.spi.type.TimeZoneKey;
 import io.trino.sql.gen.JoinCompiler;
 import io.trino.sql.planner.OptimizerConfig;
 import io.trino.testing.TestingAccessControlManager;
-import io.trino.testing.TestingSession;
 import io.trino.transaction.NoOpTransactionManager;
 import io.trino.type.InternalTypeManager;
 import io.trino.util.EmbedVersion;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -94,6 +95,7 @@ import java.util.stream.Collectors;
 
 public class TrinoConnectorExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorExternalCatalog.class);
+    private static final String TRINO_CONNECTOR_PROPERTIES_PREFIX = "trino.";
 
     private static final List<String> TRINO_CONNECTOR_REQUIRED_PROPERTIES = ImmutableList.of(
             TrinoConnectorProperties.TRINO_CONNECTOR_NAME
@@ -101,13 +103,23 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
 
     private CatalogHandle trinoCatalogHandle;
     private Connector connector;
+    private ConnectorName connectorName;
     private Session trinoSession;
+    private ImmutableMap<String, String> trinoProperties;
 
     public TrinoConnectorExternalCatalog(long catalogId, String name, String resource,
             Map<String, String> props, String comment) {
         super(catalogId, name, Type.TRINO_CONNECTOR, comment);
         Objects.requireNonNull(name, "catalogName is null");
         catalogProperty = new CatalogProperty(resource, props);
+
+        // All properties obtained by this method are used by the trino-connector.
+        // We should not modify this map
+        trinoProperties = ImmutableMap.copyOf(catalogProperty.getProperties().entrySet().stream()
+                .filter(kv -> kv.getKey().startsWith(TRINO_CONNECTOR_PROPERTIES_PREFIX))
+                .collect(Collectors
+                        .toMap(kv1 -> kv1.getKey().substring(TRINO_CONNECTOR_PROPERTIES_PREFIX.length()),
+                                kv1 -> kv1.getValue())));
     }
 
     @Override
@@ -138,7 +150,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
                 .setSource("test")
                 .setCatalog("catalog")
                 .setSchema("schema")
-                .setTimeZoneKey(TestingSession.DEFAULT_TIME_ZONE_KEY)
+                .setTimeZoneKey(TimeZoneKey.getTimeZoneKey(ZoneId.systemDefault().toString()))
                 .setLocale(Locale.ENGLISH)
                 .setClientCapabilities(Arrays.stream(ClientCapabilities.values()).map(Enum::name)
                         .collect(ImmutableSet.toImmutableSet()))
@@ -183,10 +195,11 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
 
     private ConnectorServicesProvider createConnectorServicesProvider() {
         // 1. check and create ConnectorName
-        Map<String, String> trinoConnectorProperties = Maps.newHashMap();
-        trinoConnectorProperties.putAll(catalogProperty.getProperties());
-        trinoConnectorProperties.remove("create_time");
-        trinoConnectorProperties.remove("type");
+        if (!trinoProperties.containsKey("connector.name")) {
+            throw new RuntimeException("Can not find trino.connector.name property, please specify a connector name.");
+        }
+        Map<String, String> trinoConnectorProperties = new HashMap<>();
+        trinoConnectorProperties.putAll(trinoProperties);
         String connectorNameString = trinoConnectorProperties.remove("connector.name");
         Objects.requireNonNull(connectorNameString, "connectorName is null");
         if (connectorNameString.indexOf('-') >= 0) {
@@ -196,7 +209,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
                     deprecatedConnectorName, connectorNameString);
         }
 
-        ConnectorName connectorName = new ConnectorName(connectorNameString);
+        this.connectorName = new ConnectorName(connectorNameString);
 
         // 2. create CatalogFactory
         LazyCatalogFactory catalogFactory = new LazyCatalogFactory();
@@ -292,12 +305,20 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
         return Optional.empty();
     }
 
-    public Map<String, String> getTrinoConnectorProperties() {
-        return catalogProperty.getProperties();
+    // BE need create_time key
+    public Map<String, String> getTrinoConnectorPropertiesWithCreateTime() {
+        Map<String, String> trinoPropertiesWithCreateTime = new HashMap<>();
+        trinoPropertiesWithCreateTime.putAll(trinoProperties);
+        trinoPropertiesWithCreateTime.put("create_time", catalogProperty.getProperties().get("create_time"));
+        return trinoPropertiesWithCreateTime;
     }
 
     public Connector getConnector() {
         return connector;
+    }
+
+    public ConnectorName getConnectorName() {
+        return connectorName;
     }
 
     public CatalogHandle getTrinoCatalogHandle() {

@@ -67,6 +67,7 @@ int main(int argc, char** argv) {
 
     cloud::config::enable_txn_store_retry = true;
     cloud::config::txn_store_retry_times = 100;
+    cloud::config::txn_store_retry_base_intervals_ms = 1;
     cloud::config::fdb_cluster_file_path = "fdb.cluster";
     cloud::config::write_schema_kv = true;
 
@@ -108,8 +109,6 @@ int main(int argc, char** argv) {
     // 1. https://apple.github.io/foundationdb/api-error-codes.html#developer-guide-error-codes
     // 2. FDB source code: flow/include/flow/error_definitions.h
     std::vector<fdb_error_t> retryable_not_committed {
-            // too old
-            1007,
             // future version
             1009,
             // process_behind
@@ -257,7 +256,7 @@ static int add_cluster(MetaService* service, const std::string& instance_id) {
         req.set_instance_id(instance_id);
         req.set_op(cloud::AlterClusterRequest_Operation::AlterClusterRequest_Operation_ADD_CLUSTER);
         auto* cluster = req.mutable_cluster();
-        auto name = fmt::format("instance-{}-cluster", instance_id);
+        auto name = fmt::format("instance_{}_cluster", instance_id);
         cluster->set_cluster_id(name);
         cluster->set_cluster_name(name);
         cluster->set_type(cloud::ClusterPB_Type::ClusterPB_Type_SQL);
@@ -307,7 +306,7 @@ static int drop_cluster(MetaService* service, const std::string& instance_id) {
     req.set_instance_id(instance_id);
     req.set_op(AlterClusterRequest_Operation_DROP_CLUSTER);
     auto cluster = req.mutable_cluster();
-    cluster->set_cluster_id(fmt::format("instance-{}-cluster", instance_id));
+    cluster->set_cluster_id(fmt::format("instance_{}_cluster", instance_id));
 
     brpc::Controller ctrl;
     service->alter_cluster(&ctrl, &req, &resp, nullptr);

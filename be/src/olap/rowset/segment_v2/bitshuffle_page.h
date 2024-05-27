@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstring>
 #include <ostream>
+#include <type_traits>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
@@ -111,7 +112,9 @@ public:
         int to_add = std::min<int>(_remain_element_capacity, *count);
         int to_add_size = to_add * SIZE_OF_TYPE;
         size_t orig_size = _data.size();
-        _data.resize(orig_size + to_add_size);
+        // This may need a large memory, should return error if could not allocated
+        // successfully, to avoid BE OOM.
+        RETURN_IF_CATCH_EXCEPTION(_data.resize(orig_size + to_add_size));
         _count += to_add;
         _remain_element_capacity -= to_add;
         // return added number through count
@@ -399,17 +402,19 @@ public:
 
         auto total = *n;
         auto read_count = 0;
-        CppType data[total];
+        _buffer.resize(total);
         for (size_t i = 0; i < total; ++i) {
             ordinal_t ord = rowids[i] - page_first_ordinal;
             if (UNLIKELY(ord >= _num_elements)) {
                 break;
             }
 
-            data[read_count++] = *reinterpret_cast<CppType*>(get_data(ord));
+            _buffer[read_count++] = *reinterpret_cast<CppType*>(get_data(ord));
         }
 
-        if (LIKELY(read_count > 0)) dst->insert_many_fix_len_data((const char*)data, read_count);
+        if (LIKELY(read_count > 0)) {
+            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
+        }
 
         *n = read_count;
         return Status::OK();
@@ -444,6 +449,8 @@ private:
 
     int _size_of_element;
     size_t _cur_index;
+
+    std::vector<std::conditional_t<std::is_same_v<CppType, bool>, uint8_t, CppType>> _buffer;
 
     friend class BinaryDictPageDecoder;
 };

@@ -21,7 +21,6 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 
 namespace doris {
 class ExecNode;
@@ -60,9 +59,6 @@ protected:
     int64_t _external_sort_bytes_threshold = 134217728; // 128M
     std::vector<vectorized::SpillStreamSPtr> _current_merging_streams;
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
-    bool _is_merging = false;
-    std::mutex _merge_spill_lock;
-    std::condition_variable _merge_spill_cv;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     // counters for spill merge sort

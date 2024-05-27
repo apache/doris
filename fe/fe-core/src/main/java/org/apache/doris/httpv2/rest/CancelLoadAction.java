@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -74,7 +75,9 @@ public class CancelLoadAction extends RestBaseController {
 
         // TODO(cmy): Currently we only check priv in db level.
         // Should check priv in table level.
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), fullDbName, PrivPredicate.LOAD)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName,
+                        PrivPredicate.LOAD)) {
             throw new UnauthorizedException("Access denied for user '" + ConnectContext.get().getQualifiedUser()
                     + "' to database '" + fullDbName + "'");
         }

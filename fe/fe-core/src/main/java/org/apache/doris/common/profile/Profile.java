@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.planner.Planner;
 
 import com.google.common.collect.Lists;
@@ -45,11 +46,16 @@ import java.util.Map;
  * ExecutionProfile1: Fragment 0: Fragment 1: ...
  * ExecutionProfile2: Fragment 0: Fragment 1: ...
  *
+ * ExecutionProfile: Fragment 0: Fragment 1: ...
+ * And also summary profile contains plan information, but execution profile is for
+ * be execution time.
+ * StmtExecutor(Profile) ---> Coordinator(ExecutionProfile)
  */
 public class Profile {
     private static final Logger LOG = LogManager.getLogger(Profile.class);
     private static final int MergedProfileLevel = 1;
-    private RuntimeProfile rootProfile;
+    private final String name;
+    private final boolean isPipelineX;
     private SummaryProfile summaryProfile;
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     private boolean isFinished;
@@ -57,49 +63,60 @@ public class Profile {
 
     private int profileLevel = 3;
 
-    public Profile(String name, boolean isEnable) {
-        this.rootProfile = new RuntimeProfile(name);
-        this.summaryProfile = new SummaryProfile(rootProfile);
+    public Profile(String name, boolean isEnable, int profileLevel, boolean isPipelineX) {
+        this.name = name;
+        this.isPipelineX = isPipelineX;
+        this.summaryProfile = new SummaryProfile();
         // if disabled, just set isFinished to true, so that update() will do nothing
         this.isFinished = !isEnable;
+        this.profileLevel = profileLevel;
     }
 
+    // For load task, the profile contains many execution profiles
     public void addExecutionProfile(ExecutionProfile executionProfile) {
         if (executionProfile == null) {
             LOG.warn("try to set a null excecution profile, it is abnormal", new Exception());
             return;
         }
+        if (this.isPipelineX) {
+            executionProfile.setPipelineX();
+        }
+        executionProfile.setSummaryProfile(summaryProfile);
         this.executionProfiles.add(executionProfile);
-        executionProfile.addToProfileAsChild(rootProfile);
     }
 
-    public synchronized void update(long startTime, Map<String, String> summaryInfo, boolean isFinished,
-            int profileLevel, Planner planner, boolean isPipelineX) {
+    public List<ExecutionProfile> getExecutionProfiles() {
+        return this.executionProfiles;
+    }
+
+    // This API will also add the profile to ProfileManager, so that we could get the profile from ProfileManager.
+    // isFinished ONLY means the coordinator or stmtexecutor is finished.
+    public synchronized void updateSummary(long startTime, Map<String, String> summaryInfo, boolean isFinished,
+            Planner planner) {
         try {
             if (this.isFinished) {
                 return;
             }
+            if (planner instanceof NereidsPlanner) {
+                summaryInfo.put(SummaryProfile.PHYSICAL_PLAN,
+                        ((NereidsPlanner) planner).getPhysicalPlan()
+                                .treeString().replace("\n", "\n     "));
+            }
             summaryProfile.update(summaryInfo);
             for (ExecutionProfile executionProfile : executionProfiles) {
+                // Tell execution profile the start time
                 executionProfile.update(startTime, isFinished);
             }
-            rootProfile.computeTimeInProfile();
             // Nerids native insert not set planner, so it is null
             if (planner != null) {
                 this.planNodeMap = planner.getExplainStringMap();
             }
-            rootProfile.setIsPipelineX(isPipelineX);
             ProfileManager.getInstance().pushProfile(this);
             this.isFinished = isFinished;
-            this.profileLevel = profileLevel;
         } catch (Throwable t) {
             LOG.warn("update profile failed", t);
             throw t;
         }
-    }
-
-    public RuntimeProfile getRootProfile() {
-        return this.rootProfile;
     }
 
     public SummaryProfile getSummaryProfile() {
@@ -110,7 +127,7 @@ public class Profile {
         StringBuilder builder = new StringBuilder();
         // add summary to builder
         summaryProfile.prettyPrint(builder);
-        LOG.info(builder.toString());
+        waitProfileCompleteIfNeeded();
         // Only generate merged profile for select, insert into select.
         // Not support broker load now.
         if (this.profileLevel == MergedProfileLevel && this.executionProfiles.size() == 1) {
@@ -123,9 +140,10 @@ public class Profile {
             }
         }
         try {
+            // For load task, they will have multiple execution_profiles.
             for (ExecutionProfile executionProfile : executionProfiles) {
                 builder.append("\n");
-                executionProfile.getExecutionProfile().prettyPrint(builder, "");
+                executionProfile.getRoot().prettyPrint(builder, "");
             }
         } catch (Throwable aggProfileException) {
             LOG.warn("build profile failed", aggProfileException);
@@ -134,7 +152,44 @@ public class Profile {
         return builder.toString();
     }
 
+    // If the query is already finished, and user wants to get the profile, we should check
+    // if BE has reported all profiles, if not, sleep 2s.
+    private void waitProfileCompleteIfNeeded() {
+        if (!this.isFinished) {
+            return;
+        }
+        boolean allCompleted = true;
+        for (ExecutionProfile executionProfile : executionProfiles) {
+            if (!executionProfile.isCompleted()) {
+                allCompleted = false;
+                break;
+            }
+        }
+        if (!allCompleted) {
+            try {
+                Thread.currentThread().sleep(2000);
+            } catch (InterruptedException e) {
+                // Do nothing
+            }
+        }
+    }
+
+    private RuntimeProfile composeRootProfile() {
+
+        RuntimeProfile rootProfile = new RuntimeProfile(name);
+        rootProfile.setIsPipelineX(isPipelineX);
+        rootProfile.addChild(summaryProfile.getSummary());
+        rootProfile.addChild(summaryProfile.getExecutionSummary());
+        for (ExecutionProfile executionProfile : executionProfiles) {
+            rootProfile.addChild(executionProfile.getRoot());
+        }
+        rootProfile.computeTimeInProfile();
+        return rootProfile;
+    }
+
     public String getProfileBrief() {
+        waitProfileCompleteIfNeeded();
+        RuntimeProfile rootProfile = composeRootProfile();
         Gson gson = new GsonBuilder().setPrettyPrinting().create();
         return gson.toJson(rootProfile.toBrief());
     }

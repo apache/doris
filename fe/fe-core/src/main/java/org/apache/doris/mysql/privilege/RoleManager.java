@@ -41,6 +41,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Streams;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -158,39 +159,47 @@ public class RoleManager implements Writable, GsonPostProcessable {
             }
             List<String> info = Lists.newArrayList();
             info.add(role.getRoleName());
+            info.add(role.getComment());
             info.add(Joiner.on(", ").join(Env.getCurrentEnv().getAuth().getRoleUsers(role.getRoleName())));
 
             Map<PrivLevel, List<Entry<ResourcePattern, PrivBitSet>>> clusterMap = role.getClusterPatternToPrivs()
                     .entrySet().stream().collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()));
             replaceResourceLevel(clusterMap, PrivLevel.CLUSTER);
 
-            Map<PrivLevel, String> infoMap =
-                    Stream.concat(
-                    Stream.concat(
-                            role.getTblPatternToPrivs().entrySet().stream()
-                                    .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet()
-                                    .stream(),
-                            Stream.concat(role.getResourcePatternToPrivs().entrySet().stream()
-                                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
-                                            .entrySet().stream(),
-                                    role.getWorkloadGroupPatternToPrivs().entrySet().stream()
-                                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
-                                            .entrySet().stream())
-                    ),
-                    clusterMap.entrySet().stream()
-                    ).collect(Collectors.toMap(Entry::getKey, entry -> {
-                                if (entry.getKey() == PrivLevel.GLOBAL) {
-                                    return entry.getValue().stream().findFirst().map(priv -> priv.getValue().toString())
-                                            .orElse(FeConstants.null_string);
-                                } else {
-                                    return entry.getValue().stream()
-                                            .map(priv -> priv.getKey() + ": " + priv.getValue())
-                                            .collect(Collectors.joining("; "));
-                                }
-                            }, (s1, s2) -> s1 + " " + s2
-                    ));
+            Map<PrivLevel, List<Entry<ResourcePattern, PrivBitSet>>> stageMap = role.getStagePatternToPrivs()
+                    .entrySet().stream().collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()));
+            replaceResourceLevel(stageMap, PrivLevel.STAGE);
+
+            Map<PrivLevel, List<Entry<ResourcePattern, PrivBitSet>>> storageVaultMap
+                    = role.getStorageVaultPatternToPrivs()
+                    .entrySet().stream().collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()));
+            replaceResourceLevel(storageVaultMap, PrivLevel.STORAGE_VAULT);
+
+            Map<PrivLevel, String> infoMap = Streams.concat(
+                    role.getTblPatternToPrivs().entrySet().stream()
+                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet()
+                            .stream(),
+                    role.getResourcePatternToPrivs().entrySet().stream()
+                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
+                            .entrySet().stream(),
+                    role.getWorkloadGroupPatternToPrivs().entrySet().stream()
+                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
+                            .entrySet().stream(),
+                    clusterMap.entrySet().stream(), stageMap.entrySet().stream(),
+                    storageVaultMap.entrySet().stream()).collect(Collectors.toMap(Entry::getKey, entry -> {
+                        if (entry.getKey() == PrivLevel.GLOBAL) {
+                            return entry.getValue().stream().findFirst().map(priv -> priv.getValue().toString())
+                                    .orElse(FeConstants.null_string);
+                        } else {
+                            return entry.getValue().stream()
+                                    .map(priv -> priv.getKey() + ": " + priv.getValue())
+                                    .collect(Collectors.joining("; "));
+                        }
+                    }, (s1, s2) -> s1 + " " + s2
+            ));
+
             Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE,
-                        PrivLevel.CLUSTER)
+                        PrivLevel.CLUSTER, PrivLevel.STAGE, PrivLevel.STORAGE_VAULT)
                     .forEach(level -> {
                         String infoItem = infoMap.get(level);
                         if (Strings.isNullOrEmpty(infoItem)) {

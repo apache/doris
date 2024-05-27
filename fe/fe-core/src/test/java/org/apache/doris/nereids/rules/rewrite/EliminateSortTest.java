@@ -63,6 +63,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 .nonMatch(logicalSort());
 
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("with cte_test as (\n"
                         + "select id, name, age from student\n"
                         + ")\n"
@@ -74,6 +75,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 .matches(logicalSort());
 
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select t.age from\n"
                         + "(\n"
                         + "with cte_test as (\n"
@@ -99,6 +101,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 new ArrayList<>(), plan.getOutput().stream().map(NamedExpression.class::cast).collect(
                 Collectors.toList()), false, DMLCommandType.NONE, plan);
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .rewrite()
                 .nonMatch(logicalSort())
                 .matches(logicalTopN());

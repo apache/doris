@@ -192,6 +192,10 @@ public class MetaServiceClient {
         return blockingStub.getTxn(request);
     }
 
+    public Cloud.GetTxnIdResponse getTxnId(Cloud.GetTxnIdRequest request) {
+        return blockingStub.getTxnId(request);
+    }
+
     public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request) {
         return blockingStub.getCurrentMaxTxnId(request);
     }
@@ -313,5 +317,27 @@ public class MetaServiceClient {
             return blockingStub.getInstance(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
         return blockingStub.getInstance(request);
+    }
+
+    public Cloud.GetRLTaskCommitAttachResponse
+            getRLTaskCommitAttach(Cloud.GetRLTaskCommitAttachRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.GetRLTaskCommitAttachRequest.Builder builder =
+                    Cloud.GetRLTaskCommitAttachRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.getRlTaskCommitAttach(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.getRlTaskCommitAttach(request);
+    }
+
+    public Cloud.GetObjStoreInfoResponse
+            getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.GetObjStoreInfoRequest.Builder builder =
+                    Cloud.GetObjStoreInfoRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.getObjStoreInfo(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.getObjStoreInfo(request);
     }
 }

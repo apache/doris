@@ -17,47 +17,63 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableSet;
-
-import java.util.List;
-import java.util.function.Supplier;
 
 /**
  * Propagate fd, keep children's fd
  */
 public interface PropagateFuncDeps extends LogicalPlan {
     @Override
-    default FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    default DataTrait computeFuncDeps() {
         if (children().size() == 1) {
             // Note when changing function dependencies, we always clone it.
             // So it's safe to return a reference
-            return child(0).getLogicalProperties().getFunctionalDependencies();
+            return child(0).getLogicalProperties().getTrait();
         }
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        DataTrait.Builder builder = new DataTrait.Builder();
         children().stream()
-                .map(p -> p.getLogicalProperties().getFunctionalDependencies())
-                .forEach(builder::addFunctionalDependencies);
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+                .map(p -> p.getLogicalProperties().getTrait())
+                .forEach(builder::addDataTrait);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
         builder.addFdItems(fdItems);
         return builder.build();
     }
 
     @Override
-    default ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+    default ImmutableSet<FdItem> computeFdItems() {
         if (children().size() == 1) {
             // Note when changing function dependencies, we always clone it.
             // So it's safe to return a reference
-            return child(0).getLogicalProperties().getFunctionalDependencies().getFdItems();
+            return child(0).getLogicalProperties().getTrait().getFdItems();
         }
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
         children().stream()
-                .map(p -> p.getLogicalProperties().getFunctionalDependencies().getFdItems())
+                .map(p -> p.getLogicalProperties().getTrait().getFdItems())
                 .forEach(builder::addAll);
         return builder.build();
+    }
+
+    @Override
+    default void computeUnique(DataTrait.Builder builder) {
+        builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
+    }
+
+    @Override
+    default void computeUniform(DataTrait.Builder builder) {
+        builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
+    }
+
+    @Override
+    default void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child(0).getLogicalProperties().getTrait());
+    }
+
+    @Override
+    default void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child(0).getLogicalProperties().getTrait());
     }
 }

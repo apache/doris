@@ -19,10 +19,13 @@ package org.apache.doris.httpv2.controller;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
@@ -67,7 +70,8 @@ public class BaseController {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
             UserIdentity currentUser = checkPassword(authInfo);
 
-            if (checkAuth) {
+            if (Config.isCloudMode() && checkAuth) {
+                checkInstanceOverdue(currentUser);
                 checkGlobalAuth(currentUser, PrivPredicate.ADMIN_OR_NODE);
             }
 
@@ -134,6 +138,13 @@ public class BaseController {
             return null;
         }
 
+        if (Config.isCloudMode() && checkAuth && !sessionValue.currentUser.isRootUser()
+                && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
+                == Cloud.InstanceInfoPB.Status.OVERDUE) {
+            return null;
+        }
+
+
         updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
 
         ConnectContext ctx = new ConnectContext();
@@ -199,6 +210,15 @@ public class BaseController {
         }
     }
 
+    protected void checkInstanceOverdue(UserIdentity currentUsr) {
+        Cloud.InstanceInfoPB.Status s = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus();
+        if (!currentUsr.isRootUser()
+                && s == Cloud.InstanceInfoPB.Status.OVERDUE) {
+            LOG.warn("this warehouse is overdue root:{}, status:{}", currentUsr.isRootUser(), s);
+            throw new UnauthorizedException("The warehouse is overdue!");
+        }
+    }
+
     protected void checkGlobalAuth(UserIdentity currentUser, PrivPredicate predicate) throws UnauthorizedException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
@@ -208,7 +228,8 @@ public class BaseController {
 
     protected void checkDbAuth(UserIdentity currentUser, String db, PrivPredicate predicate)
             throws UnauthorizedException {
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUser, db, predicate)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, db, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -216,7 +237,8 @@ public class BaseController {
 
     protected void checkTblAuth(UserIdentity currentUser, String db, String tbl, PrivPredicate predicate)
             throws UnauthorizedException {
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, db, tbl, predicate)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, db, tbl, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }

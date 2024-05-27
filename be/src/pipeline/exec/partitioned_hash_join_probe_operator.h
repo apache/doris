@@ -24,8 +24,6 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h" // LocalExchangeChannelIds
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/runtime/partitioner.h"
 
 namespace doris {
@@ -33,27 +31,23 @@ class RuntimeState;
 
 namespace pipeline {
 
-using PartitionerType = vectorized::XXHashPartitioner<LocalExchangeChannelIds>;
+using PartitionerType = vectorized::Crc32HashPartitioner<vectorized::SpillPartitionChannelIds>;
 
 class PartitionedHashJoinProbeOperatorX;
 
 class PartitionedHashJoinProbeLocalState final
-        : public JoinProbeLocalState<PartitionedHashJoinSharedState,
-                                     PartitionedHashJoinProbeLocalState> {
+        : public PipelineXSpillLocalState<PartitionedHashJoinSharedState> {
 public:
     using Parent = PartitionedHashJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(PartitionedHashJoinProbeLocalState);
     PartitionedHashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent);
     ~PartitionedHashJoinProbeLocalState() override = default;
 
-    void add_tuple_is_null_column(vectorized::Block* block) override {}
-
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
-    Status spill_build_block(RuntimeState* state, uint32_t partition_index);
-    Status spill_probe_blocks(RuntimeState* state, uint32_t partition_index);
+    Status spill_probe_blocks(RuntimeState* state);
 
     Status recovery_build_blocks_from_disk(RuntimeState* state, uint32_t partition_index,
                                            bool& has_data);
@@ -68,8 +62,14 @@ public:
     friend class PartitionedHashJoinProbeOperatorX;
 
 private:
+    template <typename LocalStateType>
+    friend class StatefulOperatorX;
+
     std::shared_ptr<BasicSharedState> _in_mem_shared_state_sptr;
     uint32_t _partition_cursor {0};
+
+    std::unique_ptr<vectorized::Block> _child_block;
+    bool _child_eos {false};
 
     std::mutex _spill_lock;
     Status _spill_status;
@@ -93,16 +93,17 @@ private:
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
     RuntimeProfile::Counter* _spill_build_rows = nullptr;
     RuntimeProfile::Counter* _spill_build_blocks = nullptr;
+    RuntimeProfile::Counter* _spill_build_timer = nullptr;
     RuntimeProfile::Counter* _recovery_build_rows = nullptr;
     RuntimeProfile::Counter* _recovery_build_blocks = nullptr;
+    RuntimeProfile::Counter* _recovery_build_timer = nullptr;
     RuntimeProfile::Counter* _spill_probe_rows = nullptr;
     RuntimeProfile::Counter* _spill_probe_blocks = nullptr;
+    RuntimeProfile::Counter* _spill_probe_timer = nullptr;
     RuntimeProfile::Counter* _recovery_probe_rows = nullptr;
     RuntimeProfile::Counter* _recovery_probe_blocks = nullptr;
+    RuntimeProfile::Counter* _recovery_probe_timer = nullptr;
 
-    RuntimeProfile::Counter* _spill_read_data_time = nullptr;
-    RuntimeProfile::Counter* _spill_deserialize_time = nullptr;
-    RuntimeProfile::Counter* _spill_read_bytes = nullptr;
     RuntimeProfile::Counter* _spill_serialize_block_timer = nullptr;
     RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
     RuntimeProfile::Counter* _spill_data_size = nullptr;
@@ -130,6 +131,10 @@ private:
     RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
     RuntimeProfile::Counter* _process_other_join_conjunct_timer = nullptr;
+    RuntimeProfile::Counter* _probe_timer = nullptr;
+    RuntimeProfile::Counter* _probe_rows_counter = nullptr;
+    RuntimeProfile::Counter* _join_filter_timer = nullptr;
+    RuntimeProfile::Counter* _build_output_block_timer = nullptr;
 };
 
 class PartitionedHashJoinProbeOperatorX final
@@ -167,15 +172,21 @@ public:
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    bool need_data_from_children(RuntimeState* state) const override;
+    void set_inner_operators(const std::shared_ptr<HashJoinBuildSinkOperatorX>& sink_operator,
+                             const std::shared_ptr<HashJoinProbeOperatorX>& probe_operator) {
+        _inner_sink_operator = sink_operator;
+        _inner_probe_operator = probe_operator;
+    }
 
 private:
-    Status _revoke_memory(RuntimeState* state, bool& wait_for_io);
+    Status _revoke_memory(RuntimeState* state);
 
     friend class PartitionedHashJoinProbeLocalState;
 
     [[nodiscard]] Status _setup_internal_operators(PartitionedHashJoinProbeLocalState& local_state,
                                                    RuntimeState* state) const;
+    [[nodiscard]] Status _setup_internal_operator_for_non_spill(
+            PartitionedHashJoinProbeLocalState& local_state, RuntimeState* state);
 
     bool _should_revoke_memory(RuntimeState* state) const;
 
@@ -184,8 +195,8 @@ private:
 
     const TJoinDistributionType::type _join_distribution;
 
-    std::unique_ptr<HashJoinBuildSinkOperatorX> _sink_operator;
-    std::unique_ptr<HashJoinProbeOperatorX> _probe_operator;
+    std::shared_ptr<HashJoinBuildSinkOperatorX> _inner_sink_operator;
+    std::shared_ptr<HashJoinProbeOperatorX> _inner_probe_operator;
 
     // probe expr
     std::vector<TExpr> _probe_exprs;

@@ -94,17 +94,12 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
         : _segment_id(segment_id),
           _meta_mem_usage(0),
           _rowset_id(rowset_id),
-          _tablet_schema(std::move(tablet_schema)),
-          _segment_meta_mem_tracker(
-                  ExecEnv::GetInstance()->storage_engine().segment_meta_mem_tracker()) {
+          _tablet_schema(std::move(tablet_schema)) {
     g_total_segment_num << 1;
 }
 
 Segment::~Segment() {
     g_total_segment_num << -1;
-#ifndef BE_TEST
-    _segment_meta_mem_tracker->release(_meta_mem_usage);
-#endif
 }
 
 Status Segment::_open() {
@@ -169,13 +164,12 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             return Status::OK();
         }
     }
-    if (read_options.use_topn_opt) {
+
+    if (!read_options.topn_filter_source_node_ids.empty()) {
         auto* query_ctx = read_options.runtime_state->get_query_ctx();
         for (int id : read_options.topn_filter_source_node_ids) {
-            if (!query_ctx->get_runtime_predicate(id).need_update()) {
-                continue;
-            }
-            auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate();
+            auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate(
+                    read_options.topn_filter_target_node_id);
 
             int32_t uid =
                     read_options.tablet_schema->column(runtime_predicate->column_id()).unique_id();
@@ -288,6 +282,15 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
 }
 
 Status Segment::_load_pk_bloom_filter() {
+#ifdef BE_TEST
+    if (_pk_index_meta == nullptr) {
+        // for BE UT "segment_cache_test"
+        return _load_pk_bf_once.call([this] {
+            _meta_mem_usage += 100;
+            return Status::OK();
+        });
+    }
+#endif
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS);
     DCHECK(_pk_index_meta != nullptr);
     DCHECK(_pk_index_reader != nullptr);
@@ -295,7 +298,6 @@ Status Segment::_load_pk_bloom_filter() {
         return _load_pk_bf_once.call([this] {
             RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, *_pk_index_meta));
             _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
-            _segment_meta_mem_tracker->consume(_pk_index_reader->get_bf_memory_size());
             return Status::OK();
         });
     }();
@@ -318,6 +320,7 @@ Status Segment::load_pk_index_and_bf() {
     RETURN_IF_ERROR(_load_pk_bloom_filter());
     return Status::OK();
 }
+
 Status Segment::load_index() {
     auto status = [this]() { return _load_index_impl(); }();
     if (!status.ok()) {
@@ -332,7 +335,6 @@ Status Segment::_load_index_impl() {
             _pk_index_reader.reset(new PrimaryKeyIndexReader());
             RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta));
             _meta_mem_usage += _pk_index_reader->get_memory_size();
-            _segment_meta_mem_tracker->consume(_pk_index_reader->get_memory_size());
             return Status::OK();
         } else {
             // read and parse short key index page
@@ -355,7 +357,6 @@ Status Segment::_load_index_impl() {
             DCHECK(footer.has_short_key_page_footer());
 
             _meta_mem_usage += body.get_size();
-            _segment_meta_mem_tracker->consume(body.get_size());
             _sk_index_decoder.reset(new ShortKeyIndexDecoder);
             return _sk_index_decoder->parse(body, footer.short_key_page_footer());
         }
@@ -416,6 +417,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second), footer.num_rows(),
                                              _file_reader, &reader));
         _column_readers.emplace(column.unique_id(), std::move(reader));
+        _meta_mem_usage += config::estimated_mem_per_column_reader;
     }
 
     // init by column path
@@ -424,7 +426,9 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         if (!column.has_path_info()) {
             continue;
         }
-        auto iter = column_path_to_footer_ordinal.find(*column.path_info_ptr());
+        auto path = column.has_path_info() ? *column.path_info_ptr()
+                                           : vectorized::PathInData(column.name_lower_case());
+        auto iter = column_path_to_footer_ordinal.find(path);
         if (iter == column_path_to_footer_ordinal.end()) {
             continue;
         }

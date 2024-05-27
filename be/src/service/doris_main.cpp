@@ -24,7 +24,10 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
+#endif
 #include <libgen.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -169,8 +172,9 @@ auto instruction_fail_to_string(InstructionFail fail) {
     case InstructionFail::ARM_NEON:
         ret("ARM_NEON");
     }
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+
+    LOG(ERROR) << "Unrecognized instruction fail value." << std::endl;
+    exit(-1);
 }
 
 sigjmp_buf jmpbuf;
@@ -312,7 +316,10 @@ int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
     // create StackTraceCache Instance, at the beginning, other static destructors may use.
     StackTrace::createCache();
-
+    // extern doris::ErrorCode::ErrorCodeInitializer error_code_init;
+    // Some developers will modify status.h and we use a very ticky logic to init error_states
+    // and it maybe not inited. So add a check here.
+    doris::ErrorCode::error_code_init.check_init();
     // check if print version or help
     if (argc > 1) {
         if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {
@@ -411,6 +418,9 @@ int main(int argc, char** argv) {
     }
 
     std::vector<doris::StorePath> spill_paths;
+    if (doris::config::spill_storage_root_path.empty()) {
+        doris::config::spill_storage_root_path = doris::config::storage_root_path;
+    }
     olap_res = doris::parse_conf_store_paths(doris::config::spill_storage_root_path, &spill_paths);
     if (!olap_res) {
         LOG(ERROR) << "parse config spill storage path failed, path="
@@ -436,6 +446,7 @@ int main(int argc, char** argv) {
                 it = paths.erase(it);
             } else {
                 LOG(ERROR) << "read write test file failed, path=" << it->path;
+                // if only one disk and the disk is full, also need exit because rocksdb will open failed
                 exit(-1);
             }
         } else {
@@ -619,6 +630,8 @@ int main(int argc, char** argv) {
     LOG(INFO) << "Be server stopped";
     brpc_service.reset(nullptr);
     LOG(INFO) << "Brpc service stopped";
+    service.reset();
+    LOG(INFO) << "Backend Service stopped";
     exec_env->destroy();
     doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
     LOG(INFO) << "Doris main exited.";

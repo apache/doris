@@ -22,6 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -69,9 +70,9 @@ public class ColumnDef {
         // used for column which defaultValue is an expression.
         public DefaultValueExprDef defaultValueExprDef;
 
-        public DefaultValue(boolean isSet, String value) {
+        public DefaultValue(boolean isSet, Object value) {
             this.isSet = isSet;
-            this.value = value;
+            this.value = value == null ? null : value.toString();
             this.defaultValueExprDef = null;
         }
 
@@ -97,6 +98,7 @@ public class ColumnDef {
         // default "CURRENT_TIMESTAMP", only for DATETIME type
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
         public static String NOW = "now";
+        public static String HLL_EMPTY = "HLL_EMPTY";
         public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP, NOW);
         // no default value
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
@@ -104,7 +106,7 @@ public class ColumnDef {
         public static DefaultValue NULL_DEFAULT_VALUE = new DefaultValue(true, null);
         public static String ZERO = new String(new byte[] {0});
         // default "value", "0" means empty hll
-        public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
+        public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO, HLL_EMPTY);
         // default "value", "0" means empty bitmap
         public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
         // default "value", "[]" means empty array
@@ -176,6 +178,7 @@ public class ColumnDef {
     private boolean isAllowNull;
     private boolean isAutoInc;
     private long autoIncInitValue;
+    private KeysType keysType;
     private DefaultValue defaultValue;
     private String comment;
     private boolean visible;
@@ -278,6 +281,10 @@ public class ColumnDef {
         this.isKey = isKey;
     }
 
+    public void setKeysType(KeysType keysType) {
+        this.keysType = keysType;
+    }
+
     public TypeDef getTypeDef() {
         return typeDef;
     }
@@ -318,8 +325,10 @@ public class ColumnDef {
             if (isKey) {
                 throw new AnalysisException("Key column can not set complex type:" + name);
             }
-            if (aggregateType == null) {
-                throw new AnalysisException("complex type have to use aggregate function: " + name);
+            if (keysType == null || keysType == KeysType.AGG_KEYS) {
+                if (aggregateType == null) {
+                    throw new AnalysisException("complex type have to use aggregate function: " + name);
+                }
             }
             isAllowNull = false;
         }
@@ -381,9 +390,15 @@ public class ColumnDef {
                     + "].");
         }
 
-        if (isKey() && type.getPrimitiveType() == PrimitiveType.JSONB) {
-            throw new AnalysisException("JSONB type should not be used in key column[" + getName()
-                    + "].");
+        if (type.getPrimitiveType() == PrimitiveType.JSONB
+                || type.getPrimitiveType() == PrimitiveType.VARIANT) {
+            if (isKey()) {
+                throw new AnalysisException("JSONB or VARIANT type should not be used in key column[" + getName()
+                        + "].");
+            }
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("JSONB or VARIANT type column default value just support null");
+            }
         }
 
         if (type.getPrimitiveType() == PrimitiveType.MAP) {

@@ -18,11 +18,12 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -37,11 +38,12 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * A relation that contains only one row consist of some constant expressions.
@@ -85,6 +87,11 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalOneRowRelation(relationId, projects, groupExpression, logicalProperties);
+    }
+
+    @Override
+    public LogicalOneRowRelation withRelationId(RelationId relationId) {
+        throw new RuntimeException("should not call LogicalOneRowRelation's withRelationId method");
     }
 
     @Override
@@ -136,20 +143,18 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        outputSupplier.get().forEach(s -> {
-            builder.addUniformSlot(s);
-            builder.addUniqueSlot(s);
-        });
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        builder.addFdItems(fdItems);
-        return builder.build();
+    public void computeUnique(DataTrait.Builder builder) {
+        getOutput().forEach(builder::addUniqueSlot);
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
+    public void computeUniform(DataTrait.Builder builder) {
+        getOutput().forEach(builder::addUniformSlot);
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems() {
+        Set<NamedExpression> output = ImmutableSet.copyOf(getOutput());
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
         ImmutableSet<SlotReference> slotSet = output.stream()
                 .filter(SlotReference.class::isInstance)
@@ -159,5 +164,23 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
         builder.add(fdItem);
 
         return builder.build();
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        Map<Expression, NamedExpression> aliasMap = new HashMap<>();
+        for (NamedExpression namedExpr : getOutputs()) {
+            if (namedExpr instanceof Alias) {
+                if (aliasMap.containsKey(namedExpr.child(0))) {
+                    builder.addEqualPair(namedExpr.toSlot(), aliasMap.get(namedExpr.child(0)).toSlot());
+                }
+                aliasMap.put(namedExpr.child(0), namedExpr);
+            }
+        }
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        // don't generate
     }
 }

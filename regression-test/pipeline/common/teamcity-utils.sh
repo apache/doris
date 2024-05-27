@@ -274,11 +274,29 @@ trigger_or_skip_build() {
     else
         skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
         if [[ ${COMMENT_TRIGGER_TYPE} == "compile" ]]; then
-            # skip compile 的时候，也把 p0 p1 external 都 skip 了
+            # skip compile 的时候，也把 p0 p1 external cloud_p0 cloud_p1 都 skip 了
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "p0"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "p1"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "external"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p0"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p1"
         fi
     fi
 }
 # trigger_or_skip_build "$1" "$2" "$3" "$4" "$5"
+
+reporting_build_problem() {
+    set +e
+    desc="$1"
+    if [[ -z "${desc}" ]]; then return 1; fi
+    # https://www.jetbrains.com/help/teamcity/service-messages.html#Reporting+Build+Problems
+    echo "##teamcity[buildProblem description='${desc}']"
+}
+
+reporting_messages_error() {
+    set +e
+    msg="$1"
+    if [[ -z "${msg}" ]]; then return 1; fi
+    # https://www.jetbrains.com/help/teamcity/service-messages.html#Reporting+Messages+to+Build+Log
+    echo "##teamcity[message text='Error Message:' errorDetails='${msg}' status='ERROR']"
+}

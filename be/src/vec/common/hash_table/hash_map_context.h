@@ -48,7 +48,7 @@ struct MethodBaseInner {
     using Value = typename HashMap::value_type;
     using HashMapType = HashMap;
 
-    std::shared_ptr<HashMap> hash_table;
+    std::shared_ptr<HashMap> hash_table = nullptr;
     bool inited_iterator = false;
     Key* keys = nullptr;
     Arena arena;
@@ -125,7 +125,7 @@ struct MethodBaseInner {
         if constexpr (!is_string_hash_map()) {
             prefetch<true>(i);
         }
-        return state.find_key_with_hash(*hash_table, hash_values[i], keys[i]);
+        return state.find_key_with_hash(*hash_table, i, keys[i], hash_values[i]);
     }
 
     template <typename State, typename F, typename FF>
@@ -346,12 +346,7 @@ struct MethodOneNumber : public MethodBase<TData> {
 
     void insert_keys_into_columns(std::vector<typename Base::Key>& input_keys,
                                   MutableColumns& key_columns, const size_t num_rows) override {
-        key_columns[0]->reserve(num_rows);
-        auto* column = static_cast<ColumnVectorHelper*>(key_columns[0].get());
-        for (size_t i = 0; i != num_rows; ++i) {
-            const auto* key_holder = reinterpret_cast<const char*>(&input_keys[i]);
-            column->insert_raw_data<sizeof(FieldType)>(key_holder);
-        }
+        key_columns[0]->insert_many_raw_data((char*)input_keys.data(), num_rows);
     }
 };
 

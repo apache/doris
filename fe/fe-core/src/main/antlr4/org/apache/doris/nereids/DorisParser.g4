@@ -60,6 +60,14 @@ statementBase
         properties=propertyClause?
         (BROKER extProperties=propertyClause)?
         (AS query)?                                                    #createTable
+    | CREATE VIEW (IF NOT EXISTS)? name=multipartIdentifier
+        (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
+        (COMMENT STRING_LITERAL)? AS query                                #createView
+    | ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
+        AS query                                                          #alterView
+    | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
+      LIKE existedTable=multipartIdentifier
+      (WITH ROLLUP (rollupNames=identifierList)?)?           #createTableLike
     | explain? INSERT (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         partitionSpec?  // partition define
@@ -69,7 +77,7 @@ statementBase
     | explain? cte? UPDATE tableName=multipartIdentifier tableAlias
         SET updateAssignmentSeq
         fromClause?
-        whereClause                                                    #update
+        whereClause?                                                   #update
     | explain? cte? DELETE FROM tableName=multipartIdentifier
         partitionSpec? tableAlias
         (USING relations)?
@@ -91,9 +99,9 @@ statementBase
     | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
         (REFRESH refreshMethod? refreshTrigger?)?
-        (KEY keys=identifierList)?
+        ((DUPLICATE)? KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
-        (PARTITION BY LEFT_PAREN partitionKey = identifier RIGHT_PAREN)?
+        (PARTITION BY LEFT_PAREN mvPartition RIGHT_PAREN)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
         AS query                                                        #createMTMV
@@ -110,7 +118,40 @@ statementBase
         constraint                                                        #addConstraint
     | ALTER TABLE table=multipartIdentifier
         DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
-    | SHOW CONSTRAINTS FROM table=multipartIdentifier                                 #showConstraint
+    | SHOW CONSTRAINTS FROM table=multipartIdentifier                     #showConstraint
+    | unsupportedStatement                                                #unsupported
+    ;
+
+unsupportedStatement
+    : SET identifier AS DEFAULT STORAGE VAULT                              #setDefaultStorageVault
+    | SET PROPERTY (FOR user=identifierOrText)? propertyItemList           #setUserProperties
+    | SET (GLOBAL | LOCAL | SESSION)? identifier EQ (expression | DEFAULT) #setSystemVariableWithType
+    | SET variable                                                         #setSystemVariableWithoutType
+    | SET (CHAR SET | CHARSET) (charsetName=identifierOrText | DEFAULT)    #setCharset
+    | SET NAMES EQ expression                                              #setNames
+    | SET (GLOBAL | LOCAL | SESSION)? TRANSACTION
+        ( transactionAccessMode
+        | isolationLevel
+        | transactionAccessMode COMMA isolationLevel
+        | isolationLevel COMMA transactionAccessMode)                     #setTransaction
+    | SET NAMES (charsetName=identifierOrText | DEFAULT) (COLLATE collateName=identifierOrText | DEFAULT)?    #setCollate
+    | SET PASSWORD (FOR userIdentify)? EQ (STRING_LITERAL | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN)) #setPassword
+    | SET LDAP_ADMIN_PASSWORD EQ (STRING_LITERAL | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))          #setLdapAdminPassword
+    | USE (catalog=identifier DOT)? database=identifier                              #useDatabase
+    | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+    ;
+
+variable
+    : (ATSIGN ATSIGN (GLOBAL | LOCAL | SESSION)?)? identifier EQ (expression | DEFAULT) #setSystemVariable
+    | ATSIGN identifier EQ expression #setUserVariable
+    ;
+
+transactionAccessMode
+    : READ (ONLY | WRITE)
+    ;
+
+isolationLevel
+    : ISOLATION LEVEL ((READ UNCOMMITTED) | (READ COMMITTED) | (REPEATABLE READ) | (SERIALIZABLE))
     ;
 
 constraint
@@ -182,6 +223,11 @@ refreshSchedule
 
 refreshMethod
     : COMPLETE | AUTO
+    ;
+
+mvPartition
+    : partitionKey = identifier
+    | partitionExpr = functionCallExpression
     ;
 
 identifierOrStringLiteral
@@ -298,7 +344,7 @@ query
 
 queryTerm
     : queryPrimary                                                         #queryTermDefault
-    | left=queryTerm operator=(UNION | EXCEPT | INTERSECT)
+    | left=queryTerm operator=(UNION | EXCEPT | MINUS | INTERSECT)
       setQuantifier? right=queryTerm                                       #setOperation
     ;
 
@@ -483,7 +529,7 @@ optScanParams
 
 relationPrimary
     : multipartIdentifier optScanParams? materializedViewName? specifiedPartition?
-       tabletList? tableAlias sample? relationHint? lateralView*           #tableName
+       tabletList? tableAlias sample? tableSnapshot? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
@@ -538,8 +584,8 @@ columnDef
         (aggType=aggTypeDef)?
         ((NOT)? NULL)?
         (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
-        (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL| CURRENT_DATE
-            | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
+        (DEFAULT (nullValue=NULL | INTEGER_VALUE | DECIMAL_VALUE | stringValue=STRING_LITERAL
+           | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
@@ -635,6 +681,7 @@ booleanExpression
     | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN                       #is_not_null_pred
     | valueExpression predicate?                                                    #predicated
     | left=booleanExpression operator=(AND | LOGICALAND) right=booleanExpression    #logicalBinary
+    | left=booleanExpression operator=XOR right=booleanExpression                   #logicalBinary
     | left=booleanExpression operator=OR right=booleanExpression                    #logicalBinary
     | left=booleanExpression operator=DOUBLEPIPES right=booleanExpression           #doublePipes
     ;
@@ -899,6 +946,7 @@ primitiveColType:
     | type=DECIMALV3
     | type=IPV4
     | type=IPV6
+    | type=VARIANT
     | type=ALL
     ;
 
@@ -921,6 +969,11 @@ sample
 sampleMethod
     : percentage=INTEGER_VALUE PERCENT                              #sampleByPercentile
     | INTEGER_VALUE ROWS                                            #sampleByRows
+    ;
+
+tableSnapshot
+    : FOR VERSION AS OF version=INTEGER_VALUE
+    | FOR TIME AS OF time=STRING_LITERAL
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
@@ -1013,6 +1066,7 @@ nonReserved
     | CONNECTION
     | CONNECTION_ID
     | CONSISTENT
+    | CONSTRAINTS
     | CONVERT
     | COPY
     | COUNT
@@ -1033,10 +1087,10 @@ nonReserved
     | DATEADD
     | DATEDIFF
     | DATETIME
-    | DATETIMEV2
-    | DATEV2
     | DATETIMEV1
+    | DATETIMEV2
     | DATEV1
+    | DATEV2
     | DAY
     | DAYS_ADD
     | DAYS_SUB
@@ -1050,6 +1104,7 @@ nonReserved
     | DISTINCTPCSA
     | DO
     | DORIS_INTERNAL_TABLE_ID
+    | DUAL
     | DYNAMIC
     | ENABLE
     | ENCRYPTKEY
@@ -1094,6 +1149,8 @@ nonReserved
     | INCREMENTAL
     | INDEXES
     | INVERTED
+    | IPV4
+    | IPV6
     | IS_NOT_NULL_PRED
     | IS_NULL_PRED
     | ISNULL
@@ -1119,6 +1176,12 @@ nonReserved
     | LOGICAL
     | MANUAL
     | MAP
+    | MATCH_ALL
+    | MATCH_ANY
+    | MATCH_PHRASE
+    | MATCH_PHRASE_EDGE
+    | MATCH_PHRASE_PREFIX
+    | MATCH_REGEXP
     | MATERIALIZED
     | MAX
     | MEMO
@@ -1159,11 +1222,11 @@ nonReserved
     | PERMISSIVE
     | PHYSICAL
     | PLAN
-    | PROCESS
     | PLUGIN
     | PLUGINS
     | POLICY
     | PROC
+    | PROCESS
     | PROCESSLIST
     | PROFILE
     | PROPERTIES
@@ -1241,6 +1304,8 @@ nonReserved
     | VALUE
     | VARCHAR
     | VARIABLES
+    | VARIANT
+    | VAULT
     | VERBOSE
     | VERSION
     | VIEW

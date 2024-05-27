@@ -226,6 +226,16 @@ public class MetaServiceProxy {
         }
     }
 
+    public Cloud.GetTxnIdResponse getTxnId(Cloud.GetTxnIdRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.getTxnId(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
     public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request)
             throws RpcException {
         try {
@@ -438,6 +448,27 @@ public class MetaServiceProxy {
         try {
             final MetaServiceClient client = getProxy();
             return client.alterObjStoreInfo(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.GetRLTaskCommitAttachResponse
+            getRLTaskCommitAttach(Cloud.GetRLTaskCommitAttachRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.getRLTaskCommitAttach(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.GetObjStoreInfoResponse
+            getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.getObjStoreInfo(request);
         } catch (Exception e) {
             throw new RpcException("", e.getMessage(), e);
         }

@@ -6,19 +6,21 @@ PhysicalResultSink
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
 ----------NestedLoopJoin[INNER_JOIN](cast(value as DOUBLE) > cast((sum((ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))) * 0.000002) as DOUBLE))
-------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[ps_suppkey]
-------------------PhysicalProject
---------------------PhysicalOlapScan[partsupp] apply RFs: RF3
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF2 n_nationkey->[s_nationkey]
+------------PhysicalProject
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[ps_suppkey]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[partsupp] apply RFs: RF3
+--------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[supplier] apply RFs: RF2
-----------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------PhysicalProject
---------------------------filter((nation.n_name = 'GERMANY'))
-----------------------------PhysicalOlapScan[nation]
+------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF2 n_nationkey->[s_nationkey]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[supplier] apply RFs: RF2
+--------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------PhysicalProject
+------------------------------filter((nation.n_name = 'GERMANY'))
+--------------------------------PhysicalOlapScan[nation]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------hashAgg[GLOBAL]
@@ -29,11 +31,12 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[partsupp] apply RFs: RF1
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[s_nationkey]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[supplier] apply RFs: RF0
-------------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[s_nationkey]
 --------------------------------PhysicalProject
-----------------------------------filter((nation.n_name = 'GERMANY'))
-------------------------------------PhysicalOlapScan[nation]
+----------------------------------PhysicalOlapScan[supplier] apply RFs: RF0
+--------------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------------PhysicalProject
+------------------------------------filter((nation.n_name = 'GERMANY'))
+--------------------------------------PhysicalOlapScan[nation]
 

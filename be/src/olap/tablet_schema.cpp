@@ -560,6 +560,10 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _column_path->from_protobuf(column.column_path_info());
         _parent_col_unique_id = column.column_path_info().parrent_column_unique_id();
     }
+    if (is_variant_type() && !column.has_column_path_info()) {
+        // set path info for variant root column, to prevent from missing
+        _column_path = std::make_shared<vectorized::PathInData>(_col_name_lower_case);
+    }
     for (auto& column_pb : column.sparse_columns()) {
         TabletColumn column;
         column.init_from_pb(column_pb);
@@ -796,6 +800,11 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
     }
     index->set_index_type(_index_type);
     for (const auto& kv : _properties) {
+        DBUG_EXECUTE_IF("tablet_schema.to_schema_pb", {
+            if (kv.first == INVERTED_INDEX_PARSER_LOWERCASE_KEY) {
+                continue;
+            }
+        })
         (*index->mutable_properties())[kv.first] = kv.second;
     }
     index->set_index_suffix_name(_escaped_index_suffix_path);
@@ -803,9 +812,11 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
     DBUG_EXECUTE_IF("tablet_schema.to_schema_pb", { return; })
 
     // lowercase by default
-    if (!_properties.contains(INVERTED_INDEX_PARSER_LOWERCASE_KEY)) {
-        (*index->mutable_properties())[INVERTED_INDEX_PARSER_LOWERCASE_KEY] =
-                INVERTED_INDEX_PARSER_TRUE;
+    if (!_properties.empty()) {
+        if (!_properties.contains(INVERTED_INDEX_PARSER_LOWERCASE_KEY)) {
+            (*index->mutable_properties())[INVERTED_INDEX_PARSER_LOWERCASE_KEY] =
+                    INVERTED_INDEX_PARSER_TRUE;
+        }
     }
 }
 
@@ -1284,7 +1295,7 @@ bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
     return false;
 }
 
-bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id,
+bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id,
                                                     const std::string& suffix_name) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED &&
@@ -1296,7 +1307,7 @@ bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id,
 }
 
 const TabletIndex* TabletSchema::get_inverted_index_with_index_id(
-        int32_t index_id, const std::string& suffix_name) const {
+        int64_t index_id, const std::string& suffix_name) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED &&
             _indexes[i].get_index_suffix() == suffix_name && _indexes[i].index_id() == index_id) {

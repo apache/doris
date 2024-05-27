@@ -26,6 +26,7 @@ import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.BindSlotWithPaths;
+import org.apache.doris.nereids.rules.analysis.BuildAggForRandomDistributedTable;
 import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
@@ -43,8 +44,8 @@ import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
-import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
+import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
@@ -147,7 +148,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 // please see rule BindSlotReference or BindFunction for example
                 new EliminateDistinctConstant(),
                 new ProjectWithDistinctToAggregate(),
-                new ResolveOrdinalInOrderByAndGroupBy(),
                 new ReplaceExpressionByChildOutput(),
                 new OneRowRelationExtractAggregate()
             ),
@@ -159,6 +159,17 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 new NormalizeRepeat()
             ),
             bottomUp(new AdjustAggregateNullableForEmptySet()),
+            // consider sql with user defined var @t_zone
+            // set @t_zone='GMT';
+            // SELECT
+            //     DATE_FORMAT(convert_tz(dt, time_zone, @t_zone),'%Y-%m-%d') day
+            // FROM
+            //     t
+            // GROUP BY
+            //     1;
+            // @t_zone must be replaced as 'GMT' before EliminateGroupByConstant and NormalizeAggregate rule.
+            // So need run VariableToLiteral rule before the two rules.
+            topDown(new VariableToLiteral()),
             // run CheckAnalysis before EliminateGroupByConstant in order to report error message correctly like bellow
             // select SUM(lo_tax) FROM lineorder group by 1;
             // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)
@@ -166,6 +177,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new EliminateGroupByConstant()),
 
             topDown(new SimplifyAggGroupBy()),
+            // run BuildAggForRandomDistributedTable before NormalizeAggregate in order to optimize the agg plan
+            topDown(new BuildAggForRandomDistributedTable()),
             topDown(new NormalizeAggregate()),
             topDown(new HavingToFilter()),
             bottomUp(new SemiJoinCommute()),

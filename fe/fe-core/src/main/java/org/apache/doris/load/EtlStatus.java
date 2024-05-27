@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TEtlState;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -34,10 +35,13 @@ import java.util.Map.Entry;
 
 public class EtlStatus implements Writable {
     public static final String DEFAULT_TRACKING_URL = FeConstants.null_string;
-
+    @SerializedName(value = "s")
     private TEtlState state;
+    @SerializedName(value = "tu")
     private String trackingUrl;
+    @SerializedName(value = "st")
     private Map<String, String> stats;
+    @SerializedName(value = "c")
     private Map<String, String> counters;
     // not persist
     private Map<String, Long> fileMap;

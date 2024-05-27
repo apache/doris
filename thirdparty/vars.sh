@@ -253,10 +253,10 @@ GRPC_SOURCE=grpc-1.54.3
 GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
 
 # arrow
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-13.0.0.tar.gz"
-ARROW_NAME="apache-arrow-13.0.0.tar.gz"
-ARROW_SOURCE="arrow-apache-arrow-13.0.0"
-ARROW_MD5SUM="8ec1ec6a119514bcaea1cf7aabc9df1f"
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-15.0.2.tar.gz"
+ARROW_NAME="apache-arrow-15.0.2.tar.gz"
+ARROW_SOURCE="arrow-apache-arrow-15.0.2"
+ARROW_MD5SUM="d5d051b2698be901e5ad84e36d64e7ab"
 
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.3.tar.gz"
@@ -313,7 +313,7 @@ JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
 JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
 # libunwind
-LIBUNWIND_DOWNLOAD="http://download.savannah.nongnu.org/releases/libunwind/libunwind-1.6.2.tar.gz"
+LIBUNWIND_DOWNLOAD="https://github.com/libunwind/libunwind/releases/download/v1.6.2/libunwind-1.6.2.tar.gz"
 LIBUNWIND_NAME="libunwind-1.6.2.tar.gz"
 LIBUNWIND_SOURCE="libunwind-1.6.2"
 LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
@@ -466,12 +466,6 @@ HADOOP_LIBS_NAME="hadoop-3.3.6.1-for-doris.tar.gz"
 HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.1-for-doris"
 HADOOP_LIBS_MD5SUM="8a4455b07f5df2bb10a2718c957972b8"
 
-# libdragonbox for faster double/float to string
-DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
-DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
-DRAGONBOX_SOURCE=dragonbox-1.1.3
-DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
-
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
 AVX2NEON_NAME=v1.0.0.tar.gz
@@ -582,7 +576,6 @@ export TP_ARCHIVES=(
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
     'HADOOP_LIBS'
-    'DRAGONBOX'
     'AVX2NEON'
     'LIBDEFLATE'
     'STREAMVBYTE'

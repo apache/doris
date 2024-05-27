@@ -133,6 +133,15 @@ message RowsetMetaPB {
     optional bool has_variant_type_in_schema = 1005;
 }
 
+message SchemaDictKeyList {
+    // save the dict keys for column pb info
+    repeated int32 column_dict_key_list = 1;
+    // save the dict keys for tablet index pb info
+    repeated int32 index_info_dict_key_list = 2;
+    // save the dict keys for sparse column pb info
+    repeated int32 sparse_column_dict_key_list = 3;
+};
+
 message RowsetMetaCloudPB {
     required int64 rowset_id = 1; // Deprecated. Use rowset_id_v2 instead.
     optional int64 partition_id = 2;
@@ -200,7 +209,11 @@ message RowsetMetaCloudPB {
     // If enable_segments_file_size is false,
     // the segments_file_size maybe is empty or error
     optional bool enable_segments_file_size = 103;
+
+    // extra info for variants
     optional bool has_variant_type_in_schema = 104;
+    // dict key lists for compress schema info
+    optional SchemaDictKeyList schema_dict_key_list = 105;
 }
 
 message SegmentStatisticsPB {
@@ -299,6 +312,18 @@ message ColumnPB {
     // sparse column within a variant column
     repeated ColumnPB sparse_columns = 21;
     optional bool is_auto_increment = 22;
+    // only reference by variant sparse columns
+    optional int32 parent_unique_id = 23;
+}
+
+// Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size
+message SchemaCloudDictionary {
+    map<int32, ColumnPB> column_dict= 1;
+    // monotonic increasing
+    optional int64 current_column_dict_id = 2;
+    map<int32, TabletIndexPB> index_dict = 3;
+    // monotonic increasing
+    optional int64 current_index_dict_id = 4;
 }
 
 enum IndexType {

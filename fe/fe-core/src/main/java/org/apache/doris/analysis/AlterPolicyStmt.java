@@ -53,8 +53,10 @@ public class AlterPolicyStmt extends DdlStmt {
         super.analyze(analyzer);
 
         // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    PrivPredicate.ADMIN.getPrivs().toString());
         }
 
         if (properties == null || properties.isEmpty()) {

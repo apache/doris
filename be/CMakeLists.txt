@@ -72,6 +72,7 @@ option(USE_LIBCPP "Use libc++" OFF)
 option(USE_MEM_TRACKER, "Use memory tracker" ON)
 option(USE_UNWIND "Use libunwind" ON)
 option(USE_JEMALLOC "Use jemalloc" ON)
+option(USE_JEMALLOC_HOOK "Use jemalloc hook" ON)
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
@@ -87,6 +88,7 @@ message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
 message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
 message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
+message(STATUS "USE_JEMALLOC_HOOK is ${USE_JEMALLOC_HOOK}")
 message(STATUS "USE_UNWIND is ${USE_UNWIND}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
 
@@ -280,9 +282,13 @@ if (COMPILER_CLANG)
                         -Wunused-volatile-lvalue
                         -Wunused-template
                         -Wunused-member-function
-                        -Wunused-macros)
-    add_compile_options(-Wno-vla-extension)
-    add_compile_options(-Wno-gnu-statement-expression)
+                        -Wunused-macros
+                        -Wconversion)
+    add_compile_options( -Wno-gnu-statement-expression
+                        -Wno-implicit-float-conversion
+                        -Wno-implicit-int-conversion
+                        -Wno-sign-conversion
+                        -Wno-shorten-64-to-32)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         if (NOT OS_MACOSX)
@@ -324,6 +330,10 @@ if (WITH_MYSQL)
     add_definitions(-DDORIS_WITH_MYSQL)
 endif()
 
+if (ENABLE_INJECTION_POINT)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_INJECTION_POINT")
+endif()
+
 # Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
 # and compaction,and observe the memory of BE through be_ip:http_port/MemTracker.
 # Adding the option `USE_MEM_TRACKER=OFF sh build.sh` when compiling can turn off the memory tracker,
@@ -336,6 +346,9 @@ endif()
 # Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc
 if (USE_JEMALLOC)
     add_definitions(-DUSE_JEMALLOC)
+endif()
+if (USE_JEMALLOC_HOOK)
+    add_definitions(-DUSE_JEMALLOC_HOOK)
 endif()
 
 # Compile with libunwind

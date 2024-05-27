@@ -66,6 +66,15 @@ public:
 
     static void convert_to_sub_pred_v2(DeletePredicatePB* delete_pred, TabletSchemaSPtr schema);
 
+    /**
+     * Use regular expression to extract 'column_name', 'op' and 'operands'
+     *
+     * @param condition_str input predicate string in form of `X OP Y`
+     * @param condition output param
+     * @return OK if matched and extracted correctly otherwise DELETE_INVALID_PARAMETERS
+     */
+    static Status parse_condition(const std::string& condition_str, TCondition* condition);
+
 private:
     // Validate the condition on the schema.
     static Status check_condition_valid(const TabletSchema& tablet_schema, const TCondition& cond);
@@ -87,7 +96,6 @@ private:
 
     // extract 'column_name', 'op' and 'operands' to condition
     static Status parse_condition(const DeleteSubPredicatePB& sub_cond, TCondition* condition);
-    static Status parse_condition(const std::string& condition_str, TCondition* condition);
 
 public:
     DeleteHandler() = default;

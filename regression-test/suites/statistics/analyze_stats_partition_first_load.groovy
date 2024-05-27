@@ -20,6 +20,7 @@ import java.util.stream.Collectors
 
 suite("test_analyze_partition_first_load") {
     String tbl = "partition_first_load_test"
+    sql """set global force_sample_analyze=false"""
 
     sql """
         DROP TABLE IF EXISTS `$tbl`

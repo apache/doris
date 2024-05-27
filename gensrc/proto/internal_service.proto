@@ -248,6 +248,7 @@ message PCancelPlanFragmentRequest {
     optional PPlanFragmentCancelReason cancel_reason = 2;
     optional PUniqueId query_id = 3;
     optional int32 fragment_id = 4;
+    optional PStatus cancel_status = 5;
 };
 
 message PCancelPlanFragmentResult {
@@ -308,6 +309,8 @@ message PTabletKeyLookupRequest {
     // For cloud
     // version to read
     optional int64 version = 7;
+    // serilized from TQueryOptions 
+    optional bytes query_options = 8;
 }
 
 message PTabletKeyLookupResponse {
@@ -406,10 +409,13 @@ message PKafkaMetaProxyRequest {
     repeated PIntegerPair offset_times = 3;
     // optional for getting latest offsets of partitons
     repeated int32 partition_id_for_latest_offsets = 4;
+    // optional for getting real offset for end/beginning flag
+    repeated PIntegerPair offset_flags = 5;
 };
 
 message PProxyRequest {
     optional PKafkaMetaProxyRequest kafka_meta_request = 1;
+    optional int64 timeout_secs = 2;
 };
 
 message PKafkaMetaProxyResult {
@@ -524,6 +530,27 @@ enum PFilterType {
     MAX_FILTER = 6;
 };
 
+message PSendFilterSizeRequest {
+    required int32 filter_id = 1;
+    required PUniqueId query_id = 2;
+    required PNetworkAddress source_addr = 3;
+    required uint64 filter_size = 4;
+};
+
+message PSendFilterSizeResponse {
+    required PStatus status = 1;
+};
+
+message PSyncFilterSizeRequest {
+    required int32 filter_id = 1;
+    required PUniqueId query_id = 2;
+    required uint64 filter_size = 3;
+};
+
+message PSyncFilterSizeResponse {
+    required PStatus status = 1;
+};
+
 message PMergeFilterRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
@@ -533,9 +560,10 @@ message PMergeFilterRequest {
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
-    optional bool opt_remote_rf = 9;
+    optional bool opt_remote_rf = 9; // Deprecated
     optional PColumnType column_type = 10;
     optional bool contain_null = 11;
+    optional bool ignored = 12;
 };
 
 message PMergeFilterResponse {
@@ -555,6 +583,7 @@ message PPublishFilterRequest {
     optional int64 merge_time = 9;
     optional PColumnType column_type = 10;
     optional bool contain_null = 11;
+    optional bool ignored = 12;
 };
 
 message PPublishFilterRequestV2 {
@@ -568,6 +597,7 @@ message PPublishFilterRequestV2 {
     optional bool is_pipeline = 8;
     optional int64 merge_time = 9;
     optional bool contain_null = 10;
+    optional bool ignored = 11;
 };
 
 message PPublishFilterResponse {
@@ -576,8 +606,10 @@ message PPublishFilterResponse {
 
 message PExprResult {
     required PScalarType type = 1;
-    required string content = 2;
+    required string content = 2; //maybe need remove after next version of 2.1
     required bool success = 3;
+    optional PTypeDesc type_desc = 4;
+    optional PValues result_content = 5;
 };
 
 message PExprResultMap {
@@ -663,6 +695,17 @@ message PFetchTableSchemaResult {
   repeated PTypeDesc column_types = 4;
 }
 
+message POutfileWriteSuccessRequest {
+    // optional string file_path = 1;
+    // optional string success_file_name = 2;
+    // map<string, string> broker_properties = 4; // only for remote file
+    optional bytes result_file_sink = 1;
+}
+
+message POutfileWriteSuccessResult {
+    optional PStatus status = 1;
+}
+
 message PJdbcTestConnectionRequest {
     optional bytes jdbc_table = 1;
     optional int32 jdbc_table_type = 2;
@@ -745,7 +788,7 @@ enum FileCacheType {
     NORMAL = 2;
 }
 
-message FileCacheSegmentMeta {
+message FileCacheBlockMeta {
     required int64 tablet_id = 1;
     required string rowset_id = 2;
     required int64 segment_id = 3;
@@ -757,7 +800,7 @@ message FileCacheSegmentMeta {
 }
 
 message PGetFileCacheMetaResponse {
-    repeated FileCacheSegmentMeta file_cache_segment_metas = 1;
+    repeated FileCacheBlockMeta file_cache_block_metas = 1;
 }
 
 message PReportStreamLoadStatusRequest {
@@ -891,6 +934,12 @@ message PFetchRemoteSchemaResponse {
     optional TabletSchemaPB merged_schema = 2;
 }
 
+message PAlterVaultSyncRequest {
+}
+
+message PAlterVaultSyncResponse {
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -914,6 +963,8 @@ service PBackendService {
     rpc commit(PCommitRequest) returns (PCommitResult);
     rpc rollback(PRollbackRequest) returns (PRollbackResult);
     rpc merge_filter(PMergeFilterRequest) returns (PMergeFilterResponse);
+    rpc send_filter_size(PSendFilterSizeRequest) returns (PSendFilterSizeResponse);
+    rpc sync_filter_size(PSyncFilterSizeRequest) returns (PSyncFilterSizeResponse);
     rpc apply_filter(PPublishFilterRequest) returns (PPublishFilterResponse);
     rpc apply_filterv2(PPublishFilterRequestV2) returns (PPublishFilterResponse);
     rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
@@ -924,6 +975,7 @@ service PBackendService {
     rpc hand_shake(PHandShakeRequest) returns (PHandShakeResponse);
     rpc request_slave_tablet_pull_rowset(PTabletWriteSlaveRequest) returns (PTabletWriteSlaveResult);
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
+    rpc outfile_write_success(POutfileWriteSuccessRequest) returns (POutfileWriteSuccessResult);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
     rpc get_file_cache_meta_by_tablet_id(PGetFileCacheMetaRequest) returns (PGetFileCacheMetaResponse);
@@ -937,5 +989,6 @@ service PBackendService {
     rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
     rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
+    rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
 };
 

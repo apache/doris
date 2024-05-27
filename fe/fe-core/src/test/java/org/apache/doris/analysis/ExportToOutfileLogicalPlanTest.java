@@ -79,7 +79,10 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
     public void testNormal() throws UserException {
         // The origin export sql
         String exportSql = "EXPORT TABLE testDb.table1\n"
-                + "TO \"file:///tmp/exp_\";";
+                + "TO \"file:///tmp/exp_\" "
+                + "PROPERTIES(\n"
+                + "\"data_consistency\" = \"none\"\n"
+                + ");";
 
         List<Long> currentTablets1 = Arrays.asList(10010L, 10012L, 10014L, 10016L, 10018L, 10020L, 10022L, 10024L,
                 10026L, 10028L);
@@ -126,7 +129,8 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
         String exportSql = "EXPORT TABLE testDb.table1\n"
                 + "TO \"file:///tmp/exp_\" "
                 + "PROPERTIES(\n"
-                + "\"parallelism\" = \"4\"\n"
+                + "\"parallelism\" = \"4\",\n"
+                + "\"data_consistency\" = \"none\"\n"
                 + ");";
 
         // This export sql should generate 4 array, and there should be 1 outfile sql in per array.
@@ -180,7 +184,8 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
         String exportSql = "EXPORT TABLE testDb.table1\n"
                 + "TO \"file:///tmp/exp_\" "
                 + "PROPERTIES(\n"
-                + "\"parallelism\" = \"3\"\n"
+                + "\"parallelism\" = \"3\",\n"
+                + "\"data_consistency\" = \"none\"\n"
                 + ");";
 
         // This export sql should generate 4 array, and there should be 1 outfile sql in per array.
@@ -240,7 +245,8 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
         String exportSql = "EXPORT TABLE testDb.table1 PARTITION (p1)\n"
                 + "TO \"file:///tmp/exp_\" "
                 + "PROPERTIES(\n"
-                + "\"parallelism\" = \"4\"\n"
+                + "\"parallelism\" = \"4\",\n"
+                + "\"data_consistency\" = \"none\"\n"
                 + ");";
 
         // This export sql should generate 4 array, and there should be 1 outfile sql in per array.
@@ -293,7 +299,8 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
         String exportSql = "EXPORT TABLE testDb.table1 PARTITION (p1, p4)\n"
                 + "TO \"file:///tmp/exp_\" "
                 + "PROPERTIES(\n"
-                + "\"parallelism\" = \"4\"\n"
+                + "\"parallelism\" = \"4\",\n"
+                + "\"data_consistency\" = \"none\"\n"
                 + ");";
 
         // This export sql should generate 4 array, and there should be 1 outfile sql in per array.
@@ -344,7 +351,8 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
         String exportSql = "EXPORT TABLE testDb.table1 PARTITION (p1)\n"
                 + "TO \"file:///tmp/exp_\" "
                 + "PROPERTIES(\n"
-                + "\"parallelism\" = \"20\"\n"
+                + "\"parallelism\" = \"20\",\n"
+                + "\"data_consistency\" = \"none\"\n"
                 + ");";
 
         // This export sql should generate 10 array because parallelism is less than the number of tablets,

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnString.cpp
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnStr<T>.cpp
 // and modified by Doris
 
 #include "vec/columns/column_string.h"
@@ -31,11 +31,11 @@
 #include "vec/common/memcmp_small.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
-#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
-void ColumnString::sanity_check() const {
+template <typename T>
+void ColumnStr<T>::sanity_check() const {
     auto count = offsets.size();
     if (chars.size() != offsets[count - 1]) {
         LOG(FATAL) << "row count: " << count << ", chars.size(): " << chars.size() << ", offset["
@@ -52,8 +52,9 @@ void ColumnString::sanity_check() const {
     }
 }
 
-MutableColumnPtr ColumnString::clone_resized(size_t to_size) const {
-    auto res = ColumnString::create();
+template <typename T>
+MutableColumnPtr ColumnStr<T>::clone_resized(size_t to_size) const {
+    auto res = ColumnStr<T>::create();
     if (to_size == 0) {
         return res;
     }
@@ -79,29 +80,66 @@ MutableColumnPtr ColumnString::clone_resized(size_t to_size) const {
     return res;
 }
 
-MutableColumnPtr ColumnString::get_shrinked_column() {
-    auto shrinked_column = ColumnString::create();
+template <typename T>
+MutableColumnPtr ColumnStr<T>::get_shrinked_column() {
+    auto shrinked_column = ColumnStr<T>::create();
     shrinked_column->get_offsets().reserve(offsets.size());
     shrinked_column->get_chars().reserve(chars.size());
     for (int i = 0; i < size(); i++) {
         StringRef str = get_data_at(i);
-        reinterpret_cast<ColumnString*>(shrinked_column.get())
+        reinterpret_cast<ColumnStr<T>*>(shrinked_column.get())
                 ->insert_data(str.data, strnlen(str.data, str.size));
     }
     return shrinked_column;
 }
 
-void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t length) {
+template <typename T>
+void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IColumn& src,
+                                                     size_t start, size_t length) {
     if (length == 0) {
         return;
     }
 
-    const ColumnString& src_concrete = assert_cast<const ColumnString&>(src);
+    const auto& src_concrete = assert_cast<const ColumnStr<T>&>(src);
+    if (start + length > src_concrete.offsets.size()) {
+        throw doris::Exception(
+                doris::ErrorCode::INTERNAL_ERROR,
+                "Parameter out of bound in IColumnStr<T>::insert_range_from method.");
+    }
+
+    size_t nested_offset = src_concrete.offset_at(start);
+    size_t nested_length = src_concrete.offsets[start + length - 1] - nested_offset;
+
+    size_t old_chars_size = chars.size();
+    chars.resize(old_chars_size + nested_length);
+    memcpy(&chars[old_chars_size], &src_concrete.chars[nested_offset], nested_length);
+
+    if (start == 0 && offsets.empty()) {
+        offsets.assign(src_concrete.offsets.begin(), src_concrete.offsets.begin() + length);
+    } else {
+        size_t old_size = offsets.size();
+        size_t prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
+        offsets.resize(old_size + length);
+
+        for (size_t i = 0; i < length; ++i) {
+            offsets[old_size + i] =
+                    src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
+        }
+    }
+}
+
+template <typename T>
+void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
+    if (length == 0) {
+        return;
+    }
+
+    const auto& src_concrete = assert_cast<const ColumnStr<T>&>(src);
 
     if (start + length > src_concrete.offsets.size()) {
         throw doris::Exception(
                 doris::ErrorCode::INTERNAL_ERROR,
-                "Parameter out of bound in IColumnString::insert_range_from method.");
+                "Parameter out of bound in IColumnStr<T>::insert_range_from method.");
     }
 
     size_t nested_offset = src_concrete.offset_at(start);
@@ -126,40 +164,51 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
     }
 }
 
-void ColumnString::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+template <typename T>
+void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
-    const auto& src_str = assert_cast<const ColumnString&>(src);
-    const auto* src_offset_data = src_str.offsets.data();
+    auto do_insert = [&](const auto& src_str) {
+        const auto* __restrict src_offset_data = src_str.get_offsets().data();
 
-    auto old_char_size = chars.size();
-    size_t total_chars_size = old_char_size;
+        auto old_char_size = chars.size();
+        size_t total_chars_size = old_char_size;
 
-    auto dst_offsets_pos = offsets.size();
-    offsets.resize(offsets.size() + indices_end - indices_begin);
-    auto* dst_offsets_data = offsets.data();
+        auto dst_offsets_pos = offsets.size();
+        offsets.resize(offsets.size() + indices_end - indices_begin);
+        auto* dst_offsets_data = offsets.data();
 
-    for (const auto* x = indices_begin; x != indices_end; ++x) {
-        total_chars_size += src_offset_data[*x] - src_offset_data[int(*x) - 1];
-        dst_offsets_data[dst_offsets_pos++] = total_chars_size;
-    }
-    check_chars_length(total_chars_size, offsets.size());
+        for (const auto* x = indices_begin; x != indices_end; ++x) {
+            int64_t src_offset = *x;
+            total_chars_size += src_offset_data[src_offset] - src_offset_data[src_offset - 1];
+            dst_offsets_data[dst_offsets_pos++] = total_chars_size;
+        }
+        check_chars_length(total_chars_size, offsets.size());
 
-    chars.resize(total_chars_size);
+        chars.resize(total_chars_size);
 
-    const auto* src_data_ptr = src_str.chars.data();
-    auto* dst_data_ptr = chars.data();
+        const auto* __restrict src_data_ptr = src_str.get_chars().data();
+        auto* dst_data_ptr = chars.data();
 
-    size_t dst_chars_pos = old_char_size;
-    for (const auto* x = indices_begin; x != indices_end; ++x) {
-        const size_t size_to_append = src_offset_data[*x] - src_offset_data[int(*x) - 1];
-        const size_t offset = src_offset_data[int(*x) - 1];
-        memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
-                                                 src_data_ptr + offset, size_to_append);
-        dst_chars_pos += size_to_append;
+        size_t dst_chars_pos = old_char_size;
+        for (const auto* x = indices_begin; x != indices_end; ++x) {
+            int64_t src_offset = *x;
+            const size_t size_to_append =
+                    src_offset_data[src_offset] - src_offset_data[src_offset - 1];
+            const size_t offset = src_offset_data[src_offset - 1];
+            memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
+                                                     src_data_ptr + offset, size_to_append);
+            dst_chars_pos += size_to_append;
+        }
+    };
+    if (src.is_column_string64()) {
+        do_insert(assert_cast<const ColumnStr<uint64_t>&>(src));
+    } else {
+        do_insert(assert_cast<const ColumnStr<uint32_t>&>(src));
     }
 }
 
-void ColumnString::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
+template <typename T>
+void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
                                           uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {
     auto s = rows;
@@ -180,45 +229,63 @@ void ColumnString::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
     }
 }
 
-ColumnPtr ColumnString::filter(const Filter& filt, ssize_t result_size_hint) const {
+template <typename T>
+ColumnPtr ColumnStr<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
     if (offsets.size() == 0) {
-        return ColumnString::create();
+        return ColumnStr<T>::create();
     }
 
-    auto res = ColumnString::create();
+    if constexpr (std::is_same_v<UInt32, T>) {
+        auto res = ColumnStr<T>::create();
+        Chars& res_chars = res->chars;
+        IColumn::Offsets& res_offsets = res->offsets;
 
-    Chars& res_chars = res->chars;
-    Offsets& res_offsets = res->offsets;
-
-    filter_arrays_impl<UInt8, Offset>(chars, offsets, res_chars, res_offsets, filt,
-                                      result_size_hint);
-    return res;
+        filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, res_chars, res_offsets, filt,
+                                                   result_size_hint);
+        return res;
+    } else {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "should not call filter in ColumnStr<UInt64>");
+    }
 }
 
-size_t ColumnString::filter(const Filter& filter) {
+template <typename T>
+size_t ColumnStr<T>::filter(const IColumn::Filter& filter) {
     CHECK_EQ(filter.size(), offsets.size());
     if (offsets.size() == 0) {
         resize(0);
         return 0;
     }
 
-    return filter_arrays_impl<UInt8, Offset>(chars, offsets, filter);
-}
-
-Status ColumnString::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-    auto* col = static_cast<ColumnString*>(col_ptr);
-    Chars& res_chars = col->chars;
-    Offsets& res_offsets = col->offsets;
-    Filter filter;
-    filter.resize_fill(offsets.size(), 0);
-    for (size_t i = 0; i < sel_size; i++) {
-        filter[sel[i]] = 1;
+    if constexpr (std::is_same_v<UInt32, T>) {
+        return filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, filter);
+    } else {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "should not call filter in ColumnStr<UInt64>");
     }
-    filter_arrays_impl<UInt8, Offset>(chars, offsets, res_chars, res_offsets, filter, sel_size);
-    return Status::OK();
 }
 
-ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {
+template <typename T>
+Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    if constexpr (std::is_same_v<UInt32, T>) {
+        auto* col = static_cast<ColumnStr<T>*>(col_ptr);
+        Chars& res_chars = col->chars;
+        IColumn::Offsets& res_offsets = col->offsets;
+        IColumn::Filter filter;
+        filter.resize_fill(offsets.size(), 0);
+        for (size_t i = 0; i < sel_size; i++) {
+            filter[sel[i]] = 1;
+        }
+        filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, res_chars, res_offsets, filter,
+                                                   sel_size);
+        return Status::OK();
+    } else {
+        return Status::InternalError("should not call filter_by_selector in ColumnStr<UInt64>");
+    }
+}
+
+template <typename T>
+ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = offsets.size();
 
     if (limit == 0) {
@@ -229,16 +296,17 @@ ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {
 
     if (perm.size() < limit) {
         LOG(FATAL) << "Size of permutation is less than required.";
+        __builtin_unreachable();
     }
 
     if (limit == 0) {
-        return ColumnString::create();
+        return ColumnStr<T>::create();
     }
 
-    auto res = ColumnString::create();
+    auto res = ColumnStr<T>::create();
 
     Chars& res_chars = res->chars;
-    Offsets& res_offsets = res->offsets;
+    auto& res_offsets = res->offsets;
 
     if (limit == size) {
         res_chars.resize(chars.size());
@@ -252,7 +320,7 @@ ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {
 
     res_offsets.resize(limit);
 
-    Offset current_new_offset = 0;
+    T current_new_offset = 0;
 
     for (size_t i = 0; i < limit; ++i) {
         size_t j = perm[i];
@@ -269,7 +337,8 @@ ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {
     return res;
 }
 
-StringRef ColumnString::serialize_value_into_arena(size_t n, Arena& arena,
+template <typename T>
+StringRef ColumnStr<T>::serialize_value_into_arena(size_t n, Arena& arena,
                                                    char const*& begin) const {
     uint32_t string_size(size_at(n));
     uint32_t offset(offset_at(n));
@@ -284,7 +353,8 @@ StringRef ColumnString::serialize_value_into_arena(size_t n, Arena& arena,
     return res;
 }
 
-const char* ColumnString::deserialize_and_insert_from_arena(const char* pos) {
+template <typename T>
+const char* ColumnStr<T>::deserialize_and_insert_from_arena(const char* pos) {
     const uint32_t string_size = unaligned_load<uint32_t>(pos);
     pos += sizeof(string_size);
 
@@ -298,7 +368,8 @@ const char* ColumnString::deserialize_and_insert_from_arena(const char* pos) {
     return pos + string_size;
 }
 
-size_t ColumnString::get_max_row_byte_size() const {
+template <typename T>
+size_t ColumnStr<T>::get_max_row_byte_size() const {
     size_t max_size = 0;
     size_t num_rows = offsets.size();
     for (size_t i = 0; i < num_rows; ++i) {
@@ -308,7 +379,8 @@ size_t ColumnString::get_max_row_byte_size() const {
     return max_size + sizeof(uint32_t);
 }
 
-void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+template <typename T>
+void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                  size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
         uint32_t offset(offset_at(i));
@@ -321,7 +393,8 @@ void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
     }
 }
 
-void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+template <typename T>
+void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                                const uint8_t* null_map) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
@@ -336,7 +409,8 @@ void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
     }
 }
 
-void ColumnString::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+template <typename T>
+void ColumnStr<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         auto original_ptr = keys[i].data;
         keys[i].data = deserialize_and_insert_from_arena(original_ptr);
@@ -344,7 +418,8 @@ void ColumnString::deserialize_vec(std::vector<StringRef>& keys, const size_t nu
     }
 }
 
-void ColumnString::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
+template <typename T>
+void ColumnStr<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
                                                  const size_t num_rows, const uint8_t* null_map) {
     for (size_t i = 0; i != num_rows; ++i) {
         if (null_map[i] == 0) {
@@ -357,47 +432,11 @@ void ColumnString::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
     }
 }
 
-template <typename Type>
-ColumnPtr ColumnString::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
-    if (limit == 0) {
-        return ColumnString::create();
-    }
-
-    auto res = ColumnString::create();
-
-    Chars& res_chars = res->chars;
-    Offsets& res_offsets = res->offsets;
-
-    size_t new_chars_size = 0;
-    for (size_t i = 0; i < limit; ++i) {
-        new_chars_size += size_at(indexes[i]);
-    }
-    check_chars_length(new_chars_size, limit);
-    res_chars.resize(new_chars_size);
-
-    res_offsets.resize(limit);
-
-    Offset current_new_offset = 0;
-
-    for (size_t i = 0; i < limit; ++i) {
-        size_t j = indexes[i];
-        size_t string_offset = offsets[j - 1];
-        size_t string_size = offsets[j] - string_offset;
-
-        memcpy_small_allow_read_write_overflow15(&res_chars[current_new_offset],
-                                                 &chars[string_offset], string_size);
-
-        current_new_offset += string_size;
-        res_offsets[i] = current_new_offset;
-    }
-
-    return res;
-}
-
+template <typename T>
 template <bool positive>
-struct ColumnString::less {
-    const ColumnString& parent;
-    explicit less(const ColumnString& parent_) : parent(parent_) {}
+struct ColumnStr<T>::less {
+    const ColumnStr<T>& parent;
+    explicit less(const ColumnStr<T>& parent_) : parent(parent_) {}
     bool operator()(size_t lhs, size_t rhs) const {
         int res = memcmp_small_allow_overflow15(
                 parent.chars.data() + parent.offset_at(lhs), parent.size_at(lhs),
@@ -407,8 +446,9 @@ struct ColumnString::less {
     }
 };
 
-void ColumnString::get_permutation(bool reverse, size_t limit, int /*nan_direction_hint*/,
-                                   Permutation& res) const {
+template <typename T>
+void ColumnStr<T>::get_permutation(bool reverse, size_t limit, int /*nan_direction_hint*/,
+                                   IColumn::Permutation& res) const {
     size_t s = offsets.size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -434,24 +474,25 @@ void ColumnString::get_permutation(bool reverse, size_t limit, int /*nan_directi
     }
 }
 
-ColumnPtr ColumnString::replicate(const Offsets& replicate_offsets) const {
+template <typename T>
+ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) const {
     size_t col_size = size();
     column_match_offsets_size(col_size, replicate_offsets.size());
 
-    auto res = ColumnString::create();
+    auto res = ColumnStr<T>::create();
 
     if (0 == col_size) {
         return res;
     }
 
     Chars& res_chars = res->chars;
-    Offsets& res_offsets = res->offsets;
+    auto& res_offsets = res->offsets;
     res_chars.reserve(chars.size() / col_size * replicate_offsets.back());
     res_offsets.reserve(replicate_offsets.back());
 
-    Offset prev_replicate_offset = 0;
-    Offset prev_string_offset = 0;
-    Offset current_new_offset = 0;
+    T prev_replicate_offset = 0;
+    T prev_string_offset = 0;
+    T current_new_offset = 0;
 
     for (size_t i = 0; i < col_size; ++i) {
         size_t size_to_replicate = replicate_offsets[i] - prev_replicate_offset;
@@ -474,12 +515,14 @@ ColumnPtr ColumnString::replicate(const Offsets& replicate_offsets) const {
     return res;
 }
 
-void ColumnString::reserve(size_t n) {
+template <typename T>
+void ColumnStr<T>::reserve(size_t n) {
     offsets.reserve(n);
     chars.reserve(n);
 }
 
-void ColumnString::resize(size_t n) {
+template <typename T>
+void ColumnStr<T>::resize(size_t n) {
     auto origin_size = size();
     if (origin_size > n) {
         offsets.resize(n);
@@ -488,18 +531,20 @@ void ColumnString::resize(size_t n) {
     }
 }
 
-void ColumnString::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+template <typename T>
+void ColumnStr<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                IColumn::Permutation& perms, EqualRange& range,
                                bool last_column) const {
-    sorter->sort_column(static_cast<const ColumnString&>(*this), flags, perms, range, last_column);
+    sorter->sort_column(static_cast<const ColumnStr<T>&>(*this), flags, perms, range, last_column);
 }
 
-void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+template <typename T>
+void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                                     int direction, std::vector<uint8>& cmp_res,
                                     uint8* __restrict filter) const {
     auto sz = this->size();
     DCHECK(cmp_res.size() == sz);
-    const auto& cmp_base = assert_cast<const ColumnString&>(rhs).get_data_at(rhs_row_id);
+    const auto& cmp_base = assert_cast<const ColumnStr<T>&>(rhs).get_data_at(rhs_row_id);
     size_t begin = simd::find_zero(cmp_res, 0);
     while (begin < sz) {
         size_t end = simd::find_one(cmp_res, begin + 1);
@@ -518,8 +563,34 @@ void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
     }
 }
 
-ColumnPtr ColumnString::index(const IColumn& indexes, size_t limit) const {
-    return select_index_impl(*this, indexes, limit);
+template <typename T>
+ColumnPtr ColumnStr<T>::convert_column_if_overflow() {
+    if (std::is_same_v<T, UInt32> && chars.size() > config::string_overflow_size) {
+        auto new_col = ColumnStr<uint64_t>::create();
+
+        const auto length = offsets.size();
+        std::swap(new_col->get_chars(), chars);
+        new_col->get_offsets().resize(length);
+        auto& large_offsets = new_col->get_offsets();
+
+        size_t loc = 0;
+        // TODO: recheck to SIMD the code
+        // if offset overflow. will be lower than offsets[loc - 1]
+        while (offsets[loc] >= offsets[loc - 1] && loc < length) {
+            large_offsets[loc] = offsets[loc];
+            loc++;
+        }
+        while (loc < length) {
+            large_offsets[loc] = (offsets[loc] - offsets[loc - 1]) + large_offsets[loc - 1];
+            loc++;
+        }
+
+        offsets.clear();
+        return new_col;
+    }
+    return this->get_ptr();
 }
 
+template class ColumnStr<uint32_t>;
+template class ColumnStr<uint64_t>;
 } // namespace doris::vectorized

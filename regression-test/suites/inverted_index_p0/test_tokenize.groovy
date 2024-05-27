@@ -91,6 +91,11 @@ suite("test_tokenize"){
 
     sql "INSERT INTO $indexTblName3 VALUES (1, '我来到北京清华大学'), (2, '我爱你中国'), (3, '人民可以得到更多实惠'), (4, '陕西省西安市高新区创业大厦A座，我的手机号码是12345678901,邮箱是12345678@qq.com，,ip是1.1.1.1，this information is created automatically.');"
     qt_sql "SELECT TOKENIZE(c, \"'parser'='chinese','parser_mode'='fine_grained'\") FROM $indexTblName3";
+    qt_sql "SELECT TOKENIZE(c, \"'parser'='chinese', 'parser_mode'='fine_grained'\") FROM $indexTblName3";
 
     qt_tokenize_sql """SELECT TOKENIZE('GET /images/hm_bg.jpg HTTP/1.0 test:abc=bcd','"parser"="unicode","char_filter_type" = "char_replace","char_filter_pattern" = "._=:,","char_filter_replacement" = " "');"""
+    qt_tokenize_sql """SELECT TOKENIZE('GET /images/hm_bg.jpg HTTP/1.0 test:abc=bcd', '"parser"="unicode","char_filter_type" = "char_replace", "char_filter_pattern" = "._=:,", "char_filter_replacement" = " "');"""
+
+    qt_tokenize_sql """SELECT TOKENIZE('华夏智胜新税股票A', '"parser"="unicode"');"""
+    qt_tokenize_sql """SELECT TOKENIZE('华夏智胜新税股票A', '"parser"="unicode","stopwords" = "none"');"""
 }

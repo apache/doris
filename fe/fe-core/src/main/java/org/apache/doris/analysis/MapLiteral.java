@@ -31,7 +31,6 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -188,7 +187,7 @@ public class MapLiteral extends LiteralExpr {
                 // map key type do not support complex type
                 throw new UnsupportedOperationException("Unsupport key type for MAP: " + children.get(i).getType());
             }
-            list.add(children.get(i).getStringValueForArray()
+            list.add(getStringLiteralForComplexType(children.get(i))
                     + ":" + getStringLiteralForComplexType(children.get(i + 1)));
         }
         return "{" + StringUtils.join(list, ", ") + "}";
@@ -241,15 +240,6 @@ public class MapLiteral extends LiteralExpr {
         MapLiteral literal = new MapLiteral();
         literal.readFields(in);
         return literal;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeInt(children.size());
-        for (Expr e : children) {
-            Expr.writeTo(e, out);
-        }
     }
 
     @Override

@@ -104,7 +104,7 @@ struct BaseData {
         double sum_count = count + rhs.count;
         mean = rhs.mean + delta * count / sum_count;
         m2 = rhs.m2 + m2 + (delta * delta) * rhs.count * count / sum_count;
-        count = sum_count;
+        count = int64_t(sum_count);
     }
 
     void add(const IColumn* column, size_t row_num) {
@@ -224,8 +224,8 @@ struct BaseDatadecimal {
 
 template <typename T, typename Data>
 struct PopData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
-                                            ColumnVector<Float64>>;
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColVecResult&>(to);
         if constexpr (IsDecimalNumber<T>) {
@@ -258,8 +258,8 @@ struct StddevSampName : Data {
 
 template <typename T, typename Data>
 struct SampData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
-                                            ColumnVector<Float64>>;
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
         if (this->count == 1 || this->count == 0) {

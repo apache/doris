@@ -141,7 +141,7 @@ public class TabletReplicaTooSlowTest {
             List<Long> pathHashes = be.getDisks().values().stream()
                     .map(DiskInfo::getPathHash).collect(Collectors.toList());
             Replica replica = cell.getValue();
-            replica.setVersionCount(versionCount);
+            replica.setVisibleVersionCount(versionCount);
             versionCount = versionCount + 200;
 
             replica.setPathHash(pathHashes.get(0));
@@ -171,7 +171,7 @@ public class TabletReplicaTooSlowTest {
             boolean found = false;
             for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
                 Replica replica = cell.getValue();
-                if (replica.getVersionCount() == 401) {
+                if (replica.getVisibleVersionCount() == 401) {
                     if (replica.tooSlow()) {
                         LOG.info("set to TOO_SLOW.");
                     }

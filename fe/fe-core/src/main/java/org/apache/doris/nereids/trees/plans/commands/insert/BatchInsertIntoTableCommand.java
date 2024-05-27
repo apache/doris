@@ -33,7 +33,7 @@ import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.NoForward;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
@@ -58,7 +59,7 @@ import java.util.stream.Collectors;
 /**
  * insert into values with in txn model.
  */
-public class BatchInsertIntoTableCommand extends Command implements ForwardWithSync, Explainable {
+public class BatchInsertIntoTableCommand extends Command implements NoForward, Explainable {
 
     public static final Logger LOG = LogManager.getLogger(BatchInsertIntoTableCommand.class);
 
@@ -105,7 +106,7 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
             executor.checkBlockRules();
-            if (ctx.getMysqlChannel() != null) {
+            if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
                 ctx.getMysqlChannel().reset();
             }
 
@@ -131,7 +132,8 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
             }
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), targetTable.getQualifiedDbName(), targetTable.getName(),
+                    .checkTblPriv(ConnectContext.get(), targetTable.getDatabase().getCatalog().getName(),
+                            targetTable.getQualifiedDbName(), targetTable.getName(),
                             PrivPredicate.LOAD)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                         ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),

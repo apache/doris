@@ -21,27 +21,8 @@
 
 #include "join_build_sink_operator.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/join/vhash_join_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class HashJoinBuildSinkBuilder final : public OperatorBuilder<vectorized::HashJoinNode> {
-public:
-    HashJoinBuildSinkBuilder(int32_t, ExecNode*);
-
-    OperatorPtr build_operator() override;
-    bool is_sink() const override { return true; }
-};
-
-class HashJoinBuildSink final : public StreamingOperator<vectorized::HashJoinNode> {
-public:
-    HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
-    bool can_write() override { return _node->can_sink_write(); }
-};
+namespace doris::pipeline {
 
 class HashJoinBuildSinkOperatorX;
 
@@ -70,6 +51,10 @@ public:
         _profile->add_info_string("HashTableFilledBuckets", info);
     }
 
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
+
+    Status close(RuntimeState* state, Status exec_status) override;
+
 protected:
     void _hash_table_init(RuntimeState* state);
     void _set_build_ignore_flag(vectorized::Block& block, const std::vector<int>& res_col_ids);
@@ -81,12 +66,9 @@ protected:
                                 vectorized::ColumnRawPtrs& raw_ptrs,
                                 const std::vector<int>& res_col_ids);
     friend class HashJoinBuildSinkOperatorX;
+    friend class PartitionedHashJoinSinkLocalState;
     template <class HashTableContext, typename Parent>
     friend struct vectorized::ProcessHashTableBuild;
-    template <typename Parent>
-    friend Status vectorized::process_runtime_filter_build(RuntimeState* state,
-                                                           vectorized::Block* block, Parent* parent,
-                                                           bool is_global);
 
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
@@ -95,6 +77,10 @@ protected:
     bool _should_build_hash_table = true;
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
+
+    size_t _build_side_rows = 0;
+    std::vector<vectorized::Block> _build_blocks;
+
     vectorized::MutableBlock _build_side_mutable_block;
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
     bool _has_set_need_null_map_for_build = false;
@@ -107,6 +93,7 @@ protected:
      */
     bool _build_side_ignore_null = false;
     std::vector<int> _build_col_ids;
+    std::shared_ptr<Dependency> _finish_dependency;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
@@ -185,5 +172,4 @@ private:
     const bool _need_local_merge;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

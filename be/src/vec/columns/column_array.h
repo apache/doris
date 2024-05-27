@@ -85,6 +85,8 @@ private:
 
     ColumnArray(const ColumnArray&) = default;
 
+    ColumnArray() = default;
+
 public:
     // offsets of array is 64bit wise
     using Offset64 = IColumn::Offset64;
@@ -119,6 +121,7 @@ public:
     }
 
     MutableColumnPtr get_shrinked_column() override;
+    bool could_shrinked_column() override;
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
     using ColumnOffsets = ColumnVector<Offset64>;
@@ -126,13 +129,14 @@ public:
     std::string get_name() const override;
     const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
+    bool is_variable_length() const override { return true; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
     void resize(size_t n) override;
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     StringRef get_data_at(size_t n) const override;
-    bool is_default_at(size_t n) const override;
+    bool is_default_at(size_t n) const;
     void insert_data(const char* pos, size_t length) override;
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
@@ -150,6 +154,8 @@ public:
                                 const uint8_t* __restrict null_data = nullptr) const override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                           size_t length) override;
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;
     void insert_default() override;
@@ -157,16 +163,7 @@ public:
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
-    //ColumnPtr index(const IColumn & indexes, size_t limit) const;
-    template <typename Type>
-    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
-
-    [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                      Permutation& res) const override {
-        LOG(FATAL) << "get_permutation not implemented";
-        __builtin_unreachable();
-    }
     void reserve(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
@@ -197,10 +194,6 @@ public:
     const ColumnPtr& get_offsets_ptr() const { return offsets; }
     ColumnPtr& get_offsets_ptr() { return offsets; }
 
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
-        return scatter_impl<ColumnArray>(num_columns, selector);
-    }
-
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
         return get_offsets()[i] - get_offsets()[i - 1];
@@ -209,33 +202,26 @@ public:
                                  const IColumn::Selector& selector) const override {
         return append_data_by_selector_impl<ColumnArray>(res, selector);
     }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        return append_data_by_selector_impl<ColumnArray>(res, selector, begin, end);
+    }
 
     void for_each_subcolumn(ColumnCallback callback) override {
         callback(offsets);
         callback(data);
     }
 
+    ColumnPtr convert_column_if_overflow() override {
+        data = data->convert_column_if_overflow();
+        return IColumn::convert_column_if_overflow();
+    }
+
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        const auto& r = assert_cast<const ColumnArray&>(rhs);
-        const size_t nested_row_size = r.size_at(row);
-        const size_t r_nested_start_off = r.offset_at(row);
-
-        // we should clear data because we call resize() before replace_column_data()
-        if (self_row == 0) {
-            data->clear();
-        }
-        get_offsets()[self_row] = get_offsets()[self_row - 1] + nested_row_size;
-        // we make sure call replace_column_data() by order so, here we just insert data for nested
-        data->insert_range_from(r.get_data(), r_nested_start_off, nested_row_size);
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        get_offsets()[self_row] = get_offsets()[self_row - 1];
+        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
     }
 
     void clear() override {
@@ -252,15 +238,6 @@ public:
                nested_array
                        ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
     }
-
-    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        return get_indices_of_non_default_rows_impl<ColumnArray>(indices, from, limit);
-    }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
-
-    double get_ratio_of_default_rows(double sample_ratio) const override;
 
 private:
     // [[2,1,5,9,1], [1,2,4]] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8

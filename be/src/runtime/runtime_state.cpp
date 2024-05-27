@@ -33,7 +33,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -48,43 +48,16 @@
 namespace doris {
 using namespace ErrorCode;
 
-// for ut only
-RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
-                           const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env)
-        : _profile("Fragment " + print_id(fragment_instance_id)),
-          _load_channel_profile("<unnamed>"),
-          _obj_pool(new ObjectPool()),
-          _data_stream_recvrs_pool(new ObjectPool()),
-          _unreported_error_idx(0),
-          _is_cancelled(false),
-          _per_fragment_instance_idx(0),
-          _num_rows_load_total(0),
-          _num_rows_load_filtered(0),
-          _num_rows_load_unselected(0),
-          _num_print_error_rows(0),
-          _num_bytes_load_total(0),
-          _num_finished_scan_range(0),
-          _load_job_id(-1),
-          _normal_row_number(0),
-          _error_row_number(0),
-          _error_log_file(nullptr) {
-    Status status = init(fragment_instance_id, query_options, query_globals, exec_env);
-    DCHECK(status.ok());
-    _runtime_filter_mgr.reset(
-            new RuntimeFilterMgr(TUniqueId(), RuntimeFilterParamsContext::create(this)));
-}
-
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env, QueryContext* ctx)
+                           ExecEnv* exec_env, QueryContext* ctx,
+                           const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker)
         : _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(fragment_exec_params.query_id),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
@@ -99,19 +72,26 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-            fragment_exec_params.query_id, RuntimeFilterParamsContext::create(this));
+    if (query_mem_tracker != nullptr) {
+        _query_mem_tracker = query_mem_tracker;
+    } else {
+        DCHECK(ctx != nullptr);
+        _query_mem_tracker = ctx->query_mem_tracker;
+    }
+#ifdef BE_TEST
+    if (_query_mem_tracker == nullptr) {
+        init_mem_trackers();
+    }
+#endif
+    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
+    if (ctx) {
+        _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
+                fragment_exec_params.query_id, RuntimeFilterParamsContext::create(this),
+                _query_mem_tracker);
+    }
     if (fragment_exec_params.__isset.runtime_filter_params) {
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                 fragment_exec_params.runtime_filter_params);
-    }
-
-    if (_query_ctx) {
-        if (fragment_exec_params.__isset.topn_filter_source_node_ids) {
-            _query_ctx->init_runtime_predicates(fragment_exec_params.topn_filter_source_node_ids);
-        } else {
-            _query_ctx->init_runtime_predicates({0});
-        }
     }
 }
 
@@ -125,7 +105,6 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
           _unreported_error_idx(0),
           _query_id(query_id),
           _fragment_id(fragment_id),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
@@ -140,11 +119,18 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
           _query_ctx(ctx) {
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    _runtime_filter_mgr.reset(
-            new RuntimeFilterMgr(query_id, RuntimeFilterParamsContext::create(this)));
+    _query_mem_tracker = ctx->query_mem_tracker;
+#ifdef BE_TEST
+    if (_query_mem_tracker == nullptr) {
+        init_mem_trackers();
+    }
+#endif
+    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
+    _runtime_filter_mgr.reset(new RuntimeFilterMgr(
+            query_id, RuntimeFilterParamsContext::create(this), _query_mem_tracker));
 }
 
-RuntimeState::RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
+RuntimeState::RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
                            const TUniqueId& query_id, int32_t fragment_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env, QueryContext* ctx)
@@ -156,7 +142,6 @@ RuntimeState::RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId&
           _unreported_error_idx(0),
           _query_id(query_id),
           _fragment_id(fragment_id),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
@@ -170,6 +155,13 @@ RuntimeState::RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId&
           _error_log_file(nullptr),
           _query_ctx(ctx) {
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
+    _query_mem_tracker = ctx->query_mem_tracker;
+#ifdef BE_TEST
+    if (_query_mem_tracker == nullptr) {
+        init_mem_trackers();
+    }
+#endif
+    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
     DCHECK(status.ok());
 }
 
@@ -183,7 +175,6 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
           _unreported_error_idx(0),
           _query_id(query_id),
           _fragment_id(fragment_id),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
@@ -199,8 +190,15 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
     // TODO: do we really need instance id?
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    _runtime_filter_mgr.reset(
-            new RuntimeFilterMgr(query_id, RuntimeFilterParamsContext::create(this)));
+    _query_mem_tracker = ctx->query_mem_tracker;
+#ifdef BE_TEST
+    if (_query_mem_tracker == nullptr) {
+        init_mem_trackers();
+    }
+#endif
+    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
+    _runtime_filter_mgr.reset(new RuntimeFilterMgr(
+            query_id, RuntimeFilterParamsContext::create(this), _query_mem_tracker));
 }
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
@@ -209,7 +207,6 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
           _obj_pool(new ObjectPool()),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
     if (query_globals.__isset.time_zone && query_globals.__isset.nano_seconds) {
@@ -235,6 +232,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         _nano_seconds = 0;
     }
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+    init_mem_trackers("<unnamed>");
 }
 
 RuntimeState::RuntimeState()
@@ -243,7 +241,6 @@ RuntimeState::RuntimeState()
           _obj_pool(new ObjectPool()),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
     _timezone = TimezoneUtils::default_time_zone;
@@ -251,9 +248,11 @@ RuntimeState::RuntimeState()
     _nano_seconds = 0;
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
     _exec_env = ExecEnv::GetInstance();
+    init_mem_trackers("<unnamed>");
 }
 
 RuntimeState::~RuntimeState() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_mem_tracker);
     // close error log file
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
         _error_log_file->close();
@@ -315,15 +314,13 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     return Status::OK();
 }
 
-void RuntimeState::init_mem_trackers(const TUniqueId& id, const std::string& name) {
-    _query_mem_tracker = std::make_shared<MemTrackerLimiter>(
-            MemTrackerLimiter::Type::EXPERIMENTAL, fmt::format("{}#Id={}", name, print_id(id)));
+void RuntimeState::init_mem_trackers(const std::string& name, const TUniqueId& id) {
+    _query_mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER, fmt::format("{}#Id={}", name, print_id(id)));
 }
 
 std::shared_ptr<MemTrackerLimiter> RuntimeState::query_mem_tracker() const {
-    if (!_query_mem_tracker) {
-        return _exec_env->orphan_mem_tracker();
-    }
+    CHECK(_query_mem_tracker != nullptr);
     return _query_mem_tracker;
 }
 
@@ -347,31 +344,13 @@ void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
     }
 }
 
-Status RuntimeState::query_status() {
-    auto st = _query_ctx->exec_status();
-    RETURN_IF_ERROR(st);
-    std::lock_guard<std::mutex> l(_process_status_lock);
-    return _process_status;
-}
-
 bool RuntimeState::is_cancelled() const {
     // Maybe we should just return _is_cancelled.load()
-    return _is_cancelled.load() || (_query_ctx && _query_ctx->is_cancelled());
+    return !_exec_status.ok() || (_query_ctx && _query_ctx->is_cancelled());
 }
 
-std::string RuntimeState::cancel_reason() const {
-    return _cancel_reason;
-}
-
-Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
-    {
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        if (_process_status.ok()) {
-            _process_status = Status::MemoryLimitExceeded(msg);
-        }
-    }
-    DCHECK(_process_status.is<MEM_LIMIT_EXCEEDED>());
-    return _process_status;
+Status RuntimeState::cancel_reason() const {
+    return _exec_status.status();
 }
 
 const int64_t MAX_ERROR_NUM = 50;
@@ -543,4 +522,29 @@ Status RuntimeState::register_consumer_runtime_filter(const doris::TRuntimeFilte
 bool RuntimeState::is_nereids() const {
     return _query_ctx->is_nereids();
 }
+
+std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::pipeline_id_to_profile() {
+    std::shared_lock lc(_pipeline_profile_lock);
+    return _pipeline_id_to_profile;
+}
+
+std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profile(
+        std::size_t pipeline_size) {
+    std::unique_lock lc(_pipeline_profile_lock);
+    if (!_pipeline_id_to_profile.empty()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "build_pipeline_profile can only be called once.");
+    }
+    _pipeline_id_to_profile.resize(pipeline_size);
+    {
+        size_t pip_idx = 0;
+        for (auto& pipeline_profile : _pipeline_id_to_profile) {
+            pipeline_profile =
+                    std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_idx));
+            pip_idx++;
+        }
+    }
+    return _pipeline_id_to_profile;
+}
+
 } // end namespace doris

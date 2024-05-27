@@ -51,7 +51,9 @@ static std::atomic<int64_t> g_num_request;
 class StreamSinkFileWriterTest : public testing::Test {
     class MockStreamStub : public LoadStreamStub {
     public:
-        MockStreamStub(PUniqueId load_id, int64_t src_id) : LoadStreamStub(load_id, src_id, 1) {};
+        MockStreamStub(PUniqueId load_id, int64_t src_id)
+                : LoadStreamStub(load_id, src_id, std::make_shared<IndexToTabletSchema>(),
+                                 std::make_shared<IndexToEnableMoW>()) {};
 
         virtual ~MockStreamStub() = default;
 
@@ -104,7 +106,7 @@ TEST_F(StreamSinkFileWriterTest, Test) {
 
     CHECK_STATUS_OK(writer.appendv(&(*slices.begin()), slices.size()));
     EXPECT_EQ(NUM_STREAM, g_num_request);
-    CHECK_STATUS_OK(writer.finalize());
+    CHECK_STATUS_OK(writer.close());
     EXPECT_EQ(NUM_STREAM * 2, g_num_request);
 }
 

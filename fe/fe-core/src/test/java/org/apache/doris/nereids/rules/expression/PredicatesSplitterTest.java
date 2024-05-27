@@ -48,7 +48,7 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
                 "c = d or a = 10");
         assetEquals("a = b and c + d = e and a > 7 and 10 > d",
                 "a = b",
-                "10 > d and a > 7",
+                "a > 7 and 10 > d",
                 "c + d = e");
         assetEquals("a = b and c + d = e or a > 7 and 10 > d",
                 "",

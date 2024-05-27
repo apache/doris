@@ -50,7 +50,6 @@ StreamLoadPipe::~StreamLoadPipe() {
 
 Status StreamLoadPipe::read_at_impl(size_t /*offset*/, Slice result, size_t* bytes_read,
                                     const IOContext* /*io_ctx*/) {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
     *bytes_read = 0;
     size_t bytes_req = result.size;
     char* to = result.data;
@@ -254,6 +253,15 @@ TUniqueId StreamLoadPipe::calculate_pipe_id(const UniqueId& query_id, int32_t fr
     pipe_id.lo = query_id.lo + fragment_id;
     pipe_id.hi = query_id.hi;
     return pipe_id;
+}
+
+size_t StreamLoadPipe::current_capacity() {
+    std::unique_lock<std::mutex> l(_lock);
+    if (_use_proto) {
+        return _proto_buffered_bytes;
+    } else {
+        return _buffered_bytes;
+    }
 }
 
 } // namespace io

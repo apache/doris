@@ -144,6 +144,7 @@ Status VJoinNodeBase::prepare(RuntimeState* state) {
 
     _publish_runtime_filter_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
     _runtime_filter_compute_timer = ADD_TIMER(runtime_profile(), "RunmtimeFilterComputeTime");
+    _runtime_filter_init_timer = ADD_TIMER(runtime_profile(), "RunmtimeFilterInitTime");
 
     return Status::OK();
 }
@@ -184,7 +185,10 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
         // In previous versions, the join node had a separate set of project structures,
         // and you could see a 'todo' in the Thrift definition.
         //  Here, we have refactored it, but considering upgrade compatibility, we still need to retain the old code.
-        *output_block = *origin_block;
+        if (!output_block->mem_reuse()) {
+            output_block->swap(origin_block->clone_empty());
+        }
+        output_block->swap(*origin_block);
         return Status::OK();
     }
     auto is_mem_reuse = output_block->mem_reuse();
@@ -276,7 +280,7 @@ Status VJoinNodeBase::open(RuntimeState* state) {
 
     std::promise<Status> thread_status;
     try {
-        static_cast<void>(state->exec_env()->join_node_thread_pool()->submit_func(
+        RETURN_IF_ERROR(state->exec_env()->join_node_thread_pool()->submit_func(
                 [this, state, thread_status_p = &thread_status] {
                     this->_probe_side_open_thread(state, thread_status_p);
                 }));

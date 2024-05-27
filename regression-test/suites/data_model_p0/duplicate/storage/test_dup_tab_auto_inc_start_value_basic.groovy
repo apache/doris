@@ -45,6 +45,7 @@ suite("test_dup_table_auto_inc_start_value_basic") {
         file 'auto_inc_basic.csv'
         time 10000 // limit inflight 10s
     }
+    sql " sync "
     qt_auto_inc_ids "select * from ${table1};"
     sql "drop table if exists ${table1};"
 
@@ -77,6 +78,7 @@ suite("test_dup_table_auto_inc_start_value_basic") {
         file 'auto_inc_basic.csv'
         time 10000 // limit inflight 10s
     }
+    sql " sync "
     qt_auto_inc_ids "select * from ${table2} order by id;"
     sql "drop table if exists ${table2};"
 
@@ -108,6 +110,7 @@ suite("test_dup_table_auto_inc_start_value_basic") {
         file 'auto_inc_basic.csv'
         time 10000 // limit inflight 10s
     }
+    sql " sync "
     qt_auto_inc_ids "select * from ${table3};"
     sql "drop table if exists ${table3};"
 

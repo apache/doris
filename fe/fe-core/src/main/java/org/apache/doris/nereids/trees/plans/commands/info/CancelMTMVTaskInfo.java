@@ -48,7 +48,7 @@ public class CancelMTMVTaskInfo {
      */
     public void analyze(ConnectContext ctx) {
         mvName.analyze(ctx);
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getCtl(), mvName.getDb(),
                 mvName.getTbl(), PrivPredicate.CREATE)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("CREATE",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),

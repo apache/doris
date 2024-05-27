@@ -81,6 +81,7 @@ suite("stress_test_same_date_range", "p2,nonConcurrent") {
         }
     }
 
+    def load_result
     def doris_dbgen_stream_load_data = { db_name, tb_name, part_type, i ->
         def list = []
         def dir = new File("""${context.file.parent}""" + "/" + part_type + "_" + i)
@@ -104,6 +105,9 @@ suite("stress_test_same_date_range", "p2,nonConcurrent") {
                 }
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
+                if (json.Status.toLowerCase() != "success" || 0 != json.NumberFilteredRows) {
+                    load_result = result
+                }
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(0, json.NumberFilteredRows)
             }
@@ -148,6 +152,13 @@ suite("stress_test_same_date_range", "p2,nonConcurrent") {
     }
     thread1.join()
     thread2.join()
+
+    if (load_result != null) {
+        def json = parseJson(load_result)
+        log.info("Stream load failed. ${load_result}".toString())
+        assertEquals("success", json.Status.toLowerCase())
+        assertEquals(0, json.NumberFilteredRows)
+    }
 
     def row_count_range = sql """select count(*) from ${tb_name2};"""
     def partition_res_range = sql """show partitions from ${tb_name2};"""

@@ -137,7 +137,8 @@ private:
     std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs> _get_partition_function();
 
     Status _save_missing_values(std::vector<std::vector<std::string>>& col_strs, int col_size,
-                                Block* block, std::vector<int64_t> filter);
+                                Block* block, std::vector<int64_t> filter,
+                                const std::vector<const NullMap*>& col_null_maps);
 
     void _get_tablet_ids(vectorized::Block* block, int32_t index_idx,
                          std::vector<int64_t>& tablet_ids);
@@ -173,7 +174,7 @@ private:
     int _batch_size = 0;
 
     // for auto partitions
-    std::vector<std::vector<TStringLiteral>> _partitions_need_create;
+    std::vector<std::vector<TNullableStringLiteral>> _partitions_need_create;
 
 public:
     std::unique_ptr<MutableBlock> _batching_block;

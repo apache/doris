@@ -23,9 +23,9 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /** used to generate pattern for LogicalBinary. */
-public class LogicalBinaryPatternGenerator extends PatternGenerator {
+public class LogicalBinaryPatternGenerator extends PlanPatternGenerator {
 
-    public LogicalBinaryPatternGenerator(PatternGeneratorAnalyzer analyzer,
+    public LogicalBinaryPatternGenerator(PlanPatternGeneratorAnalyzer analyzer,
             ClassDeclaration opType, Set<String> parentClass, boolean isMemoPattern) {
         super(analyzer, opType, parentClass, isMemoPattern);
     }

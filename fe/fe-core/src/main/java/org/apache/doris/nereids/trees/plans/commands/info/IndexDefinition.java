@@ -23,6 +23,7 @@ import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -105,8 +106,8 @@ public class IndexDefinition {
             }
             if (!(colType.isDateLikeType() || colType.isDecimalLikeType()
                     || colType.isIntegralType() || colType.isStringLikeType()
-                    || colType.isBooleanType())) {
-                // TODO add colType.isVariantType() and colType.isAggState()
+                    || colType.isBooleanType() || colType.isVariantType())) {
+                // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
             }
@@ -123,6 +124,9 @@ public class IndexDefinition {
             }
 
             if (indexType == IndexType.INVERTED) {
+                if (!Config.enable_create_inverted_index_for_array && colType.isArrayType()) {
+                    throw new AnalysisException("inverted index does not support array type column: " + indexColName);
+                }
                 try {
                     InvertedIndexUtil.checkInvertedIndexParser(indexColName,
                             colType.toCatalogDataType().getPrimitiveType(), properties);

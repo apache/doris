@@ -106,7 +106,7 @@ public class RepositoryTest {
     public void testInit() {
         new Expectations() {
             {
-                fileSystem.list(anyString, (List<RemoteFile>) any);
+                fileSystem.globList(anyString, (List<RemoteFile>) any);
                 minTimes = 0;
                 result = new Delegate<Status>() {
                     public Status list(String remotePath, List<RemoteFile> result) {
@@ -180,7 +180,7 @@ public class RepositoryTest {
     public void testListSnapshots() {
         new Expectations() {
             {
-                fileSystem.list(anyString, (List<RemoteFile>) any);
+                fileSystem.globList(anyString, (List<RemoteFile>) any);
                 minTimes = 0;
                 result = new Delegate() {
                     public Status list(String remotePath, List<RemoteFile> result) {
@@ -250,7 +250,7 @@ public class RepositoryTest {
 
             new Expectations() {
                 {
-                    fileSystem.list(anyString, (List<RemoteFile>) any);
+                    fileSystem.globList(anyString, (List<RemoteFile>) any);
                     minTimes = 0;
                     result = new Delegate() {
                         public Status list(String remotePath, List<RemoteFile> result) {
@@ -285,7 +285,7 @@ public class RepositoryTest {
     public void testGetSnapshotInfo() {
         new Expectations() {
             {
-                fileSystem.list(anyString, (List<RemoteFile>) any);
+                fileSystem.globList(anyString, (List<RemoteFile>) any);
                 minTimes = 0;
                 result = new Delegate() {
                     public Status list(String remotePath, List<RemoteFile> result) {

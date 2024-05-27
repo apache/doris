@@ -28,7 +28,7 @@ message PSlotDescriptor {
     required int32 parent = 2; // tuple id which this slot is belong to
     required PTypeDesc slot_type = 3;
     required int32 column_pos = 4;   // in originating table
-    required int32 byte_offset = 5;  // into tuple, not used any more
+    required int32 byte_offset = 5;  // // deprecated
     required int32 null_indicator_byte = 6;
     required int32 null_indicator_bit = 7;
     required string col_name = 8;
@@ -43,10 +43,10 @@ message PSlotDescriptor {
 
 message PTupleDescriptor {
     required int32 id = 1;
-    required int32 byte_size = 2;
-    required int32 num_null_bytes = 3;
+    required int32 byte_size = 2; // deprecated
+    required int32 num_null_bytes = 3; // deprecated
     optional int64 table_id = 4;
-    optional int32 num_null_slots = 5;
+    optional int32 num_null_slots = 5; // deprecated
 };
 
 message POlapTableIndexSchema {
@@ -70,5 +70,8 @@ message POlapTableSchemaParam {
     repeated string partial_update_input_columns = 8;
     optional bool is_strict_mode = 9 [default = false];
     optional string auto_increment_column = 10;
+    optional int64 timestamp_ms = 11 [default = 0];
+    optional string timezone = 12;
+    optional int32 auto_increment_column_unique_id = 13;
 };
 

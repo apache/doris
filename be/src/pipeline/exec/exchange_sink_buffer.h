@@ -51,7 +51,6 @@ class Dependency;
 
 namespace vectorized {
 class VDataStreamSender;
-template <typename>
 class PipChannel;
 
 template <typename T>
@@ -119,17 +118,15 @@ private:
 } // namespace vectorized
 
 namespace pipeline {
-template <typename Parent>
 struct TransmitInfo {
-    vectorized::PipChannel<Parent>* channel = nullptr;
+    vectorized::PipChannel* channel = nullptr;
     std::unique_ptr<PBlock> block;
     bool eos;
     Status exec_status;
 };
 
-template <typename Parent>
 struct BroadcastTransmitInfo {
-    vectorized::PipChannel<Parent>* channel = nullptr;
+    vectorized::PipChannel* channel = nullptr;
     std::shared_ptr<vectorized::BroadcastPBlockHolder> block_holder = nullptr;
     bool eos;
 };
@@ -177,6 +174,7 @@ public:
             LOG(FATAL) << "brpc callback error: " << exp.what();
         } catch (...) {
             LOG(FATAL) << "brpc callback error.";
+            __builtin_unreachable();
         }
     }
     int64_t start_rpc_time;
@@ -194,7 +192,6 @@ struct ExchangeRpcContext {
 };
 
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
-template <typename Parent>
 class ExchangeSinkBuffer : public HasTaskExecutionCtx {
 public:
     ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
@@ -202,10 +199,9 @@ public:
     ~ExchangeSinkBuffer();
     void register_sink(TUniqueId);
 
-    Status add_block(TransmitInfo<Parent>&& request);
-    Status add_block(BroadcastTransmitInfo<Parent>&& request);
+    Status add_block(TransmitInfo&& request);
+    Status add_block(BroadcastTransmitInfo&& request);
     bool can_write() const;
-    bool is_pending_finish();
     void close();
     void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
@@ -214,6 +210,10 @@ public:
                         std::shared_ptr<Dependency> finish_dependency) {
         _queue_dependency = queue_dependency;
         _finish_dependency = finish_dependency;
+    }
+
+    void set_broadcast_dependency(std::shared_ptr<Dependency> broadcast_dependency) {
+        _broadcast_dependency = broadcast_dependency;
     }
 
     void set_should_stop() {
@@ -228,13 +228,12 @@ private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
     // store data in non-broadcast shuffle
-    phmap::flat_hash_map<InstanceLoId,
-                         std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>>
+    phmap::flat_hash_map<InstanceLoId, std::queue<TransmitInfo, std::list<TransmitInfo>>>
             _instance_to_package_queue;
     size_t _queue_capacity;
     // store data in broadcast shuffle
-    phmap::flat_hash_map<InstanceLoId, std::queue<BroadcastTransmitInfo<Parent>,
-                                                  std::list<BroadcastTransmitInfo<Parent>>>>
+    phmap::flat_hash_map<InstanceLoId,
+                         std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
             _instance_to_broadcast_package_queue;
     using PackageSeq = int64_t;
     // must init zero
@@ -270,8 +269,9 @@ private:
     int64_t get_sum_rpc_time();
 
     std::atomic<int> _total_queue_size = 0;
-    std::shared_ptr<Dependency> _queue_dependency;
-    std::shared_ptr<Dependency> _finish_dependency;
+    std::shared_ptr<Dependency> _queue_dependency = nullptr;
+    std::shared_ptr<Dependency> _finish_dependency = nullptr;
+    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
     std::atomic<bool> _should_stop {false};
 };
 

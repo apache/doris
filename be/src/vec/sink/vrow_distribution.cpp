@@ -23,6 +23,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <sstream>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -32,9 +33,11 @@
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type.h"
 #include "vec/sink/writer/vtablet_writer.h"
 
@@ -45,17 +48,24 @@ VRowDistribution::_get_partition_function() {
     return {_vpartition->get_part_func_ctx(), _vpartition->get_partition_function()};
 }
 
-Status VRowDistribution::_save_missing_values(std::vector<std::vector<std::string>>& col_strs,
-                                              int col_size, Block* block,
-                                              std::vector<int64_t> filter) {
+Status VRowDistribution::_save_missing_values(
+        std::vector<std::vector<std::string>>& col_strs, // non-const ref for move
+        int col_size, Block* block, std::vector<int64_t> filter,
+        const std::vector<const NullMap*>& col_null_maps) {
     // de-duplication for new partitions but save all rows.
-    _batching_block->add_rows(block, filter);
-    std::vector<TStringLiteral> cur_row_values;
+    RETURN_IF_ERROR(_batching_block->add_rows(block, filter));
+    std::vector<TNullableStringLiteral> cur_row_values;
     for (int row = 0; row < col_strs[0].size(); ++row) {
         cur_row_values.clear();
         for (int col = 0; col < col_size; ++col) {
-            TStringLiteral node;
-            node.value = std::move(col_strs[col][row]);
+            TNullableStringLiteral node;
+            const auto* null_map = col_null_maps[col]; // null map for this col
+            node.__set_is_null((null_map && (*null_map)[filter[row]])
+                                       ? true
+                                       : node.is_null); // if not, dont change(default false)
+            if (!node.is_null) {
+                node.__set_value(col_strs[col][row]);
+            }
             cur_row_values.push_back(node);
         }
         //For duplicate cur_values, they will be filtered in FE
@@ -133,7 +143,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
     std::set<int64_t> id_deduper;
     for (const auto* part : _partitions) {
         if (part == nullptr) [[unlikely]] {
-            return Status::EndOfFile(
+            return Status::InternalError(
                     "Cannot found origin partitions in auto detect overwriting, stop processing");
         }
         if (_new_partition_ids.contains(part->id)) {
@@ -299,7 +309,6 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
     auto num_rows = block->rows();
     std::vector<uint16_t> partition_keys = _vpartition->get_partition_keys();
 
-    //TODO: use loop to create missing_vals for multi column.
     auto partition_col = block->get_by_position(partition_keys[0]);
     _missing_map.clear();
     _missing_map.reserve(partition_col.column->size());
@@ -319,29 +328,34 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
 
     if (!_missing_map.empty()) {
         // for missing partition keys, calc the missing partition and save in _partitions_need_create
-        auto [part_ctxs, part_funcs] = _get_partition_function();
-        auto funcs_size = part_funcs.size();
+        auto [part_ctxs, part_exprs] = _get_partition_function();
+        auto part_col_num = part_exprs.size();
+        // the two vectors are in column-first-order
         std::vector<std::vector<std::string>> col_strs;
-        col_strs.resize(funcs_size);
+        std::vector<const NullMap*> col_null_maps;
+        col_strs.resize(part_col_num);
+        col_null_maps.reserve(part_col_num);
 
-        for (int i = 0; i < funcs_size; ++i) {
-            auto return_type = part_funcs[i]->data_type();
-            // expose the data column
-            vectorized::ColumnPtr range_left_col =
-                    block->get_by_position(partition_cols_idx[i]).column;
-            if (const auto* nullable =
-                        check_and_get_column<vectorized::ColumnNullable>(*range_left_col)) {
-                range_left_col = nullable->get_nested_column_ptr();
-                return_type = assert_cast<const vectorized::DataTypeNullable*>(return_type.get())
-                                      ->get_nested_type();
+        for (int i = 0; i < part_col_num; ++i) {
+            auto return_type = part_exprs[i]->data_type();
+            // expose the data column. the return type would be nullable
+            const auto& [range_left_col, col_const] =
+                    unpack_if_const(block->get_by_position(partition_cols_idx[i]).column);
+            if (range_left_col->is_nullable()) {
+                col_null_maps.push_back(&(assert_cast<const ColumnNullable*>(range_left_col.get())
+                                                  ->get_null_map_data()));
+            } else {
+                col_null_maps.push_back(nullptr);
             }
             for (auto row : _missing_map) {
-                col_strs[i].push_back(return_type->to_string(*range_left_col, row));
+                col_strs[i].push_back(
+                        return_type->to_string(*range_left_col, index_check_const(row, col_const)));
             }
         }
 
         // calc the end value and save them. in the end of sending, we will create partitions for them and deal them.
-        RETURN_IF_ERROR(_save_missing_values(col_strs, funcs_size, block, _missing_map));
+        RETURN_IF_ERROR(
+                _save_missing_values(col_strs, part_col_num, block, _missing_map, col_null_maps));
 
         size_t new_bt_rows = _batching_block->rows();
         size_t new_bt_bytes = _batching_block->bytes();
@@ -426,8 +440,12 @@ Status VRowDistribution::generate_rows_distribution(
         auto func_size = part_funcs.size();
         for (int i = 0; i < func_size; ++i) {
             int result_idx = -1;
+            // we just calc left range here. leave right to FE to avoid dup calc.
             RETURN_IF_ERROR(part_funcs[i]->execute(part_ctxs[i].get(), block.get(), &result_idx));
-            VLOG_DEBUG << "Partition-calculated block:" << block->dump_data();
+
+            VLOG_DEBUG << "Partition-calculated block:" << block->dump_data(0, 1);
+            DCHECK(result_idx != -1);
+
             partition_cols_idx.push_back(result_idx);
         }
 

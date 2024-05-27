@@ -94,10 +94,12 @@ public:
     VScannerSPtr _scanner;
     ScannerDelegate(VScannerSPtr& scanner_ptr) : _scanner(scanner_ptr) {}
     ~ScannerDelegate() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_scanner->runtime_state()->query_mem_tracker());
         Status st = _scanner->close(_scanner->runtime_state());
         if (!st.ok()) {
             LOG(WARNING) << "close scanner failed, st = " << st;
         }
+        _scanner.reset();
     }
     ScannerDelegate(ScannerDelegate&&) = delete;
 };
@@ -133,22 +135,7 @@ public:
     virtual void set_scan_ranges(RuntimeState* state,
                                  const std::vector<TScanRangeParams>& scan_ranges) {}
 
-    void set_shared_scan(RuntimeState* state, bool shared_scan) {
-        _shared_scan_opt = shared_scan;
-        if (_is_pipeline_scan) {
-            if (_shared_scan_opt) {
-                _shared_scanner_controller =
-                        state->get_query_ctx()->get_shared_scanner_controller();
-                auto [should_create_scanner, queue_id] =
-                        _shared_scanner_controller->should_build_scanner_and_queue_id(id());
-                _should_create_scanner = should_create_scanner;
-                _context_queue_id = queue_id;
-            } else {
-                _should_create_scanner = true;
-                _context_queue_id = 0;
-            }
-        }
-    }
+    void set_shared_scan(RuntimeState* state, bool shared_scan) { _shared_scan_opt = shared_scan; }
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
@@ -276,7 +263,6 @@ protected:
     // cast dst column type equals storage column type
     virtual void get_cast_types_for_variants() {}
 
-    bool _is_pipeline_scan = false;
     bool _shared_scan_opt = false;
 
     // the output tuple of this scan node
@@ -440,14 +426,20 @@ private:
                     eq_predicate_checker);
 
     template <PrimitiveType T>
-    Status _normalize_binary_in_compound_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
-                                                   SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                   PushDownType* pdt);
+    Status _normalize_binary_compound_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                                SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                                PushDownType* pdt);
 
     template <PrimitiveType T>
-    Status _normalize_match_in_compound_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
-                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                  PushDownType* pdt);
+    Status _normalize_in_and_not_in_compound_predicate(vectorized::VExpr* expr,
+                                                       VExprContext* expr_ctx, SlotDescriptor* slot,
+                                                       ColumnValueRange<T>& range,
+                                                       PushDownType* pdt);
+
+    template <PrimitiveType T>
+    Status _normalize_match_compound_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                               SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                               PushDownType* pdt);
 
     template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,

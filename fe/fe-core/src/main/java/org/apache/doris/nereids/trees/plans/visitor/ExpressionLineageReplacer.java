@@ -32,9 +32,11 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer.ExpressionReplaceContext;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -65,14 +67,22 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         if (group == null) {
             return visit(groupPlan, context);
         }
-        List<StructInfo> structInfos = group.getStructInfos();
+        Collection<StructInfo> structInfos = group.getstructInfoMap().getStructInfos();
         if (structInfos.isEmpty()) {
             return visit(groupPlan, context);
         }
-        // TODO only support group has one struct info, will support more struct info later
-        StructInfo structInfo = structInfos.get(0);
-        context.getExprIdExpressionMap().putAll(structInfo.getNamedExprIdAndExprMapping());
-        return visit(groupPlan, context);
+        // Find first info which the context's bitmap contains all to make sure that
+        // the expression lineage is correct
+        Optional<StructInfo> structInfoOptional = structInfos.stream()
+                .filter(info -> (context.getTableBitSet().isEmpty()
+                        || StructInfo.containsAll(context.getTableBitSet(), info.getTableBitSet()))
+                        && !info.getNamedExprIdAndExprMapping().isEmpty())
+                .findFirst();
+        if (!structInfoOptional.isPresent()) {
+            return visit(groupPlan, context);
+        }
+        context.getExprIdExpressionMap().putAll(structInfoOptional.get().getNamedExprIdAndExprMapping());
+        return null;
     }
 
     /**
@@ -144,7 +154,8 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         private final List<Expression> targetExpressions;
         private final Set<TableType> targetTypes;
         private final Set<String> tableIdentifiers;
-        private Map<ExprId, Expression> exprIdExpressionMap;
+        private final Map<ExprId, Expression> exprIdExpressionMap;
+        private final BitSet tableBitSet;
         private List<Expression> replacedExpressions;
 
         /**
@@ -152,10 +163,12 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
          */
         public ExpressionReplaceContext(List<Expression> targetExpressions,
                 Set<TableType> targetTypes,
-                Set<String> tableIdentifiers) {
+                Set<String> tableIdentifiers,
+                BitSet tableBitSet) {
             this.targetExpressions = targetExpressions;
             this.targetTypes = targetTypes;
             this.tableIdentifiers = tableIdentifiers;
+            this.tableBitSet = tableBitSet;
             // collect the named expressions used in target expression and will be replaced later
             this.exprIdExpressionMap = targetExpressions.stream()
                     .map(each -> each.collectToList(NamedExpression.class::isInstance))
@@ -179,6 +192,10 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
 
         public Map<ExprId, Expression> getExprIdExpressionMap() {
             return exprIdExpressionMap;
+        }
+
+        public BitSet getTableBitSet() {
+            return tableBitSet;
         }
 
         /**

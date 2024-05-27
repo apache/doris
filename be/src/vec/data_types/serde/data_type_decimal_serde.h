@@ -35,6 +35,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/core/wide_integer.h"
 
 namespace doris {
 
@@ -127,7 +128,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValue
                                                    int start, int end) const {
     int row_count = end - start;
     const auto* col = check_and_get_column<ColumnDecimal<T>>(column);
-    auto ptype = result.mutable_type();
+    auto* ptype = result.mutable_type();
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         ptype->set_id(PGenericType::DECIMAL128);
     } else if constexpr (std::is_same_v<T, Decimal128V3>) {
@@ -154,10 +155,11 @@ template <typename T>
 Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
     if constexpr (std::is_same_v<T, Decimal<Int128>> || std::is_same_v<T, Decimal128V3> ||
                   std::is_same_v<T, Decimal256> || std::is_same_v<T, Decimal<Int32>>) {
-        column.resize(arg.bytes_value_size());
+        auto old_column_size = column.size();
+        column.resize(old_column_size + arg.bytes_value_size());
         auto& data = reinterpret_cast<ColumnDecimal<T>&>(column).get_data();
         for (int i = 0; i < arg.bytes_value_size(); ++i) {
-            data[i] = *(T*)(arg.bytes_value(i).c_str());
+            data[old_column_size + i] = *(T*)(arg.bytes_value(i).c_str());
         }
         return Status::OK();
     }
@@ -171,7 +173,6 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
                                                       int row_num) const {
     StringRef data_ref = column.get_data_at(row_num);
     result.writeKey(col_id);
-    // TODO: decimal256
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         Decimal128V2::NativeType val =
                 *reinterpret_cast<const Decimal128V2::NativeType*>(data_ref.data);
@@ -186,6 +187,11 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
     } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
         Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
         result.writeInt64(val);
+    } else if constexpr (std::is_same_v<T, Decimal256>) {
+        // use binary type, since jsonb does not support int256
+        result.writeStartBinary();
+        result.writeBinary(data_ref.data, data_ref.size);
+        result.writeEndBinary();
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_one_cell_to_jsonb with type " + column.get_name());
@@ -196,7 +202,6 @@ template <typename T>
 void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                        const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
-    // TODO: decimal256
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Decimal128V3>) {
@@ -205,6 +210,11 @@ void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
         col.insert_value(static_cast<const JsonbInt32Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
         col.insert_value(static_cast<const JsonbInt64Val*>(arg)->val());
+    } else if constexpr (std::is_same_v<T, Decimal256>) {
+        // use binary type, since jsonb does not support int256
+        const wide::Int256 val = *reinterpret_cast<const wide::Int256*>(
+                static_cast<const JsonbBlobVal*>(arg)->getBlob());
+        col.insert_value(Decimal256(val));
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "read_one_cell_from_jsonb with type " + column.get_name());

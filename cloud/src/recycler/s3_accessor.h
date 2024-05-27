@@ -18,8 +18,8 @@
 #pragma once
 
 #include <memory>
-#include <string>
-#include <vector>
+
+#include "recycler/obj_store_accessor.h"
 
 namespace Aws::S3 {
 class S3Client;
@@ -27,50 +27,9 @@ class S3Client;
 
 namespace doris::cloud {
 
-struct ObjectMeta {
-    std::string path; // Relative path
-    int64_t size {0};
-};
-
-class ObjStoreAccessor {
-public:
-    ObjStoreAccessor() = default;
-    virtual ~ObjStoreAccessor() = default;
-
-    virtual const std::string& path() const = 0;
-
-    // returns 0 for success otherwise error
-    virtual int init() = 0;
-
-    // returns 0 for success otherwise error
-    virtual int delete_objects_by_prefix(const std::string& relative_path) = 0;
-
-    // returns 0 for success otherwise error
-    virtual int delete_objects(const std::vector<std::string>& relative_paths) = 0;
-
-    // returns 0 for success otherwise error
-    virtual int delete_object(const std::string& relative_path) = 0;
-
-    // for test
-    // returns 0 for success otherwise error
-    virtual int put_object(const std::string& relative_path, const std::string& content) = 0;
-
-    // returns 0 for success otherwise error
-    virtual int list(const std::string& relative_path, std::vector<ObjectMeta>* files) = 0;
-
-    // return 0 if object exists, 1 if object is not found, negative for error
-    virtual int exist(const std::string& relative_path) = 0;
-
-    // delete objects which last modified time is less than the input expired time and under the input relative path
-    // returns 0 for success otherwise error
-    virtual int delete_expired_objects(const std::string& relative_path, int64_t expired_time) = 0;
-
-    // return 0 for success otherwise error
-    virtual int get_bucket_lifecycle(int64_t* expiration_days) = 0;
-
-    // returns 0 for enabling bucket versioning, otherwise error
-    virtual int check_bucket_versioning() = 0;
-};
+enum class S3RateLimitType;
+extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
+                                 size_t limit);
 
 struct S3Conf {
     std::string ak;
@@ -111,18 +70,18 @@ public:
     // returns 0 for success otherwise error
     int list(const std::string& relative_path, std::vector<ObjectMeta>* ObjectMeta) override;
 
-    // return 0 if object exists, 1 if object is not found, otherwise error
+    // return 0 if object exists, 1 if object is not found, negative for error
     int exist(const std::string& relative_path) override;
 
     // delete objects which last modified time is less than the input expired time and under the input relative path
     // returns 0 for success otherwise error
-    int delete_expired_objects(const std::string& relative_path, int64_t expired_time) override;
+    virtual int delete_expired_objects(const std::string& relative_path, int64_t expired_time);
 
     // returns 0 for success otherwise error
-    int get_bucket_lifecycle(int64_t* expiration_days) override;
+    virtual int get_bucket_lifecycle(int64_t* expiration_days);
 
     // returns 0 for enabling bucket versioning, otherwise error
-    int check_bucket_versioning() override;
+    virtual int check_bucket_versioning();
 
 private:
     std::string get_key(const std::string& relative_path) const;
@@ -133,6 +92,15 @@ private:
     std::shared_ptr<Aws::S3::S3Client> s3_client_;
     S3Conf conf_;
     std::string path_;
+};
+
+class GcsAccessor final : public S3Accessor {
+public:
+    explicit GcsAccessor(S3Conf conf) : S3Accessor(std::move(conf)) {}
+    ~GcsAccessor() override = default;
+
+    // returns 0 for success otherwise error
+    int delete_objects(const std::vector<std::string>& relative_paths) override;
 };
 
 } // namespace doris::cloud

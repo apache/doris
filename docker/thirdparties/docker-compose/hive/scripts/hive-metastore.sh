@@ -82,3 +82,10 @@ touch /mnt/SUCCESS
 while true; do
     sleep 1
 done
+
+create catalog if not exists hive2_docker properties (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.101:9083',
+    'fs.defaultFS' = 'hdfs://172.21.0.101:8020',
+    'hadoop.username' = 'hadoop'
+);

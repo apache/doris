@@ -40,6 +40,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
@@ -97,6 +98,7 @@ public class OriginalPlanner extends Planner {
 
     public void plan(StatementBase queryStmt, TQueryOptions queryOptions)
             throws UserException {
+        this.queryOptions = queryOptions;
         createPlanFragments(queryStmt, analyzer, queryOptions);
 
         // update scan nodes visible version at the end of plan phase.
@@ -302,6 +304,7 @@ public class OriginalPlanner extends Planner {
                     // Cache them for later request better performance
                     analyzer.getPrepareStmt().cacheSerializedDescriptorTable(olapScanNode.getDescTable());
                     analyzer.getPrepareStmt().cacheSerializedOutputExprs(rootFragment.getOutputExprs());
+                    analyzer.getPrepareStmt().cacheSerializedQueryOptions(queryOptions);
                 }
             } else if (selectStmt.isTwoPhaseReadOptEnabled()) {
                 // Optimize query like `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...`
@@ -548,7 +551,7 @@ public class OriginalPlanner extends Planner {
                     OlapScanNode scanNode = (OlapScanNode) child;
                     if (scanNode.isDupKeysOrMergeOnWrite()) {
                         sortNode.setUseTopnOpt(true);
-                        scanNode.setUseTopnOpt(true);
+                        // scanNode.setUseTopnOpt(true);
                     }
                 }
             }
@@ -634,13 +637,25 @@ public class OriginalPlanner extends Planner {
             return Optional.empty();
         }
         SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
-        if (!parsedSelectStmt.getTableRefs().isEmpty()) {
-            return Optional.empty();
-        }
         List<SelectListItem> selectItems = parsedSelectStmt.getSelectList().getItems();
         List<Column> columns = new ArrayList<>(selectItems.size());
         List<String> columnLabels = parsedSelectStmt.getColLabels();
         List<String> data = new ArrayList<>();
+        if ((singleNodePlanner.getScanNodes().size() > 0 && singleNodePlanner.getScanNodes().get(0)
+                instanceof IcebergScanNode) && (((IcebergScanNode) getScanNodes().get(0)).rowCount > 0)) {
+            SelectListItem item = selectItems.get(0);
+            Expr expr = item.getExpr();
+            String columnName = columnLabels.get(0);
+            columns.add(new Column(columnName, expr.getType()));
+            data.add(String.valueOf(((IcebergScanNode) getScanNodes().get(0)).rowCount));
+            ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+            ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
+            // only support one iceberg scan node and one count, e.g. select count(*) from icetbl;
+            return Optional.of(resultSet);
+        }
+        if (!parsedSelectStmt.getTableRefs().isEmpty()) {
+            return Optional.empty();
+        }
         for (int i = 0; i < selectItems.size(); i++) {
             SelectListItem item = selectItems.get(i);
             Expr expr = item.getExpr();

@@ -125,10 +125,7 @@ void MysqlRowBuffer<is_binary_format>::close_dynamic_mode() {
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::reserve(int64_t size) {
-    if (size < 0) {
-        LOG(ERROR) << "alloc memory failed. size = " << size;
-        return -1;
-    }
+    DCHECK(size > 0);
 
     int64_t need_size = size + (_pos - _buf);
 
@@ -137,12 +134,8 @@ int MysqlRowBuffer<is_binary_format>::reserve(int64_t size) {
     }
 
     int64_t alloc_size = std::max(need_size, _buf_size * 2);
-    char* new_buf = new (std::nothrow) char[alloc_size];
+    char* new_buf = new char[alloc_size];
 
-    if (nullptr == new_buf) {
-        LOG(ERROR) << "alloc memory failed. size = " << alloc_size;
-        return -1;
-    }
     size_t offset = _pos - _buf;
     memcpy(new_buf, _buf, offset);
 
@@ -160,13 +153,10 @@ int MysqlRowBuffer<is_binary_format>::reserve(int64_t size) {
 template <typename T>
 char* add_int(T data, char* pos, bool dynamic_mode) {
     char* init_pos = pos;
-    if (!dynamic_mode) {
-        pos++;
-    }
+    pos += !dynamic_mode;
     auto end = fmt::format_to(pos, FMT_COMPILE("{}"), data);
-    int length = end - pos;
     if (!dynamic_mode) {
-        int1store(init_pos, length);
+        int1store(init_pos, end - pos);
     }
     return end;
 }
@@ -180,12 +170,12 @@ static char* add_largeint(int128_t data, char* pos, bool dynamic_mode) {
 }
 
 template <typename T>
-char* add_float(T data, char* pos, bool dynamic_mode, bool faster_float_convert = false) {
+char* add_float(T data, char* pos, bool dynamic_mode) {
     int length = 0;
     if constexpr (std::is_same_v<T, float>) {
-        length = FastFloatToBuffer(data, pos + !dynamic_mode, faster_float_convert);
+        length = FastFloatToBuffer(data, pos + !dynamic_mode);
     } else if constexpr (std::is_same_v<T, double>) {
-        length = FastDoubleToBuffer(data, pos + !dynamic_mode, faster_float_convert);
+        length = FastDoubleToBuffer(data, pos + !dynamic_mode);
     }
     if (!dynamic_mode) {
         int1store(pos++, length);
@@ -228,11 +218,7 @@ static char* add_decimal(const DecimalV2Value& data, int round_scale, char* pos,
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::append(const char* data, int64_t len) {
-    int ret = reserve(len);
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
+    reserve(len);
     memcpy(_pos, data, len);
     _pos += len;
     return 0;
@@ -244,11 +230,7 @@ int MysqlRowBuffer<is_binary_format>::append_var_string(const char* data, int64_
      The +9 comes from that strings of length longer than 16M require
      9 bytes to be stored (see net_store_length).
     */
-    int ret = reserve(len + 9);
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
+    reserve(len + 9);
     _pos = pack_vlen(_pos, len);
     memcpy(_pos, data, len);
     _pos += len;
@@ -264,13 +246,7 @@ int MysqlRowBuffer<is_binary_format>::push_tinyint(int8_t data) {
         return append(buff, 1);
     }
     // 1 for string trail, 1 for length, 1 for sign, other for digits
-    int ret = reserve(3 + MAX_TINYINT_WIDTH);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
-
+    reserve(3 + MAX_TINYINT_WIDTH);
     _pos = add_int(data, _pos, _dynamic_mode);
     return 0;
 }
@@ -284,13 +260,7 @@ int MysqlRowBuffer<is_binary_format>::push_smallint(int16_t data) {
         return append(buff, 2);
     }
     // 1 for string trail, 1 for length, 1 for sign, other for digits
-    int ret = reserve(3 + MAX_SMALLINT_WIDTH);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
-
+    reserve(3 + MAX_SMALLINT_WIDTH);
     _pos = add_int(data, _pos, _dynamic_mode);
     return 0;
 }
@@ -304,13 +274,7 @@ int MysqlRowBuffer<is_binary_format>::push_int(int32_t data) {
         return append(buff, 4);
     }
     // 1 for string trail, 1 for length, 1 for sign, other for digits
-    int ret = reserve(3 + MAX_INT_WIDTH);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
-
+    reserve(3 + MAX_INT_WIDTH);
     _pos = add_int(data, _pos, _dynamic_mode);
     return 0;
 }
@@ -324,12 +288,7 @@ int MysqlRowBuffer<is_binary_format>::push_bigint(int64_t data) {
         return append(buff, 8);
     }
     // 1 for string trail, 1 for length, 1 for sign, other for digits
-    int ret = reserve(3 + MAX_BIGINT_WIDTH);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
+    reserve(3 + MAX_BIGINT_WIDTH);
 
     _pos = add_int(data, _pos, _dynamic_mode);
     return 0;
@@ -344,12 +303,7 @@ int MysqlRowBuffer<is_binary_format>::push_unsigned_bigint(uint64_t data) {
         return append(buff, 8);
     }
     // 1 for string trail, 1 for length, 1 for sign, other for digits
-    int ret = reserve(4 + MAX_BIGINT_WIDTH);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserver failed.";
-        return ret;
-    }
+    reserve(4 + MAX_BIGINT_WIDTH);
 
     _pos = add_int(data, _pos, _dynamic_mode);
     return 0;
@@ -364,12 +318,7 @@ int MysqlRowBuffer<is_binary_format>::push_largeint(int128_t data) {
         return append_var_string(value.data(), value.size());
     }
     // 1 for string trail, 1 for length, 1 for sign, other for digits
-    int ret = reserve(3 + MAX_LARGEINT_WIDTH);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserver failed.";
-        return ret;
-    }
+    reserve(3 + MAX_LARGEINT_WIDTH);
 
     _pos = add_largeint(data, _pos, _dynamic_mode);
     return 0;
@@ -384,14 +333,9 @@ int MysqlRowBuffer<is_binary_format>::push_float(float data) {
         return append(buff, 4);
     }
     // 1 for string trail, 1 for length, 1 for sign, other for digits
-    int ret = reserve(3 + MAX_FLOAT_STR_LENGTH);
+    reserve(3 + MAX_FLOAT_STR_LENGTH);
 
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
-
-    _pos = add_float(data, _pos, _dynamic_mode, _faster_float_convert);
+    _pos = add_float(data, _pos, _dynamic_mode);
     return 0;
 }
 
@@ -404,14 +348,8 @@ int MysqlRowBuffer<is_binary_format>::push_double(double data) {
         return append(buff, 8);
     }
     // 1 for string trail, 1 for length, 1 for sign, other for digits
-    int ret = reserve(3 + MAX_DOUBLE_STR_LENGTH);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
-
-    _pos = add_float(data, _pos, _dynamic_mode, _faster_float_convert);
+    reserve(3 + MAX_DOUBLE_STR_LENGTH);
+    _pos = add_float(data, _pos, _dynamic_mode);
     return 0;
 }
 
@@ -424,12 +362,7 @@ int MysqlRowBuffer<is_binary_format>::push_time(double data) {
         return append(buff, 8);
     }
     // 1 for string trail, 1 for length, other for time str
-    int ret = reserve(2 + MAX_TIME_WIDTH);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
+    reserve(2 + MAX_TIME_WIDTH);
 
     _pos = add_time(data, _pos, _dynamic_mode);
     return 0;
@@ -444,31 +377,33 @@ int MysqlRowBuffer<is_binary_format>::push_timev2(double data, int scale) {
         return append(buff, 8);
     }
     // 1 for string trail, 1 for length, other for time str
-    int ret = reserve(2 + MAX_TIME_WIDTH);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
+    reserve(2 + MAX_TIME_WIDTH);
 
     _pos = add_timev2(data, _pos, _dynamic_mode, scale);
     return 0;
 }
+
 template <bool is_binary_format>
 template <typename DateType>
-int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data) {
+int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data, int scale) {
     if (is_binary_format && !_dynamic_mode) {
-        return push_datetime(data);
+        return push_datetime(data, scale);
     }
 
     char buf[64];
-    char* pos = data.to_string(buf);
+    char* pos = nullptr;
+    if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>> ||
+                  std::is_same_v<DateType, DateV2Value<DateTimeV2ValueType>>) {
+        pos = data.to_string(buf, scale);
+    } else {
+        pos = data.to_string(buf);
+    }
     return push_string(buf, pos - buf - 1);
 }
 
 template <bool is_binary_format>
 template <typename DateType>
-int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data) {
+int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data, int scale) {
     if (is_binary_format && !_dynamic_mode) {
         char buff[12], *pos;
         size_t length;
@@ -481,16 +416,6 @@ int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data) {
         pos[4] = (uchar)data.hour();
         pos[5] = (uchar)data.minute();
         pos[6] = (uchar)data.second();
-        if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>> ||
-                      std::is_same_v<DateType, DateV2Value<DateTimeV2ValueType>>) {
-            int4store(pos + 7, data.microsecond());
-            if (data.microsecond()) {
-                length = 11;
-            }
-        } else {
-            int4store(pos + 7, 0);
-        }
-
         if (data.hour() || data.minute() || data.second()) {
             length = 7;
         } else if (data.year() || data.month() || data.day()) {
@@ -498,16 +423,19 @@ int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data) {
         } else {
             length = 0;
         }
+        if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>> ||
+                      std::is_same_v<DateType, DateV2Value<DateTimeV2ValueType>>) {
+            if (scale > 0 || data.microsecond()) {
+                int4store(pos + 7, data.microsecond());
+                length = 11;
+            }
+        }
+
         buff[0] = (char)length; // Length is stored first
         return append(buff, length + 1);
     }
     // 1 for string trail, 1 for length, other for datetime str
-    int ret = reserve(2 + MAX_DATETIME_WIDTH);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
+    reserve(2 + MAX_DATETIME_WIDTH);
 
     _pos = add_datetime(data, _pos, _dynamic_mode);
     return 0;
@@ -519,13 +447,7 @@ int MysqlRowBuffer<is_binary_format>::push_decimal(const DecimalV2Value& data, i
         ++_field_pos;
     }
     // 1 for string trail, 1 for length, other for decimal str
-    int ret = reserve(2 + MAX_DECIMAL_WIDTH);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
-
+    reserve(2 + MAX_DECIMAL_WIDTH);
     _pos = add_decimal(data, round_scale, _pos, _dynamic_mode);
     return 0;
 }
@@ -547,19 +469,8 @@ int MysqlRowBuffer<is_binary_format>::push_string(const char* str, int64_t lengt
     if (is_binary_format && !_dynamic_mode) {
         ++_field_pos;
     }
-    // 9 for length pack max, 1 for sign, other for digits
-    if (nullptr == str) {
-        LOG(ERROR) << "input string is nullptr.";
-        return -1;
-    }
-
-    int ret = reserve(9 + length);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
-
+    DCHECK(str != nullptr) << "input string is nullptr.";
+    reserve(9 + length);
     if (!_dynamic_mode) {
         _pos = pack_vlen(_pos, length);
     }
@@ -585,13 +496,7 @@ int MysqlRowBuffer<is_binary_format>::push_null() {
         return 0;
     }
 
-    int ret = reserve(1);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return ret;
-    }
-
+    reserve(1);
     int1store(_pos, 251);
     _pos += 1;
     return 0;
@@ -599,13 +504,7 @@ int MysqlRowBuffer<is_binary_format>::push_null() {
 
 template <bool is_binary_format>
 char* MysqlRowBuffer<is_binary_format>::reserved(int64_t size) {
-    int ret = reserve(size);
-
-    if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
-        return nullptr;
-    }
-
+    reserve(size);
     char* old_buf = _pos;
     _pos += size;
 
@@ -616,14 +515,16 @@ template class MysqlRowBuffer<true>;
 template class MysqlRowBuffer<false>;
 
 template int MysqlRowBuffer<true>::push_vec_datetime<DateV2Value<DateV2ValueType>>(
-        DateV2Value<DateV2ValueType>& value);
+        DateV2Value<DateV2ValueType>& value, int scale);
 template int MysqlRowBuffer<true>::push_vec_datetime<DateV2Value<DateTimeV2ValueType>>(
-        DateV2Value<DateTimeV2ValueType>& value);
-template int MysqlRowBuffer<true>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value);
+        DateV2Value<DateTimeV2ValueType>& value, int scale);
+template int MysqlRowBuffer<true>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value,
+                                                                       int scale);
 template int MysqlRowBuffer<false>::push_vec_datetime<DateV2Value<DateV2ValueType>>(
-        DateV2Value<DateV2ValueType>& value);
+        DateV2Value<DateV2ValueType>& value, int scale);
 template int MysqlRowBuffer<false>::push_vec_datetime<DateV2Value<DateTimeV2ValueType>>(
-        DateV2Value<DateTimeV2ValueType>& value);
-template int MysqlRowBuffer<false>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value);
+        DateV2Value<DateTimeV2ValueType>& value, int scale);
+template int MysqlRowBuffer<false>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value,
+                                                                        int scale);
 
 } // namespace doris

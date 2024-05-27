@@ -123,7 +123,7 @@ public:
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
-        result.mutable_bytes_value()->Reserve(end - start);
+        result.mutable_string_value()->Reserve(end - start);
         auto* ptype = result.mutable_type();
         ptype->set_id(PGenericType::STRING);
         for (size_t row_num = start; row_num < end; ++row_num) {
@@ -133,10 +133,10 @@ public:
         return Status::OK();
     }
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
-        column.reserve(arg.string_value_size());
+        auto& column_dest = assert_cast<ColumnType&>(column);
+        column_dest.reserve(column_dest.size() + arg.string_value_size());
         for (int i = 0; i < arg.string_value_size(); ++i) {
-            assert_cast<ColumnType&>(column).insert_data(arg.string_value(i).c_str(),
-                                                         arg.string_value(i).size());
+            column_dest.insert_data(arg.string_value(i).c_str(), arg.string_value(i).size());
         }
         return Status::OK();
     }
@@ -229,7 +229,7 @@ public:
         return Status::OK();
     }
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator,
+                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
                                   int row_num) const override {
         const auto& col = assert_cast<const ColumnType&>(column);
         const auto& data_ref = col.get_data_at(row_num);
@@ -255,23 +255,7 @@ private:
                                   int row_idx, bool col_const) const {
         const auto col_index = index_check_const(row_idx, col_const);
         const auto string_val = assert_cast<const ColumnType&>(column).get_data_at(col_index);
-        if (string_val.data == nullptr) {
-            if (string_val.size == 0) {
-                // 0x01 is a magic num, not useful actually, just for present ""
-                char* tmp_val = reinterpret_cast<char*>(0x01);
-                if (UNLIKELY(0 != result.push_string(tmp_val, string_val.size))) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            } else {
-                if (UNLIKELY(0 != result.push_null())) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            }
-        } else {
-            if (UNLIKELY(0 != result.push_string(string_val.data, string_val.size))) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        }
+        result.push_string(string_val.data, string_val.size);
         return Status::OK();
     }
 };

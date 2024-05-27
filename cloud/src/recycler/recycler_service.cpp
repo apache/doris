@@ -28,6 +28,7 @@
 #include "common/util.h"
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv_error.h"
+#include "rate-limiter/s3_rate_limiter.h"
 #include "recycler/checker.h"
 #include "recycler/meta_checker.h"
 #include "recycler/recycler.h"
@@ -384,7 +385,6 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
         LOG(INFO) << " host " << *host;
         LOG(INFO) << " port " << *port;
         LOG(INFO) << " user " << *user;
-        LOG(INFO) << " passwd " << *password;
         LOG(INFO) << " instance " << *instance_id;
         if (instance_id == nullptr || instance_id->empty() || host == nullptr || host->empty() ||
             port == nullptr || port->empty() || password == nullptr || user == nullptr ||
@@ -395,6 +395,34 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
             return;
         }
         check_meta(txn_kv_, *instance_id, *host, *port, *user, *password, msg);
+        status_code = 200;
+        response_body = msg;
+        return;
+    }
+
+    if (unresolved_path == "adjust_rate_limiter") {
+        auto type_string = uri.GetQuery("type");
+        auto speed = uri.GetQuery("speed");
+        auto burst = uri.GetQuery("burst");
+        auto limit = uri.GetQuery("limit");
+        if (type_string->empty() || speed->empty() || burst->empty() || limit->empty() ||
+            (*type_string != "get" && *type_string != "put")) {
+            msg = "argument not suitable";
+            response_body = msg;
+            status_code = 400;
+            return;
+        }
+        auto max_speed = speed->empty() ? 0 : std::stoul(*speed);
+        auto max_burst = burst->empty() ? 0 : std::stoul(*burst);
+        auto max_limit = burst->empty() ? 0 : std::stoul(*limit);
+        if (0 != reset_s3_rate_limiter(string_to_s3_rate_limit_type(*type_string), max_speed,
+                                       max_burst, max_limit)) {
+            msg = "adjust failed";
+            response_body = msg;
+            status_code = 400;
+            return;
+        }
+
         status_code = 200;
         response_body = msg;
         return;

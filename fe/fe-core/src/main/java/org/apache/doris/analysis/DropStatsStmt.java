@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -35,7 +34,6 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Manually drop statistics for tables or partitions.
@@ -51,6 +49,7 @@ public class DropStatsStmt extends DdlStmt {
 
     private final TableName tableName;
     private Set<String> columnNames;
+    private PartitionNames partitionNames;
     // Flag to drop external table row count in table_statistics.
     private boolean dropTableRowCount;
     private boolean isAllColumns;
@@ -63,12 +62,14 @@ public class DropStatsStmt extends DdlStmt {
         this.dropExpired = dropExpired;
         this.tableName = null;
         this.columnNames = null;
+        this.partitionNames = null;
         this.dropTableRowCount = false;
     }
 
     public DropStatsStmt(TableName tableName,
-            List<String> columnNames) {
+            List<String> columnNames, PartitionNames partitionNames) {
         this.tableName = tableName;
+        this.partitionNames = partitionNames;
         if (columnNames != null) {
             this.columnNames = new HashSet<>(columnNames);
             this.dropTableRowCount = false;
@@ -106,7 +107,7 @@ public class DropStatsStmt extends DdlStmt {
         dbId = db.getId();
         catalogId = catalog.getId();
         // check permission
-        checkAnalyzePriv(db.getFullName(), table.getName());
+        checkAnalyzePriv(catalogName, db.getFullName(), table.getName());
         // check columnNames
         if (columnNames != null) {
             isAllColumns = false;
@@ -122,7 +123,6 @@ public class DropStatsStmt extends DdlStmt {
             }
         } else {
             isAllColumns = true;
-            columnNames = table.getSchemaAllIndexes(false).stream().map(Column::getName).collect(Collectors.toSet());
         }
     }
 
@@ -173,9 +173,10 @@ public class DropStatsStmt extends DdlStmt {
         return toSql();
     }
 
-    private void checkAnalyzePriv(String dbName, String tblName) throws AnalysisException {
+    private void checkAnalyzePriv(String catalogName, String dbName, String tblName) throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.DROP)) {
+                .checkTblPriv(ConnectContext.get(), catalogName, dbName, tblName,
+                        PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                     "DROP",

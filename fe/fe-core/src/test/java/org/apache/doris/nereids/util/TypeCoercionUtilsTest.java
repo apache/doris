@@ -20,10 +20,17 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
@@ -56,6 +63,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -284,7 +292,7 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(LargeIntType.INSTANCE, LargeIntType.INSTANCE, BigIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(LargeIntType.INSTANCE, LargeIntType.INSTANCE, LargeIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, LargeIntType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, LargeIntType.INSTANCE, DecimalV3Type.SYSTEM_DEFAULT);
+        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.createDecimalV3Type(38), LargeIntType.INSTANCE, DecimalV3Type.createDecimalV3Type(38));
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, LargeIntType.INSTANCE, FloatType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, LargeIntType.INSTANCE, DoubleType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, LargeIntType.INSTANCE, CharType.SYSTEM_DEFAULT);
@@ -308,7 +316,7 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT, LargeIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT,
                 DecimalV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT,
+        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT,
                 DecimalV3Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, FloatType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, DoubleType.INSTANCE);
@@ -331,10 +339,10 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT, SmallIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT, IntegerType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT, BigIntType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT, LargeIntType.INSTANCE);
+        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.createDecimalV3Type(38), DecimalV3Type.createDecimalV3Type(38), LargeIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT,
                 DecimalV2Type.createDecimalV2Type(27, 0));
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV3Type.SYSTEM_DEFAULT,
+        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT,
                 DecimalV2Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT,
                 DecimalV3Type.SYSTEM_DEFAULT);
@@ -734,5 +742,87 @@ public class TypeCoercionUtilsTest {
         expression = TypeCoercionUtils.processBinaryArithmetic(sub);
         Assertions.assertEquals(expression.child(0),
                 new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(10, 3)));
+    }
+
+    @Test
+    public void testProcessInDowngrade() {
+        // DecimalV2 slot vs DecimalV3 literal
+        InPredicate decimalDowngrade = new InPredicate(
+                new SlotReference("c1", DecimalV2Type.createDecimalV2Type(15, 6)),
+                ImmutableList.of(
+                        new DecimalV3Literal(BigDecimal.valueOf(12345.1234567)),
+                        new DecimalLiteral(BigDecimal.valueOf(12345.1234))));
+        decimalDowngrade = (InPredicate) TypeCoercionUtils.processInPredicate(decimalDowngrade);
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(16, 7), decimalDowngrade.getCompareExpr().getDataType());
+
+        // DateV1 slot vs DateV2 literal
+        InPredicate dateDowngrade = new InPredicate(
+                new SlotReference("c1", DateType.INSTANCE),
+                ImmutableList.of(
+                        new DateLiteral(2024, 4, 12),
+                        new DateV2Literal(2024, 4, 12)));
+        dateDowngrade = (InPredicate) TypeCoercionUtils.processInPredicate(dateDowngrade);
+        Assertions.assertEquals(DateType.INSTANCE, dateDowngrade.getCompareExpr().getDataType());
+
+        // DatetimeV1 slot vs DateLike literal
+        InPredicate datetimeDowngrade = new InPredicate(
+                new SlotReference("c1", DateTimeType.INSTANCE),
+                ImmutableList.of(
+                        new DateLiteral(2024, 4, 12),
+                        new DateV2Literal(2024, 4, 12),
+                        new DateTimeLiteral(2024, 4, 12, 18, 25, 30),
+                        new DateTimeV2Literal(2024, 4, 12, 18, 25, 30, 0)));
+        datetimeDowngrade = (InPredicate) TypeCoercionUtils.processInPredicate(datetimeDowngrade);
+        Assertions.assertEquals(DateTimeType.INSTANCE, datetimeDowngrade.getCompareExpr().getDataType());
+    }
+
+    @Test
+    public void testProcessComparisonPredicateDowngrade() {
+        // DecimalV2 slot vs DecimalV3 literal
+        EqualTo decimalDowngrade = new EqualTo(
+                new SlotReference("c1", DecimalV2Type.createDecimalV2Type(15, 6)),
+                new DecimalV3Literal(BigDecimal.valueOf(12345.1234567))
+        );
+        decimalDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(decimalDowngrade);
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(16, 7), decimalDowngrade.left().getDataType());
+
+        // DateV1 slot vs DateV2 literal (this case cover right slot vs left literal)
+        EqualTo dateDowngrade = new EqualTo(
+                new DateV2Literal(2024, 4, 12),
+                new SlotReference("c1", DateType.INSTANCE)
+        );
+        dateDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(dateDowngrade);
+        Assertions.assertEquals(DateType.INSTANCE, dateDowngrade.left().getDataType());
+
+        // DatetimeV1 slot vs DateLike literal
+        EqualTo datetimeDowngrade = new EqualTo(
+                new SlotReference("c1", DateTimeType.INSTANCE),
+                new DateTimeV2Literal(2024, 4, 12, 18, 25, 30, 0)
+        );
+        datetimeDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(datetimeDowngrade);
+        Assertions.assertEquals(DateTimeType.INSTANCE, datetimeDowngrade.left().getDataType());
+    }
+
+    @Test
+    public void testProcessInStringCoercion() {
+        // BigInt slot vs String literal
+        InPredicate bigintString = new InPredicate(
+                new SlotReference("c1", BigIntType.INSTANCE),
+                ImmutableList.of(
+                        new VarcharLiteral("200"),
+                        new VarcharLiteral("922337203685477001")));
+        bigintString = (InPredicate) TypeCoercionUtils.processInPredicate(bigintString);
+        Assertions.assertEquals(BigIntType.INSTANCE, bigintString.getCompareExpr().getDataType());
+        Assertions.assertEquals(BigIntType.INSTANCE, bigintString.getOptions().get(0).getDataType());
+
+        // SmallInt slot vs String literal
+        InPredicate smallIntString = new InPredicate(
+                new SlotReference("c1", SmallIntType.INSTANCE),
+                ImmutableList.of(
+                        new DecimalLiteral(new BigDecimal("987654.321")),
+                        new VarcharLiteral("922337203685477001")));
+        smallIntString = (InPredicate) TypeCoercionUtils.processInPredicate(smallIntString);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(23, 3), smallIntString.getCompareExpr().getDataType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(23, 3), smallIntString.getOptions().get(0).getDataType());
     }
 }

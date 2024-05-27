@@ -144,9 +144,9 @@ public class OlapTableSink extends DataSink {
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
         tSink.setTxnTimeoutS(txnExpirationS);
-        String storageVaultId = dstTable.getTableProperty().getStorageVaultId();
-        if (storageVaultId != null && !storageVaultId.isEmpty()) {
-            tSink.setStorageVaultId(storageVaultId);
+        String vaultId = dstTable.getStorageVaultId();
+        if (vaultId != null && !vaultId.isEmpty()) {
+            tSink.setStorageVaultId(vaultId);
         }
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setOlapTableSink(tSink);
@@ -322,6 +322,7 @@ public class OlapTableSink extends DataSink {
             for (Column col : table.getFullSchema()) {
                 if (col.isAutoInc()) {
                     schemaParam.setAutoIncrementColumn(col.getName());
+                    schemaParam.setAutoIncrementColumnUniqueId(col.getUniqueId());
                 }
             }
         }
@@ -477,16 +478,19 @@ public class OlapTableSink extends DataSink {
         return partitionParam;
     }
 
-    public static void setPartitionKeys(TOlapTablePartition tPartition, PartitionItem partitionItem, int partColNum) {
+    public static void setPartitionKeys(TOlapTablePartition tPartition, PartitionItem partitionItem, int partColNum)
+            throws UserException {
         if (partitionItem instanceof RangePartitionItem) {
             Range<PartitionKey> range = partitionItem.getItems();
-            // set start keys
+            // set start keys. min value is a REAL value. should be legal.
             if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                 for (int i = 0; i < partColNum; i++) {
                     tPartition.addToStartKeys(range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
                 }
             }
-            // set end keys
+            // TODO: support real MaxLiteral in thrift.
+            // now we dont send it to BE. if BE meet it, treat it as default value.
+            // see VOlapTablePartition's ctor in tablet_info.h
             if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
                 for (int i = 0; i < partColNum; i++) {
                     tPartition.addToEndKeys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
@@ -530,10 +534,7 @@ public class OlapTableSink extends DataSink {
                                 + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]"
                                 + ", detail: " + tablet.getDetailsStatusForQuery(partition.getVisibleVersion());
                         if (Config.isCloudMode()) {
-                            errMsg += ", or you may not have permission to access the current cluster";
-                            if (ConnectContext.get() != null) {
-                                errMsg += " clusterName=" + ConnectContext.get().getCloudCluster(false);
-                            }
+                            errMsg += ConnectContext.cloudNoBackendsReason();
                         }
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
                     }

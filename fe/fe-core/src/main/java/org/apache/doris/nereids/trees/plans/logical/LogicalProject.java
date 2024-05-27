@@ -20,8 +20,8 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
@@ -42,11 +42,11 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import org.json.JSONObject;
 
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /**
  * Logical project plan.
@@ -57,33 +57,22 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     private final List<NamedExpression> projects;
     private final List<NamedExpression> excepts;
     private final boolean isDistinct;
-    private final boolean canEliminate;
 
     public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child) {
-        this(projects, ImmutableList.of(), false, true, ImmutableList.of(child));
-    }
-
-    public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child, boolean canEliminate) {
-        this(projects, ImmutableList.of(), false, canEliminate, ImmutableList.of(child));
+        this(projects, ImmutableList.of(), false, ImmutableList.of(child));
     }
 
     public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
             boolean isDistinct, List<Plan> child) {
-        this(projects, excepts, isDistinct, true, Optional.empty(), Optional.empty(), child);
+        this(projects, excepts, isDistinct, Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
             boolean isDistinct, Plan child) {
-        this(projects, excepts, isDistinct, true, Optional.empty(), Optional.empty(), ImmutableList.of(child));
-    }
-
-    private LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
-            boolean isDistinct, boolean canEliminate, List<Plan> child) {
-        this(projects, excepts, isDistinct, canEliminate, Optional.empty(), Optional.empty(), child);
+        this(projects, excepts, isDistinct, Optional.empty(), Optional.empty(), ImmutableList.of(child));
     }
 
     private LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, boolean isDistinct,
-            boolean canEliminate,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Plan> child) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
@@ -97,7 +86,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 : projects;
         this.excepts = Utils.fastToImmutableList(excepts);
         this.isDistinct = isDistinct;
-        this.canEliminate = canEliminate;
     }
 
     /**
@@ -112,10 +100,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     public List<NamedExpression> getExcepts() {
         return excepts;
-    }
-
-    public boolean isAllSlots() {
-        return projects.stream().allMatch(NamedExpression::isSlot);
     }
 
     @Override
@@ -167,18 +151,18 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public int hashCode() {
-        return Objects.hash(projects, canEliminate);
+        return Objects.hash(projects);
     }
 
     @Override
     public LogicalProject<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, excepts, isDistinct, canEliminate, Utils.fastToImmutableList(children));
+        return new LogicalProject<>(projects, excepts, isDistinct, Utils.fastToImmutableList(children));
     }
 
     @Override
     public LogicalProject<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalProject<>(projects, excepts, isDistinct, canEliminate,
+        return new LogicalProject<>(projects, excepts, isDistinct,
                 groupExpression, Optional.of(getLogicalProperties()), children);
     }
 
@@ -186,29 +170,20 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, excepts, isDistinct, canEliminate,
+        return new LogicalProject<>(projects, excepts, isDistinct,
                 groupExpression, logicalProperties, children);
     }
 
-    public LogicalProject<Plan> withEliminate(boolean isEliminate) {
-        return new LogicalProject<>(projects, excepts, isDistinct, isEliminate,
-                Optional.empty(), Optional.of(getLogicalProperties()), children);
-    }
-
     public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {
-        return new LogicalProject<>(projects, excepts, isDistinct, canEliminate, children);
+        return new LogicalProject<>(projects, excepts, isDistinct, children);
     }
 
     public LogicalProject<Plan> withProjectsAndChild(List<NamedExpression> projects, Plan child) {
-        return new LogicalProject<>(projects, excepts, isDistinct, canEliminate, ImmutableList.of(child));
+        return new LogicalProject<>(projects, excepts, isDistinct, ImmutableList.of(child));
     }
 
     public boolean isDistinct() {
         return isDistinct;
-    }
-
-    public boolean canEliminate() {
-        return canEliminate;
     }
 
     @Override
@@ -233,36 +208,78 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        FunctionalDependencies childFuncDeps = child().getLogicalProperties().getFunctionalDependencies();
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder(childFuncDeps);
-        builder.pruneSlots(new HashSet<>(outputSupplier.get()));
-        projects.stream().filter(Alias.class::isInstance).forEach(proj -> {
-            if (proj.child(0).isConstant()) {
-                builder.addUniformSlot(proj.toSlot());
-            } else if (proj.child(0) instanceof Uuid) {
-                builder.addUniqueSlot(proj.toSlot());
-            } else if (ExpressionUtils.isInjective(proj.child(0))) {
-                ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
-                if (childFuncDeps.isUnique(inputs)) {
-                    builder.addUniqueSlot(proj.toSlot());
-                } else if (childFuncDeps.isUniform(inputs)) {
-                    builder.addUniformSlot(proj.toSlot());
-                }
-            }
-        });
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        builder.addFdItems(fdItems);
+    public ImmutableSet<FdItem> computeFdItems() {
+        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+
+        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getTrait().getFdItems();
+        builder.addAll(childItems);
+
         return builder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+    public void computeUnique(DataTrait.Builder builder) {
+        builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
+        for (NamedExpression proj : getProjects()) {
+            if (proj.children().isEmpty()) {
+                continue;
+            }
+            if (proj.child(0) instanceof Uuid) {
+                builder.addUniqueSlot(proj.toSlot());
+            } else if (ExpressionUtils.isInjective(proj.child(0))) {
+                ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
+                if (child(0).getLogicalProperties().getTrait().isUnique(inputs)) {
+                    builder.addUniqueSlot(proj.toSlot());
+                }
+            }
+        }
+        builder.pruneSlots(getOutputSet());
+    }
 
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();
-        builder.addAll(childItems);
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
+        for (NamedExpression proj : getProjects()) {
+            if (proj.children().isEmpty()) {
+                continue;
+            }
+            if (proj.child(0).isConstant()) {
+                builder.addUniformSlot(proj.toSlot());
+            } else if (ExpressionUtils.isInjective(proj.child(0))) {
+                ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
+                if (child(0).getLogicalProperties().getTrait().isUniform(inputs)) {
+                    builder.addUniformSlot(proj.toSlot());
+                }
+            }
+        }
+        builder.pruneSlots(getOutputSet());
+    }
 
-        return builder.build();
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        Map<Expression, NamedExpression> aliasMap = new HashMap<>();
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
+        for (NamedExpression expr : getProjects()) {
+            if (expr instanceof Alias) {
+                if (aliasMap.containsKey(expr.child(0))) {
+                    builder.addEqualPair(expr.toSlot(), aliasMap.get(expr.child(0)).toSlot());
+                }
+                aliasMap.put(expr.child(0), expr);
+                if (expr.child(0).isSlot()) {
+                    builder.addEqualPair(expr.toSlot(), (Slot) expr.child(0));
+                }
+            }
+        }
+        builder.pruneSlots(getOutputSet());
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
+        for (NamedExpression expr : getProjects()) {
+            if (!expr.isSlot()) {
+                builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
+            }
+        }
     }
 }

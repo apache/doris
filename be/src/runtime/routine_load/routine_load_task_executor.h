@@ -27,8 +27,8 @@
 #include <vector>
 
 #include "runtime/routine_load/data_consumer_pool.h"
+#include "util/threadpool.h"
 #include "util/uid_util.h"
-#include "util/work_thread_pool.hpp"
 
 namespace doris {
 
@@ -51,6 +51,8 @@ public:
 
     ~RoutineLoadTaskExecutor();
 
+    Status init();
+
     void stop();
 
     // submit a routine load task
@@ -60,10 +62,16 @@ public:
                                     std::vector<int32_t>* partition_ids);
 
     Status get_kafka_partition_offsets_for_times(const PKafkaMetaProxyRequest& request,
-                                                 std::vector<PIntegerPair>* partition_offsets);
+                                                 std::vector<PIntegerPair>* partition_offsets,
+                                                 int timeout);
 
     Status get_kafka_latest_offsets_for_partitions(const PKafkaMetaProxyRequest& request,
-                                                   std::vector<PIntegerPair>* partition_offsets);
+                                                   std::vector<PIntegerPair>* partition_offsets,
+                                                   int timeout);
+
+    Status get_kafka_real_offsets_for_partitions(const PKafkaMetaProxyRequest& request,
+                                                 std::vector<PIntegerPair>* partition_offsets,
+                                                 int timeout);
 
 private:
     // execute the task
@@ -81,7 +89,7 @@ private:
 
 private:
     ExecEnv* _exec_env = nullptr;
-    PriorityThreadPool _thread_pool;
+    std::unique_ptr<ThreadPool> _thread_pool;
     DataConsumerPool _data_consumer_pool;
 
     std::mutex _lock;

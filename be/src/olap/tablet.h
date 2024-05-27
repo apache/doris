@@ -24,9 +24,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <limits>
-#include <list>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <ostream>
@@ -34,7 +31,6 @@
 #include <shared_mutex>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -83,6 +79,27 @@ enum SortType : int;
 enum TabletStorageType { STORAGE_TYPE_LOCAL, STORAGE_TYPE_REMOTE, STORAGE_TYPE_REMOTE_AND_LOCAL };
 
 static inline constexpr auto TRACE_TABLET_LOCK_THRESHOLD = std::chrono::seconds(1);
+
+struct WriteCooldownMetaExecutors {
+    WriteCooldownMetaExecutors(size_t executor_nums = 5);
+
+    void stop();
+
+    void submit(TabletSharedPtr tablet);
+    size_t _get_executor_pos(int64_t tablet_id) const {
+        return std::hash<int64_t>()(tablet_id) % _executor_nums;
+    };
+    // Each executor is a mpsc to ensure uploads of the same tablet meta are not concurrent
+    // FIXME(AlexYue): Use mpsc instead of `ThreadPool` with 1 thread
+    // We use PriorityThreadPool since it would call status inside it's `shutdown` function.
+    // Consider one situation where the StackTraceCache's singleton is detructed before
+    // this WriteCooldownMetaExecutors's singleton, then invoking the status would also call
+    // StackTraceCache which would then result in heap use after free like #23834
+    std::vector<std::unique_ptr<PriorityThreadPool>> _executors;
+    std::unordered_set<int64_t> _pending_tablets;
+    std::mutex _latch;
+    size_t _executor_nums;
+};
 
 class Tablet final : public BaseTablet {
 public:
@@ -232,6 +249,12 @@ public:
         _last_base_compaction_schedule_millis = millis;
     }
 
+    void set_last_single_compaction_failure_status(std::string status) {
+        _last_single_compaction_failure_status = std::move(status);
+    }
+
+    void set_last_fetched_version(Version version) { _last_fetched_version = std::move(version); }
+
     void delete_all_files();
 
     void check_tablet_path_exists();
@@ -244,12 +267,11 @@ public:
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_build_inverted_index(
-            const std::set<int32_t>& alter_index_uids, bool is_drop_op);
+            const std::set<int64_t>& alter_index_uids, bool is_drop_op);
 
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_single_replica_compaction();
-    std::vector<Version> get_all_versions();
-
-    std::vector<RowsetSharedPtr> pick_first_consecutive_empty_rowsets(int limit);
+    // used for single compaction to get the local versions
+    // Single compaction does not require remote rowsets and cannot violate the cooldown semantics
+    std::vector<Version> get_all_local_versions();
 
     void calculate_cumulative_point();
     // TODO(ygl):
@@ -292,6 +314,14 @@ public:
     }
 
     std::string get_last_base_compaction_status() { return _last_base_compaction_status; }
+
+    std::tuple<int64_t, int64_t> get_visible_version_and_time() const;
+
+    void set_visible_version(const std::shared_ptr<const VersionWithTime>& visible_version) {
+        std::atomic_store_explicit(&_visible_version, visible_version, std::memory_order_relaxed);
+    }
+
+    bool should_fetch_from_peer();
 
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
@@ -441,6 +471,14 @@ public:
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
+    void set_is_full_compaction_running(bool is_full_compaction_running) {
+        _is_full_compaction_running = is_full_compaction_running;
+    }
+    inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
+    void clear_cache() override;
+    Status calc_local_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
+                               int32_t* rowset_count, int64_t* file_count);
+
 private:
     Status _init_once_action();
     bool _contains_rowset(const RowsetId rowset_id);
@@ -460,6 +498,9 @@ private:
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
     uint32_t _calc_base_compaction_score() const;
 
+    std::vector<RowsetSharedPtr> _pick_visible_rowsets_to_compaction(int64_t min_start_version,
+                                                                     int64_t max_start_version);
+
     void _init_context_common_fields(RowsetWriterContext& context);
 
     ////////////////////////////////////////////////////////////////////////////
@@ -474,6 +515,8 @@ private:
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
+
+    void _clear_cache_by_rowset(const BetaRowsetSharedPtr& rowset);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
@@ -520,6 +563,10 @@ private:
     std::atomic<int64_t> _last_checkpoint_time;
     std::string _last_base_compaction_status;
 
+    // single replica compaction status
+    std::string _last_single_compaction_failure_status;
+    Version _last_fetched_version;
+
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string_view _cumulative_compaction_type;
@@ -551,6 +598,11 @@ private:
     std::atomic<bool> _alter_failed = false;
 
     int64_t _io_error_times = 0;
+
+    // partition's visible version. it sync from fe, but not real-time.
+    std::shared_ptr<const VersionWithTime> _visible_version;
+
+    std::atomic_bool _is_full_compaction_running = false;
 };
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {

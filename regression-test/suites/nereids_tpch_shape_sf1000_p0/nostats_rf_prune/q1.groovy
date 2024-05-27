@@ -30,7 +30,8 @@ suite("q1") {
 sql 'set forbid_unknown_col_stats=false;'
 sql 'set enable_runtime_filter_prune=true'
 sql 'set enable_stats=false'
-    
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     qt_select """
     explain shape plan

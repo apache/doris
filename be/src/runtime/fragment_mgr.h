@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 #include <stdint.h>
@@ -33,6 +34,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
+#include "runtime/plan_fragment_executor.h"
 #include "runtime/query_context.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
@@ -44,10 +46,11 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
+extern bvar::Adder<uint64_t> g_fragment_executing_count;
+extern bvar::Status<uint64_t> g_fragment_last_active_time;
 
 namespace pipeline {
 class PipelineFragmentContext;
-class PipelineXFragmentContext;
 } // namespace pipeline
 class QueryContext;
 class ExecEnv;
@@ -97,18 +100,13 @@ public:
                                            std::shared_ptr<pipeline::PipelineFragmentContext>&&);
 
     // Cancel instance (pipeline or nonpipeline).
-    void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
-                         const std::string& msg = "");
+    void cancel_instance(const TUniqueId instance_id, const Status reason);
     // Cancel fragment (only pipelineX).
-    // {query id fragment} -> PipelineXFragmentContext
-    void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
-                         const PPlanFragmentCancelReason& reason, const std::string& msg = "");
+    // {query id fragment} -> PipelineFragmentContext
+    void cancel_fragment(const TUniqueId query_id, int32_t fragment_id, const Status reason);
 
     // Can be used in both version.
-    void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
-                      const std::string& msg = "");
-
-    bool query_is_canceled(const TUniqueId& query_id);
+    void cancel_query(const TUniqueId query_id, const Status reason);
 
     void cancel_worker();
 
@@ -130,11 +128,17 @@ public:
     Status merge_filter(const PMergeFilterRequest* request,
                         butil::IOBufAsZeroCopyInputStream* attach_data);
 
+    Status send_filter_size(const PSendFilterSizeRequest* request);
+
+    Status sync_filter_size(const PSyncFilterSizeRequest* request);
+
     std::string to_http_path(const std::string& file_name);
 
     void coordinator_callback(const ReportStatusRequest& req);
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
+
+    Status get_query_context(const TUniqueId& query_id, std::shared_ptr<QueryContext>* query_ctx);
 
     int32_t running_query_num() {
         std::unique_lock<std::mutex> ctx_lock(_lock);
@@ -145,10 +149,12 @@ public:
 
     void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
 
+    Status get_realtime_exec_status(const TUniqueId& query_id,
+                                    TReportExecStatusParams* exec_status);
+
 private:
-    void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
-                              const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
-                              const std::string& msg = "");
+    void cancel_unlocked_impl(const TUniqueId& id, const Status& reason,
+                              const std::unique_lock<std::mutex>& state_lock, bool is_pipeline);
 
     void _exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                       const FinishCallback& cb);
@@ -169,6 +175,7 @@ private:
     template <typename Params>
     Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                           std::shared_ptr<QueryContext>& query_ctx);
+    std::shared_ptr<QueryContext> _get_or_erase_query_ctx(TUniqueId query_id);
 
     // This is input params
     ExecEnv* _exec_env = nullptr;
@@ -186,7 +193,7 @@ private:
     std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
 
     // query id -> QueryContext
-    std::unordered_map<TUniqueId, std::shared_ptr<QueryContext>> _query_ctx_map;
+    std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctx_map;
     std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;
@@ -201,5 +208,8 @@ private:
     std::unique_ptr<ThreadPool> _async_report_thread_pool =
             nullptr; // used for pipeliine context report
 };
+
+uint64_t get_fragment_executing_count();
+uint64_t get_fragment_last_active_time();
 
 } // namespace doris

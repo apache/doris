@@ -35,6 +35,7 @@
 
 #include "common/status.h"
 #include "olap/tablet_schema.h"
+#include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/cow.h"
@@ -62,8 +63,8 @@ namespace doris::vectorized {
 /// It allows to recreate field with different number
 /// of dimensions or nullability.
 struct FieldInfo {
-    /// The common type of of all scalars in field.
-    DataTypePtr scalar_type;
+    /// The common type id of of all scalars in field.
+    TypeIndex scalar_type_id;
     /// Do we have NULL scalar in field.
     bool have_nulls;
     /// If true then we have scalars with different types in array and
@@ -72,6 +73,7 @@ struct FieldInfo {
     /// Number of dimension in array. 0 if field is scalar.
     size_t num_dimensions;
 };
+
 void get_field_info(const Field& field, FieldInfo* info);
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
@@ -91,6 +93,7 @@ public:
 
     // Using jsonb type as most common type, since it's adopted all types of json
     using MostCommonType = DataTypeJsonb;
+    constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
     class Subcolumn {
     public:
         Subcolumn() = default;
@@ -147,8 +150,6 @@ public:
         /// Returns last inserted field.
         Field get_last_field() const;
 
-        FieldInfo get_subcolumn_field_info() const;
-
         /// Returns single column if subcolumn in finalizes.
         /// Otherwise -- undefined behaviour.
         IColumn& get_finalized_column();
@@ -176,6 +177,10 @@ public:
 
             const DataTypePtr& get_base() const { return base_type; }
 
+            const TypeIndex& get_type_id() const { return type_id; }
+
+            const TypeIndex& get_base_type_id() const { return base_type_id; }
+
             size_t get_dimensions() const { return num_dimensions; }
 
             void remove_nullable() { type = doris::vectorized::remove_nullable(type); }
@@ -185,6 +190,8 @@ public:
         private:
             DataTypePtr type;
             DataTypePtr base_type;
+            TypeIndex type_id;
+            TypeIndex base_type_id;
             size_t num_dimensions = 0;
             DataTypeSerDeSPtr least_common_type_serder;
         };
@@ -226,6 +233,10 @@ private:
     // column with raw json strings
     // used for quickly row store encoding
     ColumnPtr rowstore_column;
+
+    using SubColumnWithName = std::pair<PathInData, const Subcolumn*>;
+    // Cached search results for previous row (keyed as index in JSON object) - used as a hint.
+    mutable std::vector<SubColumnWithName> _prev_positions;
 
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
@@ -289,6 +300,9 @@ public:
     // return null if not found
     const Subcolumn* get_subcolumn(const PathInData& key) const;
 
+    // return null if not found
+    const Subcolumn* get_subcolumn(const PathInData& key, size_t index_hint) const;
+
     /** More efficient methods of manipulation */
     [[noreturn]] IColumn& get_data() {
         LOG(FATAL) << "Not implemented method get_data()";
@@ -301,6 +315,12 @@ public:
 
     // return null if not found
     Subcolumn* get_subcolumn(const PathInData& key);
+
+    // return null if not found
+    Subcolumn* get_subcolumn(const PathInData& key, size_t index_hint);
+
+    // return null if not found
+    const Subcolumn* get_subcolumn_with_cache(const PathInData& key, size_t index_hint) const;
 
     void incr_num_rows() { ++num_rows; }
 
@@ -385,7 +405,14 @@ public:
     void insert(const Field& field) override { try_insert(field); }
 
     void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override;
+                                 const IColumn::Selector& selector) const override {
+        append_data_by_selector_impl<ColumnObject>(res, selector);
+    }
+
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        append_data_by_selector_impl<ColumnObject>(res, selector, begin, end);
+    }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
@@ -436,6 +463,7 @@ public:
 
     void insert_data(const char* pos, size_t length) override {
         LOG(FATAL) << "should not call the method in column object";
+        __builtin_unreachable();
     }
 
     ColumnPtr filter(const Filter&, ssize_t) const override;
@@ -446,37 +474,12 @@ public:
 
     ColumnPtr permute(const Permutation&, size_t) const override;
 
-    int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        return 0;
-    }
+    bool is_variable_length() const override { return true; }
 
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                         Permutation& res) const override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
-
-    MutableColumns scatter(ColumnIndex, const Selector&) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        return {};
-    }
-
-    void replace_column_data(const IColumn&, size_t row, size_t self_row) override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
-
-    void replace_column_data_default(size_t self_row) override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
-
-    void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
+    void replace_column_data(const IColumn&, size_t row, size_t self_row) override;
 
     template <typename Func>
     MutableColumnPtr apply_for_subcolumns(Func&& func) const;
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
     // Extract path from root column and replace root with new extracted column,
     // root must be jsonb type

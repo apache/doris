@@ -99,15 +99,14 @@ arrow::Result<int64_t> ParquetOutputStream::Tell() const {
 }
 
 arrow::Status ParquetOutputStream::Close() {
-    if (_is_closed) {
-        return arrow::Status::OK();
+    if (!_is_closed) {
+        Defer defer {[this] { _is_closed = true; }};
+        Status st = _file_writer->close();
+        if (!st.ok()) {
+            LOG(WARNING) << "close parquet output stream failed: " << st;
+            return arrow::Status::IOError(st.to_string());
+        }
     }
-    Status st = _file_writer->close();
-    if (!st.ok()) {
-        LOG(WARNING) << "close parquet output stream failed: " << st;
-        return arrow::Status::IOError(st.to_string());
-    }
-    _is_closed = true;
     return arrow::Status::OK();
 }
 
@@ -199,13 +198,29 @@ void ParquetBuildHelper::build_version(parquet::WriterProperties::Builder& build
 
 VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                                          const VExprContextSPtrs& output_vexpr_ctxs,
-                                         const std::vector<TParquetSchema>& parquet_schemas,
-                                         const TParquetCompressionType::type& compression_type,
-                                         const bool& parquet_disable_dictionary,
-                                         const TParquetVersion::type& parquet_version,
+                                         std::vector<std::string> column_names,
+                                         TParquetCompressionType::type compression_type,
+                                         bool parquet_disable_dictionary,
+                                         TParquetVersion::type parquet_version,
                                          bool output_object_data)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
-          _parquet_schemas(parquet_schemas),
+          _column_names(std::move(column_names)),
+          _parquet_schemas(nullptr),
+          _compression_type(compression_type),
+          _parquet_disable_dictionary(parquet_disable_dictionary),
+          _parquet_version(parquet_version) {
+    _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
+}
+
+VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
+                                         const VExprContextSPtrs& output_vexpr_ctxs,
+                                         const std::vector<TParquetSchema>& parquet_schemas,
+                                         TParquetCompressionType::type compression_type,
+                                         bool parquet_disable_dictionary,
+                                         TParquetVersion::type parquet_version,
+                                         bool output_object_data)
+        : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
+          _parquet_schemas(&parquet_schemas),
           _compression_type(compression_type),
           _parquet_disable_dictionary(parquet_disable_dictionary),
           _parquet_version(parquet_version) {
@@ -238,10 +253,16 @@ Status VParquetTransformer::_parse_schema() {
     for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
         std::shared_ptr<arrow::DataType> type;
         RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->type(), &type));
-        std::shared_ptr<arrow::Field> field =
-                arrow::field(_parquet_schemas[i].schema_column_name, type,
-                             _output_vexpr_ctxs[i]->root()->is_nullable());
-        fields.emplace_back(field);
+        if (_parquet_schemas != nullptr) {
+            std::shared_ptr<arrow::Field> field =
+                    arrow::field(_parquet_schemas->operator[](i).schema_column_name, type,
+                                 _output_vexpr_ctxs[i]->root()->is_nullable());
+            fields.emplace_back(field);
+        } else {
+            std::shared_ptr<arrow::Field> field = arrow::field(
+                    _column_names[i], type, _output_vexpr_ctxs[i]->root()->is_nullable());
+            fields.emplace_back(field);
+        }
     }
     _arrow_schema = arrow::schema(std::move(fields));
     return Status::OK();

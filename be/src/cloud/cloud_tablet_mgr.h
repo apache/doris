@@ -29,6 +29,7 @@ namespace doris {
 class CloudTablet;
 class CloudStorageEngine;
 class LRUCachePolicy;
+class CountDownLatch;
 
 class CloudTabletMgr {
 public:
@@ -41,13 +42,13 @@ public:
 
     void erase_tablet(int64_t tablet_id);
 
-    void vacuum_stale_rowsets();
+    void vacuum_stale_rowsets(const CountDownLatch& stop_latch);
 
     // Return weak ptr of all cached tablets.
     // We return weak ptr to avoid extend lifetime of tablets that are no longer cached.
     std::vector<std::weak_ptr<CloudTablet>> get_weak_tablets();
 
-    void sync_tablets();
+    void sync_tablets(const CountDownLatch& stop_latch);
 
     /**
      * Gets top N tablets that are considered to be compacted first

@@ -28,6 +28,18 @@ template <typename SharedStateArg, typename Derived>
 Status JoinProbeLocalState<SharedStateArg, Derived>::init(RuntimeState* state,
                                                           LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+
+    _probe_timer = ADD_TIMER(Base::profile(), "ProbeTime");
+    _join_filter_timer = ADD_TIMER(Base::profile(), "JoinFilterTimer");
+    _build_output_block_timer = ADD_TIMER(Base::profile(), "BuildOutputBlock");
+    _probe_rows_counter = ADD_COUNTER_WITH_LEVEL(Base::profile(), "ProbeRows", TUnit::UNIT, 1);
+
+    return Status::OK();
+}
+
+template <typename SharedStateArg, typename Derived>
+Status JoinProbeLocalState<SharedStateArg, Derived>::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
     auto& p = Base::_parent->template cast<typename Derived::Parent>();
     // only use in outer join as the bool column to mark for function of `tuple_is_null`
     if (p._is_outer_join) {
@@ -38,11 +50,6 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::init(RuntimeState* state,
     for (size_t i = 0; i < _output_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._output_expr_ctxs[i]->clone(state, _output_expr_ctxs[i]));
     }
-
-    _probe_timer = ADD_TIMER(Base::profile(), "ProbeTime");
-    _join_filter_timer = ADD_TIMER(Base::profile(), "JoinFilterTimer");
-    _build_output_block_timer = ADD_TIMER(Base::profile(), "BuildOutputBlock");
-    _probe_rows_counter = ADD_COUNTER_WITH_LEVEL(Base::profile(), "ProbeRows", TUnit::UNIT, 1);
 
     return Status::OK();
 }
@@ -86,7 +93,10 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
         // In previous versions, the join node had a separate set of project structures,
         // and you could see a 'todo' in the Thrift definition.
         //  Here, we have refactored it, but considering upgrade compatibility, we still need to retain the old code.
-        *output_block = *origin_block;
+        if (!output_block->mem_reuse()) {
+            output_block->swap(origin_block->clone_empty());
+        }
+        output_block->swap(*origin_block);
         return Status::OK();
     }
     SCOPED_TIMER(_build_output_block_timer);

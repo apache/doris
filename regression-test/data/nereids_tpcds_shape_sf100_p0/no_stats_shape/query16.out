@@ -9,30 +9,33 @@ PhysicalResultSink
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((cs1.cs_order_number = cr1.cr_order_number)) otherCondition=()
---------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_call_center_sk = call_center.cc_call_center_sk)) otherCondition=() build RFs:RF3 cc_call_center_sk->[cs_call_center_sk]
-----------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((cs1.cs_order_number = cs2.cs_order_number)) otherCondition=(( not (cs_warehouse_sk = cs_warehouse_sk))) build RFs:RF2 cs_order_number->[cs_order_number]
-------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2
-------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[cs_ship_addr_sk]
-----------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_ship_date_sk]
+------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_call_center_sk = call_center.cc_call_center_sk)) otherCondition=() build RFs:RF3 cc_call_center_sk->[cs_call_center_sk]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[cs_ship_addr_sk]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_ship_date_sk]
+----------------------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((cs1.cs_order_number = cr1.cr_order_number)) otherCondition=()
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF3
-------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((cs1.cs_order_number = cs2.cs_order_number)) otherCondition=(( not (cs_warehouse_sk = cs_warehouse_sk))) build RFs:RF0 cs_order_number->[cs_order_number]
+----------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0
+----------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1 RF2 RF3
+------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_date <= '2002-05-31') and (date_dim.d_date >= '2002-04-01'))
-------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalOlapScan[catalog_returns]
 ----------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------PhysicalProject
---------------------------------filter((customer_address.ca_state = 'WV'))
-----------------------------------PhysicalOlapScan[customer_address]
-----------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------PhysicalProject
---------------------------filter(cc_county IN ('Barrow County', 'Daviess County', 'Luce County', 'Richland County', 'Ziebach County'))
-----------------------------PhysicalOlapScan[call_center]
---------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------filter((date_dim.d_date <= '2002-05-31') and (date_dim.d_date >= '2002-04-01'))
+----------------------------------PhysicalOlapScan[date_dim]
+------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------PhysicalProject
+----------------------------filter((customer_address.ca_state = 'WV'))
+------------------------------PhysicalOlapScan[customer_address]
+--------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[catalog_returns]
+------------------------filter(cc_county IN ('Barrow County', 'Daviess County', 'Luce County', 'Richland County', 'Ziebach County'))
+--------------------------PhysicalOlapScan[call_center]
 

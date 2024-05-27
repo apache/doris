@@ -79,9 +79,9 @@ public:
     ~PrimaryKeyBloomFilterIndexWriterImpl() override {
         for (auto& bf : _bfs) {
             g_pk_total_bloom_filter_num << -1;
-            g_pk_total_bloom_filter_total_bytes << -bf->size();
-            g_pk_write_bloom_filter_num << -1;
-            g_pk_write_bloom_filter_total_bytes << -bf->size();
+            g_pk_total_bloom_filter_total_bytes << -static_cast<int64_t>(bf->size());
+            g_pk_write_bloom_filter_decrease_num << 1;
+            g_pk_write_bloom_filter_decrease_bytes << bf->size();
         }
     };
 

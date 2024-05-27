@@ -49,7 +49,7 @@ public:
 
     Status create_reader(RowsetReaderSharedPtr* result) override;
 
-    std::string segment_file_path(int segment_id) const;
+    std::string segment_file_path(int segment_id) const override;
 
     static std::string segment_file_path(const std::string& rowset_dir, const RowsetId& rowset_id,
                                          int segment_id);
@@ -71,7 +71,7 @@ public:
 
     Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
                          size_t new_rowset_start_seg_id = 0,
-                         std::set<int32_t>* without_index_uids = nullptr) override;
+                         std::set<int64_t>* without_index_uids = nullptr) override;
 
     Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
 
@@ -94,9 +94,12 @@ public:
     Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment);
 
     Status get_segments_size(std::vector<size_t>* segments_size);
+
     Status get_inverted_index_size(size_t* index_size);
 
     [[nodiscard]] virtual Status add_to_binlog() override;
+
+    Status calc_local_file_crc(uint32_t* crc_value, int64_t* file_count);
 
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
@@ -110,6 +113,8 @@ protected:
     void do_close() override;
 
     bool check_current_rowset_segment() override;
+
+    void clear_inverted_index_cache() override;
 
 private:
     friend class RowsetFactory;

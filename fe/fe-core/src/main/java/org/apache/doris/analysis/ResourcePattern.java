@@ -22,6 +22,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
@@ -34,7 +35,7 @@ import java.io.IOException;
 // only the following 2 formats are allowed
 // *
 // resource
-public class ResourcePattern implements Writable {
+public class ResourcePattern implements Writable, GsonPostProcessable {
     @SerializedName(value = "resourceName")
     private String resourceName;
 
@@ -46,16 +47,19 @@ public class ResourcePattern implements Writable {
     public static ResourcePattern ALL_GENERAL;
     public static ResourcePattern ALL_CLUSTER;
     public static ResourcePattern ALL_STAGE;
+    public static ResourcePattern ALL_STORAGE_VAULT;
 
     static {
-        ALL_GENERAL = new ResourcePattern("*", ResourceTypeEnum.GENERAL);
-        ALL_CLUSTER = new ResourcePattern("*", ResourceTypeEnum.CLUSTER);
-        ALL_STAGE = new ResourcePattern("*", ResourceTypeEnum.STAGE);
+        ALL_GENERAL = new ResourcePattern("%", ResourceTypeEnum.GENERAL);
+        ALL_CLUSTER = new ResourcePattern("%", ResourceTypeEnum.CLUSTER);
+        ALL_STAGE = new ResourcePattern("%", ResourceTypeEnum.STAGE);
+        ALL_STORAGE_VAULT = new ResourcePattern("%", ResourceTypeEnum.STORAGE_VAULT);
 
         try {
             ALL_GENERAL.analyze();
             ALL_CLUSTER.analyze();
             ALL_STAGE.analyze();
+            ALL_STORAGE_VAULT.analyze();
         } catch (AnalysisException e) {
             // will not happen
         }
@@ -65,7 +69,11 @@ public class ResourcePattern implements Writable {
     }
 
     public ResourcePattern(String resourceName, ResourceTypeEnum type) {
-        this.resourceName = Strings.isNullOrEmpty(resourceName) ? "*" : resourceName;
+        // To be compatible with previous syntax
+        if ("*".equals(resourceName)) {
+            resourceName = "%";
+        }
+        this.resourceName = Strings.isNullOrEmpty(resourceName) ? "%" : resourceName;
         resourceType = type;
     }
 
@@ -73,12 +81,8 @@ public class ResourcePattern implements Writable {
         resourceType = type;
     }
 
-    public boolean isGeneralResource() {
-        return resourceType == ResourceTypeEnum.GENERAL;
-    }
-
-    public boolean isClusterResource() {
-        return resourceType == ResourceTypeEnum.CLUSTER;
+    public ResourceTypeEnum getResourceType() {
+        return resourceType;
     }
 
     public String getResourceName() {
@@ -86,15 +90,11 @@ public class ResourcePattern implements Writable {
     }
 
     public PrivLevel getPrivLevel() {
-        if (resourceName.equals("*")) {
-            return PrivLevel.GLOBAL;
-        } else {
-            return PrivLevel.RESOURCE;
-        }
+        return PrivLevel.RESOURCE;
     }
 
     public void analyze() throws AnalysisException {
-        if (!resourceName.equals("*")) {
+        if (!resourceName.equals("%")) {
             FeNameFormat.checkResourceName(resourceName, resourceType);
         }
     }
@@ -129,5 +129,13 @@ public class ResourcePattern implements Writable {
     public static ResourcePattern read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ResourcePattern.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // // To be compatible with previous syntax
+        if ("*".equals(resourceName)) {
+            resourceName = "%";
+        }
     }
 }

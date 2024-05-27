@@ -20,7 +20,9 @@
 #include <bvar/bvar.h>
 
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <thread>
 
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
@@ -86,10 +88,14 @@ public:
     FileBlocksHolder get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
                                 const CacheContext& context);
 
-    void clear_file_cache_async();
-    // use for test
-    Status clear_file_cache_directly();
-
+    /**
+     * Clear all cached data for this cache instance async
+     *
+     * @returns summary message
+     */
+    std::string clear_file_cache_async();
+    std::string clear_file_cache_directly();
+    std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
     /// For debug.
     std::string dump_structure(const UInt128Wrapper& hash);
 
@@ -124,6 +130,8 @@ public:
     // try to reserve the new space for the new block if the cache is full
     bool try_reserve(const UInt128Wrapper& hash, const CacheContext& context, size_t offset,
                      size_t size, std::lock_guard<std::mutex>& cache_lock);
+
+    void update_ttl_atime(const UInt128Wrapper& hash);
 
     class LRUQueue {
     public:
@@ -365,6 +373,15 @@ private:
 
     void recycle_deleted_blocks();
 
+    bool try_reserve_from_other_queue_by_hot_interval(std::vector<FileCacheType> other_cache_types,
+                                                      size_t size, int64_t cur_time,
+                                                      std::lock_guard<std::mutex>& cache_lock);
+
+    bool try_reserve_from_other_queue_by_size(std::vector<FileCacheType> other_cache_types,
+                                              size_t size, std::lock_guard<std::mutex>& cache_lock);
+
+    bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size) const;
+
     // info
     std::string _cache_base_path;
     size_t _capacity = 0;
@@ -389,6 +406,7 @@ private:
     CachedFiles _files;
     QueryFileCacheContextMap _query_map;
     size_t _cur_cache_size = 0;
+    size_t _cur_ttl_size = 0;
     std::multimap<uint64_t, UInt128Wrapper> _time_to_key;
     std::unordered_map<UInt128Wrapper, uint64_t, KeyHash> _key_to_time;
     // The three queues are level queue.
@@ -413,6 +431,8 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _cur_index_queue_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
+    std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
 };
 
 } // namespace doris::io

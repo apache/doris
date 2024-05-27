@@ -41,6 +41,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadGroupsScanner::_s_tbls_colu
         {"MIN_REMOTE_SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"SPILL_THRESHOLD_LOW_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
         {"SPILL_THRESHOLD_HIGH_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TAG", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
 SchemaWorkloadGroupsScanner::SchemaWorkloadGroupsScanner()
@@ -102,37 +103,12 @@ Status SchemaWorkloadGroupsScanner::_get_workload_groups_block_from_fe() {
         }
     }
 
-    // todo(wb) reuse this callback function
-    auto insert_string_value = [&](int col_index, std::string str_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_val.data(),
-                                                                          str_val.size());
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
-    auto insert_int_value = [&](int col_index, int64_t int_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
-                int_val);
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
-
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
 
         for (int j = 0; j < _s_tbls_columns.size(); j++) {
-            if (_s_tbls_columns[j].type == TYPE_BIGINT) {
-                insert_int_value(j, row.column_value[j].longVal, _workload_groups_block.get());
-            } else {
-                insert_string_value(j, row.column_value[j].stringVal, _workload_groups_block.get());
-            }
+            RETURN_IF_ERROR(insert_block_column(
+                    row.column_value[j], j, _workload_groups_block.get(), _s_tbls_columns[j].type));
         }
     }
     return Status::OK();
@@ -159,7 +135,7 @@ Status SchemaWorkloadGroupsScanner::get_next_block(vectorized::Block* block, boo
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
     vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
-    mblock.add_rows(_workload_groups_block.get(), _row_idx, current_batch_rows);
+    RETURN_IF_ERROR(mblock.add_rows(_workload_groups_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 
     *eos = _row_idx == _total_rows;

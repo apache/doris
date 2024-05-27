@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
@@ -88,7 +87,7 @@ public class RemoteIndexSchemaProcDir implements ProcDirInterface {
         List<Partition> partitions = Lists.newArrayList();
         table.readLock();
         try {
-            if (table.getType() == TableType.OLAP) {
+            if (table.isManagedTable()) {
                 OlapTable olapTable = (OlapTable) table;
                 for (String partitionName : partitionNameList) {
                     Partition partition = olapTable.getPartition(partitionName);

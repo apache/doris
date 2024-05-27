@@ -205,7 +205,7 @@ static void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& 
 
 Status DataTypeJsonbSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                                   rapidjson::Document::AllocatorType& allocator,
-                                                  int row_num) const {
+                                                  Arena& mem_pool, int row_num) const {
     const auto& data = assert_cast<const ColumnString&>(column);
     const auto jsonb_val = data.get_data_at(row_num);
     if (jsonb_val.empty()) {
@@ -239,6 +239,34 @@ Status DataTypeJsonbSerDe::read_one_cell_from_json(IColumn& column,
                     parser.getWriter().getOutput()->getSize());
     return Status::OK();
 }
+Status DataTypeJsonbSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                              int end) const {
+    const auto& string_column = assert_cast<const ColumnString&>(column);
+    result.mutable_string_value()->Reserve(end - start);
+    auto* ptype = result.mutable_type();
+    ptype->set_id(PGenericType::JSONB);
+    for (size_t row_num = start; row_num < end; ++row_num) {
+        const auto& string_ref = string_column.get_data_at(row_num);
+        if (string_ref.size > 0) {
+            result.add_string_value(
+                    JsonbToJson::jsonb_to_json_string(string_ref.data, string_ref.size));
+        } else {
+            result.add_string_value(NULL_IN_CSV_FOR_ORDINARY_TYPE);
+        }
+    }
+    return Status::OK();
+}
 
+Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto& column_string = assert_cast<ColumnString&>(column);
+    column_string.reserve(column_string.size() + arg.string_value_size());
+    JsonBinaryValue value;
+    for (int i = 0; i < arg.string_value_size(); ++i) {
+        RETURN_IF_ERROR(
+                value.from_json_string(arg.string_value(i).c_str(), arg.string_value(i).size()));
+        column_string.insert_data(value.value(), value.size());
+    }
+    return Status::OK();
+}
 } // namespace vectorized
 } // namespace doris

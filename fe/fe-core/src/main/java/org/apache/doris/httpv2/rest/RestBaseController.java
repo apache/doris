@@ -43,6 +43,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
+import java.net.URISyntaxException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -95,6 +96,13 @@ public class RestBaseController extends BaseController {
         LOG.info("Redirect url: {}", "http://" + addr.getHostname() + ":"
                     + addr.getPort() + urlObj.getPath());
         RedirectView redirectView = new RedirectView(redirectUrl);
+        redirectView.setContentType("text/html;charset=utf-8");
+        redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
+        return redirectView;
+    }
+
+    public RedirectView redirectToObj(String sign) throws URISyntaxException {
+        RedirectView redirectView = new RedirectView(sign);
         redirectView.setContentType("text/html;charset=utf-8");
         redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
         return redirectView;

@@ -70,6 +70,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -214,6 +215,16 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
                 .thenApply(ctx -> storageLayerAggregate(ctx.root, null, ctx.root.child(), ctx.cascadesContext))
             ),
+            RuleType.STORAGE_LAYER_WITH_PROJECT_NO_SLOT_REF.build(
+                    logicalProject(
+                            logicalOlapScan()
+                    )
+                    .thenApply(ctx -> {
+                        LogicalProject<LogicalOlapScan> project = ctx.root;
+                        LogicalOlapScan olapScan = project.child();
+                        return pushDownCountWithoutSlotRef(project, olapScan, ctx.cascadesContext);
+                    })
+            ),
             RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT.build(
                 logicalAggregate(
                     logicalProject(
@@ -303,6 +314,37 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                             .thenApplyMulti(ctx -> fourPhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             )
         );
+    }
+
+    /*
+     *  select 66 from baseall_dup; could use pushAggOp=COUNT to not scan real data.
+     */
+    private LogicalProject<? extends Plan> pushDownCountWithoutSlotRef(
+            LogicalProject<? extends Plan> project,
+            LogicalOlapScan logicalScan,
+            CascadesContext cascadesContext) {
+        final LogicalProject<? extends Plan> canNotPush = project;
+        if (!enablePushDownNoGroupAgg()) {
+            return canNotPush;
+        }
+        if (logicalScan != null) {
+            KeysType keysType = logicalScan.getTable().getKeysType();
+            if (keysType != KeysType.DUP_KEYS) {
+                return canNotPush;
+            }
+        }
+        for (Expression e : project.getProjects()) {
+            if (e.anyMatch(SlotReference.class::isInstance)) {
+                return canNotPush;
+            }
+        }
+        PhysicalOlapScan physicalOlapScan
+                = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
+                .build()
+                .transform(logicalScan, cascadesContext)
+                .get(0);
+        return project.withChildren(ImmutableList.of(new PhysicalStorageLayerAggregate(
+                physicalOlapScan, PushDownAggOp.COUNT)));
     }
 
     private boolean enablePushDownMinMaxOnUnique() {
@@ -1292,6 +1334,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .build();
 
         List<Expression> localAggGroupBy = ImmutableList.copyOf(localAggGroupBySet);
+        boolean isGroupByEmptySelectEmpty = localAggGroupBy.isEmpty() && localAggOutput.isEmpty();
+
+        // be not recommend generate an aggregate node with empty group by and empty output,
+        // so add a null int slot to group by slot and output
+        if (isGroupByEmptySelectEmpty) {
+            localAggGroupBy = ImmutableList.of(new NullLiteral(TinyIntType.INSTANCE));
+            localAggOutput = ImmutableList.of(new Alias(new NullLiteral(TinyIntType.INSTANCE)));
+        }
+
         boolean maybeUsingStreamAgg = maybeUsingStreamAgg(connectContext, localAggGroupBy);
         List<Expression> partitionExpressions = getHashAggregatePartitionExpressions(logicalAgg);
         RequireProperties requireAny = RequireProperties.of(PhysicalProperties.ANY);
@@ -1316,6 +1367,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .addAll(localAggGroupBySet)
                 .addAll(nonDistinctAggFunctionToAliasPhase2.values())
                 .build();
+
+        // be not recommend generate an aggregate node with empty group by and empty output,
+        // so add a null int slot to group by slot and output
+        if (isGroupByEmptySelectEmpty) {
+            globalAggOutput = ImmutableList.of(new Alias(new NullLiteral(TinyIntType.INSTANCE)));
+        }
 
         RequireProperties requireGather = RequireProperties.of(PhysicalProperties.GATHER);
         PhysicalHashAggregate<Plan> anyLocalGatherGlobalAgg = new PhysicalHashAggregate<>(
@@ -1611,7 +1668,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     }
 
     private boolean containsCountDistinctMultiExpr(LogicalAggregate<? extends Plan> aggregate) {
-        return ExpressionUtils.anyMatch(aggregate.getOutputExpressions(), expr ->
+        return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr ->
                 expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1);
     }
 
@@ -1680,6 +1737,16 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         boolean maybeUsingStreamAgg = maybeUsingStreamAgg(connectContext, localAggGroupBy);
         List<Expression> partitionExpressions = getHashAggregatePartitionExpressions(logicalAgg);
         RequireProperties requireAny = RequireProperties.of(PhysicalProperties.ANY);
+
+        boolean isGroupByEmptySelectEmpty = localAggGroupBy.isEmpty() && localAggOutput.isEmpty();
+
+        // be not recommend generate an aggregate node with empty group by and empty output,
+        // so add a null int slot to group by slot and output
+        if (isGroupByEmptySelectEmpty) {
+            localAggGroupBy = ImmutableList.of(new NullLiteral(TinyIntType.INSTANCE));
+            localAggOutput = ImmutableList.of(new Alias(new NullLiteral(TinyIntType.INSTANCE)));
+        }
+
         PhysicalHashAggregate<Plan> anyLocalAgg = new PhysicalHashAggregate<>(localAggGroupBy,
                 localAggOutput, Optional.of(partitionExpressions), inputToBufferParam,
                 maybeUsingStreamAgg, Optional.empty(), logicalAgg.getLogicalProperties(),
@@ -1701,6 +1768,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .addAll(localAggGroupBySet)
                 .addAll(nonDistinctAggFunctionToAliasPhase2.values())
                 .build();
+
+        // be not recommend generate an aggregate node with empty group by and empty output,
+        // so add a null int slot to group by slot and output
+        if (isGroupByEmptySelectEmpty) {
+            globalAggOutput = ImmutableList.of(new Alias(new NullLiteral(TinyIntType.INSTANCE)));
+        }
 
         RequireProperties requireGather = RequireProperties.of(PhysicalProperties.GATHER);
 
@@ -1734,7 +1807,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                 AggregateFunction nonDistinct = aggregateFunction
                                         .withDistinctAndChildren(false, ImmutableList.copyOf(aggChild));
                                 AggregateExpression nonDistinctAggExpr = new AggregateExpression(nonDistinct,
-                                        distinctLocalParam, aggregateFunction.child(0));
+                                        distinctLocalParam, aggregateFunction);
                                 return nonDistinctAggExpr;
                             } else {
                                 needUpdateSlot.add(aggregateFunction);

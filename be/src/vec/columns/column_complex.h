@@ -82,6 +82,7 @@ public:
             pvalue->deserialize(Slice(pos, length));
         } else {
             LOG(FATAL) << "Unexpected type in column complex";
+            __builtin_unreachable();
         }
     }
 
@@ -120,21 +121,6 @@ public:
 
     void insert_value(T value) { data.emplace_back(std::move(value)); }
 
-    [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                      IColumn::Permutation& res) const override {
-        LOG(FATAL) << "get_permutation not implemented";
-        __builtin_unreachable();
-    }
-
-    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        LOG(FATAL) << "get_indices_of_non_default_rows not implemented";
-    }
-    [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
-        LOG(FATAL) << "index not implemented";
-        __builtin_unreachable();
-    }
-
     void reserve(size_t n) override { data.reserve(n); }
 
     void resize(size_t n) override { data.resize(n); }
@@ -156,21 +142,6 @@ public:
     void get(size_t n, Field& res) const override {
         assert(n < size());
         res.assign_string(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
-    }
-
-    [[noreturn]] UInt64 get64(size_t n) const override {
-        LOG(FATAL) << "get field not implemented";
-        __builtin_unreachable();
-    }
-
-    [[noreturn]] Float64 get_float64(size_t n) const override {
-        LOG(FATAL) << "get field not implemented";
-        __builtin_unreachable();
-    }
-
-    [[noreturn]] UInt64 get_uint(size_t n) const override {
-        LOG(FATAL) << "get field not implemented";
-        __builtin_unreachable();
     }
 
     [[noreturn]] bool get_bool(size_t n) const override {
@@ -225,12 +196,6 @@ public:
         // TODO add hash function
     }
 
-    [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
-                                int nan_direction_hint) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "compare_at for " + std::string(get_family_name()));
-    }
-
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
@@ -258,25 +223,19 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
-    [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
-                                        const IColumn::Selector& selector) const override {
-        LOG(FATAL) << "scatter not implemented";
-        __builtin_unreachable();
-    }
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         this->template append_data_by_selector_impl<ColumnComplexType<T>>(res, selector);
+    }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        this->template append_data_by_selector_impl<ColumnComplexType<T>>(res, selector, begin,
+                                                                          end);
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data[self_row] = assert_cast<const Self&>(rhs).data[row];
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        data[self_row] = T();
     }
 
 private:
@@ -359,6 +318,7 @@ ColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm, size_t
 
     if (perm.size() < limit) {
         LOG(FATAL) << "Size of permutation is less than required.";
+        __builtin_unreachable();
     }
 
     auto res = this->create(limit);

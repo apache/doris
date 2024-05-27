@@ -688,8 +688,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         String showStr = showResultSet.getResultRows().get(0).get(1);
         Assertions.assertEquals(
                 "CREATE TABLE `varchar_len1` (\n"
-                        + "  `__literal_0` VARCHAR(*) NULL,\n"
-                        + "  `__concat_1` VARCHAR(*) NULL,\n"
+                        + "  `__literal_0` VARCHAR(65533) NULL,\n"
+                        + "  `__concat_1` VARCHAR(65533) NULL,\n"
                         + "  `userId` VARCHAR(255) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`__literal_0`)\n"

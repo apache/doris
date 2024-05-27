@@ -118,10 +118,9 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
             writer = iter->second.get();
         } else {
             std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
-            bool exists {false};
-            RETURN_IF_ERROR(fs->exists(dir, &exists));
-            if (!exists) {
-                RETURN_IF_ERROR(fs->create_directory(dir));
+            auto st = fs->create_directory(dir, false);
+            if (!st.ok() && !st.is<ErrorCode::ALREADY_EXIST>()) {
+                return st;
             }
             std::string tmp_file = get_path_in_local_cache(dir, key.offset, key.meta.type, true);
             FileWriterPtr file_writer;
@@ -145,7 +144,9 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key) {
         file_writer = std::move(iter->second);
         _key_to_writer.erase(iter);
     }
-    RETURN_IF_ERROR(file_writer->close());
+    if (file_writer->state() != FileWriter::State::CLOSED) {
+        RETURN_IF_ERROR(file_writer->close());
+    }
     std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
     std::string true_file = get_path_in_local_cache(dir, key.offset, key.meta.type);
     return fs->rename(file_writer->path(), true_file);
@@ -188,13 +189,11 @@ Status FSFileCacheStorage::change_key_meta(const FileCacheKey& key, const KeyMet
         std::string original_dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
         std::string new_dir = get_path_in_local_cache(key.hash, new_meta.expiration_time);
         // It will be concurrent, but we don't care who rename
-        RETURN_IF_ERROR(fs->rename(original_dir, new_dir));
-        if (key.meta.type != new_meta.type) {
-            std::string original_file = get_path_in_local_cache(new_dir, key.offset, key.meta.type);
-            std::string new_file = get_path_in_local_cache(new_dir, key.offset, new_meta.type);
-            RETURN_IF_ERROR(fs->rename(original_file, new_file));
+        Status st = fs->rename(original_dir, new_dir);
+        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+            return st;
         }
-    } else {
+    } else if (key.meta.type != new_meta.type) {
         std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
         std::string original_file = get_path_in_local_cache(dir, key.offset, key.meta.type);
         std::string new_file = get_path_in_local_cache(dir, key.offset, new_meta.type);
@@ -264,6 +263,7 @@ Status FSFileCacheStorage::rebuild_data_structure() const {
     auto rebuild_dir = [&](std::filesystem::directory_iterator& upgrade_key_it) -> Status {
         for (; upgrade_key_it != std::filesystem::directory_iterator(); ++upgrade_key_it) {
             if (upgrade_key_it->path().filename().native().find('_') == std::string::npos) {
+                RETURN_IF_ERROR(fs->delete_directory(upgrade_key_it->path().native() + "_0"));
                 RETURN_IF_ERROR(
                         fs->rename(upgrade_key_it->path(), upgrade_key_it->path().native() + "_0"));
             }

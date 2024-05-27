@@ -93,6 +93,11 @@ public:
         return _partial_update_input_columns;
     }
     std::string auto_increment_coulumn() const { return _auto_increment_column; }
+    int32_t auto_increment_column_unique_id() const { return _auto_increment_column_unique_id; }
+    void set_timestamp_ms(int64_t timestamp_ms) { _timestamp_ms = timestamp_ms; }
+    int64_t timestamp_ms() const { return _timestamp_ms; }
+    void set_timezone(std::string timezone) { _timezone = timezone; }
+    std::string timezone() const { return _timezone; }
     bool is_strict_mode() const { return _is_strict_mode; }
     std::string debug_string() const;
 
@@ -109,6 +114,9 @@ private:
     std::set<std::string> _partial_update_input_columns;
     bool _is_strict_mode = false;
     std::string _auto_increment_column;
+    int32_t _auto_increment_column_unique_id;
+    int64_t _timestamp_ms = 0;
+    std::string _timezone;
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;
@@ -146,7 +154,7 @@ public:
 
     // return true if lhs < rhs
     // 'row' is -1 mean maximal boundary
-    bool operator()(const BlockRowWithIndicator lhs, const BlockRowWithIndicator rhs) const;
+    bool operator()(const BlockRowWithIndicator& lhs, const BlockRowWithIndicator& rhs) const;
 
 private:
     const std::vector<uint16_t>& _slot_locs;
@@ -168,7 +176,6 @@ public:
     int64_t version() const { return _t_param.version; }
 
     // return true if we found this block_row in partition
-    //TODO: use virtual function to refactor it
     ALWAYS_INLINE bool find_partition(vectorized::Block* block, int row,
                                       VOlapTablePartition*& partition) const {
         auto it = _is_in_partition ? _partitions_map->find(std::tuple {block, row, true})
@@ -275,8 +282,6 @@ public:
 private:
     Status _create_partition_keys(const std::vector<TExprNode>& t_exprs, BlockRow* part_key);
 
-    Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key, uint16_t pos);
-
     // check if this partition contain this key
     bool _part_contains(VOlapTablePartition* part, BlockRowWithIndicator key) const;
 
@@ -295,6 +300,7 @@ private:
     std::vector<VOlapTablePartition*> _partitions;
     // For all partition value rows saved in this map, indicator is false. whenever we use a value to find in it, the param is true.
     // so that we can distinguish which column index to use (origin slots or transformed slots).
+    // For range partition we ONLY SAVE RIGHT ENDS. when we find a part's RIGHT by a value, check if part's left cover it then.
     std::unique_ptr<
             std::map<BlockRowWithIndicator, VOlapTablePartition*, VOlapTablePartKeyComparator>>
             _partitions_map;

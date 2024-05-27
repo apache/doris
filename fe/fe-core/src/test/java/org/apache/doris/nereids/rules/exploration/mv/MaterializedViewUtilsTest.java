@@ -194,14 +194,14 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 + "    ) ENGINE=OLAP\n"
                 + "    DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )\n"
                 + "    COMMENT 'OLAP'\n"
-                + "    AUTO PARTITION BY range date_trunc(`l_shipdate`, 'day') ()\n"
+                + "    AUTO PARTITION BY range (date_trunc(`l_shipdate`, 'day')) ()\n"
                 + "    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 3\n"
                 + "    PROPERTIES (\n"
                 + "       \"replication_num\" = \"1\"\n"
                 + "    );\n"
                 + "\n");
         // Should not make scan to empty relation when the table used by materialized view has no data
-        connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE");
+        connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
     }
 
     @Test
@@ -269,7 +269,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
                             Optional<RelatedTableInfo> relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_shipdate", rewrittenPlan);
-                            Assertions.assertFalse(relatedTableInfo.isPresent());
+                            Assertions.assertTrue(relatedTableInfo.isPresent());
                         });
     }
 

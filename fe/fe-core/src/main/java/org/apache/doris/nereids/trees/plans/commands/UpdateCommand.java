@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -94,6 +93,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        // NOTE: update command is executed as insert command, so txn insert can support it
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty()).run(ctx,
                 executor);
     }
@@ -166,7 +166,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         List<NamedExpression> partialUpdateSelectItems = new ArrayList<>();
         if (isPartialUpdate) {
             for (Column column : targetTable.getFullSchema()) {
-                Expression expr = new NereidsParser().parseExpression(tableName + "." + column.getName());
+                Expression expr = new UnboundSlot(tableName, column.getName());
                 boolean existInExpr = false;
                 for (String colName : partialUpdateColNameToExpression.keySet()) {
                     if (colName.equalsIgnoreCase(column.getName())) {
@@ -222,7 +222,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         if (ctx.getSessionVariable().isInDebugMode()) {
             throw new AnalysisException("Update is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
-                    + String.join(", ", SessionVariable.DEBUG_VARIABLES));
+                    + ctx.getSessionVariable().printDebugModeVariables());
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = RelationUtil.getTable(tableQualifier, ctx.getEnv());

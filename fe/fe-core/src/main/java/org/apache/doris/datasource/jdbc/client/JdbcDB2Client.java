@@ -20,6 +20,7 @@ package org.apache.doris.datasource.jdbc.client;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import com.google.common.collect.Lists;
 
@@ -32,6 +33,10 @@ public class JdbcDB2Client extends JdbcClient {
 
     protected JdbcDB2Client(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
+    }
+
+    public String getTestQuery() {
+        return "select 1 from sysibm.sysdummy1";
     }
 
     @Override
@@ -59,7 +64,7 @@ public class JdbcDB2Client extends JdbcClient {
 
     @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
-        String db2Type = fieldSchema.getDataTypeName();
+        String db2Type = fieldSchema.getDataTypeName().orElse("unknown");
         switch (db2Type) {
             case "SMALLINT":
                 return Type.SMALLINT;
@@ -69,8 +74,8 @@ public class JdbcDB2Client extends JdbcClient {
                 return Type.BIGINT;
             case "DECFLOAT":
             case "DECIMAL": {
-                int precision = fieldSchema.getColumnSize();
-                int scale = fieldSchema.getDecimalDigits();
+                int precision = fieldSchema.getColumnSize().orElse(0);
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
                 return createDecimalOrStringType(precision, scale);
             }
             case "DOUBLE":
@@ -79,18 +84,18 @@ public class JdbcDB2Client extends JdbcClient {
                 return Type.FLOAT;
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.columnSize);
+                charType.setLength(fieldSchema.getColumnSize().orElse(0));
                 return charType;
             case "VARCHAR":
             case "LONG VARCHAR":
                 ScalarType varcharType = ScalarType.createType(PrimitiveType.VARCHAR);
-                varcharType.setLength(fieldSchema.columnSize);
+                varcharType.setLength(fieldSchema.getColumnSize().orElse(0));
                 return varcharType;
             case "DATE":
                 return ScalarType.createDateV2Type();
             case "TIMESTAMP": {
                 // postgres can support microsecond
-                int scale = fieldSchema.getDecimalDigits();
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale > 6) {
                     scale = 6;
                 }

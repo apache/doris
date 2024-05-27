@@ -19,6 +19,7 @@
 
 #include <rapidjson/stringbuffer.h>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
@@ -93,6 +94,28 @@ void DataTypeObjectSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     field.assign_jsonb(blob->getBlob(), blob->getBlobLen());
     variant.insert(field);
+}
+
+void DataTypeObjectSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                arrow::ArrayBuilder* array_builder, int start,
+                                                int end, const cctz::time_zone& ctz) const {
+    const auto* var = check_and_get_column<ColumnObject>(column);
+    auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+    for (size_t i = start; i < end; ++i) {
+        if (null_map && (*null_map)[i]) {
+            checkArrowStatus(builder.AppendNull(), column.get_name(),
+                             array_builder->type()->name());
+        } else {
+            std::string serialized_value;
+            if (!var->serialize_one_row_to_string(i, &serialized_value)) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
+                                       var->dump_structure());
+            }
+            checkArrowStatus(builder.Append(serialized_value.data(),
+                                            static_cast<int>(serialized_value.size())),
+                             column.get_name(), array_builder->type()->name());
+        }
+    }
 }
 
 } // namespace vectorized

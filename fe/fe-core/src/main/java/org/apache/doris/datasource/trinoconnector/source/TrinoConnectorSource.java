@@ -24,8 +24,10 @@ import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.thrift.TFileAttributes;
 
 import io.trino.Session;
+import io.trino.connector.ConnectorName;
 import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.connector.Connector;
+import io.trino.spi.connector.ConnectorMetadata;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 
@@ -36,25 +38,30 @@ public class TrinoConnectorSource {
     private final CatalogHandle catalogHandle;
     private final Session trinoSession;
     private final Connector connector;
+    private final ConnectorName connectorName;
     private ConnectorTransactionHandle connectorTransactionHandle;
-    private final ConnectorTableHandle trinoConnectorExtTableHandle;
+    private ConnectorTableHandle trinoConnectorTableHandle;
+    private ConnectorMetadata connectorMetadata;
 
-    public TrinoConnectorSource(TupleDescriptor desc, TrinoConnectorExternalTable table) {
+    public TrinoConnectorSource(TupleDescriptor desc) {
         this.desc = desc;
-        this.trinoConnectorExtTable = table;
-        this.trinoConnectorExternalCatalog = (TrinoConnectorExternalCatalog) table.getCatalog();
+        this.trinoConnectorExtTable = (TrinoConnectorExternalTable) desc.getTable();
+        this.trinoConnectorExternalCatalog = (TrinoConnectorExternalCatalog) trinoConnectorExtTable.getCatalog();
         this.catalogHandle = trinoConnectorExternalCatalog.getTrinoCatalogHandle();
-        this.trinoConnectorExtTableHandle = table.getConnectorTableHandle();
+        this.trinoConnectorTableHandle = trinoConnectorExtTable.getConnectorTableHandle();
+        this.connectorMetadata = trinoConnectorExtTable.getConnectorMetadata();
+        this.connectorTransactionHandle = trinoConnectorExtTable.getConnectorTransactionHandle();
         this.trinoSession = trinoConnectorExternalCatalog.getTrinoSession();
-        this.connector = ((TrinoConnectorExternalCatalog) table.getCatalog()).getConnector();
+        this.connector = trinoConnectorExternalCatalog.getConnector();
+        this.connectorName = trinoConnectorExternalCatalog.getConnectorName();
     }
 
     public TupleDescriptor getDesc() {
         return desc;
     }
 
-    public ConnectorTableHandle getTrinoConnectorExtTableHandle() {
-        return trinoConnectorExtTableHandle;
+    public ConnectorTableHandle getTrinoConnectorTableHandle() {
+        return trinoConnectorTableHandle;
     }
 
     public TrinoConnectorExternalTable getTargetTable() {
@@ -81,8 +88,16 @@ public class TrinoConnectorSource {
         return connector;
     }
 
-    public void setConnectorTransactionHandle(ConnectorTransactionHandle connectorTransactionHandle) {
-        this.connectorTransactionHandle = connectorTransactionHandle;
+    public ConnectorName getConnectorName() {
+        return connectorName;
+    }
+
+    public ConnectorMetadata getConnectorMetadata() {
+        return connectorMetadata;
+    }
+
+    public void setTrinoConnectorTableHandle(ConnectorTableHandle trinoConnectorExtTableHandle) {
+        this.trinoConnectorTableHandle = trinoConnectorExtTableHandle;
     }
 
     public ConnectorTransactionHandle getConnectorTransactionHandle() {

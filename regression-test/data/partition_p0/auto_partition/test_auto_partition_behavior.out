@@ -108,3 +108,12 @@ Yyy
 -- !sql_overwrite2 --
 Xxx
 
+-- !sql_non_order1 --
+1	2020-12-12T00:00
+
+-- !sql_non_order2 --
+2	2023-12-12T00:00
+
+-- !sql_non_order3 --
+3	2013-12-12T00:00
+

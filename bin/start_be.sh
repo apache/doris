@@ -67,19 +67,19 @@ export DORIS_HOME
 if [[ "$(uname -s)" != 'Darwin' ]]; then
     MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
     if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
-        echo "Please set vm.max_map_count to be 2000000 under root using 'sysctl -w vm.max_map_count=2000000'."
+        echo "Set kernel parameter 'vm.max_map_count' to a value greater than 2000000, example: 'sysctl -w vm.max_map_count=2000000'"
         exit 1
     fi
 
     if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
-        echo "Please disable swap memory before installation."
+        echo "Disable swap memory before starting be"
         exit 1
     fi
 fi
 
 MAX_FILE_COUNT="$(ulimit -n)"
 if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
-    echo "Please set the maximum number of open file descriptors larger than 60000, eg: 'ulimit -n 60000'."
+    echo "Set max number of open file descriptors to a value greater than 60000, example: 'ulimit -n 60000'"
     exit 1
 fi
 
@@ -89,9 +89,13 @@ fi
 preload_jars=("preload-extensions")
 preload_jars+=("java-udf")
 
+DORIS_PRELOAD_JAR=
 for preload_jar_dir in "${preload_jars[@]}"; do
     for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
-        if [[ -z "${DORIS_CLASSPATH}" ]]; then
+        if [[ "${f}" == *"preload-extensions-project.jar" ]]; then
+            DORIS_PRELOAD_JAR="${f}"
+            continue
+        elif [[ -z "${DORIS_CLASSPATH}" ]]; then
             export DORIS_CLASSPATH="${f}"
         else
             export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
@@ -122,6 +126,10 @@ if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     done
 fi
 
+# make sure the preload-extensions-project.jar is at first order, so that some classed
+# with same qualified name can be loaded priority from preload-extensions-project.jar.
+DORIS_CLASSPATH="${DORIS_PRELOAD_JAR}:${DORIS_CLASSPATH}"
+
 if [[ -n "${HADOOP_CONF_DIR}" ]]; then
     export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
 fi
@@ -131,6 +139,8 @@ fi
 export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}:${CLASSPATH}"
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
+
+#echo ${DORIS_CLASSPATH}
 
 export LD_LIBRARY_PATH="${DORIS_HOME}/lib/hadoop_hdfs/native:${LD_LIBRARY_PATH}"
 
@@ -177,10 +187,6 @@ export ODBCSYSINI="${DORIS_HOME}/conf"
 # support utf8 for oracle database
 export NLS_LANG='AMERICAN_AMERICA.AL32UTF8'
 
-# filter known leak.
-export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/lsan_suppr.conf"
-export ASAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
-
 while read -r line; do
     envline="$(echo "${line}" |
         sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
@@ -198,11 +204,13 @@ if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
     source "${DORIS_HOME}/bin/palo_env.sh"
 fi
 
+export PPROF_TMPDIR="${LOG_DIR}"
+
 if [[ -z "${JAVA_HOME}" ]]; then
-    echo "The JAVA_HOME environment variable is not defined correctly"
-    echo "This environment variable is needed to run this program"
-    echo "NB: JAVA_HOME should point to a JDK not a JRE"
-    echo "You can set it in be.conf"
+    echo "The JAVA_HOME environment variable is not set correctly"
+    echo "This environment variable is required to run this program"
+    echo "Note: JAVA_HOME should point to a JDK and not a JRE"
+    echo "You can set JAVA_HOME in the be.conf configuration file"
     exit 1
 fi
 
@@ -221,7 +229,7 @@ pidfile="${PID_DIR}/be.pid"
 
 if [[ -f "${pidfile}" ]]; then
     if kill -0 "$(cat "${pidfile}")" >/dev/null 2>&1; then
-        echo "Backend running as process $(cat "${pidfile}"). Stop it first."
+        echo "Backend is already running as process $(cat "${pidfile}"), stop it first"
         exit 1
     else
         rm "${pidfile}"
@@ -229,7 +237,7 @@ if [[ -f "${pidfile}" ]]; then
 fi
 
 chmod 550 "${DORIS_HOME}/lib/doris_be"
-echo "start time: $(date)" >>"${LOG_DIR}/be.out"
+echo "Start time: $(date)" >>"${LOG_DIR}/be.out"
 
 if [[ ! -f '/bin/limit3' ]]; then
     LIMIT=''
@@ -239,8 +247,13 @@ fi
 
 export AWS_MAX_ATTEMPTS=2
 
+# filter known leak
+export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/lsan_suppr.conf
+export ASAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
+
 ## set asan and ubsan env to generate core file
-export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0
+## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0:${ASAN_OPTIONS}
 export UBSAN_OPTIONS=print_stacktrace=1
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
@@ -275,7 +288,7 @@ set_tcmalloc_heap_limit() {
     fi
 
     if [[ "${mem_limit_mb}" -gt "${total_mem_mb}" ]]; then
-        echo "mem_limit is larger than whole memory of the server. ${mem_limit_mb} > ${total_mem_mb}."
+        echo "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
         return 1
     fi
     export TCMALLOC_HEAP_LIMIT_MB=${mem_limit_mb}
@@ -323,9 +336,9 @@ fi
 # set LIBHDFS_OPTS for hadoop libhdfs
 export LIBHDFS_OPTS="${final_java_opt}"
 
-#echo "CLASSPATH: ${CLASSPATH}"
-#echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
-#echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
+# echo "CLASSPATH: ${CLASSPATH}"
+# echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
+# echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
 if [[ -z ${JEMALLOC_CONF} ]]; then
     JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false"
@@ -333,9 +346,11 @@ fi
 
 if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then
     export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:"
+    export MALLOC_CONF="${JEMALLOC_CONF},prof_prefix:"
 else
     JEMALLOC_PROF_PRFIX="${DORIS_HOME}/log/${JEMALLOC_PROF_PRFIX}"
     export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
+    export MALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
 fi
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then

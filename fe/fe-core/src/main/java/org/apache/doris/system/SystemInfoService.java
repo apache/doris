@@ -552,7 +552,8 @@ public class SystemInfoService {
             if (!failedEntries.isEmpty()) {
                 String failedMsg = Joiner.on("\n").join(failedEntries);
                 throw new DdlException("Failed to find enough backend, please check the replication num,"
-                        + "replication tag and storage medium and avail capacity of backends.\n"
+                        + "replication tag and storage medium and avail capacity of backends "
+                        + "or maybe all be on same host.\n"
                         + "Create failed replications:\n" + failedMsg);
             }
         }
@@ -1004,10 +1005,6 @@ public class SystemInfoService {
     }
 
     public int getMinPipelineExecutorSize() {
-        if (Config.isCloudMode() && ConnectContext.get() != null
-                && Strings.isNullOrEmpty(ConnectContext.get().getCloudCluster(false))) {
-            return 1;
-        }
         List<Backend> currentBackends = null;
         try {
             currentBackends = getBackendsByCurrentCluster();

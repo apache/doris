@@ -137,12 +137,13 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
                   << ", rows: " << memtable->stat().raw_rows;
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
+    SCOPED_ATTACH_TASK(memtable->query_thread_context());
     signal::set_signal_task_id(_rowset_writer->load_id());
     {
         SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());
-        std::unique_ptr<vectorized::Block> block = memtable->to_block();
-        SKIP_MEMORY_CHECK(RETURN_IF_ERROR(
-                _rowset_writer->flush_memtable(block.get(), segment_id, flush_size)));
+        std::unique_ptr<vectorized::Block> block;
+        RETURN_IF_ERROR(memtable->to_block(&block));
+        RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
     }
     _memtable_stat += memtable->stat();
     DorisMetrics::instance()->memtable_flush_total->increment(1);
@@ -202,15 +203,20 @@ void FlushToken::_flush_memtable(std::unique_ptr<MemTable> memtable_ptr, int32_t
 
 void MemTableFlushExecutor::init(int num_disk) {
     num_disk = std::max(1, num_disk);
-    size_t min_threads = std::max(1, config::flush_thread_num_per_store);
-    size_t max_threads = num_disk * min_threads;
+    int num_cpus = std::thread::hardware_concurrency();
+    int min_threads = std::max(1, config::flush_thread_num_per_store);
+    int max_threads = num_cpus == 0 ? num_disk * min_threads
+                                    : std::min(num_disk * min_threads,
+                                               num_cpus * config::max_flush_thread_num_per_cpu);
     static_cast<void>(ThreadPoolBuilder("MemTableFlushThreadPool")
                               .set_min_threads(min_threads)
                               .set_max_threads(max_threads)
                               .build(&_flush_pool));
 
     min_threads = std::max(1, config::high_priority_flush_thread_num_per_store);
-    max_threads = num_disk * min_threads;
+    max_threads = num_cpus == 0 ? num_disk * min_threads
+                                : std::min(num_disk * min_threads,
+                                           num_cpus * config::max_flush_thread_num_per_cpu);
     static_cast<void>(ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
                               .set_min_threads(min_threads)
                               .set_max_threads(max_threads)

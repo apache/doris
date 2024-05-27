@@ -12,26 +12,28 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
 ----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF2 l_orderkey->[o_orderkey]
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[orders] apply RFs: RF2
---------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF2 l_orderkey->[o_orderkey]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF1 p_partkey->[l_partkey]
---------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
---------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------PhysicalProject
-------------------------------------filter((p_name like '%green%'))
---------------------------------------PhysicalOlapScan[part]
+------------------------------PhysicalOlapScan[orders] apply RFs: RF2
+----------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------PhysicalProject
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF1 p_partkey->[l_partkey]
+----------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
+----------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------PhysicalProject
+--------------------------------------filter((p_name like '%green%'))
+----------------------------------------PhysicalOlapScan[part]
 ----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[supplier]
---------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[nation]
+------------------------------PhysicalOlapScan[supplier]
+----------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[nation]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[partsupp]

@@ -20,8 +20,11 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -59,18 +62,20 @@ public abstract class AbstractInsertExecutor {
 
     protected String errMsg = "";
     protected Optional<InsertCommandContext> insertCtx;
+    protected final boolean emptyInsert;
 
     /**
      * Constructor
      */
     public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
-            Optional<InsertCommandContext> insertCtx) {
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
         this.ctx = ctx;
         this.coordinator = EnvFactory.getInstance().createCoordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
         this.labelName = labelName;
         this.table = table;
         this.database = table.getDatabase();
         this.insertCtx = insertCtx;
+        this.emptyInsert = emptyInsert;
     }
 
     public Coordinator getCoordinator() {
@@ -121,11 +126,13 @@ public abstract class AbstractInsertExecutor {
 
     protected final void execImpl(StmtExecutor executor, long jobId) throws Exception {
         String queryId = DebugUtil.printId(ctx.queryId());
+        this.jobId = jobId;
         coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
         coordinator.setQueryType(TQueryType.LOAD);
         executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
         QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
+        executor.updateProfile(false);
         coordinator.exec();
         int execTimeout = ctx.getExecTimeout();
         if (LOG.isDebugEnabled()) {
@@ -159,31 +166,44 @@ public abstract class AbstractInsertExecutor {
         }
     }
 
-    private boolean checkStrictMode() {
+    private void checkStrictMode() throws Exception {
         // if in strict mode, insert will fail if there are filtered rows
         if (ctx.getSessionVariable().getEnableInsertStrict()) {
             if (filteredRows > 0) {
-                ctx.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
-                        "Insert has filtered data in strict mode, tracking_url=" + coordinator.getTrackingUrl());
-                return false;
+                ErrorReport.reportDdlException("Insert has filtered data in strict mode",
+                        ErrorCode.ERR_FAILED_WHEN_INSERT);
             }
         }
-        return true;
     }
 
     /**
      * execute insert txn for insert into select command.
      */
-    public void executeSingleInsert(StmtExecutor executor, long jobId) {
+    public void executeSingleInsert(StmtExecutor executor, long jobId) throws Exception {
         beforeExec();
         try {
             execImpl(executor, jobId);
-            if (!checkStrictMode()) {
-                return;
+            checkStrictMode();
+            int retryTimes = 0;
+            while (retryTimes < Config.mow_insert_into_commit_retry_times) {
+                try {
+                    onComplete();
+                    break;
+                } catch (UserException e) {
+                    LOG.warn("failed to commit txn", e);
+                    if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
+                        retryTimes++;
+                    } else {
+                        throw e;
+                    }
+                }
             }
-            onComplete();
         } catch (Throwable t) {
             onFail(t);
+            // retry insert into from select when meet E-230 in cloud
+            if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                throw t;
+            }
             return;
         } finally {
             coordinator.close();
@@ -191,5 +211,9 @@ public abstract class AbstractInsertExecutor {
             QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
         }
         afterExec(executor);
+    }
+
+    public boolean isEmptyInsert() {
+        return emptyInsert;
     }
 }

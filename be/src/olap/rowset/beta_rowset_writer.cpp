@@ -130,7 +130,9 @@ Status SegmentFileCollection::close() {
     }
 
     for (auto&& [_, writer] : _file_writers) {
-        RETURN_IF_ERROR(writer->close());
+        if (writer->state() != io::FileWriter::State::CLOSED) {
+            RETURN_IF_ERROR(writer->close());
+        }
     }
 
     return Status::OK();
@@ -201,8 +203,6 @@ BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
 BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
     if (!_already_built) { // abnormal exit, remove all files generated
-        WARN_IF_ERROR(_segment_creator.close(),
-                      "close segment creator failed"); // ensure all files are closed
         const auto& fs = _rowset_meta->fs();
         if (!fs || !_rowset_meta->is_local()) { // Remote fs will delete them asynchronously
             return;
@@ -508,6 +508,7 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     // otherwise _segcompacting_cond will never get notified
     if (!config::enable_segcompaction || !_context.enable_segcompaction ||
         !_context.tablet_schema->cluster_key_idxes().empty() ||
+        _context.tablet_schema->num_variant_columns() > 0 ||
         !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
@@ -668,8 +669,11 @@ Status BetaRowsetWriter::_close_file_writers() {
         }
         RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_rename_last_segments(),
                                        "rename last segments failed when build new rowset");
-        if (_segcompaction_worker->get_file_writer()) {
-            RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_worker->get_file_writer()->close(),
+        // segcompaction worker would do file wrier's close function in compact_segments
+        if (auto& seg_comp_file_writer = _segcompaction_worker->get_file_writer();
+            nullptr != seg_comp_file_writer &&
+            seg_comp_file_writer->state() != io::FileWriter::State::CLOSED) {
+            RETURN_NOT_OK_STATUS_WITH_WARN(seg_comp_file_writer->close(),
                                            "close segment compaction worker failed");
         }
     }
@@ -810,10 +814,10 @@ Status BaseBetaRowsetWriter::_create_file_writer(std::string path, io::FileWrite
     io::FileWriterOptions opts {
             .write_file_cache = _context.write_file_cache,
             .is_cold_data = _context.is_hot_data,
-            .file_cache_expiration = static_cast<int64_t>(
+            .file_cache_expiration =
                     _context.file_cache_ttl_sec > 0 && _context.newest_write_timestamp > 0
                             ? _context.newest_write_timestamp + _context.file_cache_ttl_sec
-                            : 0)};
+                            : 0};
     Status st = fs->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
@@ -849,7 +853,8 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
             file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
             _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context,
             _context.fs);
-    if (_segcompaction_worker->get_file_writer() != nullptr) {
+    if (auto& seg_writer = _segcompaction_worker->get_file_writer();
+        seg_writer != nullptr && seg_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_segcompaction_worker->get_file_writer()->close());
     }
     _segcompaction_worker->get_file_writer().reset(file_writer.release());
@@ -916,7 +921,7 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
     if (_context.mow_context != nullptr) {
         // ensure that the segment file writing is complete
         auto* file_writer = _seg_files.get(segment_id);
-        if (file_writer) {
+        if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
             RETURN_IF_ERROR(file_writer->close());
         }
         RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));

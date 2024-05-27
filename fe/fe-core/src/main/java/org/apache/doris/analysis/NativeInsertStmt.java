@@ -176,6 +176,17 @@ public class NativeInsertStmt extends InsertStmt {
         }
     }
 
+    public NativeInsertStmt(NativeInsertStmt other) {
+        super(other.label, null, null);
+        this.tblName = other.tblName;
+        this.targetPartitionNames = other.targetPartitionNames;
+        this.label = other.label;
+        this.queryStmt = other.queryStmt;
+        this.planHints = other.planHints;
+        this.targetColumnNames = other.targetColumnNames;
+        this.isValuesOrConstantSelect = other.isValuesOrConstantSelect;
+    }
+
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
             List<String> hints) {
         super(new LabelName(null, label), null, null);
@@ -579,7 +590,8 @@ public class NativeInsertStmt extends InsertStmt {
             }
             // hll column must in mentionedColumns
             for (Column col : targetTable.getBaseSchema()) {
-                if (col.getType().isObjectStored() && !mentionedColumns.contains(col.getName())) {
+                if (col.getType().isObjectStored() && !col.hasDefaultValue()
+                        && !mentionedColumns.contains(col.getName())) {
                     throw new AnalysisException(
                             "object-stored column " + col.getName() + " must in insert into columns");
                 }
@@ -1023,13 +1035,16 @@ public class NativeInsertStmt extends InsertStmt {
         }
         if (targetTable instanceof OlapTable) {
             OlapTableSink sink;
+            final boolean enableSingleReplicaLoad =
+                    analyzer.getContext().getSessionVariable().isEnableMemtableOnSinkNode()
+                    ? false : analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert();
             if (isGroupCommitStreamLoadSql) {
                 sink = new GroupCommitBlockSink((OlapTable) targetTable, olapTuple,
-                        targetPartitionIds, analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert(),
+                        targetPartitionIds, enableSingleReplicaLoad,
                         ConnectContext.get().getSessionVariable().getGroupCommit(), 0);
             } else {
                 sink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
-                        analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
+                        enableSingleReplicaLoad);
             }
             dataSink = sink;
             sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);
@@ -1151,14 +1166,14 @@ public class NativeInsertStmt extends InsertStmt {
         targetColumns.clear();
     }
 
-    protected void resetPrepare() {
+    public void resetPrepare() {
         label = null;
         isTransactionBegin = false;
     }
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        if (isExplain() || isGroupCommit()) {
+        if (isExplain() || isGroupCommit() || (ConnectContext.get() != null && ConnectContext.get().isTxnModel())) {
             return RedirectStatus.NO_FORWARD;
         } else {
             return RedirectStatus.FORWARD_WITH_SYNC;
@@ -1285,12 +1300,16 @@ public class NativeInsertStmt extends InsertStmt {
         if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
             return;
         }
+        // when enable_unique_key_partial_update = true,
+        // only unique table with MOW insert with target columns can consider be a partial update,
+        // and unique table without MOW, insert will be like a normal insert.
+        // when enable_unique_key_partial_update = false,
+        // unique table with MOW, insert will be a normal insert, and column that not set will insert default value.
         if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new UserException("Partial update is only allowed on unique table with merge-on-write enabled.");
+            return;
         }
         if (hasEmptyTargetColumns) {
-            throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                    + "updating partial columns using the INSERT statement.");
+            return;
         }
         for (Column col : olapTable.getFullSchema()) {
             boolean exists = false;
@@ -1332,5 +1351,10 @@ public class NativeInsertStmt extends InsertStmt {
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
         }
+    }
+
+    public boolean containTargetColumnName(String columnName) {
+        return targetColumnNames != null && targetColumnNames.stream()
+                .anyMatch(col -> col.equalsIgnoreCase(columnName));
     }
 }

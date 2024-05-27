@@ -54,6 +54,7 @@ class StreamLoadAction implements SuiteAction {
     Map<String, String> headers
     SuiteContext context
     boolean directToBe = false
+    boolean twoPhaseCommit = false
 
     StreamLoadAction(SuiteContext context) {
         this.address = context.getFeHttpAddress()
@@ -137,6 +138,22 @@ class StreamLoadAction implements SuiteAction {
         this.time = time.call()
     }
 
+    void twoPhaseCommit(boolean twoPhaseCommit) {
+        this.twoPhaseCommit = twoPhaseCommit;
+    }
+
+    void twoPhaseCommit(Closure<Boolean> twoPhaseCommit) {
+        this.twoPhaseCommit = twoPhaseCommit.call();
+    }
+
+    // compatible with selectdb case
+    void isCloud(boolean isCloud) {
+    }
+
+    // compatible with selectdb case
+    void isCloud(Closure<Boolean> isCloud) {
+    }
+
     void check(@ClosureParams(value = FromString, options = ["String,Throwable,Long,Long"]) Closure check) {
         this.check = check
     }
@@ -156,8 +173,14 @@ class StreamLoadAction implements SuiteAction {
         long startTime = System.currentTimeMillis()
         def isHttpStream = headers.containsKey("version")
         try {
-            def uri = isHttpStream ? "http://${address.hostString}:${address.port}/api/_http_stream"
-                    : "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
+            def uri = ""
+            if (isHttpStream) {
+                uri = "http://${address.hostString}:${address.port}/api/_http_stream"
+            } else if (twoPhaseCommit) {
+                uri = "http://${address.hostString}:${address.port}/api/${db}/_stream_load_2pc"
+            } else {
+                uri = "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
+            }
             HttpClients.createDefault().withCloseable { client ->
                 RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
                 HttpEntity httpEntity = prepareHttpEntity(client)
@@ -362,6 +385,10 @@ class StreamLoadAction implements SuiteAction {
             def jsonSlurper = new JsonSlurper()
             def parsed = jsonSlurper.parseText(responseText)
             String status = parsed.Status
+            if (twoPhaseCommit) {
+                status = parsed.status
+                return status;
+            }
             long txnId = parsed.TxnId
             if (!status.equalsIgnoreCase("Publish Timeout")) {
                 return status;

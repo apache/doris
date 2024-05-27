@@ -20,11 +20,11 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -47,6 +47,7 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -98,8 +99,8 @@ public class JoinUtils {
         Set<ExprId> rightExprIds;
 
         public JoinSlotCoverageChecker(List<Slot> left, List<Slot> right) {
-            leftExprIds = left.stream().map(Slot::getExprId).collect(Collectors.toSet());
-            rightExprIds = right.stream().map(Slot::getExprId).collect(Collectors.toSet());
+            leftExprIds = left.stream().map(Slot::getExprId).collect(ImmutableSet.toImmutableSet());
+            rightExprIds = right.stream().map(Slot::getExprId).collect(ImmutableSet.toImmutableSet());
         }
 
         /**
@@ -140,11 +141,20 @@ public class JoinUtils {
     public static Pair<List<Expression>, List<Expression>> extractExpressionForHashTable(List<Slot> leftSlots,
             List<Slot> rightSlots, List<Expression> onConditions) {
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
-        Map<Boolean, List<Expression>> mapper = onConditions.stream().collect(Collectors.groupingBy(
-                expr -> (expr instanceof EqualPredicate) && checker.isHashJoinCondition((EqualPredicate) expr)));
+
+        ImmutableList.Builder<Expression> hashConditions = ImmutableList.builderWithExpectedSize(onConditions.size());
+        ImmutableList.Builder<Expression> otherConditions = ImmutableList.builderWithExpectedSize(onConditions.size());
+        for (Expression expr : onConditions) {
+            if (expr instanceof EqualPredicate && checker.isHashJoinCondition((EqualPredicate) expr)) {
+                hashConditions.add(expr);
+            } else {
+                otherConditions.add(expr);
+            }
+        }
+
         return Pair.of(
-                mapper.getOrDefault(true, ImmutableList.of()),
-                mapper.getOrDefault(false, ImmutableList.of())
+                hashConditions.build(),
+                otherConditions.build()
         );
     }
 
@@ -337,7 +347,7 @@ public class JoinUtils {
     /**
      * can this join be eliminated by its left child
      */
-    public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, FunctionalDependencies rightFuncDeps) {
+    public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, DataTrait rightFuncDeps) {
         if (join.getJoinType().isLeftOuterJoin()) {
             Pair<Set<Slot>, Set<Slot>> njHashKeys = join.extractNullRejectHashKeys();
             if (!join.getOtherJoinConjuncts().isEmpty() || njHashKeys == null) {

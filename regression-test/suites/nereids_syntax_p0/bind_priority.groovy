@@ -42,7 +42,7 @@ suite("bind_priority") {
     """
 
     qt_select """
-        select coalesce(a, 'all') as a, count(*) as cnt from (select  null as a  union all  select  'a' as a ) t group by grouping sets ((a),()) order by a;
+        select coalesce(a, 'all') as a, count(*) as cnt from (select  null as a  union all  select  'a' as a ) t group by grouping sets ((a),()) order by a, cnt;
     """
 
     qt_select """
@@ -287,5 +287,54 @@ suite("bind_priority") {
                 GROUP by pk + 6
                 HAVING  pk = 3
                 """
+
+        order_qt_having_bind_group_by """
+                select pk + 1 as pk, pk + 2 as pk, count(*)
+                from test_bind_having_slots3
+                group by pk + 1, pk + 2
+                having pk = 4;
+                """
+
+        order_qt_having_bind_group_by """
+                select count(*) pk, pk + 1 as pk
+                from test_bind_having_slots3
+                group by pk + 1, pk + 2
+                having pk = 1;
+                """
+
+        order_qt_having_bind_group_by """
+                select pk + 1 as pk, count(*) pk
+                from test_bind_having_slots3
+                group by pk + 1, pk + 2
+                having pk = 2;
+                """
+    }()
+
+    def bindGroupBy = {
+        sql "drop table if exists test_bind_groupby_slots"
+
+        sql """create table test_bind_groupby_slots
+                (id int, age int)
+                distributed by hash(id)
+                properties('replication_num'='1');
+                """
+        sql "insert into test_bind_groupby_slots values(1, 10), (2, 20), (3, 30);"
+
+        order_qt_sql "select MIN (LENGTH (cast(age as varchar))), 1 AS col2 from test_bind_groupby_slots group by 2"
+    }()
+
+
+
+    def bindOrderBy = {
+        sql "drop table if exists test_bind_orderby_slots"
+
+        sql """create table test_bind_orderby_slots
+                (id int, age int)
+                distributed by hash(id)
+                properties('replication_num'='1');
+                """
+        sql "insert into test_bind_orderby_slots values(1, 10), (2, 20), (3, 30);"
+
+        order_qt_sql "select MIN (LENGTH (cast(age as varchar))), 1 AS col2 from test_bind_orderby_slots order by 2"
     }()
 }

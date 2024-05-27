@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoin;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class TransposeSemiJoinAggProjectTest implements MemoPatternMatchSupported {
@@ -51,6 +53,19 @@ class TransposeSemiJoinAggProjectTest implements MemoPatternMatchSupported {
                                 )
                         )
                 );
+    }
+
+    @Test
+    void markJoin() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggAllUsingIndex(ImmutableList.of(0, 1), ImmutableList.of(0, 1))
+                .project(ImmutableList.of(0))
+                .markJoin(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .build();
+        int size = PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(TransposeAggSemiJoin.INSTANCE.build())
+                .getAllPlan().size();
+        Assertions.assertEquals(1, size);
     }
 
 }

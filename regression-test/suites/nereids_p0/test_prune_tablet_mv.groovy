@@ -36,7 +36,7 @@ suite("test_prune_tablet_mv") {
     sql "insert into test_prune_tablet_t2 values(1,0),(2,0),(3,0),(4,0),(5,0),(6,0),(7,0);"
 
     explain {
-        sql("select * from test_prune_tablet_t2 where id = 3;")
+        sql("select * from test_prune_tablet_t2 where c1 = 0 and id = 3;")
         contains "mv_t2"
         contains "tablets=1/16"
     }

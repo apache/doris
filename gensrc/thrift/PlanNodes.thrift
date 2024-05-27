@@ -154,6 +154,8 @@ struct THdfsParams {
     3: optional string hdfs_kerberos_principal
     4: optional string hdfs_kerberos_keytab
     5: optional list<THdfsConf> hdfs_conf
+    // Used for Cold Heat Separation to specify the root path
+    6: optional string root_path
 }
 
 // One broker range information.
@@ -290,11 +292,14 @@ struct TIcebergDeleteFileDesc {
     2: optional i64 position_lower_bound;
     3: optional i64 position_upper_bound;
     4: optional list<i32> field_ids;
+    // Iceberg file type, 0: data, 1: position delete, 2: equality delete.
+    5: optional i32 content;
 }
 
 struct TIcebergFileDesc {
     1: optional i32 format_version;
     // Iceberg file type, 0: data, 1: position delete, 2: equality delete.
+    // deprecated, a data file can have both position and delete files
     2: optional i32 content;
     // When open a delete file, filter the data file path with the 'file_path' property
     3: optional list<TIcebergDeleteFileDesc> delete_files;
@@ -302,6 +307,12 @@ struct TIcebergFileDesc {
     4: optional Types.TTupleId delete_table_tuple_id;
     // Deprecated
     5: optional Exprs.TExpr file_select_conjunct;
+}
+
+struct TPaimonDeletionFileDesc {
+    1: optional string path;
+    2: optional i64 offset;
+    3: optional i64 length;
 }
 
 struct TPaimonFileDesc {
@@ -316,6 +327,7 @@ struct TPaimonFileDesc {
     9: optional i64 tbl_id
     10: optional i64 last_update_time
     11: optional string file_format
+    12: optional TPaimonDeletionFileDesc deletion_file;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -446,6 +458,11 @@ struct TFileRangeDesc {
     12: optional string fs_name
 }
 
+struct TSplitSource {
+    1: optional i64 split_source_id
+    2: optional i32 num_splits
+}
+
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.
 //  TFileScanRangeParams: describe how to read and convert file
 //  list<TFileRangeDesc>: file location and range
@@ -456,12 +473,12 @@ struct TFileScanRange {
     // file_scan_params in TExecPlanFragmentParams will always be set in query request,
     // and TFileScanRangeParams here is used for some other request such as fetch table schema for tvf. 
     2: optional TFileScanRangeParams params
+    3: optional TSplitSource split_source
 }
 
 // Scan range for external datasource, such as file on hdfs, es datanode, etc.
 struct TExternalScanRange {
     1: optional TFileScanRange file_scan_range
-    // TODO: add more scan range type?
 }
 
 enum TDataGenFunctionName {
@@ -715,12 +732,12 @@ struct TOlapScanNode {
   10: optional i64 sort_limit
   11: optional bool enable_unique_key_merge_on_write
   12: optional TPushAggOp push_down_agg_type_opt //Deprecated
-  13: optional bool use_topn_opt
+  13: optional bool use_topn_opt // Deprecated
   14: optional list<Descriptors.TOlapTableIndex> indexes_desc
   15: optional set<i32> output_column_unique_ids
   16: optional list<i32> distribute_column_ids
   17: optional i32 schema_version
-  18: optional list<i32> topn_filter_source_node_ids
+  18: optional list<i32> topn_filter_source_node_ids //deprecated, move to TPlanNode.106
 }
 
 struct TEqJoinCondition {
@@ -887,7 +904,7 @@ struct TAggregationNode {
   7: optional list<TSortInfo> agg_sort_infos
   8: optional bool is_first_phase
   9: optional bool is_colocate
-  // 9: optional bool use_fixed_length_serialization_opt
+  10: optional TSortInfo agg_sort_info_by_group_key
 }
 
 struct TRepeatNode {
@@ -918,7 +935,7 @@ struct TSortNode {
 
   // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.           
   6: optional bool is_default_limit                                              
-  7: optional bool use_topn_opt
+  7: optional bool use_topn_opt // Deprecated
   8: optional bool merge_by_exchange
   9: optional bool is_analytic_sort
   10: optional bool is_colocate
@@ -1163,6 +1180,15 @@ enum TMinMaxRuntimeFilterType {
   MIN_MAX = 4
 }
 
+struct TTopnFilterDesc {
+  // topn node id
+  1: required i32 source_node_id 
+  2: required bool is_asc
+  3: required bool null_first 
+  // scan node id -> expr on scan node
+  4: required map<Types.TPlanNodeId, Exprs.TExpr> target_node_id_to_target_expr
+}
+
 // Specification of a runtime filter.
 struct TRuntimeFilterDesc {
   // Filter unique id (within a query)
@@ -1202,7 +1228,7 @@ struct TRuntimeFilterDesc {
   // for bitmap filter
   11: optional bool bitmap_filter_not_in
 
-  12: optional bool opt_remote_rf;
+  12: optional bool opt_remote_rf; // Deprecated
   
   // for min/max rf
   13: optional TMinMaxRuntimeFilterType min_max_type;
@@ -1214,6 +1240,8 @@ struct TRuntimeFilterDesc {
  
   // true, if join type is null aware like <=>. rf should dispose the case
   15: optional bool null_aware;
+
+  16: optional bool sync_filter_size;
 }
 
 
@@ -1292,10 +1320,15 @@ struct TPlanNode {
   49: optional i64 push_down_count
 
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
-  
+  // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id
   103: optional TPartitionSortNode partition_sort_node
+  // Intermediate projections will not materialize into the output block.
+  104: optional list<list<Exprs.TExpr>> intermediate_projections_list
+  105: optional list<Types.TTupleId> intermediate_output_tuple_id_list
+
+  106: optional list<i32> topn_filter_source_node_ids
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

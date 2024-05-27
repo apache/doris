@@ -48,9 +48,10 @@ public interface ExternalMetadataOps {
     /**
      *
      * @param stmt
+     * @return if set isExists is true, return true if table exists, otherwise return false
      * @throws UserException
      */
-    void createTable(CreateTableStmt stmt) throws UserException;
+    boolean createTable(CreateTableStmt stmt) throws UserException;
 
     /**
      *
@@ -79,4 +80,6 @@ public interface ExternalMetadataOps {
      * @return
      */
     boolean tableExist(String dbName, String tblName);
+
+    boolean databaseExist(String dbName);
 }

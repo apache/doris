@@ -30,11 +30,9 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -43,10 +41,10 @@ import java.nio.ByteOrder;
 import java.util.Objects;
 
 public class DecimalLiteral extends NumericLiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(DecimalLiteral.class);
+    @SerializedName("v")
     private BigDecimal value;
 
-    public DecimalLiteral() {
+    private DecimalLiteral() {
     }
 
     public DecimalLiteral(BigDecimal value) {
@@ -326,12 +324,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
             this.type = ScalarType.createDecimalV3Type(
                     Math.max(this.value.scale(), this.value.precision()), this.value.scale());
         }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, value.toString());
     }
 
     public void readFields(DataInput in) throws IOException {

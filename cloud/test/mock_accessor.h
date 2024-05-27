@@ -27,12 +27,10 @@
 
 namespace doris::cloud {
 
-class MockAccessor : public ObjStoreAccessor {
+class MockS3Accessor final : public S3Accessor {
 public:
-    explicit MockAccessor(const S3Conf& conf) {
-        path_ = conf.endpoint + '/' + conf.bucket + '/' + conf.prefix;
-    }
-    ~MockAccessor() override = default;
+    explicit MockS3Accessor(const S3Conf& conf) : S3Accessor(conf) {}
+    ~MockS3Accessor() override = default;
 
     const std::string& path() const override { return path_; }
 
@@ -41,7 +39,7 @@ public:
 
     // returns 0 for success otherwise error
     int delete_objects_by_prefix(const std::string& relative_path) override {
-        TEST_SYNC_POINT_CALLBACK("MockAccessor::delete_objects_by_prefix", nullptr);
+        TEST_SYNC_POINT_CALLBACK("MockS3Accessor::delete_objects_by_prefix", nullptr);
         LOG(INFO) << "delete object of prefix=" << relative_path;
         std::lock_guard lock(mtx_);
         if (relative_path.empty()) {
@@ -61,10 +59,10 @@ public:
 
     // returns 0 for success otherwise error
     int delete_objects(const std::vector<std::string>& relative_paths) override {
-        TEST_SYNC_POINT_CALLBACK("MockAccessor::delete_objects", nullptr);
+        TEST_SYNC_POINT_CALLBACK("MockS3Accessor::delete_objects", nullptr);
         {
             [[maybe_unused]] int ret = -1;
-            TEST_SYNC_POINT_RETURN_WITH_VALUE("MockAccessor::delete_objects_ret", &ret);
+            TEST_SYNC_POINT_RETURN_WITH_VALUE("MockS3Accessor::delete_objects_ret", &ret);
         }
         for (auto& path : relative_paths) {
             LOG(INFO) << "delete object path=" << path;
@@ -95,7 +93,7 @@ public:
     // returns 0 for success otherwise error
     int list(const std::string& relative_path, std::vector<ObjectMeta>* paths) override {
         std::lock_guard lock(mtx_);
-        if (relative_path == "") {
+        if (relative_path.empty()) {
             for (const auto& obj : objects_) {
                 paths->push_back({obj});
             }

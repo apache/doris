@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -34,6 +35,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.text.ParseException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -95,8 +97,8 @@ public class AnalysisInfo implements Writable {
     @SerializedName("tblId")
     public final long tblId;
 
-    // TODO: Map here is wired, List is enough
-    public final Map<String, Set<String>> colToPartitions;
+    // Pair<IndexName, ColumnName>
+    public final Set<Pair<String, String>> jobColumns;
 
     public final Set<String> partitionNames;
 
@@ -147,11 +149,6 @@ public class AnalysisInfo implements Writable {
     @SerializedName("message")
     public String message;
 
-    // True means this task is a table level task for external table.
-    // This kind of task is mainly to collect the number of rows of a table.
-    @SerializedName("externalTableLevelTask")
-    public final boolean externalTableLevelTask;
-
     @SerializedName("partitionOnly")
     public final boolean partitionOnly;
 
@@ -176,8 +173,8 @@ public class AnalysisInfo implements Writable {
     @SerializedName("forceFull")
     public final boolean forceFull;
 
-    @SerializedName("usingSqlForPartitionColumn")
-    public final boolean usingSqlForPartitionColumn;
+    @SerializedName("usingSqlForExternalTable")
+    public final boolean usingSqlForExternalTable;
 
     @SerializedName("createTime")
     public final long createTime = System.currentTimeMillis();
@@ -188,32 +185,39 @@ public class AnalysisInfo implements Writable {
     @SerializedName("endTime")
     public long endTime;
 
-    @SerializedName("emptyJob")
-    public final boolean emptyJob;
-    /**
-     *
-     * Used to store the newest partition version of tbl when creating this job.
-     * This variables would be saved by table stats meta.
-     */
+    @SerializedName("rowCount")
+    public final long rowCount;
+
+    @SerializedName("updateRows")
+    public final long updateRows;
+
+    public final Map<Long, Long> partitionUpdateRows = new HashMap();
+
+    @SerializedName("tblUpdateTime")
     public final long tblUpdateTime;
 
+    @SerializedName("userInject")
     public final boolean userInject;
 
+    @SerializedName("priority")
+    public final JobPriority priority;
+
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
-            Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
+            Set<Pair<String, String>> jobColumns, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, long sampleRows, int maxBucketNum, long periodTimeInMs, String message,
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
-            boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
+            boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
-            boolean usingSqlForPartitionColumn, long tblUpdateTime, boolean emptyJob, boolean userInject) {
+            boolean usingSqlForExternalTable, long tblUpdateTime, long rowCount, boolean userInject,
+            long updateRows, JobPriority priority, Map<Long, Long> partitionUpdateRows) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
         this.catalogId = catalogId;
         this.dbId = dbId;
         this.tblId = tblId;
-        this.colToPartitions = colToPartitions;
+        this.jobColumns = jobColumns;
         this.partitionNames = partitionNames;
         this.colName = colName;
         this.indexId = indexId;
@@ -230,7 +234,6 @@ public class AnalysisInfo implements Writable {
         this.timeCostInMs = timeCostInMs;
         this.state = state;
         this.scheduleType = scheduleType;
-        this.externalTableLevelTask = isExternalTableLevelTask;
         this.partitionOnly = partitionOnly;
         this.samplingPartition = samplingPartition;
         this.isAllPartition = isAllPartition;
@@ -240,10 +243,15 @@ public class AnalysisInfo implements Writable {
             this.cronExprStr = cronExpression.getCronExpression();
         }
         this.forceFull = forceFull;
-        this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
+        this.usingSqlForExternalTable = usingSqlForExternalTable;
         this.tblUpdateTime = tblUpdateTime;
-        this.emptyJob = emptyJob;
+        this.rowCount = rowCount;
         this.userInject = userInject;
+        this.updateRows = updateRows;
+        this.priority = priority;
+        if (partitionUpdateRows != null) {
+            this.partitionUpdateRows.putAll(partitionUpdateRows);
+        }
     }
 
     @Override
@@ -268,8 +276,8 @@ public class AnalysisInfo implements Writable {
         if (maxBucketNum > 0) {
             sj.add("MaxBucketNum: " + maxBucketNum);
         }
-        if (colToPartitions != null) {
-            sj.add("colToPartitions: " + getColToPartitionStr());
+        if (jobColumns != null) {
+            sj.add("jobColumns: " + getJobColumns());
         }
         if (lastExecTimeInMs > 0) {
             sj.add("LastExecTime: " + StatisticsUtil.getReadableTime(lastExecTimeInMs));
@@ -284,8 +292,11 @@ public class AnalysisInfo implements Writable {
             sj.add("cronExpr: " + cronExprStr);
         }
         sj.add("forceFull: " + forceFull);
-        sj.add("usingSqlForPartitionColumn: " + usingSqlForPartitionColumn);
-        sj.add("emptyJob: " + emptyJob);
+        sj.add("usingSqlForExternalTable: " + usingSqlForExternalTable);
+        sj.add("rowCount: " + rowCount);
+        sj.add("userInject: " + userInject);
+        sj.add("updateRows: " + updateRows);
+        sj.add("priority: " + priority.name());
         return sj.toString();
     }
 
@@ -301,12 +312,12 @@ public class AnalysisInfo implements Writable {
         taskIds.add(taskId);
     }
 
-    public String getColToPartitionStr() {
-        if (colToPartitions == null || colToPartitions.isEmpty()) {
+    public String getJobColumns() {
+        if (jobColumns == null || jobColumns.isEmpty()) {
             return "";
         }
         Gson gson = new Gson();
-        return gson.toJson(colToPartitions);
+        return gson.toJson(jobColumns);
     }
 
     @Override

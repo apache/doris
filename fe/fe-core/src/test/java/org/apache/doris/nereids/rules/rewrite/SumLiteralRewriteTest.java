@@ -37,18 +37,79 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
 
     @Test
-    void testSimpleAddSum() {
+    void testSimpleSum() {
         Slot slot1 = scan1.getOutput().get(0);
-        Alias sum = new Alias(new Sum(slot1));
         Alias add1 = new Alias(new Sum(new Add(slot1, Literal.of(1))));
         Alias add2 = new Alias(new Sum(new Add(slot1, Literal.of(2))));
         Alias sub1 = new Alias(new Sum(new Subtract(slot1, Literal.of(1))));
         Alias sub2 = new Alias(new Sum(new Subtract(slot1, Literal.of(2))));
         LogicalAggregate<?> agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, sub1, sub2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 2));
+
+        Alias sum = new Alias(new Sum(slot1));
+        agg = new LogicalAggregate<>(
                 ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sum, add1, add2, sub1, sub2), scan1);
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
                 .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
                 .printlnTree()
-                .matches(logicalAggregate().when(p -> p.getAggregateFunctions().size() == 2));
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 2));
+    }
+
+    @Test
+    void testSumNullable() {
+        Slot slot1 = scan1.getOutput().get(0);
+        Alias add1 = new Alias(new Sum(false, true, new Add(slot1, Literal.of(1))));
+        Alias add2 = new Alias(new Sum(false, true, new Add(slot1, Literal.of(2))));
+        Alias sub1 = new Alias(new Sum(false, true, new Subtract(slot1, Literal.of(1))));
+        Alias sub2 = new Alias(new Sum(false, true, new Subtract(slot1, Literal.of(2))));
+        LogicalAggregate<?> agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, sub1, sub2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 2));
+
+        Alias sum = new Alias(new Sum(false, true, slot1));
+        agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sum, add1, add2, sub1, sub2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 2));
+    }
+
+    @Test
+    void testSumDistinct() {
+        Slot slot1 = scan1.getOutput().get(0);
+        Alias add1 = new Alias(new Sum(true, true, new Add(slot1, Literal.of(1))));
+        Alias add2 = new Alias(new Sum(false, true, new Add(slot1, Literal.of(2))));
+        Alias sub1 = new Alias(new Sum(true, true, new Subtract(slot1, Literal.of(1))));
+        Alias sub2 = new Alias(new Sum(false, true, new Subtract(slot1, Literal.of(2))));
+        LogicalAggregate<?> agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, sub1, sub2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 4));
+
+        Alias sumDistinct = new Alias(new Sum(true, true, slot1));
+        agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sumDistinct, add1, add2, sub1, sub2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 4));
+
+        Alias sum = new Alias(new Sum(false, true, slot1));
+        agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sumDistinct, sum, add1, add2, sub1, sub2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 4));
     }
 }

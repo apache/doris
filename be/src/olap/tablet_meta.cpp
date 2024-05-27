@@ -41,6 +41,8 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/debug_points.h"
+#include "util/mem_info.h"
+#include "util/parse_util.h"
 #include "util/string_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -529,6 +531,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _creation_time = tablet_meta_pb.creation_time();
     _cumulative_layer_point = tablet_meta_pb.cumulative_layer_point();
     _tablet_uid = TabletUid(tablet_meta_pb.tablet_uid());
+    _ttl_seconds = tablet_meta_pb.ttl_seconds();
     if (tablet_meta_pb.has_tablet_type()) {
         _tablet_type = tablet_meta_pb.tablet_type();
     } else {
@@ -647,6 +650,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_cumulative_layer_point(cumulative_layer_point());
     *(tablet_meta_pb->mutable_tablet_uid()) = tablet_uid().to_proto();
     tablet_meta_pb->set_tablet_type(_tablet_type);
+    tablet_meta_pb->set_ttl_seconds(_ttl_seconds);
     switch (tablet_state()) {
     case TABLET_NOTREADY:
         tablet_meta_pb->set_tablet_state(PB_NOTREADY);
@@ -745,6 +749,16 @@ Version TabletMeta::max_version() const {
         }
     }
     return max_version;
+}
+
+size_t TabletMeta::version_count_cross_with_range(const Version& range) const {
+    size_t count = 0;
+    for (const auto& rs_meta : _rs_metas) {
+        if (!(range.first > rs_meta->version().second || range.second < rs_meta->version().first)) {
+            count++;
+        }
+    }
+    return count;
 }
 
 Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
@@ -928,7 +942,18 @@ bool operator!=(const TabletMeta& a, const TabletMeta& b) {
 }
 
 DeleteBitmap::DeleteBitmap(int64_t tablet_id) : _tablet_id(tablet_id) {
-    _agg_cache.reset(new AggCache(config::delete_bitmap_agg_cache_capacity));
+    // The default delete bitmap cache is set to 100MB,
+    // which can be insufficient and cause performance issues when the amount of user data is large.
+    // To mitigate the problem of an inadequate cache,
+    // we will take the larger of 0.5% of the total memory and 100MB as the delete bitmap cache size.
+    bool is_percent = false;
+    int64_t delete_bitmap_agg_cache_cache_limit =
+            ParseUtil::parse_mem_spec(config::delete_bitmap_dynamic_agg_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    _agg_cache.reset(new AggCache(delete_bitmap_agg_cache_cache_limit >
+                                                  config::delete_bitmap_agg_cache_capacity
+                                          ? delete_bitmap_agg_cache_cache_limit
+                                          : config::delete_bitmap_agg_cache_capacity));
 }
 
 DeleteBitmap::DeleteBitmap(const DeleteBitmap& o) {
