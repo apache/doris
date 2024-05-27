@@ -138,6 +138,7 @@ public:
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
 
     void insert_many_raw_data(const char* pos, size_t num) override {
+        DCHECK(pos);
         size_t old_size = data.size();
         data.resize(old_size + num);
         memcpy(data.data() + old_size, pos, num * sizeof(T));
