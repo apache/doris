@@ -523,7 +523,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     RETURN_IF_ERROR(_apply_inverted_index());
 
     if (!_row_bitmap.isEmpty() &&
-        (_opts.use_topn_opt || !_opts.col_id_to_predicates.empty() ||
+        (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
          _opts.delete_condition_predicates->num_of_column_predicate() > 0)) {
         RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
         RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
@@ -572,7 +572,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_zonemap_ns);
         RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
         // second filter data by zone map
-        for (auto& cid : cids) {
+        for (const auto& cid : cids) {
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
             if (!_segment->can_apply_predicate_safely(cid, _opts.col_id_to_predicates.at(cid).get(),
                                                       *_schema, _opts.io_ctx.reader_type)) {
@@ -600,16 +600,12 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                        condition_row_ranges);
 
-        if (_opts.use_topn_opt) {
-            SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_zonemap_ns);
+        if (!_opts.topn_filter_source_node_ids.empty()) {
             auto* query_ctx = _opts.runtime_state->get_query_ctx();
             for (int id : _opts.topn_filter_source_node_ids) {
-                if (!query_ctx->get_runtime_predicate(id).need_update()) {
-                    continue;
-                }
-
                 std::shared_ptr<doris::ColumnPredicate> runtime_predicate =
-                        query_ctx->get_runtime_predicate(id).get_predicate();
+                        query_ctx->get_runtime_predicate(id).get_predicate(
+                                _opts.topn_filter_target_node_id);
                 if (_segment->can_apply_predicate_safely(runtime_predicate->column_id(),
                                                          runtime_predicate.get(), *_schema,
                                                          _opts.io_ctx.reader_type)) {
@@ -1579,7 +1575,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
 
     std::set<const ColumnPredicate*> delete_predicate_set {};
     _opts.delete_condition_predicates->get_all_column_predicate(delete_predicate_set);
-    for (const auto predicate : delete_predicate_set) {
+    for (const auto* const predicate : delete_predicate_set) {
         if (PredicateTypeTraits::is_range(predicate->type())) {
             _delete_range_column_ids.push_back(predicate->column_id());
         } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
@@ -1593,16 +1589,13 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     //  but runtime predicate will filter some rows and read more than N rows.
     // should add add for order by none-key column, since none-key column is not sorted and
     //  all rows should be read, so runtime predicate will reduce rows for topn node
-    if (_opts.use_topn_opt &&
+    if (!_opts.topn_filter_source_node_ids.empty() &&
         (_opts.read_orderby_key_columns == nullptr || _opts.read_orderby_key_columns->empty())) {
         for (int id : _opts.topn_filter_source_node_ids) {
-            if (!_opts.runtime_state->get_query_ctx()->get_runtime_predicate(id).need_update()) {
-                continue;
-            }
-
             auto& runtime_predicate =
                     _opts.runtime_state->get_query_ctx()->get_runtime_predicate(id);
-            _col_predicates.push_back(runtime_predicate.get_predicate().get());
+            _col_predicates.push_back(
+                    runtime_predicate.get_predicate(_opts.topn_filter_target_node_id).get());
         }
     }
 
