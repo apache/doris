@@ -169,6 +169,6 @@ private:
     QueryThreadContext _query_thread_context;
 };
 
-using LoadStreamSharedPtr = std::shared_ptr<LoadStream>;
+using LoadStreamPtr = std::unique_ptr<LoadStream>;
 
 } // namespace doris
