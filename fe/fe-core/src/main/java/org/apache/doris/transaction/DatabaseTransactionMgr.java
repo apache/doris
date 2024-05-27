@@ -1160,9 +1160,12 @@ public class DatabaseTransactionMgr {
     }
 
     private void setTableVersion(TransactionState transactionState, Database db) {
-        List<TableCommitInfo> tableCommitInfos = transactionState.getIdToTableCommitInfos().isEmpty()
-                ? transactionState.getSubTxnTableCommitInfos()
-                : Lists.newArrayList(transactionState.getIdToTableCommitInfos().values());
+        List<TableCommitInfo> tableCommitInfos;
+        if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
+            tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
+        } else {
+            tableCommitInfos = Lists.newArrayList(transactionState.getIdToTableCommitInfos().values());
+        }
         for (TableCommitInfo tableCommitInfo : tableCommitInfos) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
