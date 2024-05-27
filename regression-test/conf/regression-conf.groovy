@@ -118,6 +118,7 @@ clickhouse_22_port=8123
 doris_port=9030
 mariadb_10_port=3326
 db2_11_port=50000
+oceanbase_port=2881
 
 // hive catalog test config
 // To enable hive/paimon test, you need first start hive container.

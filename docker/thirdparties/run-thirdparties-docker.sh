@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,oceanbase
   "
     exit 1
 }
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,oceanbase"
         fi
     fi
 fi
@@ -135,6 +135,7 @@ RUN_KAFKA=0
 RUN_SPARK=0
 RUN_MARIADB=0
 RUN_DB2=0
+RUN_OCENABASE=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -167,6 +168,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_MARIADB=1
     elif [[ "${element}"x == "db2"x ]];then
         RUN_DB2=1
+    elif [[ "${element}"x == "oceanbase"x ]];then
+        RUN_OCEANBASE=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -243,6 +246,18 @@ if [[ "${RUN_DB2}" -eq 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/db2/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/db2/data/
         sudo docker compose -f "${ROOT}"/docker-compose/db2/db2.yaml --env-file "${ROOT}"/docker-compose/db2/db2.env up -d
+    fi
+fi
+
+if [[ "${RUN_OCEANBASE}" -eq 1 ]]; then
+    # oceanbase
+    cp "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml.tpl "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml --env-file "${ROOT}"/docker-compose/oceanbase/oceanbase.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo rm "${ROOT}"/docker-compose/oceanbase/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/oceanbase/data/
+        sudo docker compose -f "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml --env-file "${ROOT}"/docker-compose/oceanbase/oceanbase.env up -d
     fi
 fi
 
