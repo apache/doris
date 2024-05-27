@@ -32,13 +32,15 @@ namespace doris::pipeline {
 
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
                                                        std::string name) {
-    source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
+    source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY",
+                                                       DependencyType::DURING_EXECUTION));
     source_deps.back()->set_shared_state(this);
     return source_deps.back().get();
 }
 
 Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id, std::string name) {
-    sink_deps.push_back(std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true));
+    sink_deps.push_back(std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true,
+                                                     DependencyType::DURING_EXECUTION));
     sink_deps.back()->set_shared_state(this);
     return sink_deps.back().get();
 }
@@ -64,7 +66,7 @@ void Dependency::set_ready() {
         local_block_task.swap(_blocked_task);
     }
     for (auto* task : local_block_task) {
-        task->wake_up();
+        task->wake_up(_type);
     }
 }
 

@@ -38,7 +38,7 @@ AsyncResultWriter::AsyncResultWriter(const doris::vectorized::VExprContextSPtrs&
           _dependency(nullptr),
           _finish_dependency(nullptr) {}
 
-void AsyncResultWriter::set_dependency(pipeline::AsyncWriterDependency* dep,
+void AsyncResultWriter::set_dependency(pipeline::Dependency* dep,
                                        pipeline::Dependency* finish_dep) {
     _dependency = dep;
     _finish_dependency = finish_dep;
