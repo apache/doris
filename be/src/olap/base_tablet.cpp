@@ -527,8 +527,17 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
             // If mow table has cluster keys, the key bounds is short keys, not primary keys
             // use PrimaryKeyIndexMetaPB in primary key index?
             if (_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
-                if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
-                    key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
+                auto key_bound = segments_key_bounds[i];
+                if (!key_bound.IsInitialized()) {
+                    return Status::InternalError("key bound is not inited on tablet {}",
+                                                 rs->rowset_meta()->tablet_id());
+                }
+                if (!key_bound.has_min_key() || !key_bound.has_max_key()) {
+                    return Status::InternalError("key bound not has key on tablet {}",
+                                                 rs->rowset_meta()->tablet_id());
+                }
+                if (key_without_seq.compare(key_bound.max_key()) > 0 ||
+                    key_without_seq.compare(key_bound.min_key()) < 0) {
                     continue;
                 }
             }
