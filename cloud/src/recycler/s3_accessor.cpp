@@ -40,6 +40,7 @@
 #include "common/sync_point.h"
 #include "rate-limiter/s3_rate_limiter.h"
 #include "recycler/obj_store_accessor.h"
+#include "recycler/s3_obj_client.h"
 
 namespace doris::cloud {
 
@@ -143,10 +144,11 @@ int S3Accessor::init() {
     aws_config.region = conf_.region;
     aws_config.retryStrategy = std::make_shared<Aws::Client::DefaultRetryStrategy>(
             /*maxRetries = 10, scaleFactor = 25*/);
-    s3_client_ = std::make_shared<Aws::S3::S3Client>(
+    auto s3_client = std::make_shared<Aws::S3::S3Client>(
             std::move(aws_cred), std::move(aws_config),
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
             true /* useVirtualAddressing */);
+    obj_client_ = std::make_shared<S3ObjClient>(std::move(s3_client));
     return 0;
 }
 
