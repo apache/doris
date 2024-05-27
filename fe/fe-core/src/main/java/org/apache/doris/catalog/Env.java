@@ -2845,8 +2845,8 @@ public class Env {
      * 10. add this table to FE's meta
      * 11. add this table to ColocateGroup if necessary
      */
-    public void createTable(CreateTableStmt stmt) throws UserException {
-        getInternalCatalog().createTable(stmt);
+    public boolean createTable(CreateTableStmt stmt) throws UserException {
+        return getInternalCatalog().createTable(stmt);
     }
 
     public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
@@ -2891,15 +2891,15 @@ public class Env {
     }
 
     public static void getDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
-            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
-            long specificVersion) {
+                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
+                                  long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
                 hidePassword, false, specificVersion, false, false);
     }
 
     public static void getSyncedDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
-            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
-            long specificVersion) {
+                                        List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
+                                        long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
                 hidePassword, false, specificVersion, false, true);
     }
@@ -2910,10 +2910,10 @@ public class Env {
      * @param getDdlForLike Get schema for 'create table like' or not. when true, without hidden columns.
      */
     public static void getDdlStmt(DdlStmt ddlStmt, String dbName, TableIf table, List<String> createTableStmt,
-            List<String> addPartitionStmt, List<String> createRollupStmt,
-            boolean separatePartition,
-            boolean hidePassword, boolean getDdlForLike, long specificVersion,
-            boolean getBriefDdl, boolean getDdlForSync) {
+                                  List<String> addPartitionStmt, List<String> createRollupStmt,
+                                  boolean separatePartition,
+                                  boolean hidePassword, boolean getDdlForLike, long specificVersion,
+                                  boolean getBriefDdl, boolean getDdlForSync) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3488,12 +3488,12 @@ public class Env {
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
-            Long recycleTime) {
+                                      Long recycleTime) {
         return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
-            Long recycleTime) throws MetaNotFoundException {
+                                Long recycleTime) throws MetaNotFoundException {
         getInternalCatalog().replayDropTable(db, tableId, isForceDrop, recycleTime);
     }
 
@@ -3933,7 +3933,7 @@ public class Env {
     }
 
     public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties,
-            boolean isKeysRequired) throws DdlException {
+                                                boolean isKeysRequired) throws DdlException {
         List<Column> indexColumns = new ArrayList<Column>();
         boolean hasValueColumn = false;
         for (Column column : columns) {
@@ -4158,7 +4158,7 @@ public class Env {
 
     // the invoker should keep table's write lock
     public void modifyTableColocate(Database db, OlapTable table, String assignedGroup, boolean isReplay,
-            GroupId assignedGroupId)
+                                    GroupId assignedGroupId)
             throws DdlException {
 
         String oldGroup = table.getColocateGroup();
@@ -4382,8 +4382,8 @@ public class Env {
     }
 
     private void renameColumn(Database db, OlapTable table, String colName,
-            String newColName, Map<Long, Integer> indexIdToSchemaVersion,
-            boolean isReplay) throws DdlException {
+                              String newColName, Map<Long, Integer> indexIdToSchemaVersion,
+                              boolean isReplay) throws DdlException {
         table.checkNormalStateForAlter();
         if (colName.equalsIgnoreCase(newColName)) {
             throw new DdlException("Same column name");
@@ -4631,7 +4631,7 @@ public class Env {
      */
     // The caller need to hold the table write lock
     public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table,
-            Map<String, String> properties) throws UserException {
+                                                    Map<String, String> properties) throws UserException {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         table.checkChangeReplicaAllocation();
         table.setReplicaAllocation(properties);
@@ -4730,7 +4730,7 @@ public class Env {
     }
 
     public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable,
-            ModifyDistributionClause modifyDistributionClause)
+                                                   ModifyDistributionClause modifyDistributionClause)
             throws DdlException {
         olapTable.writeLockOrDdlException();
         try {
@@ -5361,7 +5361,7 @@ public class Env {
     }
 
     private void setReplicaStatusInternal(long tabletId, long backendId, ReplicaStatus status, long userDropTime,
-            boolean isReplay)
+                                          boolean isReplay)
             throws MetaNotFoundException {
         try {
             TabletMeta meta = tabletInvertedIndex.getTabletMeta(tabletId);

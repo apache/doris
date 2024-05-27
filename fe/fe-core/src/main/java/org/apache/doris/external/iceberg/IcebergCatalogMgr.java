@@ -25,6 +25,7 @@ import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 
@@ -186,7 +187,7 @@ public class IcebergCatalogMgr {
      * @param stmt
      * @throws DdlException
      */
-    public static void createIcebergTable(Database db, CreateTableStmt stmt) throws DdlException {
+    public static boolean createIcebergTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
         Map<String, String> properties = stmt.getProperties();
 
@@ -212,9 +213,14 @@ public class IcebergCatalogMgr {
         }
 
         // check iceberg table if exists in doris database
-        if (!db.createTableWithLock(table, false, stmt.isSetIfNotExists()).first) {
+        Pair<Boolean, Boolean> result = db.createTableWithLock(table, false, stmt.isSetIfNotExists());
+        if (Boolean.FALSE.equals(result.first)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
         }
-        LOG.info("successfully create table[{}-{}]", tableName, table.getId());
+        if (Boolean.TRUE.equals(result.second)) {
+            return true;
+        }
+        LOG.info("successfully create table[{}-{}]", tableName, tableId);
+        return false;
     }
 }
