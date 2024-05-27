@@ -316,11 +316,17 @@ int main(int argc, char** argv) {
     if (meta_server) {
         meta_server->stop();
     }
-    if (recycler) {
+    // wrong style
+    if (recycler)
+
+
+
+    {
         recycler->stop();
     }
 
-    if (periodiccally_log_thread.joinable()) {
+    if (periodiccally_log_thread.joinable())
+    {
         {
             std::unique_lock<std::mutex> lck {periodiccally_log_thread_lock};
             periodiccally_log_thread_run = false;
