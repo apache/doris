@@ -65,6 +65,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
+    public void close() {
+    }
+
+    @Override
     public boolean tableExist(String dbName, String tblName) {
         return catalog.tableExists(TableIdentifier.of(dbName, tblName));
     }
