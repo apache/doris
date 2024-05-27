@@ -188,7 +188,7 @@ int S3Accessor::delete_objects(const std::vector<std::string>& relative_paths) {
                 return obj_client_->DeleteObjects({.bucket = conf_.bucket}, std::move(objects));
             });
             delete_resp.ret != 0) {
-            return delete_resp.ret != 0;
+            return delete_resp.ret;
         }
     } while (path_iter != relative_paths.end());
 
