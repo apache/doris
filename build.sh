@@ -98,7 +98,7 @@ clean_be() {
 
     # "build.sh --clean" just cleans and exits, however CMAKE_BUILD_DIR is set
     # while building be.
-    CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
+    CMAKE_BUILD_TYPE="UBSAN"
     CMAKE_BUILD_DIR="${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}"
 
     rm -rf "${CMAKE_BUILD_DIR}"
@@ -570,7 +570,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" ]]; then
         rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/version.h"
     fi
-    CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
+    CMAKE_BUILD_TYPE="UBSAN"
     echo "Build Backend: ${CMAKE_BUILD_TYPE}"
     CMAKE_BUILD_DIR="${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}"
     if [[ "${CLEAN}" -eq 1 ]]; then
@@ -630,7 +630,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
     if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/cloud_version.h" ]]; then
         rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/cloud_version.h"
     fi
-    CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
+    CMAKE_BUILD_TYPE="UBSAN"
     echo "Build Cloud: ${CMAKE_BUILD_TYPE}"
     CMAKE_BUILD_DIR="${DORIS_HOME}/cloud/build_${CMAKE_BUILD_TYPE}"
     if [[ "${CLEAN}" -eq 1 ]]; then
