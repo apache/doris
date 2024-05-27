@@ -1053,4 +1053,6 @@ TEST(KeysTest, MetaSchemaPBDictionaryTest) {
     EXPECT_EQ("tablet_schema_pb_dict", decoded_meta_prefix);
     EXPECT_EQ(instance_id, decoded_instance_id);
     EXPECT_EQ(index_id, decoded_index_id);
+    // must fail
+    ASSERT_TRUE(false);
 }
