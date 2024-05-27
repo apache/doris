@@ -27,8 +27,30 @@
 #include <aws/s3/model/PutObjectRequest.h>
 
 #include "common/logging.h"
+#include "common/sync_point.h"
 
 namespace doris::cloud {
+
+#ifndef UNIT_TEST
+#define HELP_MACRO(ret, req, point_name)
+#else
+#define HELP_MACRO(ret, req, point_name)                       \
+    do {                                                       \
+        std::pair p {&ret, &req};                              \
+        [[maybe_unused]] auto ret_pair = [&p]() mutable {      \
+            TEST_SYNC_POINT_RETURN_WITH_VALUE(point_name, &p); \
+            return p;                                          \
+        }();                                                   \
+        return ret;                                            \
+    } while (false);
+#endif
+#define SYNC_POINT_HOOK_RETURN_VALUE(expr, request, point_name) \
+    [&]() -> decltype(auto) {                                   \
+        using T = decltype((expr));                             \
+        [[maybe_unused]] T t;                                   \
+        HELP_MACRO(t, request, point_name)                      \
+        return (expr);                                          \
+    }()
 
 ObjectStorageResponse S3ObjClient::PutObject(const ObjectStoragePathOptions& opts,
                                              std::string_view stream) {
@@ -37,7 +59,8 @@ ObjectStorageResponse S3ObjClient::PutObject(const ObjectStoragePathOptions& opt
     auto input = Aws::MakeShared<Aws::StringStream>("S3Accessor");
     *input << stream;
     request.SetBody(input);
-    auto outcome = s3_client_->PutObject(request);
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(s3_client_->PutObject(request),
+                                                std::ref(request).get(), "s3_client::put_object");
     if (!outcome.IsSuccess()) {
         LOG_WARNING("failed to put object")
                 .tag("endpoint", opts.endpoint)
@@ -52,7 +75,8 @@ ObjectStorageResponse S3ObjClient::PutObject(const ObjectStoragePathOptions& opt
 ObjectStorageResponse S3ObjClient::HeadObject(const ObjectStoragePathOptions& opts) {
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
-    auto outcome = s3_client_->HeadObject(request);
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(s3_client_->HeadObject(request),
+                                                std::ref(request).get(), "s3_client::head_object");
     if (outcome.IsSuccess()) {
         return 0;
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
@@ -74,7 +98,9 @@ ObjectStorageResponse S3ObjClient::ListObjects(const ObjectStoragePathOptions& o
 
     bool is_truncated = false;
     do {
-        auto outcome = s3_client_->ListObjectsV2(request);
+        auto outcome =
+                SYNC_POINT_HOOK_RETURN_VALUE(s3_client_->ListObjectsV2(request),
+                                             std::ref(request).get(), "s3_client::list_objects_v2");
         if (!outcome.IsSuccess()) {
             LOG_WARNING("failed to list objects")
                     .tag("endpoint", opts.endpoint)
@@ -105,7 +131,9 @@ ObjectStorageResponse S3ObjClient::DeleteObjects(const ObjectStoragePathOptions&
     }
     del.WithObjects(std::move(objects)).SetQuiet(true);
     delete_request.SetDelete(std::move(del));
-    auto delete_outcome = s3_client_->DeleteObjects(delete_request);
+    auto delete_outcome = SYNC_POINT_HOOK_RETURN_VALUE(s3_client_->DeleteObjects(delete_request),
+                                                       std::ref(delete_request).get(),
+                                                       "s3_client::delete_objects");
     if (!delete_outcome.IsSuccess()) {
         LOG_WARNING("failed to delete objects")
                 .tag("endpoint", opts.endpoint)
@@ -131,7 +159,8 @@ ObjectStorageResponse S3ObjClient::DeleteObjects(const ObjectStoragePathOptions&
 ObjectStorageResponse S3ObjClient::DeleteObject(const ObjectStoragePathOptions& opts) {
     Aws::S3::Model::DeleteObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
-    auto outcome = s3_client_->DeleteObject(request);
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
+            s3_client_->DeleteObject(request), std::ref(request).get(), "s3_client::delete_object");
     if (!outcome.IsSuccess()) {
         LOG_WARNING("failed to delete object")
                 .tag("endpoint", opts.endpoint)
@@ -153,7 +182,9 @@ ObjectStorageResponse S3ObjClient::RecursiveDelete(const ObjectStoragePathOption
     delete_request.SetBucket(opts.bucket);
     bool is_truncated = false;
     do {
-        auto outcome = s3_client_->ListObjectsV2(request);
+        auto outcome =
+                SYNC_POINT_HOOK_RETURN_VALUE(s3_client_->ListObjectsV2(request),
+                                             std::ref(request).get(), "s3_client::list_objects_v2");
 
         if (!outcome.IsSuccess()) {
             LOG_WARNING("failed to list objects")
@@ -182,7 +213,9 @@ ObjectStorageResponse S3ObjClient::RecursiveDelete(const ObjectStoragePathOption
             Aws::S3::Model::Delete del;
             del.WithObjects(std::move(objects)).SetQuiet(true);
             delete_request.SetDelete(std::move(del));
-            auto delete_outcome = s3_client_->DeleteObjects(delete_request);
+            auto delete_outcome = SYNC_POINT_HOOK_RETURN_VALUE(
+                    s3_client_->DeleteObjects(delete_request), std::ref(delete_request).get(),
+                    "s3_client::delete_objects");
             if (!delete_outcome.IsSuccess()) {
                 LOG_WARNING("failed to delete objects")
                         .tag("endpoint", opts.endpoint)
@@ -219,7 +252,9 @@ ObjectStorageResponse S3ObjClient::DeleteExpired(const ObjectStorageDeleteExpire
 
     bool is_truncated = false;
     do {
-        auto outcome = s3_client_->ListObjectsV2(request);
+        auto outcome =
+                SYNC_POINT_HOOK_RETURN_VALUE(s3_client_->ListObjectsV2(request),
+                                             std::ref(request).get(), "s3_client::list_objects_v2");
         if (!outcome.IsSuccess()) {
             LOG_WARNING("failed to list objects")
                     .tag("endpoint", opts.path_opts.endpoint)
@@ -270,7 +305,9 @@ ObjectStorageResponse S3ObjClient::GetLifeCycle(const ObjectStoragePathOptions& 
     Aws::S3::Model::GetBucketLifecycleConfigurationRequest request;
     request.SetBucket(opts.bucket);
 
-    auto outcome = s3_client_->GetBucketLifecycleConfiguration(request);
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
+            s3_client_->GetBucketLifecycleConfiguration(request), std::ref(request).get(),
+            "s3_client::get_bucket_lifecycle_configuration");
     bool has_lifecycle = false;
     if (outcome.IsSuccess()) {
         const auto& rules = outcome.GetResult().GetRules();
@@ -303,7 +340,9 @@ ObjectStorageResponse S3ObjClient::GetLifeCycle(const ObjectStoragePathOptions& 
 ObjectStorageResponse S3ObjClient::CheckVersioning(const ObjectStoragePathOptions& opts) {
     Aws::S3::Model::GetBucketVersioningRequest request;
     request.SetBucket(opts.bucket);
-    auto outcome = s3_client_->GetBucketVersioning(request);
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(s3_client_->GetBucketVersioning(request),
+                                                std::ref(request).get(),
+                                                "s3_client::get_bucket_versioning");
 
     if (outcome.IsSuccess()) {
         const auto& versioning_configuration = outcome.GetResult().GetStatus();
@@ -326,4 +365,6 @@ ObjectStorageResponse S3ObjClient::CheckVersioning(const ObjectStoragePathOption
     return 0;
 }
 
+#undef SYNC_POINT_HOOK_RETURN_VALUE
+#undef HELP_MACRO
 } // namespace doris::cloud

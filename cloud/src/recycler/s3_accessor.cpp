@@ -54,71 +54,28 @@ private:
     std::array<std::unique_ptr<S3RateLimiterHolder>, 2> _rate_limiters;
 };
 
-[[maybe_unused]] static Aws::Client::AWSError<Aws::S3::S3Errors> s3_error_factory() {
-    return {Aws::S3::S3Errors::INTERNAL_FAILURE, "exceeds limit", "exceeds limit", false};
-}
-
 template <typename Func>
-auto do_s3_rate_limit(S3RateLimitType type, Func callback) -> decltype(callback()) {
+auto s3_rate_limit(S3RateLimitType op, Func callback) -> decltype(callback()) {
     using T = decltype(callback());
     if (!config::enable_s3_rate_limiter) {
         return callback();
     }
-    auto sleep_duration = AccessorRateLimiter::instance().rate_limiter(type)->add(1);
+    auto sleep_duration = AccessorRateLimiter::instance().rate_limiter(op)->add(1);
     if (sleep_duration < 0) {
-        return T(s3_error_factory());
+        return T(-1);
     }
     return callback();
 }
 
 template <typename Func>
 auto s3_get_rate_limit(Func callback) -> decltype(callback()) {
-    using T = decltype(callback());
-    if (!config::enable_s3_rate_limiter) {
-        return callback();
-    }
-    auto sleep_duration =
-            AccessorRateLimiter::instance().rate_limiter(S3RateLimitType::GET)->add(1);
-    if (sleep_duration < 0) {
-        return T(-1);
-    }
-    return callback();
+    return s3_rate_limit(S3RateLimitType::GET, std::move(callback));
 }
 
 template <typename Func>
 auto s3_put_rate_limit(Func callback) -> decltype(callback()) {
-    using T = decltype(callback());
-    if (!config::enable_s3_rate_limiter) {
-        return callback();
-    }
-    auto sleep_duration =
-            AccessorRateLimiter::instance().rate_limiter(S3RateLimitType::PUT)->add(1);
-    if (sleep_duration < 0) {
-        return T(-1);
-    }
-    return callback();
+    return s3_rate_limit(S3RateLimitType::PUT, std::move(callback));
 }
-
-#ifndef UNIT_TEST
-#define HELP_MACRO(ret, req, point_name)
-#else
-#define HELP_MACRO(ret, req, point_name)                       \
-    do {                                                       \
-        std::pair p {&ret, &req};                              \
-        [[maybe_unused]] auto ret_pair = [&p]() mutable {      \
-            TEST_SYNC_POINT_RETURN_WITH_VALUE(point_name, &p); \
-            return p;                                          \
-        }();                                                   \
-        return ret;                                            \
-    } while (false);
-#endif
-#define SYNC_POINT_HOOK_RETURN_VALUE(expr, request, point_name, type) \
-    [&]() -> decltype(auto) {                                         \
-        using T = decltype((expr));                                   \
-        [[maybe_unused]] T t;                                         \
-        HELP_MACRO(t, request, point_name)                            \
-        return do_s3_rate_limit(type, [&]() { return (expr); });      \
-    }()
 
 AccessorRateLimiter::AccessorRateLimiter()
         : _rate_limiters {std::make_unique<S3RateLimiterHolder>(
@@ -302,6 +259,4 @@ int GcsAccessor::delete_objects(const std::vector<std::string>& relative_paths) 
     }
     return ret;
 }
-#undef SYNC_POINT_HOOK_RETURN_VALUE
-#undef HELP_MACRO
 } // namespace doris::cloud
