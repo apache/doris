@@ -268,7 +268,8 @@ struct HashTableGrower {
 
     /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
     void set(size_t num_elems) {
-        size_t fill_capacity = static_cast<size_t>(log2(num_elems - 1)) + 1;
+        size_t fill_capacity =
+                (num_elems <= 1) ? 1 : (static_cast<size_t>(log2(num_elems - 1)) + 1);
         fill_capacity =
                 fill_capacity < double_grow_degree
                         ? fill_capacity + 1
