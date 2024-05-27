@@ -248,7 +248,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         fileDesc.setTrinoConnectorSplit(encodeObjectToString(trinoConnectorSplit.getSplit(), objectMapperProvider));
         fileDesc.setCatalogName(source.getCatalog().getName());
         fileDesc.setDbName(source.getTargetTable().getDbName());
-        fileDesc.setTrinoConnectorOptions(source.getCatalog().getTrinoConnectorProperties());
+        fileDesc.setTrinoConnectorOptions(source.getCatalog().getTrinoConnectorPropertiesWithCreateTime());
         fileDesc.setTableName(source.getTargetTable().getName());
         fileDesc.setTrinoConnectorTableHandle(encodeObjectToString(
                 source.getTrinoConnectorTableHandle(), objectMapperProvider));
