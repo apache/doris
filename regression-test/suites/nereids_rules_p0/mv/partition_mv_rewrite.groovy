@@ -434,7 +434,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${ttl_partition_sql}")
-        // should rewrite fail when union rewrite disable and mv is ttl
+        // should rewrite fail when union rewrite disable and query the partition which is not in mv
         notContains("${ttl_mv_name}(${ttl_mv_name})")
     }
     order_qt_query_14_0_after "${ttl_partition_sql}"
