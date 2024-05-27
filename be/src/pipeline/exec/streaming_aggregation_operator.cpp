@@ -255,8 +255,7 @@ Status StreamingAggLocalState::_merge_with_serialized_key_helper(vectorized::Blo
                             _places.data(),
                             Base::_parent->template cast<StreamingAggOperatorX>()
                                     ._offsets_of_aggregate_states[i],
-                            _deserialize_buffer.data(), (vectorized::ColumnString*)(column.get()),
-                            _agg_arena_pool.get(), rows);
+                            _deserialize_buffer.data(), column.get(), _agg_arena_pool.get(), rows);
                 }
             } else {
                 RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add_selected(
@@ -293,8 +292,7 @@ Status StreamingAggLocalState::_merge_with_serialized_key_helper(vectorized::Blo
                             _places.data(),
                             Base::_parent->template cast<StreamingAggOperatorX>()
                                     ._offsets_of_aggregate_states[i],
-                            _deserialize_buffer.data(), (vectorized::ColumnString*)(column.get()),
-                            _agg_arena_pool.get(), rows);
+                            _deserialize_buffer.data(), column.get(), _agg_arena_pool.get(), rows);
                 }
             } else {
                 RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(
