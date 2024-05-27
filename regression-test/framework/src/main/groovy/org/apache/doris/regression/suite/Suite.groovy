@@ -1156,18 +1156,19 @@ class Suite implements GroovyInterceptable {
         long timeoutTimestamp = startTime + 1 * 60 * 1000 // 1 min
         do {
             result = sql(showPartitions)
-            logger.info("result: " + result.toString())
             if (!result.isEmpty()) {
                 for (List<Object> row : result) {
-                    if (String.valueOf(row.get(1).equals(partitionName))) {
-                        status = Boolean.valueOf(row.get(row.size() - 2).toString())
+                    def existPartitionName = row.get(1).toString()
+                    if (Objects.equals(existPartitionName, partitionName)) {
+                        def statusStr = row.get(row.size() - 2).toString()
+                        status = Boolean.valueOf(statusStr)
                     }
                 }
             }
             Thread.sleep(500);
         } while (timeoutTimestamp > System.currentTimeMillis() && !Objects.equals(status, expectedStatus))
         if (!Objects.equals(status, expectedStatus)) {
-            logger.info("status is not expected")
+            logger.info("partition status is not expected")
         }
         Assert.assertEquals(expectedStatus, status)
     }
