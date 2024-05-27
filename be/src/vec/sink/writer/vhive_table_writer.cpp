@@ -208,7 +208,8 @@ Status VHiveTableWriter::close(Status status) {
         for (const auto& pair : _partitions_to_writers) {
             Status st = pair.second->close(status);
             if (st != Status::OK()) {
-                LOG(WARNING) << fmt::format("Unsupported type for partition {}", st.to_string());
+                LOG(WARNING) << fmt::format("partition writer close failed for partition {}",
+                                            st.to_string());
                 continue;
             }
         }
@@ -330,15 +331,15 @@ std::vector<std::string> VHiveTableWriter::_create_partition_values(vectorized::
                                     partition_column, position);
 
         // Check if value contains only printable ASCII characters
-        bool isValid = true;
+        bool is_valid = true;
         for (char c : value) {
             if (c < 0x20 || c > 0x7E) {
-                isValid = false;
+                is_valid = false;
                 break;
             }
         }
 
-        if (!isValid) {
+        if (!is_valid) {
             // Encode value using Base16 encoding with space separator
             std::stringstream encoded;
             for (unsigned char c : value) {
@@ -414,7 +415,6 @@ std::string VHiveTableWriter::_to_partition_value(const TypeDescriptor& type_des
         char buf[64];
         char* pos = value.to_string(buf);
         return std::string(buf, pos - buf - 1);
-        break;
     }
     case TYPE_DATEV2: {
         DateV2Value<DateV2ValueType> value =

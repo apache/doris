@@ -136,6 +136,9 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
 }
 
 Status VHivePartitionWriter::close(const Status& status) {
+    if (status.ok()) {
+        _state->hive_partition_updates().emplace_back(_build_partition_update());
+    }
     if (_file_format_transformer != nullptr) {
         Status st = _file_format_transformer->close();
         if (!st.ok()) {
@@ -150,7 +153,6 @@ Status VHivePartitionWriter::close(const Status& status) {
             LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
         }
     }
-    _state->hive_partition_updates().emplace_back(_build_partition_update());
     return Status::OK();
 }
 
@@ -201,11 +203,14 @@ THivePartitionUpdate VHivePartitionWriter::_build_partition_update() {
     hive_partition_update.__set_location(location);
     hive_partition_update.__set_file_names({_get_target_file_name()});
     hive_partition_update.__set_row_count(_row_count);
+    DCHECK(_file_format_transformer != nullptr);
     hive_partition_update.__set_file_size(_file_format_transformer->written_len());
 
     if (_write_info.file_type == TFileType::FILE_S3) {
+        DCHECK(_file_writer != nullptr);
         doris::io::S3FileWriter* s3_mpu_file_writer =
                 dynamic_cast<doris::io::S3FileWriter*>(_file_writer.get());
+        DCHECK(s3_mpu_file_writer != nullptr);
         TS3MPUPendingUpload s3_mpu_pending_upload;
         s3_mpu_pending_upload.__set_bucket(s3_mpu_file_writer->bucket());
         s3_mpu_pending_upload.__set_key(s3_mpu_file_writer->key());
