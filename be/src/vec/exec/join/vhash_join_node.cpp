@@ -218,19 +218,8 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
-    _should_build_hash_table = true;
     if (_is_broadcast_join) {
         runtime_profile()->add_info_string("BroadcastJoin", "true");
-        if (state->enable_share_hash_table_for_broadcast_join()) {
-            runtime_profile()->add_info_string("ShareHashTableEnabled", "true");
-            _shared_hashtable_controller =
-                    state->get_query_ctx()->get_shared_hash_table_controller();
-            _shared_hash_table_context = _shared_hashtable_controller->get_context(id());
-            _should_build_hash_table = _shared_hashtable_controller->should_build_hash_table(
-                    state->fragment_instance_id(), id());
-        } else {
-            runtime_profile()->add_info_string("ShareHashTableEnabled", "false");
-        }
     }
 
     _memory_usage_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
@@ -245,8 +234,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
             "ProbeKeyArena", TUnit::BYTES, "MemoryUsage");
 
     // Build phase
-    auto* record_profile =
-            _should_build_hash_table ? _build_phase_profile : faker_runtime_profile();
+    auto* record_profile = _build_phase_profile;
     _build_get_next_timer = ADD_TIMER(record_profile, "BuildGetNextTime");
     _build_timer = ADD_TIMER(record_profile, "BuildTime");
     _build_rows_counter = ADD_COUNTER(record_profile, "BuildRows", TUnit::UNIT);
@@ -691,31 +679,26 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         SCOPED_TIMER(_build_get_next_timer);
         RETURN_IF_ERROR(child(1)->open(state));
     }
-    if (_should_build_hash_table) {
-        bool eos = false;
-        Block block;
-        // If eos or have already met a null value using short-circuit strategy, we do not need to pull
-        // data from data.
-        while (!eos && (!_short_circuit_for_null_in_build_side || !_has_null_in_build_side) &&
-               (!_probe_open_finish || !_is_hash_join_early_start_probe_eos(state))) {
-            release_block_memory(block, 1);
-            RETURN_IF_CANCELLED(state);
-            {
-                SCOPED_TIMER(_build_get_next_timer);
-                RETURN_IF_ERROR(child(1)->get_next_after_projects(
-                        state, &block, &eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[1], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)));
-            }
-            RETURN_IF_ERROR(sink(state, &block, eos));
+    bool eos = false;
+    Block block;
+    // If eos or have already met a null value using short-circuit strategy, we do not need to pull
+    // data from data.
+    while (!eos && (!_short_circuit_for_null_in_build_side || !_has_null_in_build_side) &&
+           (!_probe_open_finish || !_is_hash_join_early_start_probe_eos(state))) {
+        release_block_memory(block, 1);
+        RETURN_IF_CANCELLED(state);
+        {
+            SCOPED_TIMER(_build_get_next_timer);
+            RETURN_IF_ERROR(child(1)->get_next_after_projects(
+                    state, &block, &eos,
+                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                      ExecNode::get_next,
+                              _children[1], std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
         }
-        RETURN_IF_ERROR(child(1)->close(state));
-    } else {
-        RETURN_IF_ERROR(child(1)->close(state));
-        RETURN_IF_ERROR(sink(state, nullptr, true));
+        RETURN_IF_ERROR(sink(state, &block, eos));
     }
+    RETURN_IF_ERROR(child(1)->close(state));
     return Status::OK();
 }
 
@@ -723,38 +706,36 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_build_timer);
 
-    if (_should_build_hash_table) {
-        // If eos or have already met a null value using short-circuit strategy, we do not need to pull
-        // data from probe side.
-        _build_side_mem_used += in_block->allocated_bytes();
+    // If eos or have already met a null value using short-circuit strategy, we do not need to pull
+    // data from probe side.
+    _build_side_mem_used += in_block->allocated_bytes();
 
-        if (_build_side_mutable_block.empty()) {
-            auto tmp_build_block =
-                    VectorizedUtils::create_empty_columnswithtypename(child(1)->row_desc());
-            tmp_build_block = *(tmp_build_block.create_same_struct_block(1, false));
-            _build_col_ids.resize(_build_expr_ctxs.size());
-            RETURN_IF_ERROR(_do_evaluate(tmp_build_block, _build_expr_ctxs, *_build_expr_call_timer,
-                                         _build_col_ids));
-            _build_side_mutable_block = MutableBlock::build_mutable_block(&tmp_build_block);
-        }
+    if (_build_side_mutable_block.empty()) {
+        auto tmp_build_block =
+                VectorizedUtils::create_empty_columnswithtypename(child(1)->row_desc());
+        tmp_build_block = *(tmp_build_block.create_same_struct_block(1, false));
+        _build_col_ids.resize(_build_expr_ctxs.size());
+        RETURN_IF_ERROR(_do_evaluate(tmp_build_block, _build_expr_ctxs, *_build_expr_call_timer,
+                                     _build_col_ids));
+        _build_side_mutable_block = MutableBlock::build_mutable_block(&tmp_build_block);
+    }
 
-        if (in_block->rows() != 0) {
-            std::vector<int> res_col_ids(_build_expr_ctxs.size());
-            RETURN_IF_ERROR(_do_evaluate(*in_block, _build_expr_ctxs, *_build_expr_call_timer,
-                                         res_col_ids));
+    if (in_block->rows() != 0) {
+        std::vector<int> res_col_ids(_build_expr_ctxs.size());
+        RETURN_IF_ERROR(
+                _do_evaluate(*in_block, _build_expr_ctxs, *_build_expr_call_timer, res_col_ids));
 
-            SCOPED_TIMER(_build_side_merge_block_timer);
-            RETURN_IF_ERROR(_build_side_mutable_block.merge_ignore_overflow(*in_block));
-            if (_build_side_mutable_block.rows() > JOIN_BUILD_SIZE_LIMIT) {
-                return Status::NotSupported(
-                        "Hash join do not support build table rows"
-                        " over:" +
-                        std::to_string(JOIN_BUILD_SIZE_LIMIT));
-            }
+        SCOPED_TIMER(_build_side_merge_block_timer);
+        RETURN_IF_ERROR(_build_side_mutable_block.merge_ignore_overflow(*in_block));
+        if (_build_side_mutable_block.rows() > JOIN_BUILD_SIZE_LIMIT) {
+            return Status::NotSupported(
+                    "Hash join do not support build table rows"
+                    " over:" +
+                    std::to_string(JOIN_BUILD_SIZE_LIMIT));
         }
     }
 
-    if (_should_build_hash_table && eos) {
+    if (eos) {
         DCHECK(!_build_side_mutable_block.empty());
         _build_block = std::make_shared<Block>(_build_side_mutable_block.to_block());
         COUNTER_UPDATE(_build_blocks_memory_usage, _build_block->bytes());
@@ -762,65 +743,6 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                 std::make_shared<VRuntimeFilterSlots>(_build_expr_ctxs, runtime_filters());
         RETURN_IF_ERROR(_process_build_block(state, *_build_block));
         RETURN_IF_ERROR(process_runtime_filter_build(state, _build_block.get(), this));
-        if (_shared_hashtable_controller) {
-            _shared_hash_table_context->status = Status::OK();
-            // arena will be shared with other instances.
-            _shared_hash_table_context->arena = _arena;
-            _shared_hash_table_context->block = _build_block;
-            _shared_hash_table_context->hash_table_variants = _hash_table_variants;
-            _shared_hash_table_context->short_circuit_for_null_in_probe_side =
-                    _has_null_in_build_side;
-            if (_runtime_filter_slots) {
-                _runtime_filter_slots->copy_to_shared_context(_shared_hash_table_context);
-            }
-            _shared_hashtable_controller->signal(id());
-        }
-    } else if (!_should_build_hash_table) {
-        DCHECK(_shared_hashtable_controller != nullptr);
-        DCHECK(_shared_hash_table_context != nullptr);
-        auto* wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
-        SCOPED_TIMER(wait_timer);
-        RETURN_IF_ERROR(
-                _shared_hashtable_controller->wait_for_signal(state, _shared_hash_table_context));
-
-        _build_phase_profile->add_info_string(
-                "SharedHashTableFrom",
-                print_id(_shared_hashtable_controller->get_builder_fragment_instance_id(id())));
-        _has_null_in_build_side = _shared_hash_table_context->short_circuit_for_null_in_probe_side;
-        std::visit(
-                [](auto&& dst, auto&& src) {
-                    if constexpr (!std::is_same_v<std::monostate, std::decay_t<decltype(dst)>> &&
-                                  std::is_same_v<std::decay_t<decltype(src)>,
-                                                 std::decay_t<decltype(dst)>>) {
-                        dst.hash_table = src.hash_table;
-                    }
-                },
-                *_hash_table_variants,
-                *std::static_pointer_cast<HashTableVariants>(
-                        _shared_hash_table_context->hash_table_variants));
-        _build_block = _shared_hash_table_context->block;
-
-        if (!_shared_hash_table_context->runtime_filters.empty()) {
-            auto ret = std::visit(
-                    Overload {[&](std::monostate&) -> Status {
-                                  LOG(FATAL) << "FATAL: uninited hash table";
-                                  __builtin_unreachable();
-                              },
-                              [&](auto&& arg) -> Status {
-                                  if (_runtime_filters.empty()) {
-                                      return Status::OK();
-                                  }
-                                  _runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-                                          _build_expr_ctxs, _runtime_filters);
-
-                                  RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
-                                          _shared_hash_table_context));
-                                  RETURN_IF_ERROR(_runtime_filter_slots->publish(true));
-                                  return Status::OK();
-                              }},
-                    *_hash_table_variants);
-            RETURN_IF_ERROR(ret);
-        }
     }
 
     if (eos) {
@@ -1104,12 +1026,7 @@ std::vector<uint16_t> HashJoinNode::_convert_block_to_null(Block& block) {
     return results;
 }
 
-HashJoinNode::~HashJoinNode() {
-    if (_shared_hashtable_controller && _should_build_hash_table) {
-        // signal at here is abnormal
-        _shared_hashtable_controller->signal(id(), Status::Cancelled("signaled in destructor"));
-    }
-}
+HashJoinNode::~HashJoinNode() = default;
 
 void HashJoinNode::_release_mem() {
     _arena = nullptr;
@@ -1118,7 +1035,6 @@ void HashJoinNode::_release_mem() {
     _null_map_column = nullptr;
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;
-    _shared_hash_table_context = nullptr;
     _probe_block.clear();
 }
 
