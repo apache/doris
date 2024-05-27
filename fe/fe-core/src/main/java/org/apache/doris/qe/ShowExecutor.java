@@ -193,10 +193,15 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergPartition;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
@@ -1847,9 +1852,29 @@ public class ShowExecutor {
             resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
         } else if (showStmt.getCatalog() instanceof MaxComputeExternalCatalog) {
             handleShowMaxComputeTablePartitions(showStmt);
+        } else if (showStmt.getCatalog() instanceof IcebergExternalCatalog) {
+            handleShowIcebergTablePartitions(showStmt);
         } else {
             handleShowHMSTablePartitions(showStmt);
         }
+    }
+
+    private void handleShowIcebergTablePartitions(ShowPartitionsStmt showStmt) throws AnalysisException {
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) (showStmt.getCatalog());
+        List<List<String>> rows = new ArrayList<>();
+        String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
+        ExternalDatabase<? extends ExternalTable> db = catalog.getDbOrAnalysisException(dbName);
+        ExternalTable table = db.getTableOrAnalysisException(showStmt.getTableName().getTbl());
+        IcebergExternalTable icebergTable = (IcebergExternalTable) table;
+        List<IcebergPartition> partitions = icebergTable.getPartitions();
+        for (IcebergPartition partition : partitions) {
+            List<String> list = new ArrayList<>();
+            list.add(partition.getName());
+            rows.add(list);
+        }
+        // sort by partition name
+        rows.sort(Comparator.comparing(x -> x.get(0)));
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleShowMaxComputeTablePartitions(ShowPartitionsStmt showStmt) {
