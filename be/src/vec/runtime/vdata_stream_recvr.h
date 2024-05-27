@@ -111,6 +111,7 @@ public:
     // accessing members of receiver that are allocated by Object pool
     // in this function is not safe.
     bool exceeds_limit(size_t block_byte_size);
+    bool queue_exceeds_limit(size_t byte_size);
     bool is_closed() const { return _is_closed; }
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
@@ -221,6 +222,8 @@ public:
 
     void sub_blocks_memory_usage(int64_t size);
 
+    bool exceeds_limit();
+
 protected:
     friend class pipeline::ExchangeLocalState;
     Status _inner_get_batch_without_lock(Block* block, bool* eos);
@@ -279,6 +282,7 @@ protected:
     int _num_remaining_senders;
     std::condition_variable _data_arrival_cv;
     std::condition_variable _data_removal_cv;
+    std::unique_ptr<MemTracker> _queue_mem_tracker;
     std::list<std::pair<BlockUPtr, size_t>> _block_queue;
 
     bool _received_first_batch;

@@ -49,6 +49,7 @@ VDataStreamRecvr::SenderQueue::SenderQueue(VDataStreamRecvr* parent_recvr, int n
           _num_remaining_senders(num_senders),
           _received_first_batch(false) {
     _cancel_status = Status::OK();
+    _queue_mem_tracker = std::make_unique<MemTracker>();
 }
 
 VDataStreamRecvr::SenderQueue::~SenderQueue() {
@@ -477,7 +478,8 @@ void VDataStreamRecvr::cancel_stream(Status exec_status) {
 void VDataStreamRecvr::SenderQueue::add_blocks_memory_usage(int64_t size) {
     DCHECK(size >= 0);
     _recvr->_mem_tracker->consume(size);
-    if (_local_channel_dependency && _recvr->exceeds_limit(0)) {
+    _queue_mem_tracker->consume(size);
+    if (_local_channel_dependency && exceeds_limit()) {
         _local_channel_dependency->block();
     }
 }
@@ -485,13 +487,27 @@ void VDataStreamRecvr::SenderQueue::add_blocks_memory_usage(int64_t size) {
 void VDataStreamRecvr::SenderQueue::sub_blocks_memory_usage(int64_t size) {
     DCHECK(size >= 0);
     _recvr->_mem_tracker->release(size);
-    if (_local_channel_dependency && (!_recvr->exceeds_limit(0))) {
+    _queue_mem_tracker->release(size);
+    if (_local_channel_dependency && (!exceeds_limit())) {
         _local_channel_dependency->set_ready();
     }
 }
 
+bool VDataStreamRecvr::SenderQueue::exceeds_limit() {
+    const size_t queue_byte_size = _queue_mem_tracker->consumption();
+    return _recvr->queue_exceeds_limit(queue_byte_size);
+}
+
 bool VDataStreamRecvr::exceeds_limit(size_t block_byte_size) {
     return _mem_tracker->consumption() + block_byte_size > config::exchg_node_buffer_size_bytes;
+}
+
+bool VDataStreamRecvr::queue_exceeds_limit(size_t queue_byte_size) {
+    const size_t queue_limit = config::exchg_node_buffer_size_bytes / _sender_queues.size();
+    if (queue_limit <= 0) {
+        return false;
+    }
+    return queue_byte_size >= queue_limit;
 }
 
 void VDataStreamRecvr::close() {
