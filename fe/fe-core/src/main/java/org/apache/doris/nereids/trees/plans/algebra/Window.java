@@ -126,9 +126,8 @@ public interface Window {
                             commonPartitionKeySet.add((SlotReference) other);
                         }
                     }
-                } else {
-                    commonPartitionKeySet.add((SlotReference) entry.getKey());
                 }
+                commonPartitionKeySet.add((SlotReference) entry.getKey());
             }
         }
         return commonPartitionKeySet.build();
