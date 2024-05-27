@@ -15,25 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.lakesoul;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive"),
-    LAKESOUL("lakesoul"),
-    TRINO_CONNECTOR("trino_connector");
+public class LakeSoulUtils {
+    public static String FILE_NAMES = "file_paths";
+    public static String PRIMARY_KEYS = "primary_keys";
+    public static String SCHEMA_JSON = "table_schema";
+    public static String PARTITION_DESC = "partition_descs";
+    public static String REQUIRED_FIELDS = "required_fields";
 
-    private final String tableFormatType;
-
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
-    }
-
-    public String value() {
-        return tableFormatType;
-    }
+    public static String LIST_DELIM = ";";
+    public static String PARTITIONS_KV_DELIM = "=";
 }
