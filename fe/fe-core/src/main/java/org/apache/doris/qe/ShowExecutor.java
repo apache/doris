@@ -218,6 +218,8 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AutoAnalysisPendingJob;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.PartitionColumnStatistic;
+import org.apache.doris.statistics.PartitionColumnStatisticCacheKey;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.TableStatsMeta;
@@ -2636,9 +2638,14 @@ public class ShowExecutor {
             List<String> partNames = partitionNames.getPartitionNames() == null
                     ? new ArrayList<>(tableIf.getPartitionNames())
                     : partitionNames.getPartitionNames();
-            List<ResultRow> partitionColumnStats =
-                    StatisticsRepository.queryColumnStatisticsByPartitions(tableIf, columnNames, partNames);
-            resultSet = showColumnStatsStmt.constructPartitionResultSet(partitionColumnStats, tableIf);
+            if (showCache) {
+                resultSet = showColumnStatsStmt.constructPartitionCachedColumnStats(
+                    getCachedPartitionColumnStats(columnNames, partNames, tableIf), tableIf);
+            } else {
+                List<ResultRow> partitionColumnStats =
+                        StatisticsRepository.queryColumnStatisticsByPartitions(tableIf, columnNames, partNames);
+                resultSet = showColumnStatsStmt.constructPartitionResultSet(partitionColumnStats, tableIf);
+            }
         } else {
             if (isAllColumns && !showCache) {
                 getStatsForAllColumns(columnStatistics, tableIf);
@@ -2702,6 +2709,40 @@ public class ShowExecutor {
                 columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
             }
         }
+    }
+
+    private Map<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> getCachedPartitionColumnStats(
+            Set<String> columnNames, List<String> partitionNames, TableIf tableIf) {
+        Map<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> ret = new HashMap<>();
+        long catalogId = tableIf.getDatabase().getCatalog().getId();
+        long dbId = tableIf.getDatabase().getId();
+        long tableId = tableIf.getId();
+        for (String colName : columnNames) {
+            // Olap base index use -1 as index id.
+            List<Long> indexIds = Lists.newArrayList();
+            if (tableIf instanceof OlapTable) {
+                indexIds = ((OlapTable) tableIf).getMvColumnIndexIds(colName);
+            } else {
+                indexIds.add(-1L);
+            }
+            for (long indexId : indexIds) {
+                String indexName = tableIf.getName();
+                if (tableIf instanceof OlapTable) {
+                    OlapTable olapTable = (OlapTable) tableIf;
+                    indexName = olapTable.getIndexNameById(indexId == -1 ? olapTable.getBaseIndexId() : indexId);
+                }
+                if (indexName == null) {
+                    continue;
+                }
+                for (String partName : partitionNames) {
+                    PartitionColumnStatistic partitionStatistics = Env.getCurrentEnv().getStatisticsCache()
+                            .getPartitionColumnStatistics(catalogId, dbId, tableId, indexId, partName, colName);
+                    ret.put(new PartitionColumnStatisticCacheKey(catalogId, dbId, tableId, indexId, partName, colName),
+                            partitionStatistics);
+                }
+            }
+        }
+        return ret;
     }
 
     public void handleShowColumnHist() {
