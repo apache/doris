@@ -221,7 +221,7 @@ void SpillStreamManager::gc(int32_t max_work_time_ms) {
             msg += ", spill storage:\n";
             for (const auto& [path, store_dir] : _spill_store_map) {
                 msg += "    " + store_dir->debug_string();
-                msg + "\n";
+                msg += "\n";
             }
             LOG(INFO) << msg;
         }

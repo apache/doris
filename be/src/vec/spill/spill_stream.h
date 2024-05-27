@@ -51,7 +51,7 @@ public:
 
     const std::string& get_spill_dir() const { return spill_dir_; }
 
-    auto get_written_bytes() const { return total_written_bytes_; }
+    int64_t get_written_bytes() const { return total_written_bytes_; }
 
     Status prepare_spill();
 

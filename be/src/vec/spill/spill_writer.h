@@ -44,7 +44,7 @@ public:
 
     int64_t get_id() const { return stream_id_; }
 
-    auto get_written_bytes() const { return total_written_bytes_; }
+    int64_t get_written_bytes() const { return total_written_bytes_; }
 
     const std::string& get_file_path() const { return file_path_; }
 
