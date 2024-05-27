@@ -555,6 +555,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String BYPASS_WORKLOAD_GROUP = "bypass_workload_group";
 
+    public static final String MAX_COLUMN_READER_NUM = "max_column_reader_num";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -681,6 +683,9 @@ public class SessionVariable implements Serializable, Writable {
             "查询是否绕开WorkloadGroup的限制，目前仅支持绕开查询排队的逻辑",
             "whether bypass workload group's limitation, currently only support bypass query queue"})
     public boolean bypassWorkloadGroup = false;
+
+    @VariableMgr.VarAttr(name = MAX_COLUMN_READER_NUM)
+    public int maxColumnReaderNum = 20000;
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "";
@@ -2346,6 +2351,10 @@ public class SessionVariable implements Serializable, Writable {
         return this.bypassWorkloadGroup;
     }
 
+    public int getMaxColumnReaderNum() {
+        return this.maxColumnReaderNum;
+    }
+
     public String getResourceGroup() {
         return resourceGroup;
     }
@@ -3141,6 +3150,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setNumScannerThreads(numScannerThreads);
         tResult.setScannerScaleUpRatio(scannerScaleUpRatio);
+        tResult.setMaxColumnReaderNum(maxColumnReaderNum);
 
         // TODO chenhao, reservation will be calculated by cost
         tResult.setMinReservation(0);

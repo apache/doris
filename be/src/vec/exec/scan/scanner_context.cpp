@@ -80,6 +80,28 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
                                                       : state->query_parallel_instance_num());
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     _max_thread_num = std::min(_max_thread_num, (int32_t)scanners.size());
+
+    // when user not specify scan_thread_num, so we can try downgrade _max_thread_num.
+    // becaue we found in a table with 5k columns, column reader may ocuppy too much memory.
+    // you can refer https://github.com/apache/doris/issues/35340 for details.
+    int32_t max_column_reader_num = state->query_options().max_column_reader_num;
+    if (_max_thread_num != 1 && max_column_reader_num > 0) {
+        int32_t scan_column_num = _output_tuple_desc->slots().size();
+        int32_t current_column_num = scan_column_num * _max_thread_num;
+        if (current_column_num > max_column_reader_num) {
+            int32_t new_max_thread_num = max_column_reader_num / scan_column_num;
+            new_max_thread_num = new_max_thread_num <= 0 ? 1 : new_max_thread_num;
+            if (new_max_thread_num < _max_thread_num) {
+                int32_t origin_max_thread_num = _max_thread_num;
+                _max_thread_num = new_max_thread_num;
+                LOG(INFO) << "downgrade query:" << print_id(state->query_id())
+                          << " scan's max_thread_num from " << origin_max_thread_num << " to "
+                          << _max_thread_num << ",column num: " << scan_column_num
+                          << ", max_column_reader_num: " << max_column_reader_num;
+            }
+        }
+    }
+
     // 1. Calculate max concurrency
     // For select * from table limit 10; should just use one thread.
     if ((_parent && _parent->should_run_serial()) ||
