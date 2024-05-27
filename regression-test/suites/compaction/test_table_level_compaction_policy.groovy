@@ -253,7 +253,8 @@ suite("test_table_level_compaction_policy") {
         UNIQUE KEY (`c_custkey`)
         DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
         PROPERTIES (
-                "replication_num" = "1"
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true"
             );
     """
     sql """sync"""
