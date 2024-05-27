@@ -67,7 +67,7 @@ public class EliminateGroupByKey implements RewriteRuleFactory {
                                     LogicalAggregate<? extends Plan> agg = proj.child().child();
                                     Set<Slot> requireSlots = new HashSet<>(proj.getInputSlots());
                                     requireSlots.addAll(proj.child(0).getInputSlots());
-                                    LogicalAggregate<Plan> newAgg = eliminateGroupByKey(agg, proj.getOutputSet());
+                                    LogicalAggregate<Plan> newAgg = eliminateGroupByKey(agg, requireSlots);
                                     if (newAgg == null) {
                                         return null;
                                     }
@@ -86,7 +86,7 @@ public class EliminateGroupByKey implements RewriteRuleFactory {
         }
 
         FuncDeps funcDeps = agg.child().getLogicalProperties()
-                .getFunctionalDependencies().getAllValidFuncDeps(validSlots);
+                .getTrait().getAllValidFuncDeps(validSlots);
         if (funcDeps.isEmpty()) {
             return null;
         }

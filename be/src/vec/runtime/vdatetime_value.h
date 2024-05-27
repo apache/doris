@@ -847,9 +847,9 @@ public:
     // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
-    bool from_date_str(const char* str, int len, int scale = -1);
+    bool from_date_str(const char* str, int len, int scale = -1, bool convert_zero = false);
     bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
-                       int scale = -1);
+                       int scale = -1, bool convert_zero = false);
 
     // Convert this value to string
     // this will check type to decide which format to convert
@@ -1245,7 +1245,7 @@ private:
                              bool disable_lut = false);
 
     bool from_date_str_base(const char* date_str, int len, int scale,
-                            const cctz::time_zone* local_time_zone);
+                            const cctz::time_zone* local_time_zone, bool convert_zero);
 
     // Used to construct from int value
     int64_t standardize_timevalue(int64_t value);
@@ -1477,105 +1477,6 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
     case MICROSECOND: {
         int64_t microsecond = ts_value2.microsecond_diff(ts_value1);
         return microsecond;
-    }
-    }
-    // Rethink the default return value
-    return 0;
-}
-
-template <TimeUnit unit, typename T>
-int64_t datetime_diff(const DateV2Value<T>& ts_value1, const VecDateTimeValue& ts_value2) {
-    // FIXME:
-    switch (unit) {
-    case YEAR: {
-        int year = (ts_value2.year() - ts_value1.year());
-        if (year > 0) {
-            year -= ts_value1.month() - ts_value2.month() < 0;
-        } else if (year < 0) {
-            year += ts_value1.month() - ts_value2.month() > 0;
-        }
-        return year;
-    }
-    case MONTH: {
-        int month = (ts_value2.year() - ts_value1.year()) * 12 +
-                    (ts_value2.month() - ts_value1.month());
-        if (month > 0) {
-            month -= (ts_value2.day() - ts_value1.day()) < 0;
-        } else if (month < 0) {
-            month += (ts_value2.day() - ts_value1.day()) > 0;
-        }
-        return month;
-    }
-    case WEEK: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
-        return day / 7;
-    }
-    case DAY: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
-        return day;
-    }
-    case HOUR: {
-        int64_t second = ts_value2.second_diff(ts_value1);
-        int64_t hour = second / 60 / 60;
-        return hour;
-    }
-    case MINUTE: {
-        int64_t second = ts_value2.second_diff(ts_value1);
-        int64_t minute = second / 60;
-        return minute;
-    }
-    case SECOND: {
-        int64_t second = ts_value2.second_diff(ts_value1);
-        return second;
-    }
-    }
-    // Rethink the default return value
-    return 0;
-}
-
-template <TimeUnit unit, typename T>
-int64_t datetime_diff(const VecDateTimeValue& ts_value1, const DateV2Value<T>& ts_value2) {
-    switch (unit) {
-    case YEAR: {
-        int year = (ts_value2.year() - ts_value1.year());
-        if (year > 0) {
-            year -= ts_value1.month() - ts_value2.month() < 0;
-        } else if (year < 0) {
-            year -= ts_value1.month() - ts_value2.month() > 0;
-        }
-        return year;
-    }
-    case MONTH: {
-        int month = (ts_value2.year() - ts_value1.year()) * 12 +
-                    (ts_value2.month() - ts_value1.month());
-        if (month > 0) {
-            month -= (ts_value2.day() - ts_value1.day()) < 0;
-        } else if (month < 0) {
-            month += (ts_value2.day() - ts_value1.day()) > 0;
-        }
-        return month;
-    }
-    case WEEK: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
-        return day / 7;
-    }
-    case DAY: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
-        return day;
-    }
-    case HOUR: {
-        int64_t second = ts_value2.second_diff(ts_value1);
-        int64_t hour = second / 60 / 60;
-        return hour;
-    }
-    case MINUTE: {
-        int64_t second = ts_value2.second_diff(ts_value1);
-        int64_t minute = second / 60;
-        return minute;
-    }
-    case SECOND: {
-        int64_t second = ts_value2.second_diff(ts_value1);
-        return second;
     }
     }
     // Rethink the default return value

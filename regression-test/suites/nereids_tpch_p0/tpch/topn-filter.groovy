@@ -155,7 +155,5 @@ suite("topn-filter") {
         contains "TOPN OPT:"
     }
 
-    sql "set enable_pipeline_engine=false;"
-    sql "set enable_pipeline_x_engine=false;"
     qt_groupingsets2 "select n_regionkey, sum(n_nationkey) from nation group by grouping sets((n_regionkey)) order by n_regionkey limit 2;"
 }
