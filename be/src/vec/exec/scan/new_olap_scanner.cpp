@@ -406,8 +406,10 @@ Status NewOlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.topn_filter_source_node_ids =
                     ((pipeline::OlapScanLocalState*)_local_state)
                             ->get_topn_filter_source_node_ids(_state, true);
-            _tablet_reader_params.use_topn_opt =
-                    !_tablet_reader_params.topn_filter_source_node_ids.empty();
+            if (!_tablet_reader_params.topn_filter_source_node_ids.empty()) {
+                _tablet_reader_params.topn_filter_target_node_id =
+                        ((pipeline::OlapScanLocalState*)_local_state)->parent()->node_id();
+            }
         }
     }
 

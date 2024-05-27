@@ -215,7 +215,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
@@ -620,10 +619,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, finalScanNode, context)
                 )
         );
-        if (context.getTopnFilterContext().isTopnFilterTarget(fileScan)) {
-            context.getTopnFilterContext().addLegacyTarget(fileScan, scanNode);
-        }
-
+        context.getTopnFilterContext().translateTarget(fileScan, scanNode, context);
         Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         // Create PlanFragment
         DataPartition dataPartition = DataPartition.RANDOM;
@@ -668,9 +664,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, esScanNode, context)
                 )
         );
-        if (context.getTopnFilterContext().isTopnFilterTarget(esScan)) {
-            context.getTopnFilterContext().addLegacyTarget(esScan, esScanNode);
-        }
+        context.getTopnFilterContext().translateTarget(esScan, esScanNode, context);
         Utils.execWithUncheckedException(esScanNode::finalizeForNereids);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), esScanNode, dataPartition);
@@ -695,9 +689,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, jdbcScanNode, context)
                 )
         );
-        if (context.getTopnFilterContext().isTopnFilterTarget(jdbcScan)) {
-            context.getTopnFilterContext().addLegacyTarget(jdbcScan, jdbcScanNode);
-        }
+        context.getTopnFilterContext().translateTarget(jdbcScan, jdbcScanNode, context);
         Utils.execWithUncheckedException(jdbcScanNode::finalizeForNereids);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), jdbcScanNode, dataPartition);
@@ -722,10 +714,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, odbcScanNode, context)
                 )
         );
-        if (context.getTopnFilterContext().isTopnFilterTarget(odbcScan)) {
-            context.getTopnFilterContext().addLegacyTarget(odbcScan, odbcScanNode);
-        }
+        context.getTopnFilterContext().translateTarget(odbcScan, odbcScanNode, context);
         Utils.execWithUncheckedException(odbcScanNode::finalizeForNereids);
+        context.getTopnFilterContext().translateTarget(odbcScan, odbcScanNode, context);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), odbcScanNode, dataPartition);
         context.addPlanFragment(planFragment);
@@ -801,10 +792,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                 expr, olapScanNode, context)
                 )
         );
+        context.getTopnFilterContext().translateTarget(olapScan, olapScanNode, context);
         olapScanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(olapScan.getRelationId()));
-        if (context.getTopnFilterContext().isTopnFilterTarget(olapScan)) {
-            context.getTopnFilterContext().addLegacyTarget(olapScan, olapScanNode);
-        }
         // TODO: we need to remove all finalizeForNereids
         olapScanNode.finalizeForNereids();
         // Create PlanFragment
@@ -828,9 +817,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan, PlanTranslatorContext context) {
         PlanFragment planFragment = visitPhysicalOlapScan(deferMaterializeOlapScan.getPhysicalOlapScan(), context);
         OlapScanNode olapScanNode = (OlapScanNode) planFragment.getPlanRoot();
-        if (context.getTopnFilterContext().isTopnFilterTarget(deferMaterializeOlapScan)) {
-            context.getTopnFilterContext().addLegacyTarget(deferMaterializeOlapScan, olapScanNode);
-        }
         TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
         for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
             if (deferMaterializeOlapScan.getDeferMaterializeSlotIds()
@@ -839,6 +825,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         context.createSlotDesc(tupleDescriptor, deferMaterializeOlapScan.getColumnIdSlot());
+        context.getTopnFilterContext().translateTarget(deferMaterializeOlapScan, olapScanNode, context);
         return planFragment;
     }
 
@@ -2149,19 +2136,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             sortNode.setOffset(topN.getOffset());
             sortNode.setLimit(topN.getLimit());
             if (context.getTopnFilterContext().isTopnFilterSource(topN)) {
-                sortNode.setUseTopnOpt(true);
-                context.getTopnFilterContext().getTargets(topN).forEach(
-                        relation -> {
-                            Optional<ScanNode> legacyScan =
-                                    context.getTopnFilterContext().getLegacyScanNode(relation);
-                            Preconditions.checkState(legacyScan.isPresent(),
-                                    "cannot find ScanNode for topn filter:\n"
-                                            + "relation: %s \n%s",
-                                    relation.toString(),
-                                    context.getTopnFilterContext().toString());
-                            legacyScan.get().addTopnFilterSortNode(sortNode);
-                        }
-                );
+                context.getTopnFilterContext().translateSource(topN, sortNode);
             }
             // push sort to scan opt
             if (sortNode.getChild(0) instanceof OlapScanNode) {
@@ -2212,16 +2187,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             sortNode.setUseTwoPhaseReadOpt(true);
             sortNode.getSortInfo().setUseTwoPhaseRead();
             if (context.getTopnFilterContext().isTopnFilterSource(topN)) {
-                sortNode.setUseTopnOpt(true);
-                context.getTopnFilterContext().getTargets(topN).forEach(
-                        relation -> {
-                            Optional<ScanNode> legacyScan =
-                                    context.getTopnFilterContext().getLegacyScanNode(relation);
-                            Preconditions.checkState(legacyScan.isPresent(),
-                                    "cannot find ScanNode for topn filter");
-                            legacyScan.get().addTopnFilterSortNode(sortNode);
-                        }
-                );
+                context.getTopnFilterContext().translateSource(topN, sortNode);
             }
             TupleDescriptor tupleDescriptor = sortNode.getSortInfo().getSortTupleDescriptor();
             for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {

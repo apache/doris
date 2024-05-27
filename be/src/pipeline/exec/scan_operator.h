@@ -161,8 +161,13 @@ class ScanLocalState : public ScanLocalStateBase {
     std::vector<int> get_topn_filter_source_node_ids(RuntimeState* state, bool push_down) {
         std::vector<int> result;
         for (int id : _parent->cast<typename Derived::Parent>().topn_filter_source_node_ids) {
+            if (!state->get_query_ctx()->has_runtime_predicate(id)) {
+                // compatible with older versions fe
+                continue;
+            }
+
             const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
-            if (!pred.inited()) {
+            if (!pred.enable()) {
                 continue;
             }
             if (_push_down_topn(pred) == push_down) {
@@ -334,9 +339,6 @@ protected:
     // colname -> cast dst type
     std::map<std::string, PrimitiveType> _cast_types_for_variants;
 
-    // slot id -> SlotDescriptor
-    phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;
-
     // slot id -> ColumnValueRange
     // Parsed from conjuncts
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
@@ -345,7 +347,6 @@ protected:
     // We use _colname_to_value_range to store a column and its conresponding value ranges.
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
 
-    std::unordered_map<std::string, int> _colname_to_slot_id;
     /**
      * _colname_to_value_range only store the leaf of and in the conjunct expr tree,
      * we use _compound_value_ranges to store conresponding value ranges
@@ -425,6 +426,9 @@ protected:
     TupleId _output_tuple_id = -1;
     const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
+
+    phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;
+    std::unordered_map<std::string, int> _colname_to_slot_id;
 
     // These two values are from query_options
     int _max_scan_key_num;

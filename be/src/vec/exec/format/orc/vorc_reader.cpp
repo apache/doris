@@ -2186,7 +2186,6 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             texpr_node.__set_node_type(TExprNodeType::BINARY_PRED);
             texpr_node.__set_opcode(TExprOpcode::EQ);
             texpr_node.__set_fn(fn);
-            texpr_node.__set_child_type(TPrimitiveType::INT);
             texpr_node.__set_num_children(2);
             texpr_node.__set_is_nullable(is_nullable);
             root = VectorizedFnCall::create_shared(texpr_node);
