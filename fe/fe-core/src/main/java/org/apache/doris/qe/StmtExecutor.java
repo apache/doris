@@ -2361,8 +2361,9 @@ public class StmtExecutor {
                     }
                 } else {
                     if (filteredRows > context.getSessionVariable().getMaxFilterRatio() * (filteredRows + loadedRows)) {
-                        ErrorReport.reportDdlException("Insert has too many filtered data %s/%s",
-                                ErrorCode.ERR_FAILED_WHEN_INSERT, filteredRows, filteredRows + loadedRows);
+                        ErrorReport.reportDdlException("Insert has too many filtered data %d/%d max_filter_ratio is %d",
+                                ErrorCode.ERR_FAILED_WHEN_INSERT, filteredRows, filteredRows + loadedRows,
+                                context.getSessionVariable().getMaxFilterRatio());
                     }
                 }
 

@@ -213,7 +213,7 @@ public class CacheHotspotManagerUtils {
         sessionVariable.internalSession = true;
         // sessionVariable.setMaxExecMemByte(StatisticConstants.STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES);
         sessionVariable.setEnableInsertStrict(true);
-        sessionVariable.setMaxFilterRatio(0);
+        sessionVariable.setMaxFilterRatio(1);
         // sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
         sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;

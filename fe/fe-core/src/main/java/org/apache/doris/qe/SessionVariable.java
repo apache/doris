@@ -856,7 +856,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableInsertStrict = true;
 
     @VariableMgr.VarAttr(name = MAX_FILTER_RATIO, needForward = true)
-    public float maxFilterRatio = 0;
+    public float maxFilterRatio = 1;
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
