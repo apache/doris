@@ -90,7 +90,6 @@ public:
     }
 
 private:
-    bool _pipeline_engine_enabled = false;
     std::mutex _mutex;
     // For pipelineX, we update all dependencies once hash table is built;
     std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::Dependency>>> _dependencies;

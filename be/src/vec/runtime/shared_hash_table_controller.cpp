@@ -29,7 +29,6 @@ namespace doris::vectorized {
 
 void SharedHashTableController::set_builder_and_consumers(TUniqueId builder, int node_id) {
     // Only need to set builder and consumers with pipeline engine enabled.
-    DCHECK(_pipeline_engine_enabled);
     std::lock_guard<std::mutex> lock(_mutex);
     DCHECK(_builder_fragment_ids.find(node_id) == _builder_fragment_ids.cend());
     _builder_fragment_ids.insert({node_id, builder});
