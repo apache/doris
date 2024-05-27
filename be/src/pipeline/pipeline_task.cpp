@@ -290,7 +290,7 @@ Status PipelineTask::execute(bool* eos) {
         return Status::OK();
     }
     // The status must be runnable
-    if (!_opened) {
+    if (!_opened && !_fragment_context->is_canceled()) {
         RETURN_IF_ERROR(_open());
     }
 
