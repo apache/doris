@@ -46,6 +46,13 @@ bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
 bvar::Adder<uint64_t> s3_bytes_read_total("s3_file_reader", "bytes_read");
 bvar::Adder<uint64_t> s3_file_being_read("s3_file_reader", "file_being_read");
 bvar::Adder<uint64_t> s3_file_reader_too_many_request_counter("s3_file_reader", "too_many_request");
+bvar::LatencyRecorder s3_bytes_per_read("s3_file_reader", "bytes_per_read"); // also QPS
+bvar::PerSecond<bvar::Adder<uint64_t>> s3_read_througthput("s3_file_reader", "s3_read_throughput",
+                                                           &s3_bytes_read_total);
+// Although we can get QPS from s3_bytes_per_read, but s3_bytes_per_read only
+// record successfull request, and s3_get_request_qps will record all request.
+bvar::PerSecond<bvar::Adder<uint64_t>> s3_get_request_qps("s3_file_reader", "s3_get_request",
+                                                           &s3_file_reader_read_counter);
 
 S3FileReader::S3FileReader(size_t file_size, std::string key, std::shared_ptr<S3FileSystem> fs,
                            RuntimeProfile* profile)
@@ -110,6 +117,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
 
     int total_sleep_time = 0;
     while (retry_count <= max_retries) {
+        s3_file_reader_read_counter << 1;
         auto outcome = client->GetObject(request);
         _s3_stats.total_get_request_counter++;
         if (!outcome.IsSuccess()) {
@@ -136,7 +144,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         }
         _s3_stats.total_bytes_read += bytes_req;
         s3_bytes_read_total << bytes_req;
-        s3_file_reader_read_counter << 1;
+        s3_bytes_per_read << bytes_req;
         DorisMetrics::instance()->s3_bytes_read_total->increment(bytes_req);
         if (retry_count > 0) {
             LOG(INFO) << fmt::format("read s3 file {} succeed after {} times with {} ms sleeping",
