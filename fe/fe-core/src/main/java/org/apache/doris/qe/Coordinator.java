@@ -1678,7 +1678,6 @@ public class Coordinator implements CoordInterface {
                             destHosts.get(param.host).instancesSharingHashTable.add(param.instanceId);
                         } else {
                             destHosts.put(param.host, param);
-                            param.buildHashTableForBroadcastJoin = true;
                             TPlanFragmentDestination dest = new TPlanFragmentDestination();
                             param.recvrId = params.destinations.size();
                             dest.fragment_instance_id = param.instanceId;
@@ -1802,7 +1801,6 @@ public class Coordinator implements CoordInterface {
                             destHosts.get(param.host).instancesSharingHashTable.add(param.instanceId);
                         } else {
                             destHosts.put(param.host, param);
-                            param.buildHashTableForBroadcastJoin = true;
                             TPlanFragmentDestination dest = new TPlanFragmentDestination();
                             dest.fragment_instance_id = param.instanceId;
                             param.recvrId = params.destinations.size();
@@ -3689,7 +3687,6 @@ public class Coordinator implements CoordInterface {
                 params.setFragment(fragment.toThrift());
                 params.setDescTbl(descTable);
                 params.setParams(new TPlanFragmentExecParams());
-                params.setBuildHashTableForBroadcastJoin(instanceExecParam.buildHashTableForBroadcastJoin);
                 params.params.setQueryId(queryId);
                 params.params.setFragmentInstanceId(instanceExecParam.instanceId);
 
@@ -3848,7 +3845,6 @@ public class Coordinator implements CoordInterface {
                         params.getLocalParams().size());
                 TPipelineInstanceParams localParams = new TPipelineInstanceParams();
 
-                localParams.setBuildHashTableForBroadcastJoin(instanceExecParam.buildHashTableForBroadcastJoin);
                 localParams.setFragmentInstanceId(instanceExecParam.instanceId);
                 localParams.setPerNodeScanRanges(scanRanges);
                 localParams.setPerNodeSharedScans(perNodeSharedScans);
@@ -4001,8 +3997,6 @@ public class Coordinator implements CoordInterface {
         Set<Integer> bucketSeqSet = Sets.newHashSet();
 
         FragmentExecParams fragmentExecParams;
-
-        boolean buildHashTableForBroadcastJoin = false;
 
         int recvrId = -1;
 

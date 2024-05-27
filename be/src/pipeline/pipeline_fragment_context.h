@@ -92,9 +92,6 @@ public:
 
     Status submit();
 
-    void close_if_prepare_failed(Status st);
-    void close_sink();
-
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
     void cancel(const Status reason);
@@ -120,8 +117,6 @@ public:
 
     [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
 
-    [[nodiscard]] int max_sink_operator_id() const { return _sink_operator_id; }
-
     void instance_ids(std::vector<TUniqueId>& ins_ids) const {
         ins_ids.resize(_fragment_instance_ids.size());
         for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
@@ -134,11 +129,6 @@ public:
         for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
             ins_ids[i] = print_id(_fragment_instance_ids[i]);
         }
-    }
-
-    void add_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
-        _merge_controller_handlers.emplace_back(handler);
     }
 
 private:

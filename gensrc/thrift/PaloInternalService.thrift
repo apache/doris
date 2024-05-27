@@ -501,6 +501,7 @@ struct TExecPlanFragmentParams {
   // Otherwise, the fragment will start executing directly on the BE side.
   20: optional bool need_wait_execution_trigger = false;
 
+  // deprecated
   21: optional bool build_hash_table_for_broadcast_join = false;
 
   22: optional list<Types.TUniqueId> instances_sharing_hash_table;
@@ -705,6 +706,7 @@ struct TExportStatusResult {
 
 struct TPipelineInstanceParams {
   1: required Types.TUniqueId fragment_instance_id
+  // deprecated
   2: optional bool build_hash_table_for_broadcast_join = false;
   3: required map<Types.TPlanNodeId, list<TScanRangeParams>> per_node_scan_ranges
   4: optional i32 sender_id
