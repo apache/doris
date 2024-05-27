@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "gutil/strings/substitute.h"
+#include "util/doris_metrics.h"
 #include "util/jni_native_method.h"
 #include "util/libjvm_loader.h"
 
@@ -519,6 +520,7 @@ Status JniUtil::Init() {
     }
     RETURN_IF_ERROR(init_jni_scanner_loader(env));
     jvm_inited_ = true;
+    DorisMetrics::instance()->init_jvm_metrics(env);
     return Status::OK();
 }
 
