@@ -1340,6 +1340,10 @@ public class DatabaseTransactionMgr {
                     tabletWriteFailedReplicas.clear();
                     tabletVersionFailedReplicas.clear();
                     for (Replica replica : tablet.getReplicas()) {
+                        if (publishTasks.get(replica.getBackendId()) == null) {
+                            errorReplicaIds.add(replica.getId());
+                            continue;
+                        }
                         for (PublishVersionTask publishVersionTask : publishTasks.get(replica.getBackendId())) {
                             checkReplicaContinuousVersionSucc(tablet.getId(), replica, alterReplicaLoadedTxn,
                                     newVersion, publishVersionTask,
@@ -2627,6 +2631,10 @@ public class DatabaseTransactionMgr {
                         // TODO always use the visible version because the replica version is not changed
                         long newVersion = partition.getVisibleVersion() + 1;
                         for (Replica replica : tablet.getReplicas()) {
+                            if (publishTasks.get(replica.getBackendId()) == null) {
+                                errorReplicaIds.add(replica.getId());
+                                continue;
+                            }
                             for (PublishVersionTask publishVersionTask : publishTasks.get(replica.getBackendId())) {
                                 boolean needCheck = publishVersionTask.getTransactionId()
                                         == subTransactionState.getSubTransactionId()
