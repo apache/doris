@@ -655,8 +655,8 @@ public class AnalysisManager implements Writable {
         }
         invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats);
         // Drop stats ddl is master only operation.
-        invalidateRemoteStats(catalogId, dbId, tblId, cols, dropStatsStmt.isAllColumns());
-        StatisticsRepository.dropStatisticsByColNames(catalogId, dbId, tblId, cols);
+        invalidateRemoteStats(catalogId, dbId, tblId, cols);
+        StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, null);
     }
 
     public void dropStats(TableIf table) throws DdlException {
@@ -667,11 +667,10 @@ public class AnalysisManager implements Writable {
         long catalogId = table.getDatabase().getCatalog().getId();
         long dbId = table.getDatabase().getId();
         long tableId = table.getId();
-        Set<String> cols = table.getSchemaAllIndexes(false).stream().map(Column::getName).collect(Collectors.toSet());
-        invalidateLocalStats(catalogId, dbId, tableId, cols, tableStats);
+        invalidateLocalStats(catalogId, dbId, tableId, null, tableStats);
         // Drop stats ddl is master only operation.
-        invalidateRemoteStats(catalogId, dbId, tableId, cols, true);
-        StatisticsRepository.dropStatisticsByColNames(catalogId, dbId, table.getId(), cols);
+        invalidateRemoteStats(catalogId, dbId, tableId, null);
+        StatisticsRepository.dropStatistics(catalogId, dbId, table.getId(), null, null);
     }
 
     public void invalidateLocalStats(long catalogId, long dbId, long tableId,
@@ -712,9 +711,8 @@ public class AnalysisManager implements Writable {
         tableStats.rowCount = table.getRowCount();
     }
 
-    public void invalidateRemoteStats(long catalogId, long dbId, long tableId,
-                                      Set<String> columns, boolean isAllColumns) {
-        InvalidateStatsTarget target = new InvalidateStatsTarget(catalogId, dbId, tableId, columns, isAllColumns);
+    public void invalidateRemoteStats(long catalogId, long dbId, long tableId, Set<String> columns) {
+        InvalidateStatsTarget target = new InvalidateStatsTarget(catalogId, dbId, tableId, columns);
         TInvalidateFollowerStatsCacheRequest request = new TInvalidateFollowerStatsCacheRequest();
         request.key = GsonUtils.GSON.toJson(target);
         StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
