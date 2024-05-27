@@ -119,12 +119,11 @@ public class MergeAggregate implements RewriteRuleFactory {
         }
         List<Expression> originOuterAggGroupBy = outerAgg.getGroupByExpressions();
         List<Expression> projectGroupBy = new ArrayList<>();
-        for (int i = 0; i < originOuterAggGroupBy.size(); i++) {
-            ExprId exprId = ((NamedExpression) (originOuterAggGroupBy.get(i))).getExprId();
+        for (Expression expression : originOuterAggGroupBy) {
+            ExprId exprId = ((NamedExpression) expression).getExprId();
             NamedExpression namedExpression = exprIdToNameExpressionMap.get(exprId);
             projectGroupBy.add(namedExpression);
         }
-        // List<Expression> projectGroupBy = ExpressionUtils.replace(replacedGroupBy, childToAlias);
         List<NamedExpression> upperProjects = ImmutableList.<NamedExpression>builder()
                 .addAll(projectGroupBy.stream().map(namedExpr -> (NamedExpression) namedExpr).iterator())
                 .addAll(replacedAggFunc.stream().map(expr -> ((NamedExpression) expr).toSlot()).iterator())
