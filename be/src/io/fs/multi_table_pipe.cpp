@@ -176,7 +176,7 @@ Status MultiTablePipe::request_and_exec_plans() {
     request.formatType = _ctx->format;
     request.__set_compress_type(_ctx->compress_type);
     request.__set_header_type(_ctx->header_type);
-    request.__set_loadId(_ctx->id.to_thrift());
+    request.__set_loadId(UniqueId::gen_uid().to_thrift());
     request.fileType = TFileType::FILE_STREAM;
     request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
     request.__set_memtable_on_sink_node(_ctx->memtable_on_sink_node);
