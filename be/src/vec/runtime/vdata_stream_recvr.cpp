@@ -49,7 +49,7 @@ VDataStreamRecvr::SenderQueue::SenderQueue(VDataStreamRecvr* parent_recvr, int n
           _num_remaining_senders(num_senders),
           _received_first_batch(false) {
     _cancel_status = Status::OK();
-    _queue_mem_tracker = std::make_unique<MemTracker>();
+    _queue_mem_tracker = std::make_unique<MemTracker>("local data queue mem tracker");
 }
 
 VDataStreamRecvr::SenderQueue::~SenderQueue() {
