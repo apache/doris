@@ -94,13 +94,16 @@ Status EnginePublishVersionTask::finish() {
     VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
     DBUG_EXECUTE_IF("EnginePublishVersionTask.finish.random", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
-            LOG_WARNING("EnginePublishVersionTask.finish.random random failed");
+            LOG_WARNING("EnginePublishVersionTask.finish.random random failed")
+                    .tag("txn_id", transaction_id);
             return Status::InternalError("debug engine publish version task random failed");
         }
     });
     DBUG_EXECUTE_IF("EnginePublishVersionTask.finish.wait", {
         if (auto wait = dp->param<int>("duration", 0); wait > 0) {
-            LOG_WARNING("EnginePublishVersionTask.finish.wait wait").tag("wait ms", wait);
+            LOG_WARNING("EnginePublishVersionTask.finish.wait wait")
+                    .tag("txn_id", transaction_id)
+                    .tag("wait ms", wait);
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
     });
@@ -199,7 +202,9 @@ Status EnginePublishVersionTask::finish() {
                                     partition_id, tablet_info.tablet_id, version.first);
                         }
                         res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
-                                "check_version_exist failed");
+                                "version not continuous for mow, tablet_id={}, "
+                                "tablet_max_version={}, txn_version={}",
+                                tablet_info.tablet_id, max_version, version.first);
                         int64_t missed_version = max_version + 1;
                         int64_t missed_txn_id =
                                 StorageEngine::instance()->txn_manager()->get_txn_by_tablet_version(
