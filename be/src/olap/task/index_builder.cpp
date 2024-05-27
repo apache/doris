@@ -111,7 +111,6 @@ Status IndexBuilder::update_inverted_index_info() {
                         drop_index_size += index_size;
                     }
                 }
-                output_rs_tablet_schema->remove_index(t_inverted_index.index_id);
             }
         } else {
             // base on input rowset's tablet_schema to build
@@ -274,6 +273,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         continue;
                     }
                     RETURN_IF_ERROR(inverted_index_file_writer->delete_index(index_meta));
+                    output_rs_tablet_schema->remove_index(t_inverted_index.index_id);
                 }
                 _inverted_index_file_writers.emplace(seg_ptr->id(),
                                                      std::move(inverted_index_file_writer));
