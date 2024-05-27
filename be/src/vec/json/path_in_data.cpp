@@ -215,7 +215,9 @@ PathInDataBuilder& PathInDataBuilder::append(const PathInData::Parts& path, bool
 }
 
 void PathInDataBuilder::pop_back() {
-    parts.pop_back();
+    if (!parts.empty()) {
+        parts.pop_back();
+    }
 }
 
 void PathInDataBuilder::pop_back(size_t n) {
