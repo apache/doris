@@ -163,4 +163,36 @@ suite("test_multi_table_load", "load_p0") {
 
         qt_sql """ SELECT COUNT(*) FROM ${tableName} """
     }
+
+    // test cancel load
+    def tuple = data_desces[0]
+    def data_desc = tuple.get(0)
+    def load_result = tuple.get(1)
+
+    def label = UUID.randomUUID().toString().replace("-", "0")
+    def sql_str = """
+        LOAD LABEL $label (
+            $data_desc
+        )
+        WITH S3 (
+            "AWS_ACCESS_KEY" = "$ak",
+            "AWS_SECRET_KEY" = "$sk",
+            "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
+            "AWS_REGION" = "ap-beijing"
+        )
+        properties(
+            "use_new_load_scan_node" = "true",
+            "max_filter_ratio" = "1.0"
+        )
+        """
+    try {
+        sql """${sql_str}"""
+        sql """cancel load where label = "$label";"""
+    } catch (Exception e) {
+        logger.info("xx cancel load failed", e)
+        assertFalse(true);
+    }
+
+    String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
+    assertEquals("CANCELLED", result[0][2])
 }
