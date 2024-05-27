@@ -872,6 +872,24 @@ Status CompactionMixin::modify_rowsets() {
             if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
                 _tablet->tablet_state() == TABLET_RUNNING &&
                 _stats.merged_rows != missed_rows_size) {
+                std::stringstream ss;
+                ss << "cumulative compaction: the merged rows(" << stats->merged_rows
+                   << ") is not equal to missed rows(" << missed_rows_size
+                   << ") in rowid conversion, tablet_id: " << _tablet->tablet_id()
+                   << ", table_id:" << _tablet->table_id();
+                if (missed_rows_size == 0) {
+                    ss << ", debug info: ";
+                    DeleteBitmap subset_map(_tablet->tablet_id());
+                    for (auto rs : _input_rowsets) {
+                        _tablet->tablet_meta()->delete_bitmap().subset(
+                                {rs->rowset_id(), 0, 0},
+                                {rs->rowset_id(), rs->num_segments(), version.second + 1},
+                                &subset_map);
+                        ss << "(rowset id: " << rs->rowset_id()
+                           << ", delete bitmap cardinality: " << subset_map.cardinality() << ")";
+                    }
+                    ss << ", version[0-" << version.second + 1 << "]";
+                }
                 std::string err_msg = fmt::format(
                         "cumulative compaction: the merged rows({}) is not equal to missed "
                         "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
