@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.Hint;
@@ -42,7 +43,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.statistics.Statistics;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -149,6 +152,11 @@ public class StatementContext implements Closeable {
     // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
     // the value is the auto-increment id in the cascades context
     private final Map<TableIdentifier, TableId> tableIdMapping = new LinkedHashMap<>();
+    // Record the materialization statistics by id which is used for cost estimation.
+    // Maybe return null, which means the id according statistics should calc normally rather than getting
+    // form this map
+    // id maybe relation id or cteId or other type of id
+    private final Map<Pair<Id, Class<? extends Id>>, Statistics> idToStatisticsMap = new LinkedHashMap<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -413,6 +421,19 @@ public class StatementContext implements Closeable {
 
     public void addIndexInSqlToString(Pair<Integer, Integer> pair, String replacement) {
         indexInSqlToString.put(pair, replacement);
+    }
+
+    public void addStatistics(Id id, Statistics statistics) {
+        this.idToStatisticsMap.put(Pair.of(id, id.getClass()), statistics);
+    }
+
+    public Optional<Statistics> getStatistics(Id id) {
+        return Optional.ofNullable(this.idToStatisticsMap.get(Pair.of(id, id.getClass())));
+    }
+
+    @VisibleForTesting
+    public Map<Pair<Id, Class<? extends Id>>, Statistics> getIdToStatisticsMap() {
+        return idToStatisticsMap;
     }
 
     /** addTableReadLock */
