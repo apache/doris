@@ -100,7 +100,11 @@ public class FuncDeps {
         Set<Set<Slot>> minSlotSet = slots;
         List<Set<Set<Slot>>> reduceSlotSets = new ArrayList<>();
         reduceSlotSets.add(slots);
-        while (!reduceSlotSets.isEmpty()) {
+        // To avoid memory usage due to multiple iterations,
+        // we set a maximum number of loop iterations.
+        int count = 0;
+        while (!reduceSlotSets.isEmpty() && count < 100) {
+            count += 1;
             List<Set<Set<Slot>>> newReduceSlotSets = new ArrayList<>();
             for (Set<Set<Slot>> slotSet : reduceSlotSets) {
                 for (FuncDepsItem funcDepsItem : items) {
