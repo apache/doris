@@ -171,15 +171,21 @@ PROPERTIES (
     profileJson = new JsonSlurper().parseText(profileString)
     assertEquals(0, profileJson.code)
     profileDataString = profileJson.data
+    logger.info("profileDataString:" + profileDataString)
     def taskStateIdx = profileDataString.indexOf("- Task State: FINISHED")
     assertFalse(taskStateIdx == -1)
     def fragmentIdx = profileDataString.indexOf(" Fragment 0:")
     assertFalse(fragmentIdx == -1)
     def executionProfileIdx = profileDataString.indexOf("Execution Profile")
     assertFalse(executionProfileIdx == -1)
-    def pattern = ~/Active:\s*([1-9]\d*|0\.\d+|[1-9]\d*\.\d*)ms/
-    def matcher = pattern.matcher(profileDataString)
-    assertTrue(matcher.find())
+    if (!profileDataString.contains("FILE_SCAN_OPERATOR") || !profileDataString.contains("BlocksProduced")
+        || !profileDataString.contains("RowsProduced") || !profileDataString.contains("RowsRead")) {
+            logger.info("profileDataString:" + profileDataString)
+    }
+    assertTrue(profileDataString.contains("FILE_SCAN_OPERATOR"))
+    assertTrue(profileDataString.contains("BlocksProduced"))
+    assertTrue(profileDataString.contains("RowsProduced"))
+    assertTrue(profileDataString.contains("RowsRead"))
 }
 
 class DataDesc {

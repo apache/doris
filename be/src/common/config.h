@@ -118,6 +118,9 @@ DECLARE_String(priority_networks);
 // performance moderate or compact, only tcmalloc compile
 DECLARE_String(memory_mode);
 
+// if true, process memory limit and memory usage based on cgroup memory info.
+DECLARE_mBool(enable_use_cgroup_memory_info);
+
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
 // or percentage of the physical memory ('<int>%').
@@ -1235,7 +1238,6 @@ DECLARE_Bool(ignore_always_true_predicate_for_segment);
 
 // Dir of default timezone files
 DECLARE_String(default_tzfiles_path);
-DECLARE_Bool(use_doris_tzfile);
 
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);

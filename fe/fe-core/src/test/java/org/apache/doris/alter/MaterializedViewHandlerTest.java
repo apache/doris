@@ -181,8 +181,8 @@ public class MaterializedViewHandlerTest {
                                     @Injectable OlapTable olapTable) {
         new Expectations() {
             {
-                createMaterializedViewStmt.getMVKeysType();
-                result = KeysType.DUP_KEYS;
+                olapTable.getRowStoreCol();
+                result = null;
                 olapTable.getKeysType();
                 result = KeysType.AGG_KEYS;
             }
@@ -228,6 +228,8 @@ public class MaterializedViewHandlerTest {
                 result = list;
                 olapTable.getKeysType();
                 result = KeysType.DUP_KEYS;
+                olapTable.getRowStoreCol();
+                result = null;
             }
         };
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();

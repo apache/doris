@@ -64,8 +64,6 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status);
 
-    Status close_sink(Status exec_status);
-
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
     QueryContext* query_context();

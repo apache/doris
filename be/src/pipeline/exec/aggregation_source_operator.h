@@ -93,9 +93,6 @@ protected:
     };
 
     executor _executor;
-
-    bool _should_limit_output = false;
-    bool _reach_limit = false;
 };
 
 class AggSourceOperatorX : public OperatorX<AggLocalState> {

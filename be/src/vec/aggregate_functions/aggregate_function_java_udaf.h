@@ -95,8 +95,9 @@ public:
         {
             TJavaUdfExecutorCtorParams ctor_params;
             ctor_params.__set_fn(fn);
-            ctor_params.__set_location(local_location);
-
+            if (!fn.hdfs_location.empty() && !fn.checksum.empty()) {
+                ctor_params.__set_location(local_location);
+            }
             jbyteArray ctor_params_bytes;
 
             // Pushed frame will be popped when jni_frame goes out-of-scope.
@@ -274,7 +275,13 @@ public:
     //So need to check as soon as possible, before call Data function
     Status check_udaf(const TFunction& fn) {
         auto function_cache = UserFunctionCache::instance();
-        return function_cache->get_jarpath(fn.id, fn.hdfs_location, fn.checksum, &_local_location);
+        // get jar path if both file path location and checksum are null
+        if (!fn.hdfs_location.empty() && !fn.checksum.empty()) {
+            return function_cache->get_jarpath(fn.id, fn.hdfs_location, fn.checksum,
+                                               &_local_location);
+        } else {
+            return Status::OK();
+        }
     }
 
     void create(AggregateDataPtr __restrict place) const override {

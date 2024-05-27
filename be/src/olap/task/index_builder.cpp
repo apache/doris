@@ -113,7 +113,7 @@ Status IndexBuilder::update_inverted_index_info() {
                         drop_index_size += index_size;
                     }
                 }
-                output_rs_tablet_schema->remove_index(t_inverted_index.index_id);
+                _dropped_inverted_indexes.push_back(*index_meta);
             }
         } else {
             // base on input rowset's tablet_schema to build
@@ -258,24 +258,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         output_rowset_schema->get_inverted_index_storage_format());
                 RETURN_IF_ERROR(inverted_index_file_writer->initialize(dirs));
                 // create inverted index writer
-                for (const auto& t_inverted_index : _alter_inverted_indexes) {
-                    DCHECK_EQ(t_inverted_index.columns.size(), 1);
-                    auto column_name = t_inverted_index.columns[0];
-                    auto column_idx = output_rs_tablet_schema->field_index(column_name);
-                    if (column_idx < 0) {
-                        LOG(WARNING) << "referenced column was missing. "
-                                     << "[column=" << column_name
-                                     << " referenced_column=" << column_idx << "]";
-                        continue;
-                    }
-                    auto column = output_rs_tablet_schema->column(column_idx);
-                    const auto* index_meta = output_rs_tablet_schema->get_inverted_index(column);
-                    if (index_meta == nullptr) {
-                        LOG(ERROR) << "failed to find column: " << column_name
-                                   << " index_id: " << t_inverted_index.index_id;
-                        continue;
-                    }
-                    RETURN_IF_ERROR(inverted_index_file_writer->delete_index(index_meta));
+                for (auto& index_meta : _dropped_inverted_indexes) {
+                    RETURN_IF_ERROR(inverted_index_file_writer->delete_index(&index_meta));
                 }
                 _inverted_index_file_writers.emplace(seg_ptr->id(),
                                                      std::move(inverted_index_file_writer));
