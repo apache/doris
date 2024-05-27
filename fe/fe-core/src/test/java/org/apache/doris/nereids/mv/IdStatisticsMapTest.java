@@ -18,11 +18,10 @@
 package org.apache.doris.nereids.mv;
 
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.common.Id;
-import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -76,10 +75,10 @@ public class IdStatisticsMapTest extends SqlTestBase {
                 .rewrite()
                 .optimize()
                 .printlnBestPlanTree();
-        Map<Pair<Id, Class<? extends Id>>, Statistics> idStatisticsMap = c1.getStatementContext().getIdToStatisticsMap();
+        Map<RelationId, Statistics> idStatisticsMap = c1.getStatementContext().getRelationIdToStatisticsMap();
         Assertions.assertFalse(idStatisticsMap.isEmpty());
-        Pair<Id, Class<? extends Id>> mvIdStatistics = idStatisticsMap.keySet().iterator().next();
-        Optional<Statistics> statistics = c1.getStatementContext().getStatistics(mvIdStatistics.key());
+        RelationId relationId = idStatisticsMap.keySet().iterator().next();
+        Optional<Statistics> statistics = c1.getStatementContext().getStatistics(relationId);
         Assertions.assertTrue(statistics.isPresent());
         dropMvByNereids("drop materialized view mv100");
     }

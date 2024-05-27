@@ -155,8 +155,7 @@ public class StatementContext implements Closeable {
     // Record the materialization statistics by id which is used for cost estimation.
     // Maybe return null, which means the id according statistics should calc normally rather than getting
     // form this map
-    // id maybe relation id or cteId or other type of id
-    private final Map<Pair<Id, Class<? extends Id>>, Statistics> idToStatisticsMap = new LinkedHashMap<>();
+    private final Map<RelationId, Statistics> relationIdToStatisticsMap = new LinkedHashMap<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -424,16 +423,21 @@ public class StatementContext implements Closeable {
     }
 
     public void addStatistics(Id id, Statistics statistics) {
-        this.idToStatisticsMap.put(Pair.of(id, id.getClass()), statistics);
+        if (id instanceof RelationId) {
+            this.relationIdToStatisticsMap.put((RelationId) id, statistics);
+        }
     }
 
     public Optional<Statistics> getStatistics(Id id) {
-        return Optional.ofNullable(this.idToStatisticsMap.get(Pair.of(id, id.getClass())));
+        if (id instanceof RelationId) {
+            return Optional.ofNullable(this.relationIdToStatisticsMap.get((RelationId) id));
+        }
+        return Optional.empty();
     }
 
     @VisibleForTesting
-    public Map<Pair<Id, Class<? extends Id>>, Statistics> getIdToStatisticsMap() {
-        return idToStatisticsMap;
+    public Map<RelationId, Statistics> getRelationIdToStatisticsMap() {
+        return relationIdToStatisticsMap;
     }
 
     /** addTableReadLock */
