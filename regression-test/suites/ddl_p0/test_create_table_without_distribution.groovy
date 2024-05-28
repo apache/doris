@@ -26,7 +26,8 @@ suite("test_create_table_without_distribution") {
     insert into test_create_table_without_distribution values(1,2);
     """
     qt_test_select "select * from test_create_table_without_distribution;"
-    qt_test_show " show create table test_create_table_without_distribution;"
+    def res1 = sql "show create table test_create_table_without_distribution;"
+    assertEquals(res1[0][1].contains("DISTRIBUTED BY RANDOM BUCKETS AUTO"), true)
 
     sql "SET enable_nereids_planner=false;"
     multi_sql """
@@ -37,7 +38,6 @@ suite("test_create_table_without_distribution") {
     insert into test_create_table_without_distribution values(1,2);
     """
     qt_test_select_old_planner "select * from test_create_table_without_distribution;"
-    qt_test_show_old_planner " show create table test_create_table_without_distribution;"
-
-
+    def res2 = sql "show create table test_create_table_without_distribution;"
+    assertEquals(res2[0][1].contains("DISTRIBUTED BY RANDOM BUCKETS AUTO"), true)
 }
