@@ -573,7 +573,6 @@ public:
     // This stauts could only be called when ok==false
     Status status() const {
         std::lock_guard l(mutex_);
-        DCHECK(error_code_.load(std::memory_order_acquire) != 0);
         return error_st_;
     }
 
