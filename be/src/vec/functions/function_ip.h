@@ -139,7 +139,7 @@ static inline bool try_parse_ipv4(const char* pos, Int64& result_value) {
 
 template <IPConvertExceptionMode exception_mode, typename ToColumn>
 ColumnPtr convert_to_ipv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
-    const auto* column_string = check_and_get_column<ColumnString>(column.get());
+    const auto* column_string = assert_cast<const ColumnString*>(column.get());
 
     size_t column_size = column_string->size();
 
@@ -261,7 +261,7 @@ void process_ipv6_column(const ColumnPtr& column, size_t input_rows_count,
     auto* begin = reinterpret_cast<char*>(vec_res.data());
     auto* pos = begin;
 
-    const auto* col = check_and_get_column<T>(column.get());
+    const auto* col = assert_cast<const T*>(column.get());
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         bool is_empty = false;
@@ -489,7 +489,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
 
 template <IPConvertExceptionMode exception_mode, typename ToColumn = ColumnIPv6>
 ColumnPtr convert_to_ipv6(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
-    const auto* column_input_string = check_and_get_column<ColumnString>(column.get());
+    const auto* column_input_string = assert_cast<const ColumnString*>(column.get());
     auto result = detail::convert_to_ipv6<exception_mode, ToColumn>(*column_input_string, null_map);
     return result;
 }
@@ -615,8 +615,8 @@ public:
                 unpack_if_const(addr_column_with_type_and_name.column);
         const auto& [cidr_column, cidr_const] =
                 unpack_if_const(cidr_column_with_type_and_name.column);
-        const auto* str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
-        const auto* str_cidr_column = check_and_get_column<ColumnString>(cidr_column.get());
+        const auto* str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
+        const auto* str_cidr_column = assert_cast<const ColumnString*>(cidr_column.get());
 
         auto col_res = ColumnUInt8::create(input_rows_count, 0);
         auto& col_res_data = col_res->get_data();
@@ -671,21 +671,21 @@ public:
         if (addr_type.is_nullable()) {
             const auto* addr_column_nullable =
                     assert_cast<const ColumnNullable*>(addr_column.get());
-            str_addr_column =
-                    check_and_get_column<ColumnString>(addr_column_nullable->get_nested_column());
+            str_addr_column = assert_cast<const ColumnString*>(
+                    addr_column_nullable->get_nested_column_ptr().get());
             null_map_addr = &addr_column_nullable->get_null_map_data();
         } else {
-            str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
+            str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
         }
 
         if (cidr_type.is_nullable()) {
             const auto* cidr_column_nullable =
                     assert_cast<const ColumnNullable*>(cidr_column.get());
-            str_cidr_column =
-                    check_and_get_column<ColumnString>(cidr_column_nullable->get_nested_column());
+            str_cidr_column = assert_cast<const ColumnString*>(
+                    cidr_column_nullable->get_nested_column_ptr().get());
             null_map_cidr = &cidr_column_nullable->get_null_map_data();
         } else {
-            str_cidr_column = check_and_get_column<ColumnString>(cidr_column.get());
+            str_cidr_column = assert_cast<const ColumnString*>(cidr_column.get());
         }
 
         auto col_res = ColumnUInt8::create(input_rows_count, 0);
@@ -739,9 +739,9 @@ public:
         const auto& [ip_column_ptr, ip_col_const] = unpack_if_const(ip_column.column);
         const auto& [cidr_column_ptr, cidr_col_const] = unpack_if_const(cidr_column.column);
 
-        const auto* col_ip_column = check_and_get_column<ColumnVector<IPv4>>(ip_column_ptr.get());
+        const auto* col_ip_column = assert_cast<const ColumnVector<IPv4>*>(ip_column_ptr.get());
         const auto* col_cidr_column =
-                check_and_get_column<ColumnVector<Int16>>(cidr_column_ptr.get());
+                assert_cast<const ColumnVector<Int16>*>(cidr_column_ptr.get());
 
         const typename ColumnVector<IPv4>::Container& vec_ip_input = col_ip_column->get_data();
         const ColumnInt16::Container& vec_cidr_input = col_cidr_column->get_data();
@@ -843,11 +843,11 @@ public:
         ColumnPtr col_res = nullptr;
 
         if (addr_type.is_ipv6()) {
-            const auto* ipv6_addr_column = check_and_get_column<ColumnIPv6>(addr_column.get());
+            const auto* ipv6_addr_column = assert_cast<const ColumnIPv6*>(addr_column.get());
             col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, *cidr_col, input_rows_count,
                                                add_col_const, col_const);
         } else if (addr_type.is_string()) {
-            const auto* str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
+            const auto* str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
             col_res = execute_impl<ColumnString>(*str_addr_column, *cidr_col, input_rows_count,
                                                  add_col_const, col_const);
         } else {
@@ -965,8 +965,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         const ColumnPtr& column = block.get_by_position(arguments[0]).column;
-        const auto* col_in = check_and_get_column<ColumnString>(column.get());
-        DCHECK(col_in != nullptr);
+        const auto* col_in = assert_cast<const ColumnString*>(column.get());
 
         size_t col_size = col_in->size();
         auto col_res = ColumnUInt8::create(col_size, 0);
@@ -1007,8 +1006,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         const ColumnPtr& column = block.get_by_position(arguments[0]).column;
-        const auto* col_in = check_and_get_column<ColumnString>(column.get());
-        DCHECK(col_in != nullptr);
+        const auto* col_in = assert_cast<const ColumnString*>(column.get());
 
         size_t col_size = col_in->size();
         auto col_res = ColumnUInt8::create(col_size, 0);
@@ -1090,11 +1088,11 @@ public:
         if (addr_type.is_nullable()) {
             const auto* addr_column_nullable =
                     assert_cast<const ColumnNullable*>(addr_column.get());
-            str_addr_column =
-                    check_and_get_column<ColumnString>(addr_column_nullable->get_nested_column());
+            str_addr_column = assert_cast<const ColumnString*>(
+                    addr_column_nullable->get_nested_column_ptr().get());
             addr_null_map = &addr_column_nullable->get_null_map_data();
         } else {
-            str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
+            str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
         }
 
         auto col_res = ColumnVector<Type>::create(input_rows_count, 0);
