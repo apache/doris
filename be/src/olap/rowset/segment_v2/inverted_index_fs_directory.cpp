@@ -98,6 +98,21 @@ public:
     int64_t length() const override;
 };
 
+class DorisFSDirectory::FSIndexOutputV2 : public lucene::store::BufferedIndexOutput {
+private:
+    io::FileWriter* _index_v2_file_writer = nullptr;
+
+protected:
+    void flushBuffer(const uint8_t* b, const int32_t size) override;
+
+public:
+    FSIndexOutputV2() = default;
+    void init(io::FileWriter* file_writer);
+    ~FSIndexOutputV2() override;
+    void close() override;
+    int64_t length() const override;
+};
+
 bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const char* path,
                                           IndexInput*& ret, CLuceneError& error,
                                           int32_t buffer_size) {
@@ -335,6 +350,86 @@ int64_t DorisFSDirectory::FSIndexOutput::length() const {
     return _writer->bytes_appended();
 }
 
+void DorisFSDirectory::FSIndexOutputV2::init(io::FileWriter* file_writer) {
+    _index_v2_file_writer = file_writer;
+    DBUG_EXECUTE_IF(
+            "DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_"
+            "init",
+            {
+                _CLTHROWA(CL_ERR_IO,
+                          "debug point: test throw error in fsindexoutput init mock error");
+            })
+}
+
+DorisFSDirectory::FSIndexOutputV2::~FSIndexOutputV2() {}
+
+void DorisFSDirectory::FSIndexOutputV2::flushBuffer(const uint8_t* b, const int32_t size) {
+    if (_index_v2_file_writer != nullptr && b != nullptr && size > 0) {
+        Slice data {b, (size_t)size};
+        DBUG_EXECUTE_IF(
+                "DorisFSDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_"
+                "flushBuffer",
+                { return; })
+        Status st = _index_v2_file_writer->append(data);
+        DBUG_EXECUTE_IF(
+                "DorisFSDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer", {
+                    st = Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "flush buffer mock error");
+                })
+        if (!st.ok()) {
+            LOG(WARNING) << "File IO Write error: " << st.to_string();
+            _CLTHROWA(CL_ERR_IO, "writer append data when flushBuffer error");
+        }
+    } else {
+        if (_index_v2_file_writer == nullptr) {
+            LOG(WARNING) << "File writer is nullptr in DorisFSDirectory::FSIndexOutputV2, "
+                            "ignore flush.";
+            _CLTHROWA(CL_ERR_IO, "flushBuffer error, _index_v2_file_writer = nullptr");
+        } else if (b == nullptr) {
+            LOG(WARNING) << "buffer is nullptr when flushBuffer in "
+                            "DorisFSDirectory::FSIndexOutput";
+        }
+    }
+}
+
+void DorisFSDirectory::FSIndexOutputV2::close() {
+    try {
+        BufferedIndexOutput::close();
+        DBUG_EXECUTE_IF(
+                "DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_"
+                "close",
+                {
+                    _CLTHROWA(CL_ERR_IO,
+                              "debug point: test throw error in bufferedindexoutput close");
+                })
+    } catch (CLuceneError& err) {
+        LOG(WARNING) << "FSIndexOutputV2 close, BufferedIndexOutput close error: " << err.what();
+        if (err.number() == CL_ERR_IO) {
+            LOG(WARNING) << "FSIndexOutputV2 close, BufferedIndexOutput close IO error: "
+                         << err.what();
+        }
+        _CLTHROWA(err.number(), err.what());
+    }
+    if (_index_v2_file_writer) {
+        auto ret = _index_v2_file_writer->close();
+        DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error",
+                        { ret = Status::Error<INTERNAL_ERROR>("writer close status error"); })
+        if (!ret.ok()) {
+            LOG(WARNING) << "FSIndexOutputV2 close, stream sink file writer close error: "
+                         << ret.to_string();
+            _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
+        }
+    } else {
+        LOG(WARNING) << "File writer is nullptr, ignore finalize and close.";
+        _CLTHROWA(CL_ERR_IO, "close file writer error, _index_v2_file_writer = nullptr");
+    }
+}
+
+int64_t DorisFSDirectory::FSIndexOutputV2::length() const {
+    CND_PRECONDITION(_index_v2_file_writer != nullptr, "file is not open");
+    return _index_v2_file_writer->bytes_appended();
+}
+
 DorisFSDirectory::DorisFSDirectory() {
     filemode = 0644;
     this->lockFactory = nullptr;
@@ -501,6 +596,12 @@ lucene::store::IndexOutput* DorisFSDirectory::createOutput(const char* name) {
         LOG(WARNING) << "FSIndexOutput init error: " << err.what();
         _CLTHROWA(CL_ERR_IO, "FSIndexOutput init error");
     }
+    return ret;
+}
+
+lucene::store::IndexOutput* DorisFSDirectory::createOutputV2(io::FileWriter* file_writer) {
+    auto* ret = _CLNEW FSIndexOutputV2();
+    ret->init(file_writer);
     return ret;
 }
 
