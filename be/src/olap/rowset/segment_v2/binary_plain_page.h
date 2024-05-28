@@ -44,12 +44,12 @@ namespace doris {
 namespace segment_v2 {
 
 template <FieldType Type>
-class BinaryPlainPageBuilder : public PageBuilder {
+class BinaryPlainPageBuilder : public PageBuilderHelper<BinaryPlainPageBuilder<Type>> {
 public:
-    BinaryPlainPageBuilder(const PageBuilderOptions& options)
-            : _size_estimate(0), _options(options) {
-        reset();
-    }
+    using Self = BinaryPlainPageBuilder<Type>;
+    friend class PageBuilderHelper<Self>;
+
+    Status init() override { return reset(); }
 
     bool is_page_full() override {
         bool ret = false;
@@ -108,7 +108,7 @@ public:
         return _buffer.build();
     }
 
-    void reset() override {
+    Status reset() override {
         _offsets.clear();
         _buffer.clear();
         _buffer.reserve(_options.data_page_size == 0
@@ -117,6 +117,7 @@ public:
         _size_estimate = sizeof(uint32_t);
         _finished = false;
         _last_value_size = 0;
+        return Status::OK();
     }
 
     size_t count() const override { return _offsets.size(); }
@@ -151,6 +152,9 @@ public:
     inline Slice get(std::size_t idx) const { return (*this)[idx]; }
 
 private:
+    BinaryPlainPageBuilder(const PageBuilderOptions& options)
+            : _size_estimate(0), _options(options) {}
+
     void _copy_value_at(size_t idx, faststring* value) const {
         size_t value_size =
                 (idx < _offsets.size() - 1) ? _offsets[idx + 1] - _offsets[idx] : _last_value_size;
