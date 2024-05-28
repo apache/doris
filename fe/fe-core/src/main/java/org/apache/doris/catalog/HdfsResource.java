@@ -49,6 +49,8 @@ public class HdfsResource extends Resource {
     public static String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
     public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
     public static String HADOOP_KERBEROS_AUTHORIZATION = "hadoop.security.authorization";
+    public static String HADOOP_KERBEROS_KEYTAB_LOGIN_AUTORENEWAL_ENABLED
+            = "hadoop.kerberos.keytab.login.autorenewal.enabled";
     public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
     public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
     public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";

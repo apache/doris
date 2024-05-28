@@ -909,7 +909,8 @@ public class HiveMetaStoreClientHelper {
         UserGroupInformation ugi = null;
         String authentication = conf.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, null);
         if (AuthType.KERBEROS.getDesc().equals(authentication)) {
-            conf.set("hadoop.security.authorization", "true");
+            conf.set(HdfsResource.HADOOP_KERBEROS_AUTHORIZATION, "true");
+            conf.set(HdfsResource.HADOOP_KERBEROS_KEYTAB_LOGIN_AUTORENEWAL_ENABLED, "true");
             UserGroupInformation.setConfiguration(conf);
             String principal = conf.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
             String keytab = conf.get(HdfsResource.HADOOP_KERBEROS_KEYTAB);
