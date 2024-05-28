@@ -452,14 +452,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
 
-        // Here, we only wait for the EventProcessor to finish processing the event,
-        // but regardless of the success or failure of the result,
-        // it does not affect the logic of transaction
-        // Generating an event here, rather than after the response returns,
-        // is because if the response returns before the event is generated, FE hangs up,
-        // this message will be lost. We can give more notifications, but we cannot lose messages
-        produceEvent(dbId, tableList);
-
         final CommitTxnRequest commitTxnRequest = builder.build();
         CommitTxnResponse commitTxnResponse = null;
         int retryTime = 0;
@@ -522,6 +514,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(txnState.getCommitTime() - txnState.getPrepareTime());
         }
         afterCommitTxnResp(commitTxnResponse);
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of transaction
+        try {
+            produceEvent(dbId, tableList);
+        } catch (Throwable t) {
+            // According to normal logic, no exceptions will be thrown,
+            // but in order to avoid bugs affecting the original logic, all exceptions are caught
+            LOG.warn("produceEvent failed: ", t);
+        }
     }
 
     private void produceEvent(long dbId, List<Table> tableList) {
