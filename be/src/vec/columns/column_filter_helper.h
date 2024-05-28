@@ -25,7 +25,6 @@ public:
     ColumnFilterHelper(IColumn&);
 
     void resize_fill(size_t size, UInt8 value);
-    void insert_null();
     void insert_value(UInt8 value);
     void reserve(size_t size);
 

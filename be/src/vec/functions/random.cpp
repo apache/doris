@@ -68,13 +68,12 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->get_num_args() == 1) {
                 // This is a call to RandSeed, initialize the seed
-                // TODO: should we support non-constant seed?
                 if (!context->is_col_constant(0)) {
                     return Status::InvalidArgument("Seed argument to rand() must be constant.");
                 }
                 uint32_t seed = 0;
                 if (!context->get_constant_col(0)->column_ptr->is_null_at(0)) {
-                    seed = context->get_constant_col(0)->column_ptr->get64(0);
+                    seed = (*context->get_constant_col(0)->column_ptr)[0].get<int64_t>();
                 }
                 generator->seed(seed);
             } else {

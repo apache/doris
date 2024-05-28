@@ -570,6 +570,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String BYPASS_WORKLOAD_GROUP = "bypass_workload_group";
 
+    public static final String MAX_COLUMN_READER_NUM = "max_column_reader_num";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -581,6 +583,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_STATS = "enable_stats";
 
     public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
+
+    public static final String FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS = "fetch_remote_schema_timeout_seconds";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -699,6 +703,9 @@ public class SessionVariable implements Serializable, Writable {
             "查询是否绕开WorkloadGroup的限制，目前仅支持绕开查询排队的逻辑",
             "whether bypass workload group's limitation, currently only support bypass query queue"})
     public boolean bypassWorkloadGroup = false;
+
+    @VariableMgr.VarAttr(name = MAX_COLUMN_READER_NUM)
+    public int maxColumnReaderNum = 20000;
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "";
@@ -1186,6 +1193,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
     private boolean enableNewCostModel = false;
+
+    @VariableMgr.VarAttr(name = "filter_cost_factor", needForward = true)
+    public double filterCostFactor = 0.0001;
 
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
@@ -1815,6 +1825,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = MIN_REVOCABLE_MEM, fuzzy = true)
     public long minRevocableMem = 32 * 1024 * 1024;
 
+    // fetch remote schema rpc timeout
+    @VariableMgr.VarAttr(name = FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS, fuzzy = true)
+    public long fetchRemoteSchemaTimeoutSeconds = 120;
+
     @VariableMgr.VarAttr(
             name = ENABLE_JOIN_SPILL,
             description = {"控制是否启用join算子落盘。默认为 false。",
@@ -2427,6 +2441,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getBypassWorkloadGroup() {
         return this.bypassWorkloadGroup;
+    }
+
+    public int getMaxColumnReaderNum() {
+        return this.maxColumnReaderNum;
     }
 
     public String getResourceGroup() {
@@ -3243,6 +3261,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setNumScannerThreads(numScannerThreads);
         tResult.setScannerScaleUpRatio(scannerScaleUpRatio);
+        tResult.setMaxColumnReaderNum(maxColumnReaderNum);
 
         // TODO chenhao, reservation will be calculated by cost
         tResult.setMinReservation(0);

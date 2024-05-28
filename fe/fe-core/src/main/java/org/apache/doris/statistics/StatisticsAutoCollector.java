@@ -181,6 +181,9 @@ public class StatisticsAutoCollector extends MasterDaemon {
             TableIf table, Set<Pair<String, String>> jobColumns, JobPriority priority) {
         AnalysisMethod analysisMethod = table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
+        if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()) {
+            analysisMethod = AnalysisMethod.FULL;
+        }
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
         long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 :
@@ -206,7 +209,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setTaskIds(new ArrayList<>())
                 .setLastExecTimeInMs(System.currentTimeMillis())
                 .setJobType(JobType.SYSTEM)
-                .setTblUpdateTime(table.getUpdateTime())
+                .setTblUpdateTime(System.currentTimeMillis())
                 .setRowCount(rowCount)
                 .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
                 .setPriority(priority)

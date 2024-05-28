@@ -37,10 +37,13 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,lakesoul
   "
     exit 1
 }
+COMPONENTS=$2
+HELP=0
+STOP=0
 
 if ! OPTS="$(getopt \
     -n "$0" \
@@ -53,10 +56,6 @@ if ! OPTS="$(getopt \
 fi
 
 eval set -- "${OPTS}"
-
-COMPONENTS=""
-HELP=0
-STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
@@ -92,7 +91,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,lakesoul"
         fi
     fi
 fi
@@ -103,6 +102,7 @@ fi
 
 if [[ "${COMPONENTS}"x == ""x ]]; then
     echo "Invalid arguments"
+    echo ${COMPONENTS}
     usage
 fi
 
@@ -135,6 +135,7 @@ RUN_KAFKA=0
 RUN_SPARK=0
 RUN_MARIADB=0
 RUN_DB2=0
+RUN_LAKESOUL=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -167,6 +168,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_MARIADB=1
     elif [[ "${element}"x == "db2"x ]];then
         RUN_DB2=1
+    elif [[ "${element}"x == "lakesoul"x ]]; then
+        RUN_LAKESOUL=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -288,7 +291,7 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
         declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone")
 
         for topic in "${topics[@]}"; do
-            echo "docker exec "${container_id}" bash -c echo '/opt/bitnami/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'" 
+            echo "docker exec "${container_id}" bash -c echo '/opt/bitnami/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'"
             docker exec "${container_id}" bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'"
         done
 
@@ -488,4 +491,36 @@ if [[ "${RUN_MARIADB}" -eq 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/mariadb/data/* -rf
         sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env up -d
     fi
+fi
+
+if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
+    echo "RUN_LAKESOUL"
+    cp "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml.tpl "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml down
+    sudo rm -rf "${ROOT}"/docker-compose/lakesoul/data
+    if [[ "${STOP}" -ne 1 ]]; then
+        echo "PREPARE_LAKESOUL_DATA"
+        sudo docker compose -f "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml up -d
+    fi
+    ## import tpch data into lakesoul
+    ## install rustup
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y
+    ## install rust nightly-2023-05-20
+    rustup install nightly-2023-05-20
+    ## download&generate tpch data
+    mkdir -p lakesoul/test_files/tpch/data
+    git clone https://github.com/databricks/tpch-dbgen.git
+    cd tpch-dbgen
+    make
+    ./dbgen -f -s 0.1
+    mv *.tbl ../lakesoul/test_files/tpch/data
+    cd ..
+    export TPCH_DATA=`realpath lakesoul/test_files/tpch/data`
+    ## import tpch data
+    git clone https://github.com/lakesoul-io/LakeSoul.git
+#    git checkout doris_dev
+    cd LakeSoul/rust
+    cargo test load_tpch_data --package lakesoul-datafusion --features=ci -- --nocapture
+
 fi

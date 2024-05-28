@@ -225,6 +225,10 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
+    if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
+        _timeout = request.query_options.execution_timeout;
+    }
+
     _runtime_profile = std::make_unique<RuntimeProfile>("PipelineContext");
     _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
     SCOPED_TIMER(_prepare_timer);
@@ -287,10 +291,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                     local_params.runtime_filter_params);
         }
-        if (local_params.__isset.topn_filter_source_node_ids) {
-            _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
-        } else {
-            _query_ctx->init_runtime_predicates({0});
+        if (local_params.__isset.topn_filter_descs) {
+            _query_ctx->init_runtime_predicates(local_params.topn_filter_descs);
         }
 
         _need_local_merge = request.__isset.parallel_instances;
@@ -375,6 +377,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
             }
             if (request.__isset.load_job_id) {
                 runtime_state->set_load_job_id(request.load_job_id);
+            }
+            if (request.__isset.wal_id) {
+                runtime_state->set_wal_id(request.wal_id);
             }
 
             runtime_state->set_desc_tbl(_desc_tbl);
@@ -1165,7 +1170,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             request.query_options.__isset.enable_distinct_streaming_aggregation &&
             request.query_options.enable_distinct_streaming_aggregation &&
             !tnode.agg_node.grouping_exprs.empty()) {
-            op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
+            op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs,
+                                                       _require_bucket_distribution));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
                    tnode.agg_node.use_streaming_preaggregation &&
@@ -1263,6 +1269,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             _pipeline_parent_map.push(op->node_id(), cur_pipe);
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         }
+        _require_bucket_distribution =
+                _require_bucket_distribution || op->require_data_distribution();
         break;
     }
     case TPlanNodeType::CROSS_JOIN_NODE: {
@@ -1325,9 +1333,11 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
         DataSinkOperatorXPtr sink;
         if (_runtime_state->enable_sort_spill()) {
-            sink.reset(new SpillSortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+            sink.reset(new SpillSortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                                  _require_bucket_distribution));
         } else {
-            sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+            sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                             _require_bucket_distribution));
         }
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
@@ -1364,7 +1374,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+        sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                             _require_bucket_distribution));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1424,7 +1435,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         return Status::InternalError("Unsupported exec type in pipelineX: {}",
                                      print_plan_node_type(tnode.node_type));
     }
-    _require_bucket_distribution = true;
 
     return Status::OK();
 }
@@ -1496,28 +1506,6 @@ Status PipelineFragmentContext::submit() {
     } else {
         return st;
     }
-}
-
-void PipelineFragmentContext::close_sink() {
-    for (auto& tasks : _tasks) {
-        auto& root_task = *tasks.begin();
-        auto st = root_task->close_sink(_prepared ? Status::RuntimeError("prepare failed")
-                                                  : Status::OK());
-        if (!st.ok()) {
-            LOG_WARNING("PipelineFragmentContext::close_sink() error").tag("msg", st.msg());
-        }
-    }
-}
-
-void PipelineFragmentContext::close_if_prepare_failed(Status st) {
-    for (auto& task : _tasks) {
-        for (auto& t : task) {
-            DCHECK(!t->is_pending_finish());
-            WARN_IF_ERROR(t->close(st), "close_if_prepare_failed failed: ");
-            close_a_pipeline();
-        }
-    }
-    _query_ctx->cancel(st, _fragment_id);
 }
 
 // If all pipeline tasks binded to the fragment instance are finished, then we could

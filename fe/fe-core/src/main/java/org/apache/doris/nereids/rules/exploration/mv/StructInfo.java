@@ -119,7 +119,7 @@ public class StructInfo {
             @Nullable Predicates predicates,
             Map<ExpressionPosition, Map<Expression, Expression>> shuttledExpressionsToExpressionsMap,
             Map<ExprId, Expression> namedExprIdAndExprMapping,
-            BitSet talbeIdSet) {
+            BitSet tableIdSet) {
         this.originalPlan = originalPlan;
         this.originalPlanId = originalPlanId;
         this.hyperGraph = hyperGraph;
@@ -128,7 +128,7 @@ public class StructInfo {
         this.topPlan = topPlan;
         this.bottomPlan = bottomPlan;
         this.relations = relations;
-        this.tableBitSet = talbeIdSet;
+        this.tableBitSet = tableIdSet;
         this.relationIdStructInfoNodeMap = relationIdStructInfoNodeMap;
         this.predicates = predicates;
         if (predicates == null) {
@@ -159,17 +159,19 @@ public class StructInfo {
             Map<ExpressionPosition, Map<Expression, Expression>> shuttledExpressionsToExpressionsMap,
             Map<ExprId, Expression> namedExprIdAndExprMapping,
             List<CatalogRelation> relations,
-            Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap) {
+            Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap,
+            BitSet hyperTableBitSet,
+            CascadesContext cascadesContext) {
 
         // Collect relations from hyper graph which in the bottom plan firstly
-        BitSet hyperTableBitSet = new BitSet();
         hyperGraph.getNodes().forEach(node -> {
             // plan relation collector and set to map
             Plan nodePlan = node.getPlan();
             List<CatalogRelation> nodeRelations = new ArrayList<>();
             nodePlan.accept(RELATION_COLLECTOR, nodeRelations);
             relations.addAll(nodeRelations);
-            nodeRelations.forEach(relation -> hyperTableBitSet.set((int) relation.getTable().getId()));
+            nodeRelations.forEach(relation -> hyperTableBitSet.set(
+                    cascadesContext.getStatementContext().getTableId(relation.getTable()).asInt()));
             // every node should only have one relation, this is for LogicalCompatibilityContext
             if (!nodeRelations.isEmpty()) {
                 relationIdStructInfoNodeMap.put(nodeRelations.get(0).getRelationId(), (StructInfoNode) node);
@@ -308,15 +310,13 @@ public class StructInfo {
         Map<ExpressionPosition, Map<Expression, Expression>> shuttledHashConjunctsToConjunctsMap =
                 new LinkedHashMap<>();
         Map<ExprId, Expression> namedExprIdAndExprMapping = new LinkedHashMap<>();
+        BitSet tableBitSet = new BitSet();
         boolean valid = collectStructInfoFromGraph(hyperGraph, topPlan, shuttledHashConjunctsToConjunctsMap,
                 namedExprIdAndExprMapping,
                 relationList,
-                relationIdStructInfoNodeMap);
-        // Get mapped table id in relation and set
-        BitSet tableBitSet = new BitSet();
-        for (CatalogRelation relation : relationList) {
-            tableBitSet.set(cascadesContext.getStatementContext().getTableId(relation.getTable()).asInt());
-        }
+                relationIdStructInfoNodeMap,
+                tableBitSet,
+                cascadesContext);
         return new StructInfo(originalPlan, originalPlanId, hyperGraph, valid, topPlan, bottomPlan,
                 relationList, relationIdStructInfoNodeMap, null, shuttledHashConjunctsToConjunctsMap,
                 namedExprIdAndExprMapping, tableBitSet);

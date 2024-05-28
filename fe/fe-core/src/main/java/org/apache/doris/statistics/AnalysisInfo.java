@@ -192,11 +192,8 @@ public class AnalysisInfo implements Writable {
     public final long updateRows;
 
     public final Map<Long, Long> partitionUpdateRows = new HashMap();
-    /**
-     *
-     * Used to store the newest partition version of tbl when creating this job.
-     * This variables would be saved by table stats meta.
-     */
+
+    @SerializedName("tblUpdateTime")
     public final long tblUpdateTime;
 
     @SerializedName("userInject")

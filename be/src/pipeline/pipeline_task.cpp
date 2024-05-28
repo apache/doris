@@ -54,7 +54,6 @@ PipelineTask::PipelineTask(
         int task_idx)
         : _index(task_id),
           _pipeline(pipeline),
-          _prepared(false),
           _opened(false),
           _state(state),
           _fragment_context(fragment_context),
@@ -82,7 +81,10 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_prepare_timer);
-
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::prepare", {
+        Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task prepare failed");
+        return status;
+    });
     {
         // set sink local state
         LocalSinkStateInfo info {_task_idx,
@@ -114,7 +116,6 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
         std::copy(deps.begin(), deps.end(),
                   std::inserter(_filter_dependencies, _filter_dependencies.end()));
     }
-    _prepared = true;
     return Status::OK();
 }
 
@@ -134,6 +135,11 @@ Status PipelineTask::_extract_dependencies() {
         }
         i++;
     }
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::_extract_dependencies", {
+        Status status = Status::Error<INTERNAL_ERROR>(
+                "fault_inject pipeline_task _extract_dependencies failed");
+        return status;
+    });
     {
         auto* local_state = _state->get_sink_local_state();
         _write_dependencies = local_state->dependencies();
@@ -164,7 +170,6 @@ void PipelineTask::_init_profile() {
 
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
 
-    _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
@@ -190,6 +195,10 @@ Status PipelineTask::_open() {
     RETURN_IF_ERROR(_state->get_sink_local_state()->open(_state));
     RETURN_IF_ERROR(_extract_dependencies());
     _block = doris::vectorized::Block::create_unique();
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::open", {
+        Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task open failed");
+        return status;
+    });
     _opened = true;
     return Status::OK();
 }
@@ -257,7 +266,10 @@ Status PipelineTask::execute(bool* eos) {
         return Status::OK();
     }
     int64_t time_spent = 0;
-
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::execute", {
+        Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");
+        return status;
+    });
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();
     Defer defer {[&]() {
@@ -275,7 +287,7 @@ Status PipelineTask::execute(bool* eos) {
         return Status::OK();
     }
     // The status must be runnable
-    if (!_opened) {
+    if (!_opened && !_fragment_context->is_canceled()) {
         RETURN_IF_ERROR(_open());
     }
 
@@ -304,6 +316,11 @@ Status PipelineTask::execute(bool* eos) {
             continue;
         }
         *eos = _eos;
+        DBUG_EXECUTE_IF("fault_inject::PipelineXTask::executing", {
+            Status status =
+                    Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task executing failed");
+            return status;
+        });
         // Pull block from operator chain
         if (!_dry_run) {
             SCOPED_TIMER(_get_block_timer);
@@ -427,10 +444,6 @@ Status PipelineTask::close(Status exec_status) {
         COUNTER_UPDATE(_task_profile->total_time_counter(), close_ns);
     }
     return s;
-}
-
-Status PipelineTask::close_sink(Status exec_status) {
-    return _sink->close(_state, exec_status);
 }
 
 std::string PipelineTask::debug_string() {

@@ -404,7 +404,6 @@ enum TOdbcTableType {
     PRESTO,
     OCEANBASE,
     OCEANBASE_ORACLE,
-    NEBULA,
     DB2
 }
 
@@ -618,6 +617,7 @@ enum TTableType {
     JDBC_TABLE,
     TEST_EXTERNAL_TABLE,
     MAX_COMPUTE_TABLE,
+    LAKESOUL_TABLE,
     TRINO_CONNECTOR_TABLE
 }
 

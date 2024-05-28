@@ -118,6 +118,9 @@ DECLARE_String(priority_networks);
 // performance moderate or compact, only tcmalloc compile
 DECLARE_String(memory_mode);
 
+// if true, process memory limit and memory usage based on cgroup memory info.
+DECLARE_mBool(enable_use_cgroup_memory_info);
+
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
 // or percentage of the physical memory ('<int>%').
@@ -549,6 +552,7 @@ DECLARE_Int32(brpc_heavy_work_pool_threads);
 DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
+DECLARE_mBool(enable_bthread_transmit_block);
 
 // The maximum amount of data that can be processed by a stream load
 DECLARE_mInt64(streaming_load_max_mb);
@@ -888,7 +892,7 @@ DECLARE_mString(kafka_debug);
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
-DECLARE_Int32(routine_load_consumer_pool_size);
+DECLARE_mInt32(routine_load_consumer_pool_size);
 
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
@@ -1234,7 +1238,6 @@ DECLARE_Bool(ignore_always_true_predicate_for_segment);
 
 // Dir of default timezone files
 DECLARE_String(default_tzfiles_path);
-DECLARE_Bool(use_doris_tzfile);
 
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
@@ -1349,6 +1352,8 @@ DECLARE_Int64(max_nonblock_close_thread_num);
 // The possibility that mem allocator throws an exception during memory allocation
 // This config is for test usage, be careful when changing it.
 DECLARE_mDouble(mem_alloc_fault_probability);
+// The time out milliseconds for remote fetch schema RPC
+DECLARE_mInt64(fetch_remote_schema_rpc_timeout_ms);
 
 #ifdef BE_TEST
 // test s3

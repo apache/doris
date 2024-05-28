@@ -361,6 +361,14 @@ struct THudiFileDesc {
     10: optional list<string> nested_fields;
 }
 
+struct TLakeSoulFileDesc {
+    1: optional list<string> file_paths;
+    2: optional list<string> primary_keys;
+    3: optional list<string> partition_descs;
+    4: optional string table_schema;
+    5: optional string options;
+}
+
 struct TTransactionalHiveDeleteDeltaDesc {
     1: optional string directory_location
     2: optional list<string> file_names
@@ -379,6 +387,7 @@ struct TTableFormatFileDesc {
     5: optional TTransactionalHiveDesc transactional_hive_params
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
+    8: optional TLakeSoulFileDesc lakesoul_params
 }
 
 enum TTextSerdeType {
@@ -732,12 +741,12 @@ struct TOlapScanNode {
   10: optional i64 sort_limit
   11: optional bool enable_unique_key_merge_on_write
   12: optional TPushAggOp push_down_agg_type_opt //Deprecated
-  13: optional bool use_topn_opt
+  13: optional bool use_topn_opt // Deprecated
   14: optional list<Descriptors.TOlapTableIndex> indexes_desc
   15: optional set<i32> output_column_unique_ids
   16: optional list<i32> distribute_column_ids
   17: optional i32 schema_version
-  18: optional list<i32> topn_filter_source_node_ids
+  18: optional list<i32> topn_filter_source_node_ids //deprecated, move to TPlanNode.106
 }
 
 struct TEqJoinCondition {
@@ -935,7 +944,7 @@ struct TSortNode {
 
   // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.           
   6: optional bool is_default_limit                                              
-  7: optional bool use_topn_opt
+  7: optional bool use_topn_opt // Deprecated
   8: optional bool merge_by_exchange
   9: optional bool is_analytic_sort
   10: optional bool is_colocate
@@ -1186,7 +1195,7 @@ struct TTopnFilterDesc {
   2: required bool is_asc
   3: required bool null_first 
   // scan node id -> expr on scan node
-  4: required map<Types.TPlanNodeId, Exprs.TExpr> targetNodeId_to_target_expr
+  4: required map<Types.TPlanNodeId, Exprs.TExpr> target_node_id_to_target_expr
 }
 
 // Specification of a runtime filter.
@@ -1237,7 +1246,7 @@ struct TRuntimeFilterDesc {
   // if bloom_filter_size_calculated_by_ndv=false, BE could calculate filter size according to the actural row count, and 
   // ignore bloom_filter_size_bytes
   14: optional bool bloom_filter_size_calculated_by_ndv;
- 
+
   // true, if join type is null aware like <=>. rf should dispose the case
   15: optional bool null_aware;
 
