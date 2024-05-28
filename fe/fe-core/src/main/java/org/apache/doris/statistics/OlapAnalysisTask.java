@@ -65,6 +65,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
+        if (killed) {
+            return;
+        }
         Set<String> partitionNames = info.colToPartitions.get(info.colName);
         if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod)
                 || partitionNames == null || partitionNames.isEmpty()) {
