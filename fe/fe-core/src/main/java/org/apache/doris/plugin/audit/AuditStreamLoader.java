@@ -107,11 +107,7 @@ public class AuditStreamLoader {
     }
 
     public LoadResponse loadBatch(StringBuilder sb, String clusterToken) {
-        Calendar calendar = Calendar.getInstance();
-        String label = String.format("_log_%s%02d%02d_%02d%02d%02d_%s",
-                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
-                calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
-                feIdentity);
+        String label = genLabel();
 
         HttpURLConnection feConn = null;
         HttpURLConnection beConn = null;
@@ -159,6 +155,15 @@ public class AuditStreamLoader {
                 beConn.disconnect();
             }
         }
+    }
+
+    private String genLabel() {
+        Calendar calendar = Calendar.getInstance();
+        return String.format("_log_%s%02d%02d_%02d%02d%02d_%s_%s",
+                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
+                calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
+                calendar.get(Calendar.MILLISECOND),
+                feIdentity);
     }
 
     public static class LoadResponse {
