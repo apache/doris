@@ -50,6 +50,10 @@ bvar::Adder<uint64_t> s3_file_reader_too_many_request_counter("s3_file_reader", 
 bvar::LatencyRecorder s3_bytes_per_read("s3_file_reader", "bytes_per_read"); // also QPS
 bvar::PerSecond<bvar::Adder<uint64_t>> s3_read_througthput("s3_file_reader", "s3_read_throughput",
                                                            &s3_bytes_read_total);
+// Although we can get QPS from s3_bytes_per_read, but s3_bytes_per_read only
+// record successfull request, and s3_get_request_qps will record all request.
+bvar::PerSecond<bvar::Adder<uint64_t>> s3_get_request_qps("s3_file_reader", "s3_get_request",
+                                                          &s3_file_reader_read_counter);
 
 Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolder> client,
                                             std::string bucket, std::string key,
@@ -130,11 +134,13 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
 
     int retry_count = 0;
-    const int base_wait_time = 1000; // Base wait time in milliseconds
-    const int max_wait_time = 8000;  // Maximum wait time in milliseconds
-    const int max_retries = 4;       // wait 1s, 2s, 4s, 8s for each backoff
+    const int base_wait_time = config::s3_read_base_wait_time_ms; // Base wait time in milliseconds
+    const int max_wait_time = config::s3_read_max_wait_time_ms; // Maximum wait time in milliseconds
+    const int max_retries = config::max_s3_client_retry; // wait 1s, 2s, 4s, 8s for each backoff
 
+    int total_sleep_time = 0;
     while (retry_count <= max_retries) {
+        s3_file_reader_read_counter << 1;
         auto outcome = client->GetObject(request);
         _s3_stats.total_get_request_counter++;
         if (!outcome.IsSuccess()) {
@@ -147,6 +153,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
                 std::this_thread::sleep_for(std::chrono::milliseconds(wait_time));
                 _s3_stats.too_many_request_err_counter++;
                 _s3_stats.too_many_request_sleep_time_ms += wait_time;
+                total_sleep_time += wait_time;
                 continue;
             } else {
                 // Handle other errors
@@ -161,8 +168,11 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         _s3_stats.total_bytes_read += bytes_req;
         s3_bytes_read_total << bytes_req;
         s3_bytes_per_read << bytes_req;
-        s3_file_reader_read_counter << 1;
         DorisMetrics::instance()->s3_bytes_read_total->increment(bytes_req);
+        if (retry_count > 0) {
+            LOG(INFO) << fmt::format("read s3 file {} succeed after {} times with {} ms sleeping",
+                                     _path.native(), retry_count, total_sleep_time);
+        }
         return Status::OK();
     }
     return Status::InternalError("failed to read from s3, exceeded maximum retries");
