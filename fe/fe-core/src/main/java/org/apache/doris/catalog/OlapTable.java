@@ -1995,6 +1995,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return keysNum;
     }
 
+    public String getKeyColAsString() {
+        StringBuilder str = new StringBuilder();
+        str.append("");
+        for (Column column : getBaseSchema()) {
+            if (column.isKey()) {
+                if (str.length() != 0) {
+                    str.append(",");
+                }
+                str.append(column.getName());
+            }
+        }
+        return str.toString();
+    }
+
     public boolean convertHashDistributionToRandomDistribution() {
         boolean hasChanged = false;
         if (defaultDistributionInfo.getType() == DistributionInfoType.HASH) {
