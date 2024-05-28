@@ -338,7 +338,7 @@ void ColumnNullable::insert_from(const IColumn& src, size_t n) {
     const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
     get_nested_column().insert_from(src_concrete.get_nested_column(), n);
     auto is_null = src_concrete.get_null_map_data()[n];
-    _update_has_null(is_null);
+    _has_null |= is_null;
     _get_null_map_data().push_back(is_null);
 }
 
@@ -608,12 +608,12 @@ void ColumnNullable::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 
 void ColumnNullable::_update_has_null() {
     const UInt8* null_pos = _get_null_map_data().data();
-    bool has_null = simd::contain_byte(null_pos, _get_null_map_data().size(), 1);
-    _update_has_null(has_null);
+    _has_null = simd::contain_byte(null_pos, _get_null_map_data().size(), 1);
+    _need_update_has_null = false;
 }
 
 bool ColumnNullable::has_null(size_t size) const {
-    if (!_need_update_has_null && !_has_null) {
+    if (!_has_null && !_need_update_has_null) {
         return false;
     }
     const UInt8* null_pos = get_null_map_data().data();

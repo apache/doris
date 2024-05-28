@@ -136,7 +136,7 @@ public:
         assert_cast<ColumnType*>(nested_column.get())
                 ->insert_from(src_concrete.get_nested_column(), n);
         auto is_null = src_concrete.get_null_map_data()[n];
-        _update_has_null(is_null);
+        _has_null |= is_null;
         _get_null_map_data().push_back(is_null);
     }
 
@@ -415,16 +415,7 @@ private:
     WrappedPtr null_map;
 
     bool _need_update_has_null = true;
-    bool _has_null;
-
-    void _update_has_null(bool has_null) {
-        if (_need_update_has_null) {
-            _has_null = has_null;
-            _need_update_has_null = false;
-        } else {
-            _has_null |= has_null;
-        }
-    }
+    bool _has_null = true;
 
     void _update_has_null();
     template <bool negative>

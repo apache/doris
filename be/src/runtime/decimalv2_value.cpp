@@ -24,6 +24,7 @@
 #include <iostream>
 #include <utility>
 
+#include "util/frame_of_reference_coding.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
@@ -58,9 +59,9 @@ static int clz128(unsigned __int128 v) {
     if (v == 0) return sizeof(__int128);
     unsigned __int128 shifted = v >> 64;
     if (shifted != 0) {
-        return __builtin_clzll(shifted);
+        return leading_zeroes(shifted);
     } else {
-        return __builtin_clzll(v) + 64;
+        return leading_zeroes(v) + 64;
     }
 }
 

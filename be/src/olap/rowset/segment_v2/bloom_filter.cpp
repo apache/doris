@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/block_split_bloom_filter.h"
 #include "olap/rowset/segment_v2/ngram_bloom_filter.h"
+#include "util/frame_of_reference_coding.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -43,12 +44,7 @@ Status BloomFilter::create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<Blo
 }
 
 uint32_t BloomFilter::used_bits(uint64_t value) {
-    // counting leading zero, builtin function, this will generate BSR(Bit Scan Reverse)
-    // instruction for X86
-    if (value == 0) {
-        return 0;
-    }
-    return 64 - __builtin_clzll(value);
+    return 64 - leading_zeroes(value);
 }
 
 uint32_t BloomFilter::optimal_bit_num(uint64_t n, double fpp) {
