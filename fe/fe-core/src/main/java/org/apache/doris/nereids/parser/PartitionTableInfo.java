@@ -34,6 +34,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
@@ -160,6 +161,8 @@ public class PartitionTableInfo {
      * @param isEnableMergeOnWrite whether enable merge on write
      */
     public void validatePartitionInfo(
+            String engineName,
+            List<ColumnDefinition> columns,
             Map<String, ColumnDefinition> columnMap,
             Map<String, String> properties,
             ConnectContext ctx,
@@ -189,6 +192,27 @@ public class PartitionTableInfo {
             if (!duplicatesKeys.isEmpty()) {
                 throw new AnalysisException(
                         "Duplicated partition column " + duplicatesKeys.get(0));
+            }
+
+            if (engineName.equals(CreateTableInfo.ENGINE_HIVE)) {
+                // 1. Cannot set all columns as partitioning columns
+                // 2. The partition field must be at the end of the schema
+                // 3. The order of partition fields in the schema
+                //    must be consistent with the order defined in `PARTITIONED BY LIST()`
+                if (partitionColumns.size() == columns.size()) {
+                    throw new AnalysisException("Cannot set all columns as partitioning columns.");
+                }
+                List<ColumnDefinition> partitionInSchema = columns.subList(
+                        columns.size() - partitionColumns.size(), columns.size());
+                for (int i = 0; i < partitionInSchema.size(); i++) {
+                    if (!partitionColumns.contains(partitionInSchema.get(i).getName())) {
+                        throw new AnalysisException("The partition field must be at the end of the schema.");
+                    }
+                    if (!partitionInSchema.get(i).getName().equals(partitionColumns.get(i))) {
+                        throw new AnalysisException("The order of partition fields in the schema "
+                            + "must be consistent with the order defined in `PARTITIONED BY LIST()`");
+                    }
+                }
             }
 
             if (partitionDefs != null) {
