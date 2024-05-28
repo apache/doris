@@ -31,19 +31,19 @@
 namespace doris {
 namespace vectorized {
 
-VHivePartitionWriter::VHivePartitionWriter(
-        const TDataSink& t_sink, std::string partition_name, TUpdateMode::type update_mode,
-        const VExprContextSPtrs& output_expr_ctxs, const VExprContextSPtrs& write_output_expr_ctxs,
-        const std::set<size_t>& non_write_columns_indices, const std::vector<THiveColumn>& columns,
-        WriteInfo write_info, std::string file_name, int file_name_index,
-        TFileFormatType::type file_format_type, TFileCompressType::type hive_compress_type,
-        const std::map<std::string, std::string>& hadoop_conf)
+VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,
+                                           TUpdateMode::type update_mode,
+                                           const VExprContextSPtrs& write_output_expr_ctxs,
+                                           std::vector<std::string> write_column_names,
+                                           WriteInfo write_info, std::string file_name,
+                                           int file_name_index,
+                                           TFileFormatType::type file_format_type,
+                                           TFileCompressType::type hive_compress_type,
+                                           const std::map<std::string, std::string>& hadoop_conf)
         : _partition_name(std::move(partition_name)),
           _update_mode(update_mode),
-          _vec_output_expr_ctxs(output_expr_ctxs),
           _write_output_expr_ctxs(write_output_expr_ctxs),
-          _non_write_columns_indices(non_write_columns_indices),
-          _columns(columns),
+          _write_column_names(std::move(write_column_names)),
           _write_info(std::move(write_info)),
           _file_name(std::move(file_name)),
           _file_name_index(file_name_index),
@@ -62,14 +62,6 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
             _write_info.file_type, state->exec_env(), broker_addresses, _hadoop_conf,
             fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()), 0, _file_writer,
             &file_writer_options));
-
-    std::vector<std::string> column_names;
-    column_names.reserve(_columns.size());
-    for (int i = 0; i < _columns.size(); i++) {
-        if (_non_write_columns_indices.find(i) == _non_write_columns_indices.end()) {
-            column_names.emplace_back(_columns[i].name);
-        }
-    }
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
@@ -94,7 +86,7 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
         }
         }
         _file_format_transformer.reset(new VParquetTransformer(
-                state, _file_writer.get(), _write_output_expr_ctxs, std::move(column_names),
+                state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names,
                 parquet_compression_type, parquet_disable_dictionary, TParquetVersion::PARQUET_1_0,
                 false));
         return _file_format_transformer->open();
@@ -125,7 +117,7 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
 
         _file_format_transformer.reset(
                 new VOrcTransformer(state, _file_writer.get(), _write_output_expr_ctxs,
-                                    std::move(column_names), false, orc_compression_type));
+                                    _write_column_names, false, orc_compression_type));
         return _file_format_transformer->open();
     }
     default: {
@@ -156,41 +148,10 @@ Status VHivePartitionWriter::close(const Status& status) {
     return Status::OK();
 }
 
-Status VHivePartitionWriter::write(vectorized::Block& block, vectorized::IColumn::Filter* filter) {
-    Block output_block;
-    RETURN_IF_ERROR(_projection_and_filter_block(block, filter, &output_block));
-    RETURN_IF_ERROR(_file_format_transformer->write(output_block));
-    _row_count += output_block.rows();
+Status VHivePartitionWriter::write(vectorized::Block& block) {
+    RETURN_IF_ERROR(_file_format_transformer->write(block));
+    _row_count += block.rows();
     return Status::OK();
-}
-
-Status VHivePartitionWriter::_projection_and_filter_block(doris::vectorized::Block& input_block,
-                                                          const vectorized::IColumn::Filter* filter,
-                                                          doris::vectorized::Block* output_block) {
-    Status status = Status::OK();
-    if (input_block.rows() == 0) {
-        return status;
-    }
-    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _vec_output_expr_ctxs, input_block, output_block, true));
-    materialize_block_inplace(*output_block);
-
-    if (filter == nullptr) {
-        return status;
-    }
-
-    std::vector<uint32_t> columns_to_filter;
-    int column_to_keep = input_block.columns();
-    columns_to_filter.resize(column_to_keep);
-    for (uint32_t i = 0; i < column_to_keep; ++i) {
-        columns_to_filter[i] = i;
-    }
-
-    Block::filter_block_internal(output_block, columns_to_filter, *filter);
-
-    output_block->erase(_non_write_columns_indices);
-
-    return status;
 }
 
 THivePartitionUpdate VHivePartitionWriter::_build_partition_update() {
