@@ -1704,7 +1704,7 @@ public class Config extends ConfigBase {
      * if we have a lot of async tasks, we need more threads to consume them. Sure, it's depends on the cpu cores.
      */
     @ConfField
-    public static int async_task_consumer_thread_num = 5;
+    public static int async_task_consumer_thread_num = 64;
 
     /**
      * When job is finished, it will be saved in job manager for a while.
@@ -2618,6 +2618,13 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_advance_next_id = false;
 
+    // The count threshold to do manual GC when doing checkpoint but not enough memory.
+    // Set zero to disable it.
+    @ConfField(description = {
+            "如果 checkpoint 连续多次因内存不足而无法进行时，先尝试手动触发 GC",
+            "The threshold to do manual GC when doing checkpoint but not enough memory"})
+    public static int checkpoint_manual_gc_threshold = 0;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
@@ -2841,6 +2848,7 @@ public class Config extends ConfigBase {
     @ConfField(description = {"存算分离模式下streamload导入使用的转发策略, 可选值为public-private或者空",
             "streamload route policy in cloud mode, availale options are public-private and empty string"})
     public static String streamload_redirect_policy = "";
+
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

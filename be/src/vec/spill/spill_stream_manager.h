@@ -64,6 +64,8 @@ public:
         return _spill_data_limit_bytes;
     }
 
+    std::string debug_string();
+
 private:
     bool _reach_disk_capacity_limit(int64_t incoming_data_size);
     double _get_disk_usage(int64_t incoming_data_size) const {
@@ -110,7 +112,7 @@ public:
 
     void async_cleanup_query(TUniqueId query_id);
 
-    void gc(int64_t max_file_count);
+    void gc(int32_t max_work_time_ms);
 
     ThreadPool* get_spill_io_thread_pool() const { return _spill_io_thread_pool.get(); }
 

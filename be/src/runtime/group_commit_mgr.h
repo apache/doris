@@ -41,6 +41,13 @@ class ExecEnv;
 class TUniqueId;
 class RuntimeState;
 
+struct BlockData {
+    BlockData(const std::shared_ptr<vectorized::Block>& block)
+            : block(block), block_bytes(block->bytes()) {};
+    std::shared_ptr<vectorized::Block> block;
+    size_t block_bytes;
+};
+
 class LoadBlockQueue {
 public:
     LoadBlockQueue(const UniqueId& load_instance_id, std::string& label, int64_t txn_id,
@@ -94,7 +101,7 @@ private:
 
     // the set of load ids of all blocks in this queue
     std::set<UniqueId> _load_ids;
-    std::list<std::shared_ptr<vectorized::Block>> _block_queue;
+    std::list<BlockData> _block_queue;
 
     // wal
     std::string _wal_base_path;
