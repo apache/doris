@@ -34,6 +34,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
+#include "util/debug_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
@@ -166,6 +167,7 @@ Status VOrcTransformer::open() {
     } catch (const std::exception& e) {
         return Status::InternalError("failed to create writer: {}", e.what());
     }
+    _writer->addUserMetadata("CreatedBy", doris::get_short_version());
     return Status::OK();
 }
 
@@ -192,6 +194,7 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
     }
     case TYPE_BIGINT: {
         type = orc::createPrimitiveType(orc::LONG);
+        type->setAttribute(ICEBERG_LONG_TYPE, "LONG");
         break;
     }
     case TYPE_FLOAT: {

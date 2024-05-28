@@ -20,11 +20,11 @@
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/materialize_block.h"
 #include "vec/exec/format/table/iceberg/partition_spec_parser.h"
 #include "vec/exec/format/table/iceberg/schema_parser.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vslot_ref.h"
 #include "vec/sink/writer/iceberg/partition_transformers.h"
 #include "vec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "vec/sink/writer/vhive_utils.h"
@@ -107,8 +107,16 @@ VIcebergTableWriter::_to_iceberg_partition_columns() {
 
 Status VIcebergTableWriter::write(vectorized::Block& block) {
     SCOPED_RAW_TIMER(&_send_data_ns);
+    if (block.rows() == 0) {
+        return Status::OK();
+    }
+    Block output_block;
+    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+            _vec_output_expr_ctxs, block, &output_block, false));
+    materialize_block_inplace(output_block);
+
     std::unordered_map<std::shared_ptr<VIcebergPartitionWriter>, IColumn::Filter> writer_positions;
-    _row_count += block.rows();
+    _row_count += output_block.rows();
 
     if (_iceberg_partition_columns.empty()) {
         std::shared_ptr<VIcebergPartitionWriter> writer;
@@ -117,7 +125,7 @@ Status VIcebergTableWriter::write(vectorized::Block& block) {
             auto writer_iter = _partitions_to_writers.find("");
             if (writer_iter == _partitions_to_writers.end()) {
                 try {
-                    writer = _create_partition_writer(block, -1);
+                    writer = _create_partition_writer(output_block, -1);
                 } catch (doris::Exception& e) {
                     return e.to_status();
                 }
@@ -133,7 +141,7 @@ Status VIcebergTableWriter::write(vectorized::Block& block) {
                     }
                     _partitions_to_writers.erase(writer_iter);
                     try {
-                        writer = _create_partition_writer(block, -1, &file_name,
+                        writer = _create_partition_writer(output_block, -1, &file_name,
                                                           file_name_index + 1);
                     } catch (doris::Exception& e) {
                         return e.to_status();
@@ -146,7 +154,8 @@ Status VIcebergTableWriter::write(vectorized::Block& block) {
             }
         }
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
-        RETURN_IF_ERROR(writer->write(block));
+        output_block.erase(_non_write_columns_indices);
+        RETURN_IF_ERROR(writer->write(output_block));
         return Status::OK();
     }
 
@@ -154,19 +163,10 @@ Status VIcebergTableWriter::write(vectorized::Block& block) {
         SCOPED_RAW_TIMER(&_partition_writers_dispatch_ns);
         _transformed_block.reserve(_iceberg_partition_columns.size());
         for (auto& iceberg_partition_columns : _iceberg_partition_columns) {
-            DCHECK(_vec_output_expr_ctxs[iceberg_partition_columns.source_idx()]
-                           ->root()
-                           ->is_slot_ref());
-            int partition_column_pos_in_block =
-                    ((vectorized::VSlotRef*)
-                             _vec_output_expr_ctxs[iceberg_partition_columns.source_idx()]
-                                     ->root()
-                                     .get())
-                            ->column_id();
             _transformed_block.insert(iceberg_partition_columns.partition_column_transform().apply(
-                    block, partition_column_pos_in_block));
+                    output_block, iceberg_partition_columns.source_idx()));
         }
-        for (int i = 0; i < block.rows(); ++i) {
+        for (int i = 0; i < output_block.rows(); ++i) {
             std::optional<PartitionData> partition_data;
             try {
                 partition_data = _get_partition_data(_transformed_block, i);
@@ -185,10 +185,10 @@ Status VIcebergTableWriter::write(vectorized::Block& block) {
                         const std::string* file_name, int file_name_index,
                         std::shared_ptr<VIcebergPartitionWriter>& writer_ptr) -> Status {
                 try {
-                    auto writer =
-                            _create_partition_writer(block, position, file_name, file_name_index);
+                    auto writer = _create_partition_writer(output_block, position, file_name,
+                                                           file_name_index);
                     RETURN_IF_ERROR(writer->open(_state, _profile));
-                    IColumn::Filter filter(block.rows(), 0);
+                    IColumn::Filter filter(output_block.rows(), 0);
                     filter[position] = 1;
                     writer_positions.insert({writer, std::move(filter)});
                     _partitions_to_writers.insert({partition_name, writer});
@@ -227,7 +227,7 @@ Status VIcebergTableWriter::write(vectorized::Block& block) {
                 }
                 auto writer_pos_iter = writer_positions.find(writer);
                 if (writer_pos_iter == writer_positions.end()) {
-                    IColumn::Filter filter(block.rows(), 0);
+                    IColumn::Filter filter(output_block.rows(), 0);
                     filter[i] = 1;
                     writer_positions.insert({writer, std::move(filter)});
                 } else {
@@ -237,9 +237,36 @@ Status VIcebergTableWriter::write(vectorized::Block& block) {
         }
     }
     SCOPED_RAW_TIMER(&_partition_writers_write_ns);
+    output_block.erase(_non_write_columns_indices);
     for (auto it = writer_positions.begin(); it != writer_positions.end(); ++it) {
-        RETURN_IF_ERROR(it->first->write(block, &it->second));
+        Block filtered_block;
+        RETURN_IF_ERROR(_filter_block(output_block, &it->second, &filtered_block));
+        RETURN_IF_ERROR(it->first->write(filtered_block));
     }
+    return Status::OK();
+}
+
+Status VIcebergTableWriter::_filter_block(doris::vectorized::Block& block,
+                                          const vectorized::IColumn::Filter* filter,
+                                          doris::vectorized::Block* output_block) {
+    const ColumnsWithTypeAndName& columns_with_type_and_name =
+            block.get_columns_with_type_and_name();
+    vectorized::ColumnsWithTypeAndName result_columns;
+    for (int i = 0; i < columns_with_type_and_name.size(); ++i) {
+        const auto& col = columns_with_type_and_name[i];
+        result_columns.emplace_back(col.column->clone_resized(col.column->size()), col.type,
+                                    col.name);
+    }
+    *output_block = {std::move(result_columns)};
+
+    std::vector<uint32_t> columns_to_filter;
+    int column_to_keep = output_block->columns();
+    columns_to_filter.resize(column_to_keep);
+    for (uint32_t i = 0; i < column_to_keep; ++i) {
+        columns_to_filter[i] = i;
+    }
+
+    Block::filter_block_internal(output_block, columns_to_filter, *filter);
     return Status::OK();
 }
 
@@ -332,9 +359,16 @@ std::shared_ptr<VIcebergPartitionWriter> VIcebergTableWriter::_create_partition_
             iceberg_table_sink.file_type};
 
     _write_file_count++;
+    std::vector<std::string> column_names;
+    column_names.reserve(_write_output_vexpr_ctxs.size());
+    for (int i = 0; i < _schema->columns().size(); i++) {
+        if (_non_write_columns_indices.find(i) == _non_write_columns_indices.end()) {
+            column_names.emplace_back(_schema->columns()[i].field_name());
+        }
+    }
     return std::make_shared<VIcebergPartitionWriter>(
-            _t_sink, std::move(partition_values), _vec_output_expr_ctxs, _write_output_vexpr_ctxs,
-            _non_write_columns_indices, *_schema, std::move(write_info),
+            _t_sink, std::move(partition_values), _write_output_vexpr_ctxs, *_schema,
+            &_t_sink.iceberg_table_sink.schema_json, std::move(column_names), std::move(write_info),
             (file_name == nullptr) ? _compute_file_name() : *file_name, file_name_index,
             iceberg_table_sink.file_format, iceberg_table_sink.compression_type,
             iceberg_table_sink.hadoop_config);

@@ -130,6 +130,7 @@ private:
 
     static constexpr const char* ORC_ICEBERG_ID_KEY = "iceberg.id";
     static constexpr const char* ORC_ICEBERG_REQUIRED_KEY = "iceberg.required";
+    static constexpr const char* ICEBERG_LONG_TYPE = "iceberg.long-type";
 };
 
 } // namespace doris::vectorized

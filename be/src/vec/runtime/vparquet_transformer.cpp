@@ -19,6 +19,7 @@
 
 #include <arrow/io/type_fwd.h>
 #include <arrow/table.h>
+#include <arrow/util/key_value_metadata.h>
 #include <glog/logging.h>
 #include <math.h>
 #include <parquet/column_writer.h>
@@ -46,6 +47,7 @@
 #include "util/arrow/row_batch.h"
 #include "util/arrow/utils.h"
 #include "util/binary_cast.hpp"
+#include "util/debug_util.h"
 #include "util/mysql_global.h"
 #include "util/types.h"
 #include "vec/columns/column.h"
@@ -202,13 +204,15 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
                                          TParquetCompressionType::type compression_type,
                                          bool parquet_disable_dictionary,
                                          TParquetVersion::type parquet_version,
-                                         bool output_object_data)
+                                         bool output_object_data,
+                                         const std::string* iceberg_schema_json)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_names(std::move(column_names)),
           _parquet_schemas(nullptr),
           _compression_type(compression_type),
           _parquet_disable_dictionary(parquet_disable_dictionary),
-          _parquet_version(parquet_version) {
+          _parquet_version(parquet_version),
+          _iceberg_schema_json(iceberg_schema_json) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
@@ -218,12 +222,14 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
                                          TParquetCompressionType::type compression_type,
                                          bool parquet_disable_dictionary,
                                          TParquetVersion::type parquet_version,
-                                         bool output_object_data)
+                                         bool output_object_data,
+                                         const std::string* iceberg_schema_json)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _parquet_schemas(&parquet_schemas),
           _compression_type(compression_type),
           _parquet_disable_dictionary(parquet_disable_dictionary),
-          _parquet_version(parquet_version) {
+          _parquet_version(parquet_version),
+          _iceberg_schema_json(iceberg_schema_json) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
@@ -237,6 +243,9 @@ Status VParquetTransformer::_parse_properties() {
         } else {
             builder.enable_dictionary();
         }
+        auto kv_metadata = std::make_shared<parquet::KeyValueMetadata>();
+        kv_metadata->Append("CreatedBy", doris::get_short_version());
+        builder.key_value_metadata(kv_metadata);
         _parquet_writer_properties = builder.build();
         _arrow_properties = parquet::ArrowWriterProperties::Builder()
                                     .enable_deprecated_int96_timestamps()
@@ -264,7 +273,9 @@ Status VParquetTransformer::_parse_schema() {
             fields.emplace_back(field);
         }
     }
-    _arrow_schema = arrow::schema(std::move(fields));
+    std::shared_ptr<arrow::KeyValueMetadata> schema_metadata =
+            arrow::KeyValueMetadata::Make({"iceberg.schema"}, {*_iceberg_schema_json});
+    _arrow_schema = arrow::schema(std::move(fields), std::move(schema_metadata));
     return Status::OK();
 }
 

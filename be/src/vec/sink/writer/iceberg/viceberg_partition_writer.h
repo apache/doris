@@ -53,10 +53,10 @@ public:
     };
 
     VIcebergPartitionWriter(const TDataSink& t_sink, std::vector<std::string> partition_values,
-                            const VExprContextSPtrs& output_expr_ctxs,
                             const VExprContextSPtrs& write_output_expr_ctxs,
-                            const std::set<size_t>& non_write_columns_indices,
-                            const doris::iceberg::Schema& schema, WriteInfo write_info,
+                            const doris::iceberg::Schema& schema,
+                            const std::string* iceberg_schema_json,
+                            std::vector<std::string> write_column_names, WriteInfo write_info,
                             std::string file_name, int file_name_index,
                             TFileFormatType::type file_format_type,
                             TFileCompressType::type compress_type,
@@ -66,7 +66,7 @@ public:
 
     Status open(RuntimeState* state, RuntimeProfile* profile);
 
-    Status write(vectorized::Block& block, IColumn::Filter* filter = nullptr);
+    Status write(vectorized::Block& block);
 
     Status close(const Status& status);
 
@@ -79,11 +79,6 @@ public:
 private:
     std::string _get_target_file_name();
 
-private:
-    Status _projection_and_filter_block(doris::vectorized::Block& input_block,
-                                        const vectorized::IColumn::Filter* filter,
-                                        doris::vectorized::Block* output_block);
-
     TIcebergCommitData _build_iceberg_commit_data();
 
     std::string _get_file_extension(TFileFormatType::type file_format_type,
@@ -95,11 +90,11 @@ private:
 
     size_t _row_count = 0;
 
-    const VExprContextSPtrs& _vec_output_expr_ctxs;
     const VExprContextSPtrs& _write_output_expr_ctxs;
-    const std::set<size_t>& _non_write_columns_indices;
 
     const doris::iceberg::Schema& _schema;
+    const std::string* _iceberg_schema_json;
+    std::vector<std::string> _write_column_names;
     WriteInfo _write_info;
     std::string _file_name;
     int _file_name_index;

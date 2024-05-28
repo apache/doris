@@ -22,6 +22,7 @@
 #include <optional>
 
 #include "util/runtime_profile.h"
+#include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/table/iceberg/partition_spec_parser.h"
@@ -106,6 +107,9 @@ private:
                                           int position);
 
     std::string _compute_file_name();
+
+    Status _filter_block(doris::vectorized::Block& block, const vectorized::IColumn::Filter* filter,
+                         doris::vectorized::Block* output_block);
 
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;
