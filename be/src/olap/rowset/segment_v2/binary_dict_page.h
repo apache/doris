@@ -57,9 +57,12 @@ enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
 // Data pages start with mode_ = DICT_ENCODING, when the size of dictionary
 // page go beyond the option_->dict_page_size, the subsequent data pages will switch
 // to string plain page automatically.
-class BinaryDictPageBuilder : public PageBuilder {
+class BinaryDictPageBuilder : public PageBuilderHelper<BinaryDictPageBuilder> {
 public:
-    BinaryDictPageBuilder(const PageBuilderOptions& options);
+    using Self = BinaryDictPageBuilder;
+    friend class PageBuilderHelper<Self>;
+
+    Status init() override;
 
     bool is_page_full() override;
 
@@ -67,7 +70,7 @@ public:
 
     OwnedSlice finish() override;
 
-    void reset() override;
+    Status reset() override;
 
     size_t count() const override;
 
@@ -80,6 +83,8 @@ public:
     Status get_last_value(void* value) const override;
 
 private:
+    BinaryDictPageBuilder(const PageBuilderOptions& options);
+
     PageBuilderOptions _options;
     bool _finished;
 
