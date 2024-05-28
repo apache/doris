@@ -1330,7 +1330,6 @@ struct TPlanNode {
 
   106: optional list<i32> topn_filter_source_node_ids
   107: optional i32 nereids_id
-  108: optional i64 estimated_cardinality
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first
