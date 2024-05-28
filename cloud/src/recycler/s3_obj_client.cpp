@@ -32,9 +32,9 @@
 namespace doris::cloud {
 
 #ifndef UNIT_TEST
-#define HELP_MACRO(ret, req, point_name)
+#define HELPER_MACRO(ret, req, point_name)
 #else
-#define HELP_MACRO(ret, req, point_name)                       \
+#define HELPER_MACRO(ret, req, point_name)                     \
     do {                                                       \
         std::pair p {&ret, &req};                              \
         [[maybe_unused]] auto ret_pair = [&p]() mutable {      \
@@ -48,7 +48,7 @@ namespace doris::cloud {
     [&]() -> decltype(auto) {                                   \
         using T = decltype((expr));                             \
         [[maybe_unused]] T t;                                   \
-        HELP_MACRO(t, request, point_name)                      \
+        HELPER_MACRO(t, request, point_name)                    \
         return (expr);                                          \
     }()
 
@@ -113,7 +113,8 @@ ObjectStorageResponse S3ObjClient::ListObjects(const ObjectStoragePathOptions& o
         const auto& result = outcome.GetResult();
         VLOG_DEBUG << "get " << result.GetContents().size() << " objects";
         for (const auto& obj : result.GetContents()) {
-            files->push_back({obj.GetKey().substr(opts.prefix.size() + 1), obj.GetSize()});
+            files->push_back({obj.GetKey().substr(opts.prefix.size() + 1), obj.GetSize(),
+                              obj.GetLastModified().Seconds()});
         }
         is_truncated = result.GetIsTruncated();
         request.SetContinuationToken(result.GetNextContinuationToken());
@@ -274,7 +275,7 @@ ObjectStorageResponse S3ObjClient::DeleteExpired(const ObjectStorageDeleteExpire
                             .tag("prefix", opts.path_opts.prefix)
                             .tag("key", obj.GetKey());
                 } else {
-                    expired_keys.push_back(relative_key);
+                    expired_keys.push_back(obj.GetKey());
                     LOG_INFO("delete expired object")
                             .tag("prefix", opts.path_opts.prefix)
                             .tag("key", obj.GetKey())
@@ -366,5 +367,5 @@ ObjectStorageResponse S3ObjClient::CheckVersioning(const ObjectStoragePathOption
 }
 
 #undef SYNC_POINT_HOOK_RETURN_VALUE
-#undef HELP_MACRO
+#undef HELPER_MACRO
 } // namespace doris::cloud
