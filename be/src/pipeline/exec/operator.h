@@ -496,9 +496,9 @@ public:
     [[nodiscard]] const std::vector<int>& dests_id() const { return _dests_id; }
 
     void set_dests_id(const std::vector<int>& dest_id) { _dests_id = dest_id; }
-    
+
     [[nodiscard]] int nereids_id() const { return _nereids_id; }
-    
+
     [[nodiscard]] int node_id() const { return _node_id; }
 
     [[nodiscard]] std::string get_name() const override { return _name; }
