@@ -163,7 +163,11 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
                                    paths[i].get_path());
         }
-        DCHECK_EQ(subcolumn->size(), old_num_rows);
+        if (subcolumn->size() != old_num_rows) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "subcolumn {} size missmatched, may contains duplicated entry",
+                                   paths[i].get_path());
+        }
         subcolumn->insert(std::move(values[i]), std::move(field_info));
     }
     // /// Insert default values to missed subcolumns.
