@@ -112,9 +112,11 @@ Status SpillSortSinkLocalState::setup_in_memory_sort_op(RuntimeState* state) {
 }
 
 SpillSortSinkOperatorX::SpillSortSinkOperatorX(ObjectPool* pool, int operator_id,
-                                               const TPlanNode& tnode, const DescriptorTbl& descs)
+                                               const TPlanNode& tnode, const DescriptorTbl& descs,
+                                               bool require_bucket_distribution)
         : DataSinkOperatorX(operator_id, tnode.node_id) {
-    _sort_sink_operator = std::make_unique<SortSinkOperatorX>(pool, operator_id, tnode, descs);
+    _sort_sink_operator = std::make_unique<SortSinkOperatorX>(pool, operator_id, tnode, descs,
+                                                              require_bucket_distribution);
 }
 
 Status SpillSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {

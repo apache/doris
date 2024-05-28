@@ -54,7 +54,6 @@ PipelineTask::PipelineTask(
         int task_idx)
         : _index(task_id),
           _pipeline(pipeline),
-          _prepared(false),
           _opened(false),
           _state(state),
           _fragment_context(fragment_context),
@@ -117,7 +116,6 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
         std::copy(deps.begin(), deps.end(),
                   std::inserter(_filter_dependencies, _filter_dependencies.end()));
     }
-    _prepared = true;
     return Status::OK();
 }
 
@@ -172,7 +170,6 @@ void PipelineTask::_init_profile() {
 
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
 
-    _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
