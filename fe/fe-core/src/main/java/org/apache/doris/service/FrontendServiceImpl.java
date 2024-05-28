@@ -56,6 +56,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
@@ -1031,6 +1032,26 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setPacket("".getBytes());
             return result;
         }
+        if (params.isGetGroupCommitLoadBeId()) {
+            final TMasterOpResult result = new TMasterOpResult();
+            try {
+                result.setGroupCommitLoadBeId(Env.getCurrentEnv().getGroupCommitManager()
+                        .selectBackendForGroupCommitInternal(params.groupCommitLoadTableId));
+            } catch (LoadException e) {
+                throw new TException(e.getMessage());
+            }
+            // just make the protocol happy
+            result.setPacket("".getBytes());
+            return result;
+        }
+        if (params.isUpdateLoadData()) {
+            final TMasterOpResult result = new TMasterOpResult();
+            Env.getCurrentEnv().getGroupCommitManager()
+                    .updateLoadData(params.backendId, params.receiveData);
+            // just make the protocol happy
+            result.setPacket("".getBytes());
+            return result;
+        }
         if (params.isSetCancelQeury() && params.isCancelQeury()) {
             if (!params.isSetQueryId()) {
                 throw new TException("a query id is needed to cancel a query");
@@ -1627,6 +1648,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             } else {
                 checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                         request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+            }
+        }
+        if (request.groupCommit) {
+            try {
+                long backendId = request.getBackendId();
+                Env.getCurrentEnv().getGroupCommitManager().updateLoadData(backendId, request.receiveBytes);
+            } catch (Exception e) {
+                LOG.warn("Failed to update group commit load data, {}", e.getMessage());
             }
         }
 

@@ -19,19 +19,28 @@ package org.apache.doris.load;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.LoadException;
+import org.apache.doris.common.util.SlidingWindowCounter;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeResponse;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 
 public class GroupCommitManager {
@@ -39,6 +48,11 @@ public class GroupCommitManager {
     private static final Logger LOG = LogManager.getLogger(GroupCommitManager.class);
 
     private Set<Long> blockedTableIds = new HashSet<>();
+
+    // Table id to BE id map. Only for group commit.
+    private Map<Long, Long> tableToBeMap = new ConcurrentHashMap<>();
+    // BE id to pressure map. Only for group commit.
+    private Map<Long, SlidingWindowCounter> bePressureMap = new ConcurrentHashMap<>();
 
     public boolean isBlock(long tableId) {
         return blockedTableIds.contains(tableId);
@@ -163,4 +177,74 @@ public class GroupCommitManager {
         return size;
     }
 
+    public Backend selectBackendForGroupCommit(long tableId, ConnectContext context) throws LoadException {
+        if (!Env.getCurrentEnv().isMaster()) {
+            try {
+                long backendId = new MasterOpExecutor(context).getGroupCommitLoadBeId(tableId);
+                return Env.getCurrentSystemInfo().getBackend(backendId);
+            } catch (Exception e) {
+                throw new LoadException(e.getMessage());
+            }
+        } else {
+            return Env.getCurrentSystemInfo().getBackend(selectBackendForGroupCommitInternal(tableId));
+        }
+    }
+
+    public long selectBackendForGroupCommitInternal(long tableId) throws LoadException {
+        LOG.info("group commit new strategy select be, tableToBeMap {}, bePressureMap {}", tableToBeMap.toString(),
+                bePressureMap.toString());
+        if (tableToBeMap.containsKey(tableId)) {
+            if (bePressureMap.get(tableToBeMap.get(tableId)).get() < 1073741824) {
+                return tableToBeMap.get(tableId);
+            } else {
+                tableToBeMap.remove(tableId);
+            }
+        }
+        List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        if (allBackendIds.isEmpty()) {
+            throw new LoadException("No alive backend");
+        }
+
+        Collections.shuffle(allBackendIds);
+        for (Long beId : allBackendIds) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+            if (!backend.isDecommissioned()) {
+                tableToBeMap.put(tableId, beId);
+                bePressureMap.put(beId, new SlidingWindowCounter(10));
+                return beId;
+            }
+        }
+        throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
+    }
+
+    public void updateLoadData(long backendId, long receiveData) {
+        if (backendId == -1) {
+            LOG.warn("invalid backend id: " + backendId);
+        }
+        if (!Env.getCurrentEnv().isMaster()) {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setThreadLocalInfo();
+            // set user to ADMIN_USER, so that we can get the proper resource tag
+            ctx.setQualifiedUser(Auth.ADMIN_USER);
+            ctx.setThreadLocalInfo();
+            try {
+                new MasterOpExecutor(ctx).updateLoadData(backendId, receiveData);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        } else {
+            updateLoadDataInternal(backendId, receiveData);
+        }
+    }
+
+    public void updateLoadDataInternal(long backendId, long receiveData) {
+        if (bePressureMap.containsKey(backendId)) {
+            bePressureMap.get(backendId).add(receiveData);
+            LOG.info("Update load data for backend {}, receiveData {}, bePressureMap {}", backendId, receiveData,
+                    bePressureMap.toString());
+        } else {
+            LOG.warn("can not find backend id: {}", backendId);
+        }
+    }
 }

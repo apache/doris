@@ -101,6 +101,17 @@ public class MasterOpExecutor {
         waitOnReplaying();
     }
 
+    public long getGroupCommitLoadBeId(long tableId) throws Exception {
+        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId));
+        waitOnReplaying();
+        return result.groupCommitLoadBeId;
+    }
+
+    public void updateLoadData(long backendId, long receiveData) throws Exception {
+        result = forward(buildUpdateLoadDataParams(backendId, receiveData));
+        waitOnReplaying();
+    }
+
     public void cancel() throws Exception {
         TUniqueId queryId = ctx.queryId();
         if (queryId == null) {
@@ -225,6 +236,35 @@ public class MasterOpExecutor {
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
         params.setSyncJournalOnly(true);
+        params.setDb(ctx.getDatabase());
+        params.setUser(ctx.getQualifiedUser());
+        // just make the protocol happy
+        params.setSql("");
+        return params;
+    }
+
+    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId) {
+        final TMasterOpRequest params = new TMasterOpRequest();
+        // node ident
+        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        params.setGetGroupCommitLoadBeId(true);
+        params.setGroupCommitLoadTableId(tableId);
+        params.setDb(ctx.getDatabase());
+        params.setUser(ctx.getQualifiedUser());
+        // just make the protocol happy
+        params.setSql("");
+        return params;
+    }
+
+    private TMasterOpRequest buildUpdateLoadDataParams(long backendId, long receiveData) {
+        final TMasterOpRequest params = new TMasterOpRequest();
+        // node ident
+        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        params.setUpdateLoadData(true);
+        params.setBackendId(backendId);
+        params.setReceiveData(receiveData);
         params.setDb(ctx.getDatabase());
         params.setUser(ctx.getQualifiedUser());
         // just make the protocol happy
