@@ -61,23 +61,6 @@ Status SpillStream::prepare() {
     return Status::OK();
 }
 
-void SpillStream::close() {
-    if (closed_) {
-        return;
-    }
-    VLOG_ROW << "closing: " << stream_id_;
-    closed_ = true;
-
-    if (writer_) {
-        (void)writer_->close();
-        writer_.reset();
-    }
-    if (reader_) {
-        (void)reader_->close();
-        reader_.reset();
-    }
-}
-
 const TUniqueId& SpillStream::query_id() const {
     return state_->query_id();
 }
@@ -94,13 +77,17 @@ Status SpillStream::spill_block(RuntimeState* state, const Block& block, bool eo
     RETURN_IF_ERROR(writer_->write(state, block, written_bytes));
     if (eof) {
         RETURN_IF_ERROR(writer_->close());
+        total_written_bytes_ = writer_->get_written_bytes();
         writer_.reset();
+    } else {
+        total_written_bytes_ = writer_->get_written_bytes();
     }
     return Status::OK();
 }
 
 Status SpillStream::spill_eof() {
     RETURN_IF_ERROR(writer_->close());
+    total_written_bytes_ = writer_->get_written_bytes();
     writer_.reset();
     return Status::OK();
 }
@@ -113,6 +100,10 @@ Status SpillStream::read_next_block_sync(Block* block, bool* eos) {
 
     RETURN_IF_ERROR(reader_->open());
     return reader_->read(block, eos);
+}
+
+void SpillStream::decrease_spill_data_usage() {
+    data_dir_->update_spill_data_usage(-total_written_bytes_);
 }
 
 } // namespace doris::vectorized
