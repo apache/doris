@@ -156,7 +156,7 @@ public class Statistics {
 
     public String printColumnStats() {
         StringBuilder builder = new StringBuilder();
-        for (Expression key: expressionToColumnStats.keySet()) {
+        for (Expression key : expressionToColumnStats.keySet()) {
             ColumnStatistic columnStatistic = expressionToColumnStats.get(key);
             builder.append("  ").append(key).append(" -> ").append(columnStatistic).append("\n");
         }
