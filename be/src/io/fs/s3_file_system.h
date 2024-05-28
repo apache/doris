@@ -40,6 +40,8 @@ class PooledThreadExecutor;
 } // namespace Aws::Utils::Threading
 
 namespace doris {
+class RuntimeProfile;
+
 namespace io {
 struct FileInfo;
 
@@ -56,7 +58,8 @@ struct FileInfo;
 // This class is thread-safe.(Except `set_xxx` method)
 class S3FileSystem final : public RemoteFileSystem {
 public:
-    static Status create(S3Conf s3_conf, std::string id, std::shared_ptr<S3FileSystem>* fs);
+    static Status create(S3Conf s3_conf, std::string id, RuntimeProfile* profile,
+                         std::shared_ptr<S3FileSystem>* fs);
     ~S3FileSystem() override;
     // Guarded by external lock.
     Status set_conf(S3Conf s3_conf);
@@ -105,7 +108,7 @@ protected:
     }
 
 private:
-    S3FileSystem(S3Conf&& s3_conf, std::string&& id);
+    S3FileSystem(S3Conf&& s3_conf, std::string&& id, RuntimeProfile* profile);
 
     template <typename AwsOutcome>
     std::string error_msg(const std::string& key, const AwsOutcome& outcome) const;
@@ -122,6 +125,7 @@ private:
     mutable std::mutex _client_mu;
     std::shared_ptr<Aws::S3::S3Client> _client;
     std::shared_ptr<Aws::Utils::Threading::PooledThreadExecutor> _executor;
+    RuntimeProfile* _profile = nullptr;
 };
 
 } // namespace io
