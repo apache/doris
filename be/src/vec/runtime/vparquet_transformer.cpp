@@ -272,9 +272,13 @@ Status VParquetTransformer::_parse_schema() {
             fields.emplace_back(field);
         }
     }
-    std::shared_ptr<arrow::KeyValueMetadata> schema_metadata =
-            arrow::KeyValueMetadata::Make({"iceberg.schema"}, {*_iceberg_schema_json});
-    _arrow_schema = arrow::schema(std::move(fields), std::move(schema_metadata));
+    if (_iceberg_schema_json != nullptr) {
+        std::shared_ptr<arrow::KeyValueMetadata> schema_metadata =
+                arrow::KeyValueMetadata::Make({"iceberg.schema"}, {*_iceberg_schema_json});
+        _arrow_schema = arrow::schema(std::move(fields), std::move(schema_metadata));
+    } else {
+        _arrow_schema = arrow::schema(std::move(fields));
+    }
     return Status::OK();
 }
 
