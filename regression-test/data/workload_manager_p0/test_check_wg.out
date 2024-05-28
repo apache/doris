@@ -4,6 +4,7 @@
 
 -- !select_wg --
 normal	cpu_share	10
+normal  enable_memory_overcommit	true
 normal	max_concurrency	2147483647
 normal	max_queue_size	0
 normal	memory_limit	30%
