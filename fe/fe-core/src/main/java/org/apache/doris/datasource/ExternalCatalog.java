@@ -372,7 +372,7 @@ public abstract class ExternalCatalog
         return allDatabases;
     }
 
-    public void onRefresh(boolean invalidCache) {
+    public synchronized void onRefresh(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
         synchronized (this.propLock) {

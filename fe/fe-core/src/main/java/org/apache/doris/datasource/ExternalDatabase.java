@@ -115,7 +115,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
     }
 
-    public void setUnInitialized(boolean invalidCache) {
+    public synchronized void setUnInitialized(boolean invalidCache) {
         this.initialized = false;
         this.invalidCacheInInit = invalidCache;
         if (extCatalog.getUseMetaCache().isPresent()) {
