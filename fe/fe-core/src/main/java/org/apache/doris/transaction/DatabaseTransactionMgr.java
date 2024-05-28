@@ -1340,16 +1340,18 @@ public class DatabaseTransactionMgr {
                     tabletWriteFailedReplicas.clear();
                     tabletVersionFailedReplicas.clear();
                     for (Replica replica : tablet.getReplicas()) {
-                        if (publishTasks.get(replica.getBackendId()) == null) {
-                            errorReplicaIds.add(replica.getId());
-                            continue;
+                        List<PublishVersionTask> publishVersionTasks = publishTasks.get(replica.getBackendId());
+                        Preconditions.checkState(publishVersionTasks == null || publishVersionTasks.size() == 1,
+                                "publish tasks: " + publishVersionTasks);
+                        PublishVersionTask publishVersionTask = null;
+                        if (publishVersionTasks != null) {
+                            publishVersionTask = publishVersionTasks.get(0);
                         }
-                        for (PublishVersionTask publishVersionTask : publishTasks.get(replica.getBackendId())) {
-                            checkReplicaContinuousVersionSucc(tablet.getId(), replica, alterReplicaLoadedTxn,
-                                    newVersion, publishVersionTask,
-                                    errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
-                                    tabletVersionFailedReplicas);
-                        }
+                        checkReplicaContinuousVersionSucc(tablet.getId(), replica, alterReplicaLoadedTxn,
+                                newVersion, publishVersionTask,
+                                errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
+                                tabletVersionFailedReplicas);
+
                     }
 
                     publishResult = checkQuorumReplicas(transactionState, tableId, partition, tablet,
@@ -2631,29 +2633,31 @@ public class DatabaseTransactionMgr {
                         // TODO always use the visible version because the replica version is not changed
                         long newVersion = partition.getVisibleVersion() + 1;
                         for (Replica replica : tablet.getReplicas()) {
-                            if (publishTasks.get(replica.getBackendId()) == null) {
-                                errorReplicaIds.add(replica.getId());
-                                continue;
-                            }
-                            for (PublishVersionTask publishVersionTask : publishTasks.get(replica.getBackendId())) {
-                                boolean needCheck = publishVersionTask.getTransactionId()
-                                        == subTransactionState.getSubTransactionId()
-                                        && publishVersionTask.getPartitionVersionInfos().stream()
-                                        .anyMatch(s -> s.getPartitionId() == partitionId);
-                                if (needCheck) {
-                                    checkReplicaContinuousVersionSucc(tablet.getId(), replica, alterReplicaLoadedTxn,
-                                            newVersion, publishVersionTask,
-                                            errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
-                                            tabletVersionFailedReplicas);
-                                    LOG.debug("after checkReplicaContinuousVersion for txn_id={}, sub_txn_id={}, "
-                                                    + "tablet_id={}, new_version={}, success_replicas={}, "
-                                                    + "error_replicas={}, write_failed_replicas={}, "
-                                                    + "version_failed_replicas={}", transactionState.getTransactionId(),
-                                            subTransactionState.getSubTransactionId(), tablet.getId(), newVersion,
-                                            tabletSuccReplicas, errorReplicaIds, tabletWriteFailedReplicas,
-                                            tabletVersionFailedReplicas);
+                            List<PublishVersionTask> publishVersionTasks = publishTasks.get(replica.getBackendId());
+                            PublishVersionTask publishVersionTask = null;
+                            if (publishVersionTasks != null) {
+                                List<PublishVersionTask> matchedTasks = publishVersionTasks.stream()
+                                        .filter(t -> t.getTransactionId() == subTransactionState.getSubTransactionId()
+                                                && t.getPartitionVersionInfos().stream()
+                                                .anyMatch(s -> s.getPartitionId() == partitionId))
+                                        .collect(Collectors.toList());
+                                Preconditions.checkState(matchedTasks.size() <= 1,
+                                        "matched publish tasks: " + matchedTasks);
+                                if (matchedTasks.size() == 1) {
+                                    publishVersionTask = matchedTasks.get(0);
                                 }
                             }
+                            checkReplicaContinuousVersionSucc(tablet.getId(), replica, alterReplicaLoadedTxn,
+                                    newVersion, publishVersionTask,
+                                    errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
+                                    tabletVersionFailedReplicas);
+                            LOG.debug("after checkReplicaContinuousVersion for txn_id={}, sub_txn_id={}, "
+                                            + "tablet_id={}, new_version={}, success_replicas={}, "
+                                            + "error_replicas={}, write_failed_replicas={}, "
+                                            + "version_failed_replicas={}", transactionState.getTransactionId(),
+                                    subTransactionState.getSubTransactionId(), tablet.getId(), newVersion,
+                                    tabletSuccReplicas, errorReplicaIds, tabletWriteFailedReplicas,
+                                    tabletVersionFailedReplicas);
                         }
 
                         publishResult = checkQuorumReplicas(transactionState, tableId, partition, tablet,
