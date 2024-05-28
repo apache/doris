@@ -2460,7 +2460,7 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
         auto multiplier = common::exp10_i128(std::abs(static_cast<int>(scale - 3)));
         // do devide first to avoid overflow
         // after round frac_value will be positive by design.
-        frac_value = std::abs(frac_value / multiplier) + 5;
+        frac_value = std::abs(static_cast<int>(frac_value / multiplier)) + 5;
         frac_value /= 10;
     } else if (scale < 2) {
         DCHECK(frac_value < 100);
@@ -2501,8 +2501,8 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
 
     memcpy(result_data + (append_sign_manually ? 1 : 0), p, integer_str_len);
     *(result_data + whole_decimal_str_len - 3) = '.';
-    *(result_data + whole_decimal_str_len - 2) = '0' + std::abs(frac_value / 10);
-    *(result_data + whole_decimal_str_len - 1) = '0' + std::abs(frac_value % 10);
+    *(result_data + whole_decimal_str_len - 2) = '0' + std::abs(static_cast<int>(frac_value / 10));
+    *(result_data + whole_decimal_str_len - 1) = '0' + std::abs(static_cast<int>(frac_value % 10));
     return result;
 };
 
