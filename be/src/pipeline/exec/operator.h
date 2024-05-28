@@ -496,6 +496,9 @@ public:
 
     [[nodiscard]] const std::vector<int>& dests_id() const { return _dests_id; }
 
+    [[nodiscard]] int nereids_id() const { return _nereids_id; }
+    [[nodiscard]] int64_t estimated_cardinality() const { return _estimated_cardinality; }
+
     void set_dests_id(const std::vector<int>& dest_id) { _dests_id = dest_id; }
 
     [[nodiscard]] int node_id() const { return _node_id; }
@@ -513,6 +516,8 @@ protected:
     // _dests_id : the target _operator_id of the sink, for example, in the case of a multi-sink, there are multiple targets.
     const int _operator_id;
     const int _node_id;
+    int _nereids_id = -1;
+    int64_t _estimated_cardinality;
     std::vector<int> _dests_id;
     std::string _name;
 
@@ -707,6 +712,9 @@ public:
     [[nodiscard]] int operator_id() const { return _operator_id; }
     [[nodiscard]] int node_id() const { return _node_id; }
 
+    [[nodiscard]] int nereids_id() const { return _nereids_id; }
+    [[nodiscard]] int64_t estimated_cardinality() const { return _estimated_cardinality; }
+
     [[nodiscard]] int64_t limit() const { return _limit; }
 
     [[nodiscard]] const RowDescriptor& row_desc() const override {
@@ -737,6 +745,8 @@ protected:
     friend class VScanner;
     const int _operator_id;
     const int _node_id; // unique w/in single plan tree
+    int _nereids_id = -1;
+    int64_t _estimated_cardinality;
     TPlanNodeType::type _type;
     ObjectPool* _pool = nullptr;
     std::vector<TupleId> _tuple_ids;

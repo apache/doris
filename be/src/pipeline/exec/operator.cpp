@@ -96,12 +96,22 @@ Status OperatorBase::close(RuntimeState* state) {
 
 template <typename SharedStateArg>
 std::string PipelineXLocalState<SharedStateArg>::name_suffix() const {
-    return " (id=" + std::to_string(_parent->node_id()) + ")";
+    return " (id=" + std::to_string(_parent->node_id()) + [&]() -> std::string {
+        if (_parent->nereids_id() == -1) {
+            return "";
+        }
+        return " , nereids_id=" + std::to_string(_parent->nereids_id());
+    }() + ")";
 }
 
 template <typename SharedStateArg>
 std::string PipelineXSinkLocalState<SharedStateArg>::name_suffix() {
-    return " (id=" + std::to_string(_parent->node_id()) + ")";
+    return " (id=" + std::to_string(_parent->node_id()) + [&]() -> std::string {
+        if (_parent->nereids_id() == -1) {
+            return "";
+        }
+        return " , nereids_id=" + std::to_string(_parent->nereids_id());
+    }() + ")";
 }
 
 DataDistribution DataSinkOperatorXBase::required_data_distribution() const {
@@ -140,6 +150,8 @@ std::string OperatorXBase::debug_string(RuntimeState* state, int indentation_lev
 
 Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     std::string node_name = print_plan_node_type(tnode.node_type);
+    _nereids_id = tnode.nereids_id;
+    _estimated_cardinality = tnode.estimated_cardinality;
     if (!tnode.intermediate_output_tuple_id_list.empty()) {
         if (!tnode.__isset.output_tuple_id) {
             return Status::InternalError("no final output tuple id");
@@ -356,6 +368,8 @@ Status DataSinkOperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) 
     auto substr = op_name.substr(0, op_name.find("_NODE"));
 
     _name = substr + "_SINK_OPERATOR";
+    _nereids_id = tnode.nereids_id;
+    _estimated_cardinality = tnode.estimated_cardinality;
     return Status::OK();
 }
 
@@ -439,6 +453,9 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
 
     _rows_returned_counter =
             ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
+    auto* _rows_returned_counter_estimated =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProducedEstimated", TUnit::UNIT, 1);
+    COUNTER_UPDATE(_rows_returned_counter_estimated, _parent->estimated_cardinality());
     _blocks_returned_counter =
             ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
     _projection_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ProjectionTime", 1);
@@ -516,6 +533,9 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
         _dependency = nullptr;
     }
     _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
+    auto* _rows_returned_counter_estimated =
+            ADD_COUNTER_WITH_LEVEL(_profile, "InputRowsEstimated", TUnit::UNIT, 1);
+    COUNTER_UPDATE(_rows_returned_counter_estimated, _parent->estimated_cardinality());
     _init_timer = ADD_TIMER_WITH_LEVEL(_profile, "InitTime", 1);
     _open_timer = ADD_TIMER_WITH_LEVEL(_profile, "OpenTime", 1);
     _close_timer = ADD_TIMER_WITH_LEVEL(_profile, "CloseTime", 1);
