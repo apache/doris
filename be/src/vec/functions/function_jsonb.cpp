@@ -447,7 +447,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        size_t result, size_t input_rows_count) override {
         ColumnPtr jsonb_data_column;
         bool jsonb_data_const = false;
         // prepare jsonb data column
