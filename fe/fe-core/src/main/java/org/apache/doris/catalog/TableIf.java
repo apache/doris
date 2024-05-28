@@ -540,10 +540,6 @@ public interface TableIf {
         return getType() == TableType.OLAP || getType() == TableType.MATERIALIZED_VIEW;
     }
 
-    default long getLastUpdateTime() {
-        return -1L;
-    }
-
     default long getDataSize(boolean singleReplica) {
         // TODO: Each tableIf should impl it by itself.
         return 0;
