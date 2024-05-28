@@ -616,7 +616,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             scanNode.setCardinality((long) fileScan.getStats().getRowCount());
         }
         Utils.execWithUncheckedException(scanNode::init);
-        context.addScanNode(scanNode);
+        context.addScanNode(scanNode, fileScan);
         ScanNode finalScanNode = scanNode;
         context.getRuntimeTranslator().ifPresent(
                 runtimeFilterGenerator -> runtimeFilterGenerator.getContext().getTargetListByScan(fileScan).forEach(
@@ -662,7 +662,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         esScanNode.setNereidsId(esScan.getId());
         esScanNode.addConjuncts(translateToLegacyConjuncts(esScan.getConjuncts()));
         Utils.execWithUncheckedException(esScanNode::init);
-        context.addScanNode(esScanNode);
+        context.addScanNode(esScanNode, esScan);
         context.getRuntimeTranslator().ifPresent(
                 runtimeFilterGenerator -> runtimeFilterGenerator.getContext().getTargetListByScan(esScan).forEach(
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, esScanNode, context)
@@ -687,7 +687,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         jdbcScanNode.setNereidsId(jdbcScan.getId());
         jdbcScanNode.addConjuncts(translateToLegacyConjuncts(jdbcScan.getConjuncts()));
         Utils.execWithUncheckedException(jdbcScanNode::init);
-        context.addScanNode(jdbcScanNode);
+        context.addScanNode(jdbcScanNode, jdbcScan);
         context.getRuntimeTranslator().ifPresent(
                 runtimeFilterGenerator -> runtimeFilterGenerator.getContext().getTargetListByScan(jdbcScan).forEach(
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, jdbcScanNode, context)
@@ -712,7 +712,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         odbcScanNode.setNereidsId(odbcScan.getId());
         odbcScanNode.addConjuncts(translateToLegacyConjuncts(odbcScan.getConjuncts()));
         Utils.execWithUncheckedException(odbcScanNode::init);
-        context.addScanNode(odbcScanNode);
+        context.addScanNode(odbcScanNode, odbcScan);
         context.getRuntimeTranslator().ifPresent(
                 runtimeFilterGenerator -> runtimeFilterGenerator.getContext().getTargetListByScan(odbcScan).forEach(
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, odbcScanNode, context)
@@ -787,7 +787,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // create scan range
         Utils.execWithUncheckedException(olapScanNode::init);
         // TODO: process collect scan node in one place
-        context.addScanNode(olapScanNode);
+        context.addScanNode(olapScanNode, olapScan);
         // TODO: process translate runtime filter in one place
         //   use real plan node to present rf apply and rf generator
         context.getRuntimeTranslator().ifPresent(
@@ -887,7 +887,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 )
         );
         Utils.execWithUncheckedException(scanNode::finalizeForNereids);
-        context.addScanNode(scanNode);
+        context.addScanNode(scanNode, schemaScan);
         PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, schemaScan);
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), schemaScan);
@@ -909,7 +909,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 )
         );
         Utils.execWithUncheckedException(scanNode::finalizeForNereids);
-        context.addScanNode(scanNode);
+        context.addScanNode(scanNode, tvfRelation);
 
         // TODO: it is weird update label in this way
         // set label for explain
