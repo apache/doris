@@ -262,7 +262,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
-import org.apache.doris.nereids.trees.expressions.PlaceholderExpr;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
@@ -495,11 +495,9 @@ import java.util.stream.Collectors;
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private final boolean forCreateView;
 
-    private int placeHolderExprId = 0;
-
     // Sort the parameters with token position to keep the order with original placeholders
     // in prepared statement.Otherwise, the order maybe broken
-    private Map<Token, PlaceholderExpr> tokenPosToParameters;
+    private Map<Token, Placeholder> tokenPosToParameters;
 
     public LogicalPlanBuilder() {
         forCreateView = false;
@@ -1018,7 +1016,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             logicalPlans.add(Pair.of(
                     ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext));
             if (tokenPosToParameters != null) {
-                List<PlaceholderExpr> params = new ArrayList<>(tokenPosToParameters.values());
+                List<Placeholder> params = new ArrayList<>(tokenPosToParameters.values());
                 statementContext.setParams(params);
                 tokenPosToParameters.clear();
             }
@@ -2345,7 +2343,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 return pos1.getCharPositionInLine() - pos2.getCharPositionInLine();
             });
         }
-        PlaceholderExpr parameter = new PlaceholderExpr(placeHolderExprId++);
+        Placeholder parameter = new Placeholder(ConnectContext.get().getStatementContext().getNextPlaceholderId());
         tokenPosToParameters.put(ctx.start, parameter);
         return parameter;
     }

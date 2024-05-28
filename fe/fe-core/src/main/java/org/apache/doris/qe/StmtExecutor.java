@@ -150,7 +150,6 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
-import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
 import org.apache.doris.nereids.trees.plans.commands.PreparedCommand;
@@ -682,6 +681,14 @@ public class StmtExecutor {
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+            if (isForwardToMaster()) {
+                throw new UserException("Forward master command is not supported for prepare statement");
+            }
+            logicalPlan = new PreparedCommand(String.valueOf(context.getStmtId()),
+                    logicalPlan, statementContext.getParams(), originStmt);
+
+        }
         // when we in transaction mode, we only support insert into command and transaction command
         if (context.isTxnModel()) {
             if (!(logicalPlan instanceof BatchInsertIntoTableCommand || logicalPlan instanceof InsertIntoTableCommand
@@ -691,25 +698,6 @@ public class StmtExecutor {
                         + "commit, rollback is acceptable.";
                 throw new NereidsException(errMsg, new AnalysisException(errMsg));
             }
-        }
-        if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
-            if (isForwardToMaster()) {
-                throw new UserException("Forward master command is not supported for prepare statement");
-            }
-            // register statement and return
-            handlePrepareStmt();
-            return;
-        }
-        if (context.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
-            ExecuteCommand executeStmt = (ExecuteCommand) parsedStmt;
-            preparedStmtCtx = context.getPreparedStmt(executeStmt.getStmtName());
-            if (null == preparedStmtCtx) {
-                throw new AnalysisException(
-                        "prepare statement " + executeStmt.getStmtName() + " not found,  maybe expired");
-            }
-            PreparedCommand prepareStmt = (PreparedCommand) preparedStmtCtx.stmt;
-            parsedStmt = prepareStmt.assignValues(executeStmt.getParams());
-            logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         }
         if (logicalPlan instanceof Command) {
             if (logicalPlan instanceof Forward) {
@@ -2606,16 +2594,7 @@ public class StmtExecutor {
     }
 
     private void handlePrepareStmt() throws Exception {
-        List<String> labels;
-        if (prepareStmt == null) {
-            // must be in nereids, todo remove original planner code
-            prepareStmt = new PreparedCommand(String.valueOf(context.getStmtId()),
-                    parsedStmt, statementContext.getParams());
-            labels = ((PreparedCommand) prepareStmt).getLabels();
-        } else {
-            // legacy planner
-            labels = ((PrepareStmt) prepareStmt).getColLabelsOfPlaceHolders();
-        }
+        List<String> labels = ((PrepareStmt) prepareStmt).getColLabelsOfPlaceHolders();
         // register prepareStmt
         if (LOG.isDebugEnabled()) {
             LOG.debug("add prepared statement {}, isBinaryProtocol {}",
@@ -2729,7 +2708,7 @@ public class StmtExecutor {
         return exprs.stream().map(e -> PrimitiveType.STRING).collect(Collectors.toList());
     }
 
-    private void sendStmtPrepareOK(int stmtId, List<String> labels) throws IOException {
+    public void sendStmtPrepareOK(int stmtId, List<String> labels) throws IOException {
         Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
         serializer.reset();

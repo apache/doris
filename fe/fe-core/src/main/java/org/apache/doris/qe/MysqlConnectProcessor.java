@@ -22,13 +22,19 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlProto;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
 import org.apache.doris.nereids.trees.plans.commands.PreparedCommand;
 
@@ -143,46 +149,53 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
     }
 
-    private void handleExecute(PreparedCommand prepareStmt, long stmtId) {
-        prepareStmt.setIsPrepared();
+    private void handleExecute(Command preparedCommand, long stmtId, PreparedStatementContext prepCtx) {
+        PreparedCommand prepareStmt = (PreparedCommand) preparedCommand;
         int paramCount = prepareStmt.getParamLen();
         LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
         // null bitmap
         String stmtStr = "";
         try {
-            List<Expression> realValueExprs = new ArrayList<>();
+            StatementContext statementContext = prepCtx.statementContext;
             if (paramCount > 0) {
                 byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
                 packetBuf.get(nullbitmapData);
                 // new_params_bind_flag
                 if ((int) packetBuf.get() != 0) {
+                    List<Placeholder> typedPlaceholders = new ArrayList<>();
                     // parse params's types
                     for (int i = 0; i < paramCount; ++i) {
                         int typeCode = packetBuf.getChar();
                         LOG.debug("code {}", typeCode);
-                        prepareStmt.params().get(i).setTypeCode(typeCode);
+                        // assign type to placeholders
+                        typedPlaceholders.add(
+                                prepareStmt.params().get(i).withNewMysqlColType(MysqlColType.fromCode(typeCode)));
                     }
+                    // rewrite with new prepared statment with type info in placeholders
+                    prepCtx.command = prepareStmt.withNewPreparedCommand(typedPlaceholders);
+                    prepareStmt = (PreparedCommand) prepCtx.command;
                 }
                 // parse param data
                 for (int i = 0; i < paramCount; ++i) {
+                    RelationId exprId = prepareStmt.params().get(i).getExprId();
                     if (isNull(nullbitmapData, i)) {
-                        realValueExprs.add(new org.apache.doris.nereids.trees.expressions.literal.NullLiteral());
+                        statementContext.getIdToPlaceholderRealExpr().put(exprId,
+                                    new org.apache.doris.nereids.trees.expressions.literal.NullLiteral());
                         continue;
                     }
-                    Literal l = Literal.getLiteralByMysqlType(
-                                prepareStmt.params().get(i).getMysqlTypeCode(), packetBuf);
-                    realValueExprs.add(l);
+                    MysqlColType type = prepareStmt.params().get(i).getMysqlColType();
+                    Literal l = Literal.getLiteralByMysqlType(type, packetBuf);
+                    statementContext.getIdToPlaceholderRealExpr().put(exprId, l);
                 }
             }
-            ExecuteCommand executeStmt = new ExecuteCommand(String.valueOf(stmtId), realValueExprs);
+            ExecuteCommand executeStmt = new ExecuteCommand(String.valueOf(stmtId), prepareStmt, statementContext);
             // TODO set real origin statement
-            executeStmt.setOrigStmt(new OriginStatement("null", 0));
-            executeStmt.setUserInfo(ctx.getCurrentUserIdentity());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("executeStmt {}", executeStmt);
             }
-            executeStmt.setOrigStmt(prepareStmt.getInnerStmt().getOrigStmt());
-            executor = new StmtExecutor(ctx, executeStmt);
+            StatementBase stmt = new LogicalPlanAdapter(executeStmt, statementContext);
+            stmt.setOrigStmt(prepareStmt.getOriginalStmt());
+            executor = new StmtExecutor(ctx, stmt);
             ctx.setExecutor(executor);
             executor.execute();
             stmtStr = executeStmt.toSql();
@@ -210,26 +223,24 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("execute prepared statement {}", stmtId);
         }
+
         PrepareStmtContext prepareCtx = ctx.getPreparedStmt(String.valueOf(stmtId));
-        if (prepareCtx == null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("No such statement in context, stmtId:{}", stmtId);
-            }
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
-                    "msg: Not supported such prepared statement");
-            return;
-        }
         ctx.setStartTime();
-        if (prepareCtx.stmt instanceof PrepareStmt) {
-            // legacy
+        if (prepareCtx != null) {
+            // get from lagacy planner context, to be removed
             handleExecute((PrepareStmt) prepareCtx.stmt, stmtId);
-        } else if (prepareCtx.stmt instanceof PreparedCommand) {
-            // nererids
-            handleExecute((PreparedCommand) prepareCtx.stmt, stmtId);
         } else {
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
-                    "msg: Not supported such prepared statement");
-            return;
+            // nererids
+            PreparedStatementContext preparedStatementContext = ctx.getPreparedStementContext(String.valueOf(stmtId));
+            if (preparedStatementContext == null) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("No such statement in context, stmtId:{}", stmtId);
+                }
+                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
+                        "msg: Not supported such prepared statement");
+                return;
+            }
+            handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext);
         }
     }
 

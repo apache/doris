@@ -30,7 +30,7 @@ import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.PlaceholderExpr;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -120,6 +120,11 @@ public class StatementContext implements Closeable {
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
 
+    // generate for next id for prepared statement's placeholders, which is connection level
+    private final IdGenerator<RelationId> placeHolderRelationIdGenerator = RelationId.createGenerator();
+    // relation id to placeholders for prepared statement
+    private final Map<RelationId, Expression> idToPlaceholderRealExpr = new HashMap<>();
+
     // collect all hash join conditions to compute node connectivity in join graph
     private final List<Expression> joinFilters = new ArrayList<>();
 
@@ -146,7 +151,7 @@ public class StatementContext implements Closeable {
     private final Stack<CloseableResource> plannerResources = new Stack<>();
 
     // placeholder params for prepared statement
-    private List<PlaceholderExpr> params;
+    private List<Placeholder> params;
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be replaced,
@@ -374,6 +379,14 @@ public class StatementContext implements Closeable {
         return consumerIdToFilters;
     }
 
+    public RelationId getNextPlaceholderId() {
+        return placeHolderRelationIdGenerator.getNextId();
+    }
+
+    public Map<RelationId, Expression> getIdToPlaceholderRealExpr() {
+        return idToPlaceholderRealExpr;
+    }
+
     public Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
         return cteIdToConsumerGroup;
     }
@@ -494,11 +507,11 @@ public class StatementContext implements Closeable {
         releasePlannerResources();
     }
 
-    public List<PlaceholderExpr> getParams() {
+    public List<Placeholder> getParams() {
         return params;
     }
 
-    public void setParams(List<PlaceholderExpr> params) {
+    public void setParams(List<Placeholder> params) {
         this.params = params;
     }
 

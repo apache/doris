@@ -20,36 +20,28 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.DataType;
 
 /**
  * Placeholder for prepared statement
  */
-public class PlaceholderExpr extends Expression {
-    private final int exprId;
-    private Expression expr;
+public class Placeholder extends Expression {
+    private final RelationId exprId;
+    private final MysqlColType mysqlColType;
 
-    private MysqlColType mysqlTypeCode;
-
-    public PlaceholderExpr(int exprId) {
+    public Placeholder(RelationId exprId) {
         this.exprId = exprId;
+        this.mysqlColType = null;
     }
 
-    protected PlaceholderExpr(int exprId, Expression expr) {
+    public Placeholder(RelationId exprId, MysqlColType mysqlColType) {
         this.exprId = exprId;
-        this.expr = expr;
+        this.mysqlColType = mysqlColType;
     }
 
-    public Expression getExpr() {
-        return expr;
-    }
-
-    public int getExprId() {
+    public RelationId getExprId() {
         return exprId;
-    }
-
-    public void setExpr(Expression expr) {
-        this.expr = expr;
     }
 
     @Override
@@ -57,17 +49,9 @@ public class PlaceholderExpr extends Expression {
         return visitor.visitPlaceholderExpr(this, context);
     }
 
-    public void setTypeCode(int mysqlTypeCode) {
-        this.mysqlTypeCode = MysqlColType.fromCode(mysqlTypeCode);
-    }
-
-    public MysqlColType getMysqlTypeCode() {
-        return mysqlTypeCode;
-    }
-
     @Override
     public boolean nullable() {
-        return expr.nullable();
+        return true;
     }
 
     @Override
@@ -77,6 +61,14 @@ public class PlaceholderExpr extends Expression {
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return expr.getDataType();
+        return null;
+    }
+
+    public Placeholder withNewMysqlColType(MysqlColType mysqlColType) {
+        return new Placeholder(getExprId(), mysqlColType);
+    }
+
+    public MysqlColType getMysqlColType() {
+        return mysqlColType;
     }
 }

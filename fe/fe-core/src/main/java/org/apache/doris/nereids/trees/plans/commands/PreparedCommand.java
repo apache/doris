@@ -17,13 +17,18 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.PlaceholderExpr;
+import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.PreparedStatementContext;
+import org.apache.doris.qe.StmtExecutor;
 
-import com.google.common.base.Preconditions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,28 +36,39 @@ import java.util.List;
 /**
  * Prepared Statement
  */
-public class PreparedCommand extends LogicalPlanAdapter {
-    protected List<PlaceholderExpr> params;
-    private final StatementBase inner;
+public class PreparedCommand extends Command {
+    private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
-    private String stmtName;
+    protected List<Placeholder> params = new ArrayList<>();
+    private final LogicalPlan inner;
 
-    public PreparedCommand(String name, StatementBase originStmt, List<PlaceholderExpr> placeholders) {
-        super(null, null);
-        this.inner = originStmt;
-        this.params = placeholders;
+    private final String stmtName;
+
+    private final OriginStatement originalStmt;
+
+    /**
+     * constructor
+     * @param name the statement name which represents statement id for prepared statement
+     * @param plan the inner statement
+     * @param placeholders the parameters for this prepared statement
+     * @param originalStmt original statement from StmtExecutor
+     */
+    public PreparedCommand(String name, LogicalPlan plan, List<Placeholder> placeholders,
+                OriginStatement originalStmt) {
+        super(PlanType.UNKNOWN);
+        this.inner = plan;
+        if (placeholders != null) {
+            this.params = placeholders;
+        }
         this.stmtName = name;
+        this.originalStmt = originalStmt;
     }
 
     public String getName() {
         return stmtName;
     }
 
-    public void setName(String name) {
-        this.stmtName = name;
-    }
-
-    public List<PlaceholderExpr> params() {
+    public List<Placeholder> params() {
         return params;
     }
 
@@ -63,26 +79,12 @@ public class PreparedCommand extends LogicalPlanAdapter {
         return params.size();
     }
 
-    public void setParams(List<PlaceholderExpr> params) {
-        this.params = params;
-    }
-
-    public StatementBase getInnerStmt() {
+    public LogicalPlan getInnerPlan() {
         return inner;
     }
 
-    /**
-    *  assign real value to placeholders and return the assigned statement
-    */
-    public StatementBase assignValues(List<Expression> values) {
-        if (params == null) {
-            return inner;
-        }
-        Preconditions.checkArgument(values.size() == params.size(), "Invalid arguments size");
-        for (int i = 0; i < params.size(); i++) {
-            params.get(i).setExpr(values.get(i));
-        }
-        return inner;
+    public OriginStatement getOriginalStmt() {
+        return originalStmt;
     }
 
     /**
@@ -93,19 +95,34 @@ public class PreparedCommand extends LogicalPlanAdapter {
         if (params == null) {
             return labels;
         }
-        for (PlaceholderExpr parameter : params) {
-            labels.add("$" + parameter.getExprId());
+        for (Placeholder parameter : params) {
+            labels.add("$" + parameter.getExprId().asInt());
         }
         return labels;
     }
 
+    // register prepared statement with attached statement id
     @Override
-    public String toSql() {
-        return "PREPARE " + stmtName + " FROM " + inner.toSql();
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        List<String> labels = getLabels();
+        // register prepareStmt
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("add prepared statement {}, isBinaryProtocol {}",
+                    stmtName, ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE);
+        }
+        ctx.addPreparedStatementContext(stmtName,
+                new PreparedStatementContext(this, ctx, ctx.getStatementContext(), stmtName));
+        if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+            executor.sendStmtPrepareOK((int) ctx.getStmtId(), labels);
+        }
     }
 
     @Override
-    public RedirectStatus getRedirectStatus() {
-        return inner.getRedirectStatus();
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visit(this, context);
+    }
+
+    public PreparedCommand withNewPreparedCommand(List<Placeholder> params) {
+        return new PreparedCommand(this.stmtName, this.inner, params, this.originalStmt);
     }
 }

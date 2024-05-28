@@ -451,6 +451,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
      * @param data      the ByteBuffer containing the data
      * @return a Literal object corresponding to the MySQL type
      * @throws AnalysisException if the MySQL type is unsupported or if data conversion fails
+     * @link  <a href="https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html">...</a>.
      */
     public static Literal getLiteralByMysqlType(MysqlColType mysqlType, ByteBuffer data) throws AnalysisException {
         switch (mysqlType) {
@@ -485,32 +486,41 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         }
     }
 
-    private static DecimalLiteral handleDecimalLiteral(ByteBuffer data) throws AnalysisException {
+    private static Literal handleDecimalLiteral(ByteBuffer data) throws AnalysisException {
         int len = getParmLen(data);
         byte[] bytes = new byte[len];
         data.get(bytes);
         try {
             String value = new String(bytes);
             BigDecimal v = new BigDecimal(value);
+            if (Config.enable_decimal_conversion) {
+                return new DecimalV3Literal(v);
+            }
             return new DecimalLiteral(v);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid decimal literal", e);
         }
     }
 
-    private static DateLiteral handleDateLiteral(ByteBuffer data) {
+    private static Literal handleDateLiteral(ByteBuffer data) {
         int len = getParmLen(data);
         if (len >= 4) {
             int year = (int) data.getChar();
             int month = (int) data.get();
             int day = (int) data.get();
+            if (Config.enable_date_conversion) {
+                return new DateV2Literal(year, month, day);
+            }
             return new DateLiteral(year, month, day);
         } else {
+            if (Config.enable_date_conversion) {
+                return new DateV2Literal(0, 1, 1);
+            }
             return new DateLiteral(0, 1, 1);
         }
     }
 
-    private static DateTimeLiteral handleDateTimeLiteral(ByteBuffer data) {
+    private static Literal handleDateTimeLiteral(ByteBuffer data) {
         int len = getParmLen(data);
         if (len >= 4) {
             int year = (int) data.getChar();
@@ -528,13 +538,19 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             if (len > 7) {
                 microsecond = data.getInt();
             }
+            if (Config.enable_date_conversion) {
+                return new DateTimeV2Literal(year, month, day, hour, minute, second, microsecond);
+            }
             return new DateTimeLiteral(DateTimeType.INSTANCE, year, month, day, hour, minute, second, microsecond);
         } else {
+            if (Config.enable_date_conversion) {
+                return new DateTimeV2Literal(0, 1, 1, 0, 0, 0);
+            }
             return new DateTimeLiteral(0, 1, 1, 0, 0, 0);
         }
     }
 
-    private static StringLiteral handleStringLiteral(ByteBuffer data) {
+    private static Literal handleStringLiteral(ByteBuffer data) {
         int strLen = getParmLen(data);
         strLen = Math.min(strLen, data.remaining());
         byte[] bytes = new byte[strLen];
@@ -542,7 +558,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         return new StringLiteral(new String(bytes));
     }
 
-    private static VarcharLiteral handleVarcharLiteral(ByteBuffer data) {
+    private static Literal handleVarcharLiteral(ByteBuffer data) {
         int strLen = getParmLen(data);
         strLen = Math.min(strLen, data.remaining());
         byte[] bytes = new byte[strLen];
