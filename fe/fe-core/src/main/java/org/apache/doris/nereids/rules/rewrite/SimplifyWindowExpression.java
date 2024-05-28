@@ -120,7 +120,7 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             }
             List<NamedExpression> finalProjections = Lists.newArrayList(projections);
             finalProjections.addAll(windowOutputs);
-            return new LogicalProject(finalProjections, window.withExpression(remainWindows,
+            return new LogicalProject(finalProjections, window.withExpressionsAndChild(remainWindows,
                     window.child(0)));
         }
     }
