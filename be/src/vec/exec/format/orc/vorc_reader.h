@@ -535,6 +535,7 @@ private:
 
     io::IOContext* _io_ctx;
     bool _enable_lazy_mat = true;
+    bool _enable_filter_by_min_max = true;
 
     std::vector<DecimalScaleParams> _decimal_scale_params;
     size_t _decimal_scale_params_index;
