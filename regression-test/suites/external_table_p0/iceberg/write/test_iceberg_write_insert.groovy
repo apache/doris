@@ -22,7 +22,7 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        sql """ DROP TABLE IF EXISTS `iceberg_all_types_${format_compression}` """
+        sql """ DROP TABLE IF EXISTS `iceberg_all_types_${format_compression}`; """
         sql """
         CREATE TABLE `iceberg_all_types_${format_compression}`(
           `boolean_col` boolean,
@@ -80,6 +80,7 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
             "write-format"=${format}
           )
         """
+        sql """ refresh catalog ${catalog_name};"""
 
         sql """
         INSERT INTO iceberg_all_types_${format_compression}
@@ -320,7 +321,7 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        sql """ DROP TABLE IF EXISTS `iceberg_all_types_${format_compression}` """
+        sql """ DROP TABLE IF EXISTS `iceberg_all_types_${format_compression}`; """
         sql """
         CREATE TABLE `iceberg_all_types_${format_compression}`(
           `boolean_col` boolean,
@@ -378,6 +379,7 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
             "write-format"=${format}
           )
         """
+        sql """ refresh catalog ${catalog_name};"""
 
         sql """
         INSERT INTO iceberg_all_types_${format_compression}
@@ -410,7 +412,7 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        sql """ DROP TABLE IF EXISTS `iceberg_all_types_par_${format_compression}` """
+        sql """ DROP TABLE IF EXISTS `iceberg_all_types_par_${format_compression}`; """
         sql """
         CREATE TABLE `iceberg_all_types_par_${format_compression}`(
           `boolean_col` boolean,
@@ -467,8 +469,10 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
           properties (
             "compression-codec" = ${compression},
             "write-format"=${format}
-          )
+          );
         """
+
+        sql """ refresh catalog ${catalog_name};"""
 
         sql """
         INSERT INTO iceberg_all_types_par_${format_compression}
@@ -710,7 +714,7 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        sql """ DROP TABLE IF EXISTS `iceberg_all_types_par_${format_compression}` """
+        sql """ DROP TABLE IF EXISTS `iceberg_all_types_par_${format_compression}`; """
         sql """
         CREATE TABLE `iceberg_all_types_par_${format_compression}`(
           `boolean_col` boolean,
@@ -767,8 +771,10 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
           properties (
             "compression-codec" = ${compression},
             "write-format"=${format}
-          )
+          );
         """
+
+        sql """ refresh catalog ${catalog_name};"""
 
         sql """
         INSERT INTO iceberg_all_types_par_${format_compression}
