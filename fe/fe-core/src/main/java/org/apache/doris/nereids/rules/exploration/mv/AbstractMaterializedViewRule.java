@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
@@ -77,6 +79,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -226,21 +229,21 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             Plan rewrittenPlan;
-            Plan mvScan = materializationContext.getMvScanPlan();
+            Plan mvScan = materializationContext.getScanPlan();
             Plan queryPlan = queryStructInfo.getTopPlan();
             if (compensatePredicates.isAlwaysTrue()) {
                 rewrittenPlan = mvScan;
             } else {
                 // Try to rewrite compensate predicates by using mv scan
                 List<Expression> rewriteCompensatePredicates = rewriteExpression(compensatePredicates.toList(),
-                        queryPlan, materializationContext.getMvExprToMvScanExprMapping(),
+                        queryPlan, materializationContext.getExprToScanExprMapping(),
                         viewToQuerySlotMapping, true, queryStructInfo.getTableBitSet());
                 if (rewriteCompensatePredicates.isEmpty()) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "Rewrite compensate predicate by view fail",
                             () -> String.format("compensatePredicates = %s,\n mvExprToMvScanExprMapping = %s,\n"
                                             + "viewToQuerySlotMapping = %s",
-                                    compensatePredicates, materializationContext.getMvExprToMvScanExprMapping(),
+                                    compensatePredicates, materializationContext.getExprToScanExprMapping(),
                                     viewToQuerySlotMapping));
                     continue;
                 }
@@ -334,9 +337,15 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext);
+            Optional<Pair<Id, Statistics>> materializationPlanStatistics =
+                    materializationContext.getPlanStatistics(cascadesContext);
+            if (materializationPlanStatistics.isPresent() && materializationPlanStatistics.get().key() != null) {
+                cascadesContext.getStatementContext().addStatistics(
+                        materializationPlanStatistics.get().key(), materializationPlanStatistics.get().value());
+            }
             rewriteResults.add(rewrittenPlan);
             // if rewrite successfully, try to regenerate mv scan because it maybe used again
-            materializationContext.tryReGenerateMvScanPlan(cascadesContext);
+            materializationContext.tryReGenerateScanPlan(cascadesContext);
         }
         return rewriteResults;
     }

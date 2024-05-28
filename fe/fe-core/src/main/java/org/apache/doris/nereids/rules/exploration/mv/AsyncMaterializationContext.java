@@ -19,14 +19,20 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
@@ -35,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Async context for query rewrite by materialized view
@@ -58,7 +65,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
-    Plan doGenerateMvPlan(CascadesContext cascadesContext) {
+    Plan doGenerateScanPlan(CascadesContext cascadesContext) {
         return MaterializedViewUtils.generateMvScanPlan(this.mtmv, cascadesContext);
     }
 
@@ -86,6 +93,24 @@ public class AsyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
+    public Optional<Pair<Id, Statistics>> getPlanStatistics(CascadesContext cascadesContext) {
+        MTMVCache mtmvCache;
+        try {
+            mtmvCache = mtmv.getOrGenerateCache(cascadesContext.getConnectContext());
+        } catch (AnalysisException e) {
+            LOG.warn(String.format("get mv plan statistics fail, materialization qualifier is %s",
+                    getMaterializationQualifier()), e);
+            return Optional.empty();
+        }
+        RelationId relationId = null;
+        List<Object> scanObjs = this.getPlan().collectFirst(plan -> plan instanceof LogicalOlapScan);
+        if (scanObjs != null && !scanObjs.isEmpty()) {
+            relationId = ((LogicalOlapScan) scanObjs.get(0)).getRelationId();
+        }
+        return Optional.of(Pair.of(relationId, mtmvCache.getStatistics()));
+    }
+
+    @Override
     boolean isFinalChosen(Relation relation) {
         if (!(relation instanceof PhysicalCatalogRelation)) {
             return false;
@@ -93,8 +118,8 @@ public class AsyncMaterializationContext extends MaterializationContext {
         return ((PhysicalCatalogRelation) relation).getTable() instanceof MTMV;
     }
 
-    public Plan getMvScanPlan() {
-        return mvScanPlan;
+    public Plan getScanPlan() {
+        return scanPlan;
     }
 
     public List<Table> getBaseTables() {
@@ -105,16 +130,16 @@ public class AsyncMaterializationContext extends MaterializationContext {
         return baseViews;
     }
 
-    public ExpressionMapping getMvExprToMvScanExprMapping() {
-        return mvExprToMvScanExprMapping;
+    public ExpressionMapping getExprToScanExprMapping() {
+        return exprToScanExprMapping;
     }
 
     public boolean isAvailable() {
         return available;
     }
 
-    public Plan getMvPlan() {
-        return mvPlan;
+    public Plan getPlan() {
+        return plan;
     }
 
     public Multimap<ObjectId, Pair<String, String>> getFailReason() {
