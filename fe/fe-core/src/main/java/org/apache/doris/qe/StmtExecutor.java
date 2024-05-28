@@ -2356,15 +2356,16 @@ public class StmtExecutor {
                 // if in strict mode, insert will fail if there are filtered rows
                 if (context.getSessionVariable().getEnableInsertStrict()) {
                     if (filteredRows > 0) {
-                        ErrorReport.reportDdlException("Insert has filtered data in strict mode",
-                                ErrorCode.ERR_FAILED_WHEN_INSERT);
+                        context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
+                                "Insert has filtered data in strict mode, tracking_url=" + coord.getTrackingUrl());
+                        return;
                     }
                 } else {
                     if (filteredRows > context.getSessionVariable().getMaxFilterRatio() * (filteredRows + loadedRows)) {
-                        ErrorReport.reportDdlException("Insert has too many filtered data %d/%d max_filter_ratio is %d",
-                                ErrorCode.ERR_FAILED_WHEN_INSERT, filteredRows, filteredRows + loadedRows,
-                                context.getSessionVariable().getMaxFilterRatio());
-                    }
+                        context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
+                                String.format("Insert has too many filtered data %d/%d max_filter_ratio is %d", 
+                                filteredRows, filteredRows + loadedRows, context.getSessionVariable().getMaxFilterRatio()));
+                        return;
                 }
 
                 if (tblType != TableType.OLAP && tblType != TableType.MATERIALIZED_VIEW) {
