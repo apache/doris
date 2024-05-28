@@ -1230,6 +1230,9 @@ DEFINE_mBool(skip_loading_stale_rowset_meta, "false");
 
 DEFINE_Bool(enable_file_logger, "true");
 
+// The time out milliseconds for remote fetch schema RPC, default 60s
+DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
