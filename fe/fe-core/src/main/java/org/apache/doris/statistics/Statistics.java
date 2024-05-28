@@ -154,6 +154,15 @@ public class Statistics {
         return format.format(rowCount);
     }
 
+    public String printColumnStats() {
+        StringBuilder builder = new StringBuilder();
+        for (Expression key: expressionToColumnStats.keySet()) {
+            ColumnStatistic columnStatistic = expressionToColumnStats.get(key);
+            builder.append("  ").append(key).append(" -> ").append(columnStatistic).append("\n");
+        }
+        return builder.toString();
+    }
+
     public int getBENumber() {
         return 1;
     }
