@@ -404,6 +404,7 @@ enum TOdbcTableType {
     PRESTO,
     OCEANBASE,
     OCEANBASE_ORACLE,
+    NEBULA, // Deprecated
     DB2
 }
 
