@@ -1258,10 +1258,7 @@ public:
         return *this;
     }
 
-    static BitmapValue empty_bitmap() {
-        static BitmapValue bitmap_value;
-        return bitmap_value;
-    }
+    static BitmapValue empty_bitmap() { return BitmapValue {}; }
 
     BitmapValue& operator=(BitmapValue&& other) noexcept {
         if (this == &other) {

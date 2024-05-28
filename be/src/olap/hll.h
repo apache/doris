@@ -231,10 +231,7 @@ public:
 
     int64_t estimate_cardinality() const;
 
-    static HyperLogLog empty() {
-        static HyperLogLog hll;
-        return hll;
-    }
+    static HyperLogLog empty() { return HyperLogLog {}; }
 
     // Check if input slice is a valid serialized binary of HyperLogLog.
     // This function only check the encoded type in slice, whose complex
