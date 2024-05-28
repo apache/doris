@@ -56,6 +56,9 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
+        if (killed) {
+            return;
+        }
         if (isTableLevelTask) {
             getTableStats();
         } else {
