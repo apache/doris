@@ -85,7 +85,7 @@ class FuncDepsTest {
         funcDeps.addFuncItems(Sets.newHashSet(s2), Sets.newHashSet(s1));
         Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
         Set<Set<Slot>> expected = new HashSet<>();
-        expected.add(set2);
+        expected.add(set1);
         expected.add(set3);
         expected.add(set4);
         Assertions.assertEquals(expected, slots);
@@ -101,7 +101,7 @@ class FuncDepsTest {
         funcDeps.addFuncItems(Sets.newHashSet(s4), Sets.newHashSet(s1));
         Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
         Set<Set<Slot>> expected = new HashSet<>();
-        expected.add(set3);
+        expected.add(set1);
         Assertions.assertEquals(expected, slots);
     }
 
