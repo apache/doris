@@ -2363,7 +2363,7 @@ public class StmtExecutor {
                 } else {
                     if (filteredRows > context.getSessionVariable().getMaxFilterRatio() * (filteredRows + loadedRows)) {
                         context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
-                                String.format("Insert has too many filtered data %d/%d max_filter_ratio is %d", 
+                                String.format("Insert has too many filtered data %d/%d max_filter_ratio is %f", 
                                 filteredRows, filteredRows + loadedRows, context.getSessionVariable().getMaxFilterRatio()));
                         return;
                 }

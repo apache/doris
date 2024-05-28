@@ -175,7 +175,7 @@ public abstract class AbstractInsertExecutor {
             }
         } else {
             if (filteredRows > ctx.getSessionVariable().getMaxFilterRatio() * (filteredRows + loadedRows)) {
-                ErrorReport.reportDdlException("Insert has too many filtered data %d/%d max_filter_ratio is %d",
+                ErrorReport.reportDdlException("Insert has too many filtered data %d/%d max_filter_ratio is %f",
                         ErrorCode.ERR_FAILED_WHEN_INSERT, filteredRows, filteredRows + loadedRows,
                         ctx.getSessionVariable().getMaxFilterRatio());
             }
