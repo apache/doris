@@ -40,6 +40,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class IcebergTransaction implements Transaction {
 
@@ -154,9 +155,20 @@ public class IcebergTransaction implements Transaction {
             this.path = path;
             this.fileSizeInBytes = fileSizeInBytes;
             this.metrics = metrics;
-            this.partitionValues = partitionValues;
+            this.partitionValues = convertPartitionValuesForNull(partitionValues);
             this.content = content;
             this.referencedDataFiles = referencedDataFiles;
+        }
+
+        private Optional<List<String>> convertPartitionValuesForNull(Optional<List<String>> partitionValues) {
+            if (!partitionValues.isPresent()) {
+                return partitionValues;
+            }
+            List<String> values = partitionValues.get();
+            if (!values.contains("null")) {
+                return partitionValues;
+            }
+            return Optional.of(values.stream().map(s -> s.equals("null") ? null : s).collect(Collectors.toList()));
         }
 
         public String getPath() {
