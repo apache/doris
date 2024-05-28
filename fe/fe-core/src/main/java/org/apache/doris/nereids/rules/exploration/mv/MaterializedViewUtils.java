@@ -98,14 +98,12 @@ public class MaterializedViewUtils {
             return Optional.empty();
         }
         // Collect table relation map which is used to identify self join
-        List<Object> catalogRelationObjs = materializedViewPlan.collectToList(
-                planTreeNode -> planTreeNode instanceof CatalogRelation);
+        List<CatalogRelation> catalogRelationObjs =
+                materializedViewPlan.collectToList(CatalogRelation.class::isInstance);
         ImmutableMultimap.Builder<TableIdentifier, CatalogRelation> tableCatalogRelationMultimapBuilder =
                 ImmutableMultimap.builder();
-        for (Object catalogRelationObj : catalogRelationObjs) {
-            CatalogRelation catalogRelation = (CatalogRelation) catalogRelationObj;
-            tableCatalogRelationMultimapBuilder.put(new TableIdentifier(catalogRelation.getTable()),
-                    catalogRelation);
+        for (CatalogRelation catalogRelation : catalogRelationObjs) {
+            tableCatalogRelationMultimapBuilder.put(new TableIdentifier(catalogRelation.getTable()), catalogRelation);
         }
         // Check sql pattern
         IncrementCheckerContext checkContext =
