@@ -48,6 +48,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
 import org.apache.doris.mysql.MysqlPassword;
@@ -3669,7 +3670,11 @@ opt_index_type ::=
     :}
     | KW_USING KW_BITMAP
     {:
-        RESULT = IndexDef.IndexType.BITMAP;
+        if (Config.enable_create_bitmap_index_as_inverted_index) {
+            RESULT = IndexDef.IndexType.INVERTED;
+        } else {
+            RESULT = IndexDef.IndexType.BITMAP;
+        }
     :}
     | KW_USING KW_NGRAM_BF
     {:
