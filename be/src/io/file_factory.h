@@ -98,7 +98,7 @@ public:
                                    const io::FileDescription& fd,
                                    const io::FileReaderOptions& reader_options,
                                    std::shared_ptr<io::FileSystem>* s3_file_system,
-                                   io::FileReaderSPtr* reader);
+                                   io::FileReaderSPtr* reader, RuntimeProfile* profile);
 
     static Status create_broker_reader(const TNetworkAddress& broker_addr,
                                        const std::map<std::string, std::string>& prop,
