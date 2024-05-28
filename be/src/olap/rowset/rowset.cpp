@@ -118,7 +118,7 @@ Result<std::string> Rowset::segment_path(int64_t seg_id) {
         return local_segment_path(_tablet_path, _rowset_meta->rowset_id().to_string(), seg_id);
     }
 
-    return _rowset_meta->remote_storage_resource().transform([=](auto&& storage_resource) {
+    return _rowset_meta->remote_storage_resource().transform([=, this](auto&& storage_resource) {
         return storage_resource->remote_segment_path(_rowset_meta->tablet_id(),
                                                      _rowset_meta->rowset_id().to_string(), seg_id);
     });

@@ -563,18 +563,15 @@ public:
                 if constexpr (field_is_numeric_type(field_type)) {
                     _bkd_writer->max_doc_ = _rid;
                     _bkd_writer->docs_seen_ = _row_ids_seen_for_bkd;
-                    null_bitmap_out =
-                            std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                                    InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()
-                                            .data()));
+                    null_bitmap_out = std::unique_ptr<
+                            lucene::store::IndexOutput>(_dir->createOutput(
+                            InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()));
                     data_out = std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                            InvertedIndexDescriptor::get_temporary_bkd_index_data_file_name()
-                                    .data()));
+                            InvertedIndexDescriptor::get_temporary_bkd_index_data_file_name()));
                     meta_out = std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                            InvertedIndexDescriptor::get_temporary_bkd_index_meta_file_name()
-                                    .data()));
+                            InvertedIndexDescriptor::get_temporary_bkd_index_meta_file_name()));
                     index_out = std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                            InvertedIndexDescriptor::get_temporary_bkd_index_file_name().data()));
+                            InvertedIndexDescriptor::get_temporary_bkd_index_file_name()));
                     write_null_bitmap(null_bitmap_out.get());
 
                     DBUG_EXECUTE_IF("InvertedIndexWriter._set_bkd_data_out_nullptr",
@@ -594,10 +591,9 @@ public:
                     index_out->close();
                     _dir->close();
                 } else if constexpr (field_is_slice_type(field_type)) {
-                    null_bitmap_out =
-                            std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                                    InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()
-                                            .data()));
+                    null_bitmap_out = std::unique_ptr<
+                            lucene::store::IndexOutput>(_dir->createOutput(
+                            InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()));
                     write_null_bitmap(null_bitmap_out.get());
                     close();
                     DBUG_EXECUTE_IF(

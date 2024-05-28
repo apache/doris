@@ -41,14 +41,10 @@ public:
 
     static std::string_view get_index_path_prefix(std::string_view segment_path);
 
-    static constexpr std::string_view get_temporary_null_bitmap_file_name() {
-        return "null_bitmap";
-    }
-    static constexpr std::string_view get_temporary_bkd_index_data_file_name() { return "bkd"; }
-    static constexpr std::string_view get_temporary_bkd_index_meta_file_name() {
-        return "bkd_meta";
-    }
-    static constexpr std::string_view get_temporary_bkd_index_file_name() { return "bkd_index"; }
+    static const char* get_temporary_null_bitmap_file_name() { return "null_bitmap"; }
+    static const char* get_temporary_bkd_index_data_file_name() { return "bkd"; }
+    static const char* get_temporary_bkd_index_meta_file_name() { return "bkd_meta"; }
+    static const char* get_temporary_bkd_index_file_name() { return "bkd_index"; }
 };
 
 } // namespace segment_v2

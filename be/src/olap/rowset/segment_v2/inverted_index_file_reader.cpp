@@ -244,9 +244,9 @@ Status InvertedIndexFileReader::has_null(const TabletIndex* index_meta, bool* re
     if (index_it == _indices_entries.end()) {
         *res = false;
     } else {
-        auto null_bitmap_file_name = InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
         auto* entries = index_it->second.get();
-        ReaderFileEntry* e = entries->get((char*)(null_bitmap_file_name.data()));
+        ReaderFileEntry* e =
+                entries->get((char*)InvertedIndexDescriptor::get_temporary_null_bitmap_file_name());
         if (e == nullptr) {
             *res = false;
             return Status::OK();

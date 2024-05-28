@@ -624,13 +624,9 @@ Status BetaRowset::add_to_binlog() {
 }
 
 Status BetaRowset::calc_local_file_crc(uint32_t* crc_value, int64_t* file_count) {
-    DCHECK(is_local());
-    auto fs = _rowset_meta->fs();
-    if (!fs) {
-        return Status::Error<INIT_FAILED>("get fs failed");
-    }
-    if (fs->type() != io::FileSystemType::LOCAL) {
-        return Status::InternalError("should be local file system");
+    if (!is_local()) {
+        DCHECK(false) << _rowset_meta->tablet_id() << ' ' << rowset_id();
+        return Status::OK();
     }
 
     if (num_segments() < 1) {
@@ -641,31 +637,31 @@ Status BetaRowset::calc_local_file_crc(uint32_t* crc_value, int64_t* file_count)
     // 1. pick up all the files including dat file and idx file
     std::vector<io::Path> local_paths;
     for (int i = 0; i < num_segments(); ++i) {
-        auto local_seg_path = segment_file_path(i);
+        auto local_seg_path = local_segment_path(_tablet_path, rowset_id().to_string(), i);
         local_paths.emplace_back(local_seg_path);
         if (_schema->get_inverted_index_storage_format() != InvertedIndexStorageFormatPB::V1) {
             if (_schema->has_inverted_index()) {
-                std::string local_inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_name(local_seg_path);
-                local_paths.emplace_back(local_inverted_index_file);
+                std::string local_inverted_index_file = InvertedIndexDescriptor::get_index_path_v2(
+                        InvertedIndexDescriptor::get_index_path_prefix(local_seg_path));
+                local_paths.emplace_back(std::move(local_inverted_index_file));
             }
         } else {
             for (auto& column : _schema->columns()) {
                 const TabletIndex* index_meta = _schema->get_inverted_index(*column);
                 if (index_meta) {
                     std::string local_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(
-                                    local_seg_path, index_meta->index_id(),
-                                    index_meta->get_index_suffix());
-                    local_paths.emplace_back(local_inverted_index_file);
+                            InvertedIndexDescriptor::get_index_path_v1(
+                                    InvertedIndexDescriptor::get_index_path_prefix(local_seg_path),
+                                    index_meta->index_id(), index_meta->get_index_suffix());
+                    local_paths.emplace_back(std::move(local_inverted_index_file));
                 }
             }
         }
     }
 
     // 2. calculate the md5sum of each file
-    auto* local_fs = static_cast<io::LocalFileSystem*>(fs.get());
-    DCHECK(local_paths.size() > 0);
+    const auto& local_fs = io::global_local_filesystem();
+    DCHECK(!local_paths.empty());
     std::vector<std::string> all_file_md5;
     all_file_md5.reserve(local_paths.size());
     for (const auto& file_path : local_paths) {
@@ -687,8 +683,8 @@ Status BetaRowset::calc_local_file_crc(uint32_t* crc_value, int64_t* file_count)
     DCHECK(local_paths.size() == all_file_md5.size());
     *crc_value = 0;
     *file_count = local_paths.size();
-    for (int i = 0; i < all_file_md5.size(); i++) {
-        *crc_value = crc32c::Extend(*crc_value, all_file_md5[i].data(), all_file_md5[i].size());
+    for (auto& i : all_file_md5) {
+        *crc_value = crc32c::Extend(*crc_value, i.data(), i.size());
     }
 
     return Status::OK();

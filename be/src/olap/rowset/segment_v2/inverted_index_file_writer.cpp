@@ -48,6 +48,9 @@ Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index
             index_meta->get_index_suffix());
     auto index_path = InvertedIndexDescriptor::get_index_path_v1(
             _index_path_prefix, index_meta->index_id(), index_meta->get_index_suffix());
+    // FIXME(plat1ko): hardcode
+    index_path =
+            index_path.substr(0, index_path.size() - InvertedIndexDescriptor::index_suffix.size());
 
     bool exists = false;
     auto st = local_fs->exists(local_fs_index_path, &exists);
