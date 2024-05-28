@@ -184,6 +184,13 @@ void LocalExchangeSharedState::sub_running_sink_operators() {
     }
 }
 
+void LocalExchangeSharedState::sub_running_source_operators() {
+    std::unique_lock<std::mutex> lc(le_lock);
+    if (exchanger->_running_source_operators.fetch_sub(1) == 1) {
+        _set_always_ready();
+    }
+}
+
 LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
     source_deps.resize(num_instances, nullptr);
     mem_trackers.resize(num_instances, nullptr);
