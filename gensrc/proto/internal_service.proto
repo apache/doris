@@ -890,6 +890,11 @@ message PLoadStreamResponse {
     optional bool eos = 6;
 }
 
+enum FileType {
+  SEGMENT_FILE = 1;
+  INVERTED_INDEX_FILE_V2 = 2;
+}
+
 message PStreamHeader {
     enum Opcode {
         APPEND_DATA = 1;
@@ -909,6 +914,7 @@ message PStreamHeader {
     repeated PTabletID tablets = 10;
     optional TabletSchemaPB flush_schema = 11;
     optional uint64 offset = 12;
+    optional FileType file_type = 13;
 }
 
 message PGetWalQueueSizeRequest{

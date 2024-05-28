@@ -341,9 +341,8 @@ size_t InvertedIndexFileWriter::write_v2() {
     io::Path index_path {InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)};
 
     auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, index_path.parent_path().c_str());
-
     auto compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
-            out_dir->createOutput(index_path.filename().c_str()));
+            out_dir->createOutputV2(_idx_v2_writer.get()));
 
     // Write the version number
     compound_file_output->writeInt(InvertedIndexStorageFormatPB::V2);

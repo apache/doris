@@ -94,28 +94,31 @@ Status LoadStreamWriter::init() {
     return Status::OK();
 }
 
-Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf) {
+Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf,
+                                     FileType file_type) {
     SCOPED_ATTACH_TASK(_query_thread_context);
     io::FileWriter* file_writer = nullptr;
+    auto& file_writers =
+            file_type == FileType::SEGMENT_FILE ? _segment_file_writers : _inverted_file_v2_writers;
     {
         std::lock_guard lock_guard(_lock);
         DCHECK(_is_init);
-        if (segid >= _segment_file_writers.size()) {
-            for (size_t i = _segment_file_writers.size(); i <= segid; i++) {
+        if (segid >= file_writers.size()) {
+            for (size_t i = file_writers.size(); i <= segid; i++) {
                 Status st;
                 io::FileWriterPtr file_writer;
-                st = _rowset_writer->create_file_writer(i, file_writer);
+                st = _rowset_writer->create_file_writer(i, file_writer, file_type);
                 if (!st.ok()) {
                     _is_canceled = true;
                     return st;
                 }
-                _segment_file_writers.push_back(std::move(file_writer));
+                file_writers.push_back(std::move(file_writer));
                 g_load_stream_file_writer_cnt << 1;
             }
         }
 
         // TODO: IOBuf to Slice
-        file_writer = _segment_file_writers[segid].get();
+        file_writer = file_writers[segid].get();
     }
     DBUG_EXECUTE_IF("LoadStreamWriter.append_data.null_file_writer", { file_writer = nullptr; });
     VLOG_DEBUG << " file_writer " << file_writer << "seg id " << segid;
@@ -164,38 +167,99 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
     return Status::OK();
 }
 
+Status LoadStreamWriter::close_inverted_index(uint32_t segid) {
+    SCOPED_ATTACH_TASK(_query_thread_context);
+    io::FileWriter* inverted_file_writer = nullptr;
+    {
+        std::lock_guard lock_guard(_lock);
+        if (!_is_init) {
+            return Status::Corruption(
+                    "inverted file writer failed, LoadStreamWriter is not inited");
+        }
+        if (segid >= _inverted_file_v2_writers.size()) {
+            return Status::Corruption(
+                    "inverted file writer failed, inverted file {} is never opened", segid);
+        }
+        inverted_file_writer = _inverted_file_v2_writers[segid].get();
+    }
+    if (inverted_file_writer == nullptr) {
+        return Status::Corruption("inverted file writer failed, file writer {} is destoryed",
+                                  segid);
+    }
+    auto st = inverted_file_writer->close();
+    if (!st.ok()) {
+        _is_canceled = true;
+        return st;
+    }
+    LOG(INFO) << "inverted file writer " << segid << " path "
+              << inverted_file_writer->path().native() << "closed, written "
+              << inverted_file_writer->bytes_appended() << " bytes";
+    if (inverted_file_writer->bytes_appended() == 0) {
+        return Status::Corruption("inverted file writer {} closed with 0 bytes",
+                                  inverted_file_writer->path().native());
+    }
+    return Status::OK();
+}
+
 Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat,
                                      TabletSchemaSPtr flush_schema) {
     SCOPED_ATTACH_TASK(_query_thread_context);
-    io::FileWriter* file_writer = nullptr;
+    size_t segment_file_size = 0;
+    size_t inverted_file_size = 0;
     {
         std::lock_guard lock_guard(_lock);
         DBUG_EXECUTE_IF("LoadStreamWriter.add_segment.uninited_writer", { _is_init = false; });
         if (!_is_init) {
             return Status::Corruption("add_segment failed, LoadStreamWriter is not inited");
         }
+        if (_inverted_file_v2_writers.size() > 0 &&
+            _inverted_file_v2_writers.size() != _segment_file_writers.size()) {
+            return Status::Corruption(
+                    "add_segment failed, inverted file writer size is {},"
+                    "segment file writer size is {}",
+                    _inverted_file_v2_writers.size(), _segment_file_writers.size());
+        }
         DBUG_EXECUTE_IF("LoadStreamWriter.add_segment.bad_segid",
                         { segid = _segment_file_writers.size(); });
-        if (segid >= _segment_file_writers.size()) {
-            return Status::Corruption("add_segment failed, segment {} is never opened", segid);
+        RETURN_IF_ERROR(_calc_file_size(segid, FileType::SEGMENT_FILE, &segment_file_size));
+        if (_inverted_file_v2_writers.size() > 0) {
+            RETURN_IF_ERROR(
+                    _calc_file_size(segid, FileType::INVERTED_INDEX_FILE_V2, &inverted_file_size));
         }
-        file_writer = _segment_file_writers[segid].get();
     }
-    DBUG_EXECUTE_IF("LoadStreamWriter.add_segment.null_file_writer", { file_writer = nullptr; });
+
+    if (segment_file_size + inverted_file_size != stat.data_size) {
+        return Status::Corruption(
+                "add_segment failed, segment stat {} does not match, file size={}, inverted file "
+                "size={}, stat.data_size={}, tablet id={}",
+                segid, segment_file_size, inverted_file_size, stat.data_size, _req.tablet_id);
+    }
+
+    return _rowset_writer->add_segment(segid, stat, flush_schema);
+}
+
+Status LoadStreamWriter::_calc_file_size(uint32_t segid, FileType file_type, size_t* file_size) {
+    io::FileWriter* file_writer = nullptr;
+    auto& file_writers = (file_type == FileType::SEGMENT_FILE) ? _segment_file_writers
+                                                               : _inverted_file_v2_writers;
+
+    if (segid >= file_writers.size()) {
+        return Status::Corruption("calc file size failed, file {} is never opened, file type is {}",
+                                  segid, file_type);
+    }
+    file_writer = file_writers[segid].get();
+    DBUG_EXECUTE_IF("LoadStreamWriter.calc_file_size.null_file_writer", { file_writer = nullptr; });
     if (file_writer == nullptr) {
-        return Status::Corruption("add_segment failed, file writer {} is destoryed", segid);
+        return Status::Corruption(
+                "calc file size failed, file writer {} is destoryed, file type is {}", segid,
+                file_type);
     }
     if (file_writer->state() != io::FileWriter::State::CLOSED) {
-        return Status::Corruption("add_segment failed, segment {} is not closed",
+        return Status::Corruption("calc file size failed, file {} is not closed",
                                   file_writer->path().native());
     }
-    if (file_writer->bytes_appended() != stat.data_size) {
-        return Status::Corruption(
-                "add_segment failed, segment stat {} does not match, file size={}, "
-                "stat.data_size={}",
-                file_writer->path().native(), file_writer->bytes_appended(), stat.data_size);
-    }
-    return _rowset_writer->add_segment(segid, stat, flush_schema);
+    *file_size = file_writer->bytes_appended();
+    return Status::OK();
 }
 
 Status LoadStreamWriter::close() {
@@ -221,6 +285,14 @@ Status LoadStreamWriter::close() {
         if (writer->state() != io::FileWriter::State::CLOSED) {
             return Status::Corruption("LoadStreamWriter close failed, segment {} is not closed",
                                       writer->path().native());
+        }
+    }
+
+    for (const auto& writer : _inverted_file_v2_writers) {
+        if (writer->state() != io::FileWriter::State::CLOSED) {
+            return Status::Corruption(
+                    "LoadStreamWriter close failed, inverted file {} is not closed",
+                    writer->path().native());
         }
     }
 

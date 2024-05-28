@@ -82,7 +82,8 @@ public:
                                    TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                    DataDir* data_dir, uint32_t max_row_per_segment,
                                    const VerticalSegmentWriterOptions& opts,
-                                   std::shared_ptr<MowContext> mow_context);
+                                   std::shared_ptr<MowContext> mow_context,
+                                   io::FileWriterPtr inverted_file_v2_writer);
     ~VerticalSegmentWriter();
 
     VerticalSegmentWriter(const VerticalSegmentWriter&) = delete;

@@ -42,8 +42,9 @@
 #include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
-#include "olap/row_cursor.h"                      // RowCursor // IWYU pragma: keep
-#include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
+#include "olap/row_cursor.h"                   // RowCursor // IWYU pragma: keep
+#include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
+#include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
@@ -83,7 +84,8 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir, uint32_t max_row_per_segment,
                                              const VerticalSegmentWriterOptions& opts,
-                                             std::shared_ptr<MowContext> mow_context)
+                                             std::shared_ptr<MowContext> mow_context,
+                                             io::FileWriterPtr inverted_file_v2_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
@@ -114,7 +116,8 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                         _opts.rowset_ctx->segment_path(segment_id))},
                 _opts.rowset_ctx->rowset_id.to_string(), segment_id,
-                _tablet_schema->get_inverted_index_storage_format());
+                _tablet_schema->get_inverted_index_storage_format(),
+                std::move(inverted_file_v2_writer));
     }
 }
 
