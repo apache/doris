@@ -766,6 +766,9 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         for (const auto& column : request.columns) {
             base_tablet_schema->append_column(TabletColumn(column));
         }
+        // The request only include column info, do not include bitmap or bloomfilter index info,
+        // So we also need to copy index info from the real base tablet
+        base_tablet_schema->update_index_info_from(*base_tablet->tablet_schema());
     }
     // Use tablet schema directly from base tablet, they are the newest schema, not contain
     // dropped column during light weight schema change.
@@ -1284,6 +1287,15 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         if (column_mapping->expr != nullptr) {
             *sc_directly = true;
             return Status::OK();
+        } else if (column_mapping->ref_column >= 0) {
+            const auto& column_new = new_tablet_schema->column(i);
+            const auto& column_old = base_tablet_schema->column(column_mapping->ref_column);
+            // index changed
+            if (column_new.is_bf_column() != column_old.is_bf_column() ||
+                column_new.has_bitmap_index() != column_old.has_bitmap_index()) {
+                *sc_directly = true;
+                return Status::OK();
+            }
         }
     }
 

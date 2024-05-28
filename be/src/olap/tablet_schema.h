@@ -118,6 +118,9 @@ public:
     std::string get_aggregation_name() const { return _aggregation_name; }
     bool get_result_is_nullable() const { return _result_is_nullable; }
 
+    void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
+    void set_has_bitmap_index(bool has_bitmap_index) { _has_bitmap_index = has_bitmap_index; }
+
 private:
     int32_t _unique_id;
     std::string _col_name;
@@ -218,6 +221,7 @@ public:
     // Must make sure the row column is always the last column
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
+    void update_index_info_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
     int64_t mem_size() const { return _mem_size; }
 

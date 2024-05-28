@@ -22,6 +22,7 @@
 
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/types.h"
+#include "util/debug_points.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
@@ -46,6 +47,9 @@ Status BloomFilterIndexReader::_load(bool use_page_cache, bool kept_in_memory) {
 }
 
 Status BloomFilterIndexReader::new_iterator(std::unique_ptr<BloomFilterIndexIterator>* iterator) {
+    DBUG_EXECUTE_IF("BloomFilterIndexReader::new_iterator.fail", {
+        return Status::InternalError("new_iterator for bloom filter index failed");
+    });
     iterator->reset(new BloomFilterIndexIterator(this));
     return Status::OK();
 }
