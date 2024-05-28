@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <vector>
 
 #include "common/status.h"
@@ -99,8 +100,10 @@ class PageBuilderHelper : public PageBuilder {
 public:
     template <typename... Args>
     static Status create(PageBuilder** builder, Args&&... args) {
-        *builder = new Derived(std::forward<Args>(args)...);
-        return (*builder)->init();
+        std::unique_ptr<PageBuilder> builder_uniq_ptr(new Derived(std::forward<Args>(args)...));
+        RETURN_IF_ERROR(builder_uniq_ptr->init());
+        *builder = builder_uniq_ptr.release();
+        return Status::OK();
     }
 };
 
