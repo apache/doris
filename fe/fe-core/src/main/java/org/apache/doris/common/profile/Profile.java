@@ -103,7 +103,9 @@ public class Profile {
                 NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
                 StringBuilder builder = new StringBuilder();
                 for (PhysicalRelation relation: nereidsPlanner.getPhysicalRelations()) {
-                    builder.append(relation.getStats());
+                    if (relation.getStats() != null) {
+                        builder.append(relation.getStats());
+                    }
                 }
                 builder.append(nereidsPlanner.getPhysicalPlan()
                         .treeString().replace("\n", "\n     "));
