@@ -47,13 +47,26 @@ Status LocalExchangeSourceLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+
+    if (_shared_state) {
+        _shared_state->sub_running_source_operators();
+    }
+
+    return Base::close(state);
+}
+
 std::string LocalExchangeSourceLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
-                   "{}, _channel_id: {}, _num_partitions: {}, _num_senders: {}, _num_sources: {}",
+                   "{}, _channel_id: {}, _num_partitions: {}, _num_senders: {}, _num_sources: {}, "
+                   "_running_sink_operators: {}, _running_source_operators: {}",
                    Base::debug_string(indentation_level), _channel_id, _exchanger->_num_partitions,
                    _exchanger->_num_senders, _exchanger->_num_sources,
-                   _exchanger->_running_sink_operators);
+                   _exchanger->_running_sink_operators, _exchanger->_running_source_operators);
     return fmt::to_string(debug_string_buffer);
 }
 

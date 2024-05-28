@@ -784,8 +784,13 @@ public:
         }
     };
     void sub_running_sink_operators();
+    void sub_running_source_operators();
     void _set_always_ready() {
         for (auto& dep : source_deps) {
+            DCHECK(dep);
+            dep->set_always_ready();
+        }
+        for (auto& dep : sink_deps) {
             DCHECK(dep);
             dep->set_always_ready();
         }
