@@ -62,9 +62,27 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
     RETURN_IF_ERROR(status);
     if (block->rows() > 0) {
         if (!config::group_commit_wait_replay_wal_finish) {
-            _block_queue.push_back(block);
+            _block_queue.emplace_back(block);
             _data_bytes += block->bytes();
+            int before_block_queues_bytes = _all_block_queues_bytes->load();
             _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
+            std::stringstream ss;
+            ss << "[";
+            for (const auto& id : _load_ids) {
+                ss << id.to_string() << ", ";
+            }
+            ss << "]";
+            VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::add_block). "
+                       << "block queue size is " << _block_queue.size() << ", block rows is "
+                       << block->rows() << ", block bytes is " << block->bytes()
+                       << ", before add block, all block queues bytes is "
+                       << before_block_queues_bytes
+                       << ", after add block, all block queues bytes is "
+                       << _all_block_queues_bytes->load() << ", txn_id=" << txn_id
+                       << ", label=" << label << ", instance_id=" << load_instance_id
+                       << ", load_ids=" << ss.str() << ", runtime_state=" << runtime_state
+                       << ", the block is " << block->dump_data() << ", the block column size is "
+                       << block->columns_bytes();
         }
         if (write_wal || config::group_commit_wait_replay_wal_finish) {
             auto st = _v_wal_writer->write_wal(block.get());
@@ -139,11 +157,29 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
         return st;
     }
     if (!_block_queue.empty()) {
-        auto fblock = _block_queue.front();
-        block->swap(*fblock.get());
+        const BlockData block_data = _block_queue.front();
+        block->swap(*block_data.block);
         *find_block = true;
         _block_queue.pop_front();
-        _all_block_queues_bytes->fetch_sub(block->bytes(), std::memory_order_relaxed);
+        int before_block_queues_bytes = _all_block_queues_bytes->load();
+        _all_block_queues_bytes->fetch_sub(block_data.block_bytes, std::memory_order_relaxed);
+        std::stringstream ss;
+        ss << "[";
+        for (const auto& id : _load_ids) {
+            ss << id.to_string() << ", ";
+        }
+        ss << "]";
+        VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::get_block). "
+                   << "block queue size is " << _block_queue.size() << ", block rows is "
+                   << block->rows() << ", block bytes is " << block->bytes()
+                   << ", before remove block, all block queues bytes is "
+                   << before_block_queues_bytes
+                   << ", after remove block, all block queues bytes is "
+                   << _all_block_queues_bytes->load() << ", txn_id=" << txn_id
+                   << ", label=" << label << ", instance_id=" << load_instance_id
+                   << ", load_ids=" << ss.str() << ", runtime_state=" << runtime_state
+                   << ", the block is " << block->dump_data() << ", the block column size is "
+                   << block->columns_bytes();
     }
     if (_block_queue.empty() && _need_commit && _load_ids.empty()) {
         *eos = true;
@@ -183,10 +219,26 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
               << ", status=" << st.to_string();
     status = st;
     while (!_block_queue.empty()) {
-        {
-            auto& future_block = _block_queue.front();
-            _all_block_queues_bytes->fetch_sub(future_block->bytes(), std::memory_order_relaxed);
+        const BlockData& block_data = _block_queue.front().block;
+        int before_block_queues_bytes = _all_block_queues_bytes->load();
+        _all_block_queues_bytes->fetch_sub(block_data.block_bytes, std::memory_order_relaxed);
+        std::stringstream ss;
+        ss << "[";
+        for (const auto& id : _load_ids) {
+            ss << id.to_string() << ", ";
         }
+        ss << "]";
+        VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::_cancel_without_block). "
+                   << "block queue size is " << _block_queue.size() << ", block rows is "
+                   << block_data.block->rows() << ", block bytes is " << block_data.block->bytes()
+                   << ", before remove block, all block queues bytes is "
+                   << before_block_queues_bytes
+                   << ", after remove block, all block queues bytes is "
+                   << _all_block_queues_bytes->load() << ", txn_id=" << txn_id
+                   << ", label=" << label << ", instance_id=" << load_instance_id
+                   << ", load_ids=" << ss.str() << ", the block is "
+                   << block_data.block->dump_data() << ", the block column size is "
+                   << block_data.block->columns_bytes();
         _block_queue.pop_front();
     }
 }
