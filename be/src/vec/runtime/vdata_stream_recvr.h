@@ -111,7 +111,7 @@ public:
     // accessing members of receiver that are allocated by Object pool
     // in this function is not safe.
     bool exceeds_limit(size_t block_byte_size);
-    bool queue_exceeds_limit(size_t byte_size);
+    bool queue_exceeds_limit(size_t byte_size) const;
     bool is_closed() const { return _is_closed; }
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
@@ -144,6 +144,7 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
     // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
+    size_t _sender_queue_mem_limit;
 
     std::unique_ptr<VSortedRunMerger> _merger;
 

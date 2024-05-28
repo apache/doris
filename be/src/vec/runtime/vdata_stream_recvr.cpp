@@ -360,6 +360,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
     }
     _sender_queues.reserve(num_queues);
     int num_sender_per_queue = is_merging ? 1 : num_senders;
+    _sender_queue_mem_limit = std::max(20480, config::exchg_node_buffer_size_bytes / num_queues);
     for (int i = 0; i < num_queues; ++i) {
         SenderQueue* queue = nullptr;
         if (_enable_pipeline) {
@@ -502,12 +503,8 @@ bool VDataStreamRecvr::exceeds_limit(size_t block_byte_size) {
     return _mem_tracker->consumption() + block_byte_size > config::exchg_node_buffer_size_bytes;
 }
 
-bool VDataStreamRecvr::queue_exceeds_limit(size_t queue_byte_size) {
-    const size_t queue_limit = config::exchg_node_buffer_size_bytes / _sender_queues.size();
-    if (queue_limit <= 0) {
-        return false;
-    }
-    return queue_byte_size >= queue_limit;
+bool VDataStreamRecvr::queue_exceeds_limit(size_t queue_byte_size) const {
+    return queue_byte_size >= _sender_queue_mem_limit;
 }
 
 void VDataStreamRecvr::close() {
