@@ -106,6 +106,10 @@ public class FunctionalDependencies {
         return equalSet.calEqualSetList();
     }
 
+    public Set<Slot> calEqualSet(Slot s) {
+        return equalSet.calEqualSet(s);
+    }
+
     public ImmutableSet<FdItem> getFdItems() {
         return fdItems;
     }
