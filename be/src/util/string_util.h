@@ -141,7 +141,7 @@ auto get_json_token(T& path_string) {
     try {
         return boost::tokenizer<boost::escaped_list_separator<char>>(
                 path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
-    } catch (boost::escaped_list_error err) {
+    } catch (const boost::escaped_list_error& err) {
         throw doris::Exception(ErrorCode::INVALID_JSON_PATH, "meet error {}", err.what());
     }
 }
