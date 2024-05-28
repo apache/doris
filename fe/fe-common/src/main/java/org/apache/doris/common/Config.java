@@ -2660,6 +2660,12 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_advance_next_id = false;
 
+    @ConfField(description = {
+            "是否采用反馈group commit BE选择算法",
+            "Whether to use feedback group commit BE select strategy."
+    })
+    public static boolean enable_feedback_group_commit_be_select_strategy = false;
+
     // The count threshold to do manual GC when doing checkpoint but not enough memory.
     // Set zero to disable it.
     @ConfField(description = {
