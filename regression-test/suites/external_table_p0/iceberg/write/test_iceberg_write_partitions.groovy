@@ -18,7 +18,7 @@
 suite("test_iceberg_write_partitions", "p0,external,iceberg,external_docker,external_docker_iceberg") {
     def format_compressions = ["parquet_snappy", "orc_zlib"]
 
-    def q01 = { String format_compression, String catalog_name ->
+    def q01 = { String format_compression, String catalog_name, String hive_catalog_name ->
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
@@ -41,29 +41,36 @@ suite("test_iceberg_write_partitions", "p0,external,iceberg,external_docker,exte
 
         sql """
         INSERT INTO iceberg_all_partition_types1_${format_compression}
-        SELECT id, boolean_col, int_col, bigint_col, float_col, double_col FROM all_partition_types1_parquet_snappy_src where id = 1;
+        SELECT boolean_col, id, int_col, bigint_col, float_col, double_col FROM ${hive_catalog_name}.write_test.all_partition_types1_parquet_snappy_src where id = 1;
         """
         order_qt_q01 """ select * from iceberg_all_partition_types1_${format_compression};
         """
 
         sql """
         INSERT INTO iceberg_all_partition_types1_${format_compression}
-        SELECT id, boolean_col, int_col, bigint_col, float_col, double_col FROM all_partition_types1_parquet_snappy_src where id = 2;
+        SELECT boolean_col, id, int_col, bigint_col, float_col, double_col FROM ${hive_catalog_name}.write_test.all_partition_types1_parquet_snappy_src where id = 2;
         """
         order_qt_q02 """ select * from iceberg_all_partition_types1_${format_compression};
         """
 
         sql """
         INSERT INTO iceberg_all_partition_types1_${format_compression}
-        SELECT id, boolean_col, int_col, bigint_col, float_col, double_col FROM all_partition_types1_parquet_snappy_src where id = 3;
+        SELECT boolean_col, id, int_col, bigint_col, float_col, double_col FROM ${hive_catalog_name}.write_test.all_partition_types1_parquet_snappy_src where id = 3;
         """
         order_qt_q03 """ select * from iceberg_all_partition_types1_${format_compression};
+        """
+
+        sql """
+        INSERT INTO iceberg_all_partition_types1_${format_compression}
+        SELECT boolean_col, id, int_col, null, float_col, null FROM ${hive_catalog_name}.write_test.all_partition_types1_parquet_snappy_src where id = 3;
+        """
+        order_qt_q04 """ select * from iceberg_all_partition_types1_${format_compression};
         """
 
         sql """ DROP TABLE iceberg_all_partition_types1_${format_compression}; """
     }
 
-    def q02 = { String format_compression, String catalog_name ->
+    def q02 = { String format_compression, String catalog_name, String hive_catalog_name ->
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
@@ -84,23 +91,30 @@ suite("test_iceberg_write_partitions", "p0,external,iceberg,external_docker,exte
 
         sql """
         INSERT INTO iceberg_all_partition_types2_${format_compression}
-        SELECT decimal_col, id, string_col, date_col FROM all_partition_types2_parquet_snappy_src where id = 1;
+        SELECT decimal_col, id, string_col, date_col FROM ${hive_catalog_name}.write_test.all_partition_types2_parquet_snappy_src where id = 1;
         """
         order_qt_q01 """ select * from iceberg_all_partition_types2_${format_compression};
         """
 
         sql """
         INSERT INTO iceberg_all_partition_types2_${format_compression}
-        SELECT decimal_col, id, string_col, date_col FROM all_partition_types2_parquet_snappy_src where id = 2;
+        SELECT decimal_col, id, string_col, date_col FROM ${hive_catalog_name}.write_test.all_partition_types2_parquet_snappy_src where id = 2;
         """
         order_qt_q02 """ select * from iceberg_all_partition_types2_${format_compression};
         """
 
         sql """
         INSERT INTO iceberg_all_partition_types2_${format_compression}
-        SELECT decimal_col, id, string_col, date_col FROM all_partition_types2_parquet_snappy_src where id = 3;
+        SELECT decimal_col, id, string_col, date_col FROM ${hive_catalog_name}.write_test.all_partition_types2_parquet_snappy_src where id = 3;
         """
         order_qt_q03 """ select * from iceberg_all_partition_types2_${format_compression};
+        """
+
+        sql """
+        INSERT INTO iceberg_all_partition_types2_${format_compression}
+        SELECT decimal_col, id, null, date_col FROM ${hive_catalog_name}.write_test.all_partition_types2_parquet_snappy_src where id = 3;
+        """
+        order_qt_q04 """ select * from iceberg_all_partition_types2_${format_compression};
         """
 
         sql """ DROP TABLE iceberg_all_partition_types2_${format_compression}; """
@@ -176,26 +190,36 @@ suite("test_iceberg_write_partitions", "p0,external,iceberg,external_docker,exte
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_${hivePrefix}_write_partitions"
+            String iceberg_catalog_name = "test_iceberg_write_partitions_iceberg_${hivePrefix}"
+            String hive_catalog_name = "test_iceberg_write_partitions_hive_${hivePrefix}"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-
-            sql """drop catalog if exists ${catalog_name}"""
-            sql """create catalog if not exists ${catalog_name} properties (
+ 
+            sql """drop catalog if exists ${iceberg_catalog_name}"""
+            sql """create catalog if not exists ${iceberg_catalog_name} properties (
+                'type'='iceberg',
+                'iceberg.catalog.type'='hms',
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+            );"""
+            sql """drop catalog if exists ${hive_catalog_name}"""
+            sql """create catalog if not exists ${hive_catalog_name} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
                 'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
             );"""
-            sql """use `${catalog_name}`.`write_test`"""
+
+            sql """use `${iceberg_catalog_name}`.`write_test`"""
 
             sql """set enable_fallback_to_original_planner=false;"""
 
             for (String format_compression in format_compressions) {
                 logger.info("Process format_compression " + format_compression)
-                q01(format_compression, catalog_name)
-                q02(format_compression, catalog_name)
-                test_columns_out_of_order(format_compression, catalog_name)
+                q01(format_compression, iceberg_catalog_name, hive_catalog_name)
+                q02(format_compression, iceberg_catalog_name, hive_catalog_name)
+                test_columns_out_of_order(format_compression, iceberg_catalog_name)
             }
-            sql """drop catalog if exists ${catalog_name}"""
+            sql """drop catalog if exists ${iceberg_catalog_name}"""
+            sql """drop catalog if exists ${hive_catalog_name}"""
         } finally {
         }
     }

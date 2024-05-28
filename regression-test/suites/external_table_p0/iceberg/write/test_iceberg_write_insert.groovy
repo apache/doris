@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external_docker_iceberg") {
-    def format_compressions = ["parquet_snappy", "orc_zlib"]
+    def format_compressions = ["parquet_zstd", "orc_zlib"]
 
     def q01 = { String format_compression, String catalog_name ->
         def parts = format_compression.split("_")
@@ -316,7 +316,7 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
         sql """ DROP TABLE iceberg_all_types_${format_compression}; """
     }
 
-    def q02 = { String format_compression, String catalog_name ->
+    def q02 = { String format_compression, String catalog_name, String hive_catalog_name ->
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
@@ -391,14 +391,14 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
                t_ARRAY_decimal_precision_17, t_ARRAY_decimal_precision_18, t_ARRAY_decimal_precision_38, t_struct_bigint, t_complex,
                 t_struct_nested, t_struct_null, t_struct_non_nulls_after_nulls, t_nested_struct_non_nulls_after_nulls,
                  t_map_null_value, t_ARRAY_string_starting_with_nulls, t_ARRAY_string_with_nulls_in_between,
-                  t_ARRAY_string_ending_with_nulls, t_ARRAY_string_all_nulls, dt FROM all_types_parquet_snappy_src;
+                  t_ARRAY_string_ending_with_nulls, t_ARRAY_string_all_nulls, dt FROM ${hive_catalog_name}.write_test.all_types_parquet_snappy_src;
         """
         order_qt_q01 """ select * from iceberg_all_types_${format_compression};
         """
 
         sql """
         INSERT INTO iceberg_all_types_${format_compression}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls)
-        SELECT float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls FROM all_types_parquet_snappy_src;
+        SELECT float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls FROM ${hive_catalog_name}.write_test.all_types_parquet_snappy_src;
         """
         order_qt_q02 """
         select * from iceberg_all_types_${format_compression};
@@ -706,7 +706,7 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
         sql """ DROP TABLE iceberg_all_types_par_${format_compression}; """
     }
 
-    def q04 = { String format_compression, String catalog_name ->
+    def q04 = { String format_compression, String catalog_name, String hive_catalog_name ->
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
@@ -782,14 +782,14 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
                t_ARRAY_decimal_precision_17, t_ARRAY_decimal_precision_18, t_ARRAY_decimal_precision_38, t_struct_bigint, t_complex,
                 t_struct_nested, t_struct_null, t_struct_non_nulls_after_nulls, t_nested_struct_non_nulls_after_nulls,
                  t_map_null_value, t_ARRAY_string_starting_with_nulls, t_ARRAY_string_with_nulls_in_between,
-                  t_ARRAY_string_ending_with_nulls, t_ARRAY_string_all_nulls, dt FROM all_types_parquet_snappy_src;
+                  t_ARRAY_string_ending_with_nulls, t_ARRAY_string_all_nulls, dt FROM ${hive_catalog_name}.write_test.all_types_parquet_snappy_src;
         """
         order_qt_q01 """ select * from iceberg_all_types_par_${format_compression};
         """
 
         sql """
         INSERT INTO iceberg_all_types_par_${format_compression}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls, dt)
-        SELECT float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls, dt FROM all_types_parquet_snappy_src;
+        SELECT float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls, dt FROM ${hive_catalog_name}.write_test.all_types_parquet_snappy_src;
         """
         order_qt_q02 """ select * from iceberg_all_types_par_${format_compression};
         """
@@ -808,28 +808,38 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_${hivePrefix}_write_insert"
+            String iceberg_catalog_name = "test_iceberg_write_insert_iceberg_${hivePrefix}"
+            String hive_catalog_name = "test_iceberg_write_insert_hive_${hivePrefix}"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
-            sql """drop catalog if exists ${catalog_name}"""
-            sql """create catalog if not exists ${catalog_name} properties (
+            sql """drop catalog if exists ${iceberg_catalog_name}"""
+            sql """create catalog if not exists ${iceberg_catalog_name} properties (
+                'type'='iceberg',
+                'iceberg.catalog.type'='hms',
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+            );"""
+            sql """drop catalog if exists ${hive_catalog_name}"""
+            sql """create catalog if not exists ${hive_catalog_name} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
                 'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
             );"""
-            sql """use `${catalog_name}`.`write_test`"""
+
+            sql """use `${iceberg_catalog_name}`.`write_test`"""
 
             sql """set enable_fallback_to_original_planner=false;"""
 
             for (String format_compression in format_compressions) {
                 logger.info("Process format_compression " + format_compression)
-                q01(format_compression, catalog_name)
-                q02(format_compression, catalog_name)
-                q03(format_compression, catalog_name)
-                q04(format_compression, catalog_name)
+                q01(format_compression, iceberg_catalog_name)
+                q02(format_compression, iceberg_catalog_name, hive_catalog_name)
+                q03(format_compression, iceberg_catalog_name)
+                q04(format_compression, iceberg_catalog_name, hive_catalog_name)
             }
 
-            sql """drop catalog if exists ${catalog_name}"""
+            sql """drop catalog if exists ${iceberg_catalog_name}"""
+            sql """drop catalog if exists ${hive_catalog_name}"""
         } finally {
         }
     }

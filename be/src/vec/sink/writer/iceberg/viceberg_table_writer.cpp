@@ -368,7 +368,7 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     if (auto* nullable_column = check_and_get_column<ColumnNullable>(*partition_column.column)) {
         auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
         if (null_map_data[position]) {
-            return nullptr;
+            return std::any();
         }
         column = nullable_column->get_nested_column_ptr();
     } else {

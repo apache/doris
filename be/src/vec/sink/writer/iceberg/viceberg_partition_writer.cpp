@@ -118,9 +118,9 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
         }
         }
 
-        _file_format_transformer.reset(
-                new VOrcTransformer(state, _file_writer.get(), _write_output_expr_ctxs,
-                                    std::move(column_names), false, orc_compression_type));
+        _file_format_transformer.reset(new VOrcTransformer(
+                state, _file_writer.get(), _write_output_expr_ctxs, std::move(column_names), false,
+                orc_compression_type, &_schema));
         return _file_format_transformer->open();
     }
     default: {
@@ -131,9 +131,6 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
 }
 
 Status VIcebergPartitionWriter::close(const Status& status) {
-    if (status.ok()) {
-        _state->iceberg_commit_datas().emplace_back(_build_iceberg_commit_data());
-    }
     if (_file_format_transformer != nullptr) {
         Status st = _file_format_transformer->close();
         if (!st.ok()) {
@@ -147,6 +144,9 @@ Status VIcebergPartitionWriter::close(const Status& status) {
         if (!st.ok()) {
             LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
         }
+    }
+    if (status.ok()) {
+        _state->iceberg_commit_datas().emplace_back(_build_iceberg_commit_data());
     }
     return Status::OK();
 }

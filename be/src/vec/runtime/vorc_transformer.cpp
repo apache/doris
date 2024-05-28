@@ -111,7 +111,8 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
           _write_options(new orc::WriterOptions()),
-          _schema_str(&schema) {
+          _schema_str(&schema),
+          _iceberg_schema(nullptr) {
     _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
 }
@@ -119,12 +120,14 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
 VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                                  const VExprContextSPtrs& output_vexpr_ctxs,
                                  std::vector<std::string> column_names, bool output_object_data,
-                                 orc::CompressionKind compression)
+                                 orc::CompressionKind compression,
+                                 const iceberg::Schema* iceberg_schema)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
           _column_names(std::move(column_names)),
           _write_options(new orc::WriterOptions()),
-          _schema_str(nullptr) {
+          _schema_str(nullptr),
+          _iceberg_schema(iceberg_schema) {
     _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
     _write_options->setCompression(compression);
@@ -140,10 +143,17 @@ Status VOrcTransformer::open() {
         }
     } else {
         _schema = orc::createStructType();
+        const std::vector<iceberg::NestedField>* nested_fields = nullptr;
+        if (_iceberg_schema != nullptr) {
+            const iceberg::StructType& iceberg_root_struct_type = _iceberg_schema->root_struct();
+            nested_fields = &iceberg_root_struct_type.fields();
+        }
         for (int i = 0; i < _output_vexpr_ctxs.size(); i++) {
             VExprSPtr column_expr = _output_vexpr_ctxs[i]->root();
             try {
-                _schema->addStructField(_column_names[i], _build_orc_type(column_expr->type()));
+                std::unique_ptr<orc::Type> orc_type = _build_orc_type(
+                        column_expr->type(), nested_fields ? &(*nested_fields)[i] : nullptr);
+                _schema->addStructField(_column_names[i], std::move(orc_type));
             } catch (doris::Exception& e) {
                 return e.to_status();
             }
@@ -159,73 +169,103 @@ Status VOrcTransformer::open() {
     return Status::OK();
 }
 
-std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(const TypeDescriptor& type_descriptor) {
-    std::pair<Status, std::unique_ptr<orc::Type>> result;
+std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
+        const TypeDescriptor& type_descriptor, const iceberg::NestedField* nested_field) {
+    std::unique_ptr<orc::Type> type;
     switch (type_descriptor.type) {
     case TYPE_BOOLEAN: {
-        return orc::createPrimitiveType(orc::BOOLEAN);
+        type = orc::createPrimitiveType(orc::BOOLEAN);
+        break;
     }
     case TYPE_TINYINT: {
-        return orc::createPrimitiveType(orc::BYTE);
+        type = orc::createPrimitiveType(orc::BYTE);
+        break;
     }
     case TYPE_SMALLINT: {
-        return orc::createPrimitiveType(orc::SHORT);
+        type = orc::createPrimitiveType(orc::SHORT);
+        break;
     }
     case TYPE_IPV4:
     case TYPE_INT: {
-        return orc::createPrimitiveType(orc::INT);
+        type = orc::createPrimitiveType(orc::INT);
+        break;
     }
     case TYPE_BIGINT: {
-        return orc::createPrimitiveType(orc::LONG);
+        type = orc::createPrimitiveType(orc::LONG);
+        break;
     }
     case TYPE_FLOAT: {
-        return orc::createPrimitiveType(orc::FLOAT);
+        type = orc::createPrimitiveType(orc::FLOAT);
+        break;
     }
     case TYPE_DOUBLE: {
-        return orc::createPrimitiveType(orc::DOUBLE);
+        type = orc::createPrimitiveType(orc::DOUBLE);
+        break;
     }
     case TYPE_CHAR: {
-        return orc::createCharType(orc::CHAR, type_descriptor.len);
+        type = orc::createCharType(orc::CHAR, type_descriptor.len);
+        break;
     }
     case TYPE_VARCHAR: {
-        return orc::createCharType(orc::VARCHAR, type_descriptor.len);
+        type = orc::createCharType(orc::VARCHAR, type_descriptor.len);
+        break;
     }
     case TYPE_STRING: {
-        return orc::createPrimitiveType(orc::STRING);
+        type = orc::createPrimitiveType(orc::STRING);
+        break;
     }
     case TYPE_IPV6:
     case TYPE_BINARY: {
-        return orc::createPrimitiveType(orc::STRING);
+        type = orc::createPrimitiveType(orc::STRING);
+        break;
     }
     case TYPE_DATEV2: {
-        return orc::createPrimitiveType(orc::DATE);
+        type = orc::createPrimitiveType(orc::DATE);
+        break;
     }
     case TYPE_DATETIMEV2: {
-        return orc::createPrimitiveType(orc::TIMESTAMP);
+        type = orc::createPrimitiveType(orc::TIMESTAMP);
+        break;
     }
     case TYPE_DECIMAL32: {
-        return orc::createDecimalType(type_descriptor.precision, type_descriptor.scale);
+        type = orc::createDecimalType(type_descriptor.precision, type_descriptor.scale);
+        break;
     }
     case TYPE_DECIMAL64: {
-        return orc::createDecimalType(type_descriptor.precision, type_descriptor.scale);
+        type = orc::createDecimalType(type_descriptor.precision, type_descriptor.scale);
+        break;
     }
     case TYPE_DECIMAL128I: {
-        return orc::createDecimalType(type_descriptor.precision, type_descriptor.scale);
+        type = orc::createDecimalType(type_descriptor.precision, type_descriptor.scale);
+        break;
     }
     case TYPE_STRUCT: {
-        std::unique_ptr<orc::Type> struct_type = orc::createStructType();
+        type = orc::createStructType();
         for (int j = 0; j < type_descriptor.children.size(); ++j) {
-            struct_type->addStructField(type_descriptor.field_names[j],
-                                        _build_orc_type(type_descriptor.children[j]));
+            type->addStructField(
+                    type_descriptor.field_names[j],
+                    _build_orc_type(
+                            type_descriptor.children[j],
+                            nested_field
+                                    ? &nested_field->field_type()->as_struct_type()->fields()[j]
+                                    : nullptr));
         }
-        return struct_type;
+        break;
     }
     case TYPE_ARRAY: {
-        return orc::createListType(_build_orc_type(type_descriptor.children[0]));
+        type = orc::createListType(_build_orc_type(
+                type_descriptor.children[0],
+                nested_field ? &nested_field->field_type()->as_list_type()->element_field()
+                             : nullptr));
+        break;
     }
     case TYPE_MAP: {
-        return orc::createMapType(_build_orc_type(type_descriptor.children[0]),
-                                  _build_orc_type(type_descriptor.children[1]));
+        type = orc::createMapType(
+                _build_orc_type(type_descriptor.children[0],
+                                &nested_field->field_type()->as_map_type()->key_field()),
+                _build_orc_type(type_descriptor.children[1],
+                                &nested_field->field_type()->as_map_type()->value_field()));
+        break;
     }
     default: {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -233,6 +273,11 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(const TypeDescriptor
                                type_descriptor.debug_string());
     }
     }
+    if (nested_field != nullptr) {
+        type->setAttribute(ORC_ICEBERG_ID_KEY, std::to_string(nested_field->field_id()));
+        type->setAttribute(ORC_ICEBERG_REQUIRED_KEY, std::to_string(nested_field->is_required()));
+    }
+    return type;
 }
 
 std::unique_ptr<orc::ColumnVectorBatch> VOrcTransformer::_create_row_batch(size_t sz) {

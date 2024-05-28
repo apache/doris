@@ -141,6 +141,8 @@ public:
                                                 std::unique_ptr<Type> key_type,
                                                 std::unique_ptr<Type> value_type);
 
+    const NestedField& key_field() const;
+    const NestedField& value_field() const;
     Type* key_type() const;
     Type* value_type() const;
     int key_id() const;
@@ -188,6 +190,8 @@ public:
     bool is_list_type() override { return true; }
 
     ListType* as_list_type() override { return this; }
+
+    const NestedField& element_field() const { return _element_field; }
 
     virtual std::string to_string() const override;
 

@@ -42,6 +42,12 @@ std::unique_ptr<MapType> MapType::of_required(int key_id, int value_id,
     return std::unique_ptr<MapType>(new MapType(std::move(key_field), std::move(value_field)));
 }
 
+const NestedField& MapType::key_field() const {
+    return *_key_field;
+}
+const NestedField& MapType::value_field() const {
+    return *_value_field;
+}
 Type* MapType::key_type() const {
     return _key_field->field_type();
 }

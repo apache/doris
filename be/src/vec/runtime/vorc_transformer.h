@@ -29,6 +29,7 @@
 #include "orc/Type.hh"
 #include "orc/Writer.hh"
 #include "vec/core/block.h"
+#include "vec/exec/format/table/iceberg/schema.h"
 #include "vec/runtime/vparquet_transformer.h"
 
 namespace doris {
@@ -42,6 +43,9 @@ class VExprContext;
 namespace orc {
 struct ColumnVectorBatch;
 } // namespace orc
+namespace iceberg {
+class NestedField;
+} // namespace iceberg
 
 namespace doris::vectorized {
 
@@ -81,7 +85,8 @@ public:
     VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                     const VExprContextSPtrs& output_vexpr_ctxs,
                     std::vector<std::string> column_names, bool output_object_data,
-                    orc::CompressionKind compression);
+                    orc::CompressionKind compression,
+                    const iceberg::Schema* iceberg_schema = nullptr);
 
     ~VOrcTransformer() = default;
 
@@ -94,7 +99,8 @@ public:
     int64_t written_len() override;
 
 private:
-    std::unique_ptr<orc::Type> _build_orc_type(const TypeDescriptor& type_descriptor);
+    std::unique_ptr<orc::Type> _build_orc_type(const TypeDescriptor& type_descriptor,
+                                               const iceberg::NestedField* nested_field);
 
     std::unique_ptr<orc::ColumnVectorBatch> _create_row_batch(size_t sz);
     // The size of subtypes of a complex type may be different from
@@ -111,6 +117,8 @@ private:
     std::unique_ptr<orc::Type> _schema;
     std::unique_ptr<orc::Writer> _writer;
 
+    const iceberg::Schema* _iceberg_schema;
+
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
     // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer
     // The minimum value of largeint has 40 bytes after being converted to string(a negative number occupies a byte)
@@ -119,6 +127,9 @@ private:
     static constexpr size_t BUFFER_UNIT_SIZE = 4064 * 40;
     // buffer reserves 40 bytes. The reserved space is just to prevent Headp-Buffer-Overflow
     static constexpr size_t BUFFER_RESERVED_SIZE = 40;
+
+    static constexpr const char* ORC_ICEBERG_ID_KEY = "iceberg.id";
+    static constexpr const char* ORC_ICEBERG_REQUIRED_KEY = "iceberg.required";
 };
 
 } // namespace doris::vectorized
