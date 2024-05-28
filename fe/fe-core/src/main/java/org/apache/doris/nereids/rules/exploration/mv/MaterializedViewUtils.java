@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
@@ -59,7 +60,6 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -100,11 +100,11 @@ public class MaterializedViewUtils {
         // Collect table relation map which is used to identify self join
         List<Object> catalogRelationObjs = materializedViewPlan.collectToList(
                 planTreeNode -> planTreeNode instanceof CatalogRelation);
-        ImmutableMultimap.Builder<Long, CatalogRelation> tableCatalogRelationMultimapBuilder =
+        ImmutableMultimap.Builder<TableIdentifier, CatalogRelation> tableCatalogRelationMultimapBuilder =
                 ImmutableMultimap.builder();
         for (Object catalogRelationObj : catalogRelationObjs) {
             CatalogRelation catalogRelation = (CatalogRelation) catalogRelationObj;
-            tableCatalogRelationMultimapBuilder.put(generateTableQualifier(catalogRelation.getTable()),
+            tableCatalogRelationMultimapBuilder.put(new TableIdentifier(catalogRelation.getTable()),
                     catalogRelation);
         }
         // Check sql pattern
@@ -431,11 +431,11 @@ public class MaterializedViewUtils {
 
     private static final class IncrementCheckerContext {
         private final SlotReference mvPartitionColumn;
-        private final Multimap<Long, CatalogRelation> tableAndCatalogRelationMap;
+        private final Multimap<TableIdentifier, CatalogRelation> tableAndCatalogRelationMap;
         private final Multimap<TableIf, Column> partitionRelatedTableAndColumnMap = HashMultimap.create();
 
         public IncrementCheckerContext(SlotReference mvPartitionColumn,
-                Multimap<Long, CatalogRelation> tableAndCatalogRelationMap) {
+                Multimap<TableIdentifier, CatalogRelation> tableAndCatalogRelationMap) {
             this.mvPartitionColumn = mvPartitionColumn;
             this.tableAndCatalogRelationMap = tableAndCatalogRelationMap;
         }
@@ -453,24 +453,12 @@ public class MaterializedViewUtils {
         }
 
         public Collection<CatalogRelation> getRelationByTable(TableIf tableIf) {
-            long tableQualifier = generateTableQualifier(tableIf);
-            return tableAndCatalogRelationMap.get(tableQualifier);
+            return tableAndCatalogRelationMap.get(new TableIdentifier(tableIf));
         }
 
         public void addTableAndRelation(TableIf tableIf, CatalogRelation relation) {
-            long tableQualifier = generateTableQualifier(tableIf);
-            tableAndCatalogRelationMap.put(tableQualifier, relation);
+            tableAndCatalogRelationMap.put(new TableIdentifier(tableIf), relation);
         }
-    }
-
-    /**
-     * Generate the table qualifier
-     */
-    public static long generateTableQualifier(TableIf tableIf) {
-        long catalogId = tableIf.getDatabase().getCatalog().getId();
-        long databaseId = tableIf.getDatabase().getId();
-        long tableId = tableIf.getId();
-        return Objects.hash(catalogId, databaseId, tableId);
     }
 
     /**
