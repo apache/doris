@@ -243,9 +243,8 @@ Status VParquetTransformer::_parse_properties() {
         } else {
             builder.enable_dictionary();
         }
-        auto kv_metadata = std::make_shared<parquet::KeyValueMetadata>();
-        kv_metadata->Append("CreatedBy", doris::get_short_version());
-        builder.key_value_metadata(kv_metadata);
+        std::string arrow_created_by = builder.created_by();
+        builder.created_by(fmt::format("{}({})", doris::get_short_version(), arrow_created_by));
         _parquet_writer_properties = builder.build();
         _arrow_properties = parquet::ArrowWriterProperties::Builder()
                                     .enable_deprecated_int96_timestamps()
