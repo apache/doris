@@ -325,7 +325,17 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
     do {
         RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
-            RETURN_IF_ERROR(_get_next_reader());
+            // The file may not exist because the file list is got from meta cache,
+            // And the file may already be removed from storage.
+            // Just ignore not found files.
+            Status st = _get_next_reader();
+            if (st.is<ErrorCode::NOT_FOUND>()) {
+                _cur_reader_eof = true;
+                COUNTER_UPDATE(_empty_file_counter, 1);
+                continue;
+            } else if (!st) {
+                return st;
+            }
         }
 
         if (_scanner_eof) {
