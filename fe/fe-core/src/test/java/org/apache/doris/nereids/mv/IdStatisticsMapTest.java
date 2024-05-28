@@ -15,15 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.memo;
+package org.apache.doris.nereids.mv;
 
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.Statistics;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -31,14 +33,16 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
+import java.util.Map;
+import java.util.Optional;
 
 /**
- * Test mv rewrite when base table id is lager then integer
+ * Test idStatisticsMap in StatementContext is valid
  */
-public class MvTableIdIsLongTest extends SqlTestBase {
+public class IdStatisticsMapTest extends SqlTestBase {
 
     @Test
-    void testMvRewriteWhenBaseTableIdIsLong() throws Exception {
+    void testIdStatisticsIsExistWhenRewriteByMv() throws Exception {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
         new MockUp<SessionVariable>() {
@@ -55,7 +59,7 @@ public class MvTableIdIsLongTest extends SqlTestBase {
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
-        createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+        createMvByNereids("create materialized view mv100 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
                 + "        as select T1.id from T1 inner join T2 "
@@ -71,7 +75,11 @@ public class MvTableIdIsLongTest extends SqlTestBase {
                 .rewrite()
                 .optimize()
                 .printlnBestPlanTree();
-        Assertions.assertTrue(c1.getMemo().toString().contains("mv1"));
-        dropMvByNereids("drop materialized view mv1");
+        Map<RelationId, Statistics> idStatisticsMap = c1.getStatementContext().getRelationIdToStatisticsMap();
+        Assertions.assertFalse(idStatisticsMap.isEmpty());
+        RelationId relationId = idStatisticsMap.keySet().iterator().next();
+        Optional<Statistics> statistics = c1.getStatementContext().getStatistics(relationId);
+        Assertions.assertTrue(statistics.isPresent());
+        dropMvByNereids("drop materialized view mv100");
     }
 }
