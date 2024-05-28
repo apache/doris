@@ -17,6 +17,7 @@
 
 suite("redundant_conjuncts") {
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+    sql 'set be_number_for_test=1'
     sql """
     DROP TABLE IF EXISTS redundant_conjuncts;
     """
