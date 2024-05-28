@@ -206,6 +206,8 @@ private:
     Status _load_index_impl();
     Status _open_inverted_index();
 
+    Status _create_column_readers_once();
+
 private:
     friend class SegmentIterator;
     io::FileReaderSPtr _file_reader;
@@ -246,6 +248,11 @@ private:
     DorisCallOnce<Status> _load_index_once;
     // used to guarantee that primary key bloom filter will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_pk_bf_once;
+
+    DorisCallOnce<Status> _create_column_readers_once_call;
+
+    std::unique_ptr<SegmentFooterPB> _footer_pb;
+
     // used to hold short key index page in memory
     PageHandle _sk_index_handle;
     // short key index decoder

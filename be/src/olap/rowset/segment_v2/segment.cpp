@@ -104,16 +104,15 @@ Segment::~Segment() {
 }
 
 Status Segment::_open() {
-    SegmentFooterPB footer;
-    RETURN_IF_ERROR(_parse_footer(&footer));
-    RETURN_IF_ERROR(_create_column_readers(footer));
-    _pk_index_meta.reset(footer.has_primary_key_index_meta()
-                                 ? new PrimaryKeyIndexMetaPB(footer.primary_key_index_meta())
+    _footer_pb = std::make_unique<SegmentFooterPB>();
+    RETURN_IF_ERROR(_parse_footer(_footer_pb.get()));
+    _pk_index_meta.reset(_footer_pb->has_primary_key_index_meta()
+                                 ? new PrimaryKeyIndexMetaPB(_footer_pb->primary_key_index_meta())
                                  : nullptr);
     // delete_bitmap_calculator_test.cpp
     // DCHECK(footer.has_short_key_index_page());
-    _sk_index_page = footer.short_key_index_page();
-    _num_rows = footer.num_rows();
+    _sk_index_page = _footer_pb->short_key_index_page();
+    _num_rows = _footer_pb->num_rows();
     return Status::OK();
 }
 
@@ -134,6 +133,8 @@ Status Segment::_open_inverted_index() {
 
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
+    RETURN_IF_ERROR(_create_column_readers_once());
+
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
     for (auto& entry : read_options.col_id_to_predicates) {
@@ -387,6 +388,15 @@ vectorized::DataTypePtr Segment::get_data_type_of(vectorized::PathInDataPtr path
     // TODO support normal column type
     return nullptr;
 }
+
+Status Segment::_create_column_readers_once() {
+    return _create_column_readers_once_call.call([&] {
+        DCHECK(_footer_pb);
+        Defer defer([&]() { _footer_pb.reset(); });
+        return _create_column_readers(*_footer_pb);
+    });
+}
+
 Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
     std::unordered_map<uint32_t, uint32_t> column_id_to_footer_ordinal;
     std::unordered_map<vectorized::PathInData, uint32_t, vectorized::PathInData::Hash>
@@ -589,6 +599,8 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
                                     const StorageReadOptions* opt) {
+    RETURN_IF_ERROR(_create_column_readers_once());
+
     // init column iterator by path info
     if (tablet_column.has_path_info() || tablet_column.is_variant_type()) {
         return new_column_iterator_with_path(tablet_column, iter, opt);
@@ -616,6 +628,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
 }
 
 Status Segment::new_column_iterator(int32_t unique_id, std::unique_ptr<ColumnIterator>* iter) {
+    RETURN_IF_ERROR(_create_column_readers_once());
     ColumnIterator* it;
     RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it));
     iter->reset(it);
@@ -641,6 +654,7 @@ ColumnReader* Segment::_get_column_reader(const TabletColumn& col) {
 
 Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
                                           std::unique_ptr<BitmapIndexIterator>* iter) {
+    RETURN_IF_ERROR(_create_column_readers_once());
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && reader->has_bitmap_index()) {
         BitmapIndexIterator* it;
@@ -655,6 +669,7 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             const TabletIndex* index_meta,
                                             const StorageReadOptions& read_options,
                                             std::unique_ptr<InvertedIndexIterator>* iter) {
+    RETURN_IF_ERROR(_create_column_readers_once());
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
         if (_inverted_index_file_reader == nullptr) {
