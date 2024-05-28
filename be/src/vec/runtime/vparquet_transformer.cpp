@@ -243,8 +243,8 @@ Status VParquetTransformer::_parse_properties() {
         } else {
             builder.enable_dictionary();
         }
-        std::string arrow_created_by = builder.created_by();
-        builder.created_by(fmt::format("{}({})", doris::get_short_version(), arrow_created_by));
+        builder.created_by(
+                fmt::format("{}({})", doris::get_short_version(), parquet::DEFAULT_CREATED_BY));
         _parquet_writer_properties = builder.build();
         _arrow_properties = parquet::ArrowWriterProperties::Builder()
                                     .enable_deprecated_int96_timestamps()
