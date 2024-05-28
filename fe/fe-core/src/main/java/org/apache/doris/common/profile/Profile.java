@@ -20,7 +20,9 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ScanNode;
 
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
@@ -98,15 +100,22 @@ public class Profile {
                 return;
             }
             if (planner instanceof NereidsPlanner) {
+                NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
+                StringBuilder builder = new StringBuilder();
+                for (PhysicalRelation relation: nereidsPlanner.getPhysicalRelations()) {
+                    builder.append(relation.getStats());
+                }
+                builder.append(nereidsPlanner.getPhysicalPlan()
+                        .treeString().replace("\n", "\n     "));
                 summaryInfo.put(SummaryProfile.PHYSICAL_PLAN,
-                        ((NereidsPlanner) planner).getPhysicalPlan()
-                                .treeString().replace("\n", "\n     "));
+                        builder.toString());
             }
             summaryProfile.update(summaryInfo);
             for (ExecutionProfile executionProfile : executionProfiles) {
                 // Tell execution profile the start time
                 executionProfile.update(startTime, isFinished);
             }
+
             // Nerids native insert not set planner, so it is null
             if (planner != null) {
                 this.planNodeMap = planner.getExplainStringMap();
