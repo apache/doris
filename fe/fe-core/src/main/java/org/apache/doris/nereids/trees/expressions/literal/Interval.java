@@ -98,6 +98,9 @@ public class Interval extends Expression implements LeafExpression, AlwaysNotNul
             return description;
         }
 
+        /**
+         * Construct time unit by name
+         */
         public static Optional<TimeUnit> of(String name) {
             for (TimeUnit unit : TimeUnit.values()) {
                 if (unit.toString().equalsIgnoreCase(name)) {

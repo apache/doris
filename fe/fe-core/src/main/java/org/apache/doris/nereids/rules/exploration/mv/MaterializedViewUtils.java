@@ -27,12 +27,16 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
+import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -48,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
@@ -77,7 +82,9 @@ public class MaterializedViewUtils {
      * @param materializedViewPlan this should be rewritten or analyzed plan, should not be physical plan.
      * @param column ref column name.
      */
-    public static Optional<RelatedTableInfo> getRelatedTableInfo(String column, Plan materializedViewPlan) {
+    public static Optional<RelatedTableInfo> getRelatedTableInfo(String column, String timeUnit,
+            Plan materializedViewPlan, CascadesContext cascadesContext) {
+
         List<Slot> outputExpressions = materializedViewPlan.getOutput();
         Slot columnExpr = null;
         // get column slot
@@ -89,6 +96,18 @@ public class MaterializedViewUtils {
         }
         if (columnExpr == null) {
             return Optional.empty();
+        }
+        if (timeUnit != null) {
+            Expression dateTrunc = new DateTrunc(columnExpr, new VarcharLiteral(timeUnit));
+            dateTrunc = ExpressionUtils.shuttleExpressionWithLineage(dateTrunc, materializedViewPlan, new BitSet());
+            dateTrunc = new ExpressionNormalization().rewrite(dateTrunc,
+                    new ExpressionRewriteContext(cascadesContext));
+            List<Object> dataTruncExpressions = dateTrunc.collectToList(DateTrunc.class::isInstance);
+            if (dataTruncExpressions.size() > 1) {
+                // mv time unit level is little then query
+                return Optional.empty();
+            }
+            columnExpr = (Slot) dateTrunc.getArgument(0);
         }
         if (!(columnExpr instanceof SlotReference)) {
             return Optional.empty();
