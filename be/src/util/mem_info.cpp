@@ -75,8 +75,8 @@ int64_t MemInfo::_s_cgroup_mem_refresh_wait_times = 0;
 
 static std::unordered_map<std::string, int64_t> _mem_info_bytes;
 std::atomic<int64_t> MemInfo::_s_sys_mem_available = -1;
-int64_t MemInfo::_s_sys_mem_available_low_water_mark = std::numeric_limits<int64_t>::min();
-int64_t MemInfo::_s_sys_mem_available_warning_water_mark = std::numeric_limits<int64_t>::min();
+int64_t MemInfo::_s_sys_mem_available_low_water_mark = -1;
+int64_t MemInfo::_s_sys_mem_available_warning_water_mark = -1;
 std::atomic<int64_t> MemInfo::_s_process_minor_gc_size = -1;
 std::atomic<int64_t> MemInfo::_s_process_full_gc_size = -1;
 std::mutex MemInfo::je_purge_dirty_pages_lock;

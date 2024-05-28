@@ -48,7 +48,6 @@ public:
     ~ThreadMemTrackerMgr() {
         // if _init == false, exec env is not initialized when init(). and never consumed mem tracker once.
         if (_init) {
-            DCHECK(_reserved_mem == 0);
             flush_untracked_mem();
         }
     }
@@ -133,9 +132,6 @@ private:
     int64_t _old_untracked_mem = 0;
 
     int64_t _reserved_mem = 0;
-    // SCOPED_ATTACH_TASK cannot be nested, but SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER can continue to be used,
-    // so `attach_limiter_tracker` may be nested.
-    std::vector<int64_t> _reserved_mem_stack;
 
     bool _count_scope_mem = false;
     int64_t _scope_mem = 0;
@@ -182,7 +178,6 @@ inline bool ThreadMemTrackerMgr::push_consumer_tracker(MemTracker* tracker) {
 
 inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
     DCHECK(!_consumer_tracker_stack.empty());
-    flush_untracked_mem();
     _consumer_tracker_stack.back()->consume(_untracked_mem);
     _consumer_tracker_stack.back()->release(_reserved_mem);
     _consumer_tracker_stack.pop_back();
@@ -196,13 +191,9 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
             // subtract size from process global reserved memory,
             // because this part of the reserved memory has already been used by BE process.
             _reserved_mem -= size;
-            // temporary store bytes that not synchronized to process reserved memory.
+            // store bytes that not synchronized to process reserved memory.
             _untracked_mem += size;
-            // If _untracked_mem > 0, reserved memory that has been used, if _untracked_mem greater than
-            // SYNC_PROC_RESERVED_INTERVAL_BYTES, release process reserved memory.
-            // If _untracked_mem < 0, used reserved memory is returned, will increase reserved memory,
-            // if _untracked_mem less than -SYNC_PROC_RESERVED_INTERVAL_BYTES, increase process reserved memory.
-            if (std::abs(_untracked_mem) >= SYNC_PROC_RESERVED_INTERVAL_BYTES) {
+            if (_untracked_mem >= SYNC_PROC_RESERVED_INTERVAL_BYTES) {
                 doris::GlobalMemoryArbitrator::release_process_reserved_memory(_untracked_mem);
                 _untracked_mem = 0;
             }
@@ -218,9 +209,7 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
             _untracked_mem = 0;
         }
     }
-    // store bytes that not consumed by thread mem tracker.
     _untracked_mem += size;
-    DCHECK(_reserved_mem == 0);
     if (!_init && !ExecEnv::ready()) {
         return;
     }
@@ -228,7 +217,9 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
     // and some threads `_untracked_mem <= -config::mem_tracker_consume_min_size_bytes` trigger consumption(),
     // it will cause tracker->consumption to be temporarily less than 0.
     // After the jemalloc hook is loaded, before ExecEnv init, _limiter_tracker=nullptr.
-    if (std::abs(_untracked_mem) >= config::mem_tracker_consume_min_size_bytes && !_stop_consume) {
+    if ((_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
+         _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) &&
+        !_stop_consume) {
         flush_untracked_mem();
     }
 
@@ -247,12 +238,6 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
 }
 
 inline void ThreadMemTrackerMgr::flush_untracked_mem() {
-    // if during reserve memory, _untracked_mem temporary store bytes that not synchronized
-    // to process reserved memory, but bytes have been subtracted from thread _reserved_mem.
-    // so not need flush untracked_mem to consume mem tracker.
-    if (_reserved_mem != 0) {
-        return;
-    }
     // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
     // the Memory Hook again, so suspend consumption to avoid falling into an infinite loop.
     if (_untracked_mem == 0 || !init()) {
@@ -279,7 +264,9 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
     CHECK(init());
     // if _reserved_mem not equal to 0, repeat reserve,
     // _untracked_mem store bytes that not synchronized to process reserved memory.
-    flush_untracked_mem();
+    if (_reserved_mem == 0) {
+        flush_untracked_mem();
+    }
     if (!_limiter_tracker_raw->try_consume(size)) {
         return false;
     }
@@ -294,21 +281,21 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
         tracker->consume(size);
     }
     _reserved_mem += size;
+    DCHECK(_untracked_mem == 0);
     return true;
 }
 
 inline void ThreadMemTrackerMgr::release_reserved() {
-    if (_reserved_mem != 0) {
-        doris::GlobalMemoryArbitrator::release_process_reserved_memory(_reserved_mem +
-                                                                       _untracked_mem);
-        _limiter_tracker_raw->release(_reserved_mem);
+    flush_untracked_mem();
+    if (_reserved_mem > 0) {
+        doris::GlobalMemoryArbitrator::release_process_reserved_memory(_reserved_mem);
+        _limiter_tracker_raw->consume(-_reserved_mem);
         if (_count_scope_mem) {
             _scope_mem -= _reserved_mem;
         }
         for (auto* tracker : _consumer_tracker_stack) {
-            tracker->release(_reserved_mem);
+            tracker->consume(-_reserved_mem);
         }
-        _untracked_mem = 0;
         _reserved_mem = 0;
     }
 }
