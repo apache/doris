@@ -47,6 +47,7 @@ public class Utils {
         String authentication = conf.get(Constants.HADOOP_SECURITY_AUTHENTICATION, null);
         if ("kerberos".equals(authentication)) {
             conf.set("hadoop.security.authorization", "true");
+            conf.set("hadoop.kerberos.keytab.login.autorenewal.enabled", "true");
             UserGroupInformation.setConfiguration(conf);
             String principal = conf.get(Constants.HADOOP_KERBEROS_PRINCIPAL);
             String keytab = conf.get(Constants.HADOOP_KERBEROS_KEYTAB);

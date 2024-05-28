@@ -127,6 +127,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         if (AuthType.KERBEROS.getDesc().equals(
                     conf.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, null))) {
             conf.set(HdfsResource.HADOOP_KERBEROS_AUTHORIZATION, "true");
+            conf.set(HdfsResource.HADOOP_KERBEROS_KEYTAB_LOGIN_AUTORENEWAL_ENABLED, "true");
             String principal = conf.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
             String keytab = conf.get(HdfsResource.HADOOP_KERBEROS_KEYTAB);
 
