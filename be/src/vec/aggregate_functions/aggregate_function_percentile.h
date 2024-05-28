@@ -291,12 +291,12 @@ public:
                 const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
                 if (nullable_column == nullptr) { //Not Nullable column
                     const auto& column = assert_cast<const ColumnVector<Float64>&>(*columns[i]);
-                    column_data[i] = column.get_float64(row_num);
+                    column_data[i] = column.get_element(row_num);
                 } else if (!nullable_column->is_null_at(
                                    row_num)) { // Nullable column && Not null data
                     const auto& column = assert_cast<const ColumnVector<Float64>&>(
                             nullable_column->get_nested_column());
-                    column_data[i] = column.get_float64(row_num);
+                    column_data[i] = column.get_element(row_num);
                 } else { // Nullable column && null data
                     if (i == 0) {
                         return;
@@ -312,9 +312,9 @@ public:
             const auto& quantile = assert_cast<const ColumnVector<Float64>&>(*columns[2]);
 
             this->data(place).init();
-            this->data(place).add_with_weight(sources.get_float64(row_num),
-                                              weight.get_float64(row_num),
-                                              quantile.get_float64(row_num));
+            this->data(place).add_with_weight(sources.get_element(row_num),
+                                              weight.get_element(row_num),
+                                              quantile.get_element(row_num));
         }
     }
 };
@@ -334,12 +334,12 @@ public:
                 const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
                 if (nullable_column == nullptr) { //Not Nullable column
                     const auto& column = assert_cast<const ColumnVector<Float64>&>(*columns[i]);
-                    column_data[i] = column.get_float64(row_num);
+                    column_data[i] = column.get_element(row_num);
                 } else if (!nullable_column->is_null_at(
                                    row_num)) { // Nullable column && Not null data
                     const auto& column = assert_cast<const ColumnVector<Float64>&>(
                             nullable_column->get_nested_column());
-                    column_data[i] = column.get_float64(row_num);
+                    column_data[i] = column.get_element(row_num);
                 } else { // Nullable column && null data
                     if (i == 0) {
                         return;
@@ -356,10 +356,10 @@ public:
             const auto& quantile = assert_cast<const ColumnVector<Float64>&>(*columns[2]);
             const auto& compression = assert_cast<const ColumnVector<Float64>&>(*columns[3]);
 
-            this->data(place).init(compression.get_float64(row_num));
-            this->data(place).add_with_weight(sources.get_float64(row_num),
-                                              weight.get_float64(row_num),
-                                              quantile.get_float64(row_num));
+            this->data(place).init(compression.get_element(row_num));
+            this->data(place).add_with_weight(sources.get_element(row_num),
+                                              weight.get_element(row_num),
+                                              quantile.get_element(row_num));
         }
     }
 };
