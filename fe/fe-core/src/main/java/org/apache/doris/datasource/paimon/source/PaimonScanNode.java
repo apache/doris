@@ -159,7 +159,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         fileDesc.setCtlId(source.getCatalog().getId());
         fileDesc.setDbId(((PaimonExternalTable) source.getTargetTable()).getDbId());
         fileDesc.setTblId(source.getTargetTable().getId());
-        fileDesc.setLastUpdateTime(source.getTargetTable().getLastUpdateTime());
+        fileDesc.setLastUpdateTime(source.getTargetTable().getUpdateTime());
         Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
         if (optDeletionFile.isPresent()) {
             DeletionFile deletionFile = optDeletionFile.get();
