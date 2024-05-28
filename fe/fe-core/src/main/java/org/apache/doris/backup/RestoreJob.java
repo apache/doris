@@ -823,7 +823,11 @@ public class RestoreJob extends AbstractJob {
                     }
                 }
                 // set restored table's new name after all 'genFileMapping'
-                restoreTbl.setName(jobInfo.getAliasByOriginNameIfSet(restoreTbl.getName()));
+                String tableName = jobInfo.getAliasByOriginNameIfSet(restoreTbl.getName());
+                if (Env.isStoredTableNamesLowerCase()) {
+                    tableName = tableName.toLowerCase();
+                }
+                restoreTbl.setName(tableName);
             }
 
             if (LOG.isDebugEnabled()) {
