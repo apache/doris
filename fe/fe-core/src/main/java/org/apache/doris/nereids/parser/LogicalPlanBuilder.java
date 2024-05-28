@@ -373,6 +373,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
@@ -404,7 +405,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
-import org.apache.doris.nereids.trees.plans.commands.info.DropCatalogRecycleBinInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
@@ -3548,10 +3548,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitDropCatalogRecycleBin(DropCatalogRecycleBinContext ctx) {
-        String idType = String.valueOf(ctx.idType.getText());
+        String idTypeStr = ctx.idType.getText().substring(1, ctx.idType.getText().length() - 1);
+        IdType idType;
+        if (idTypeStr.equalsIgnoreCase("DbId")) {
+            idType = IdType.DATABASE_ID;
+        } else if (idTypeStr.equalsIgnoreCase("TableId")) {
+            idType = IdType.TABLE_ID;
+        } else if (idTypeStr.equalsIgnoreCase("PartitionId")) {
+            idType = IdType.PARTITION_ID;
+        } else {
+            String message = "DROP CATALOG RECYCLE BIN: " + idTypeStr
+                    + " should be 'DbId', 'TableId' or 'PartitionId'.";
+            throw new AnalysisException(message);
+        }
         long id = Long.parseLong(ctx.id.getText());
-        DropCatalogRecycleBinInfo info = new DropCatalogRecycleBinInfo(idType, id);
-        return ParserUtils.withOrigin(ctx, () -> new DropCatalogRecycleBinCommand(info));
+
+        return ParserUtils.withOrigin(ctx, () -> new DropCatalogRecycleBinCommand(idType, id));
     }
 
     @Override

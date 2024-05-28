@@ -19,32 +19,39 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.DropCatalogRecycleBinInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-
-import java.util.Objects;
 
 /**
  * drop catalog recycle bin command
  */
 public class DropCatalogRecycleBinCommand extends Command implements ForwardWithSync {
 
-    private final DropCatalogRecycleBinInfo dropInfo;
+    /**
+     * id type
+     */
+    public enum IdType {
+        DATABASE_ID,
+        TABLE_ID,
+        PARTITION_ID;
+    }
+
+    private final IdType idType;
+    private long id = -1;
 
     /**
      * constructor
      */
-    public DropCatalogRecycleBinCommand(DropCatalogRecycleBinInfo dropInfo) {
+    public DropCatalogRecycleBinCommand(IdType idType, long id) {
         super(PlanType.DROP_CATALOG_RECYCLE_BIN_COMMAND);
-        this.dropInfo = Objects.requireNonNull(dropInfo, "dropCatalogRecycleBinInfo is null");
+        this.idType = idType;
+        this.id = id;
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        dropInfo.analyze(ctx);
-        Env.getCurrentEnv().dropCatalogRecycleBin(dropInfo);
+        Env.getCurrentEnv().dropCatalogRecycleBin(idType, id);
     }
 
     @Override
