@@ -64,7 +64,7 @@ suite("test_schema_change") {
         )
     """
 
-    waitBrokerLoadJob = { String label /* param */ ->
+    def waitBrokerLoadJob = { String label /* param */ ->
         // check load state
         int tryTimes = 20
         while (tryTimes-- > 0) {
@@ -89,7 +89,7 @@ suite("test_schema_change") {
 
     sql """ alter table ${tableName} drop column C_NAME"""
 
-    waitSchemaChangeJob = { String tbName /* param */ ->
+    def waitSchemaChangeJob = { String tbName /* param */ ->
         int tryTimes = 20
         while (tryTimes-- > 0) {
             def jobResult = sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1 """

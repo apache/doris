@@ -69,7 +69,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.DateColumnStatsData;
-import org.apache.hadoop.hive.metastore.api.Decimal;
 import org.apache.hadoop.hive.metastore.api.DecimalColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
@@ -82,9 +81,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -697,8 +693,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             return Optional.empty();
         }
         Map<String, String> parameters = remoteTable.getParameters();
+        if (!parameters.containsKey(NUM_ROWS) || Long.parseLong(parameters.get(NUM_ROWS)) == 0) {
+            return Optional.empty();
+        }
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-        double count = parameters.containsKey(NUM_ROWS) ? Double.parseDouble(parameters.get(NUM_ROWS)) : 0;
+        long count = Long.parseLong(parameters.get(NUM_ROWS));
         columnStatisticBuilder.setCount(count);
         // The tableStats length is at most 1.
         for (ColumnStatisticsObj tableStat : tableStats) {
@@ -719,12 +718,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return Optional.of(columnStatisticBuilder.build());
     }
 
-    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, double count)
+    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, long count)
             throws AnalysisException {
         long ndv = 0;
         long nulls = 0;
-        String min = "";
-        String max = "";
         double colSize = 0;
         if (!data.isSetStringStats()) {
             colSize = count * col.getType().getSlotSize();
@@ -734,8 +731,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             LongColumnStatsData longStats = data.getLongStats();
             ndv = longStats.getNumDVs();
             nulls = longStats.getNumNulls();
-            min = String.valueOf(longStats.getLowValue());
-            max = String.valueOf(longStats.getHighValue());
         } else if (data.isSetStringStats()) {
             StringColumnStatsData stringStats = data.getStringStats();
             ndv = stringStats.getNumDVs();
@@ -746,67 +741,23 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             DecimalColumnStatsData decimalStats = data.getDecimalStats();
             ndv = decimalStats.getNumDVs();
             nulls = decimalStats.getNumNulls();
-            if (decimalStats.isSetLowValue()) {
-                Decimal lowValue = decimalStats.getLowValue();
-                if (lowValue != null) {
-                    BigDecimal lowDecimal = new BigDecimal(new BigInteger(lowValue.getUnscaled()), lowValue.getScale());
-                    min = lowDecimal.toString();
-                }
-            }
-            if (decimalStats.isSetHighValue()) {
-                Decimal highValue = decimalStats.getHighValue();
-                if (highValue != null) {
-                    BigDecimal highDecimal =
-                            new BigDecimal(new BigInteger(highValue.getUnscaled()), highValue.getScale());
-                    max = highDecimal.toString();
-                }
-            }
         } else if (data.isSetDoubleStats()) {
             DoubleColumnStatsData doubleStats = data.getDoubleStats();
             ndv = doubleStats.getNumDVs();
             nulls = doubleStats.getNumNulls();
-            min = String.valueOf(doubleStats.getLowValue());
-            max = String.valueOf(doubleStats.getHighValue());
         } else if (data.isSetDateStats()) {
             DateColumnStatsData dateStats = data.getDateStats();
             ndv = dateStats.getNumDVs();
             nulls = dateStats.getNumNulls();
-            if (dateStats.isSetLowValue()) {
-                org.apache.hadoop.hive.metastore.api.Date lowValue = dateStats.getLowValue();
-                if (lowValue != null) {
-                    LocalDate lowDate = LocalDate.ofEpochDay(lowValue.getDaysSinceEpoch());
-                    min = lowDate.toString();
-                }
-            }
-            if (dateStats.isSetHighValue()) {
-                org.apache.hadoop.hive.metastore.api.Date highValue = dateStats.getHighValue();
-                if (highValue != null) {
-                    LocalDate highDate = LocalDate.ofEpochDay(highValue.getDaysSinceEpoch());
-                    max = highDate.toString();
-                }
-            }
         } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug(String.format("Not suitable data type for column %s", col.getName()));
-            }
-            throw new RuntimeException("Not supported data type.");
+            LOG.warn(String.format("Not suitable data type for column %s", col.getName()));
         }
         builder.setNdv(ndv);
         builder.setNumNulls(nulls);
         builder.setDataSize(colSize);
         builder.setAvgSizeByte(colSize / count);
-        if (!min.equals("")) {
-            builder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
-            builder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
-        } else {
-            builder.setMinValue(Double.MIN_VALUE);
-        }
-        if (!max.equals("")) {
-            builder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
-            builder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
-        } else {
-            builder.setMaxValue(Double.MAX_VALUE);
-        }
+        builder.setMinValue(Double.NEGATIVE_INFINITY);
+        builder.setMaxValue(Double.POSITIVE_INFINITY);
     }
 
     public void setEventUpdateTime(long updateTime) {
@@ -878,12 +829,22 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public Map<Long, PartitionItem> getAndCopyPartitionItems() {
+    public Map<String, PartitionItem> getAndCopyPartitionItems() {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
                 getDbName(), getName(), getPartitionColumnTypes());
-        return hivePartitionValues.getIdToPartitionItem();
+        Map<String, PartitionItem> res = Maps.newHashMap();
+        Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
+        for (Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
+            try {
+                res.put(getPartitionName(entry.getKey()), entry.getValue());
+            } catch (AnalysisException e) {
+                LOG.info("can not get partitionName by: " + entry.getKey());
+            }
+
+        }
+        return res;
     }
 
     @Override
@@ -905,35 +866,35 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(long partitionId) throws AnalysisException {
-        long partitionLastModifyTime = getPartitionLastModifyTime(partitionId);
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName) throws AnalysisException {
+        long partitionLastModifyTime = getPartitionLastModifyTime(partitionName);
         return new MTMVTimestampSnapshot(partitionLastModifyTime);
     }
 
     @Override
     public MTMVSnapshotIf getTableSnapshot() throws AnalysisException {
         if (getPartitionType() == PartitionType.UNPARTITIONED) {
-            return new MTMVMaxTimestampSnapshot(-1L, getLastDdlTime());
+            return new MTMVMaxTimestampSnapshot(getName(), getLastDdlTime());
         }
-        long partitionId = 0L;
+        String partitionName = "";
         long maxVersionTime = 0L;
         long visibleVersionTime;
-        for (Entry<Long, PartitionItem> entry : getAndCopyPartitionItems().entrySet()) {
+        for (Entry<String, PartitionItem> entry : getAndCopyPartitionItems().entrySet()) {
             visibleVersionTime = getPartitionLastModifyTime(entry.getKey());
             if (visibleVersionTime > maxVersionTime) {
                 maxVersionTime = visibleVersionTime;
-                partitionId = entry.getKey();
+                partitionName = entry.getKey();
             }
         }
-        return new MTMVMaxTimestampSnapshot(partitionId, maxVersionTime);
+        return new MTMVMaxTimestampSnapshot(partitionName, maxVersionTime);
     }
 
-    private long getPartitionLastModifyTime(long partitionId) throws AnalysisException {
-        return getPartitionById(partitionId).getLastModifiedTime();
+    private long getPartitionLastModifyTime(String partitionName) throws AnalysisException {
+        return getPartitionByName(partitionName).getLastModifiedTime();
     }
 
-    private HivePartition getPartitionById(long partitionId) throws AnalysisException {
-        PartitionItem item = getAndCopyPartitionItems().get(partitionId);
+    private HivePartition getPartitionByName(String partitionName) throws AnalysisException {
+        PartitionItem item = getAndCopyPartitionItems().get(partitionName);
         List<List<String>> partitionValuesList = transferPartitionItemToPartitionValues(item);
         List<HivePartition> partitions = getPartitionsByPartitionValues(partitionValuesList);
         if (partitions.size() != 1) {
@@ -958,7 +919,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public boolean needAutoRefresh() {
-        return false;
+        return true;
     }
 
     @Override

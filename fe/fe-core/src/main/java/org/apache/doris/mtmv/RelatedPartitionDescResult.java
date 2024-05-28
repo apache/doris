@@ -27,27 +27,27 @@ import java.util.Set;
 
 public class RelatedPartitionDescResult {
     // PartitionKeyDesc to relatedTable partition ids(Different partitions may have the same PartitionKeyDesc)
-    private Map<PartitionKeyDesc, Set<Long>> descs;
-    private Map<Long, PartitionItem> items;
+    private Map<PartitionKeyDesc, Set<String>> descs;
+    private Map<String, PartitionItem> items;
 
     public RelatedPartitionDescResult() {
         this.descs = Maps.newHashMap();
         this.items = Maps.newHashMap();
     }
 
-    public Map<PartitionKeyDesc, Set<Long>> getDescs() {
+    public Map<PartitionKeyDesc, Set<String>> getDescs() {
         return descs;
     }
 
-    public void setDescs(Map<PartitionKeyDesc, Set<Long>> descs) {
+    public void setDescs(Map<PartitionKeyDesc, Set<String>> descs) {
         this.descs = descs;
     }
 
-    public Map<Long, PartitionItem> getItems() {
+    public Map<String, PartitionItem> getItems() {
         return items;
     }
 
-    public void setItems(Map<Long, PartitionItem> items) {
+    public void setItems(Map<String, PartitionItem> items) {
         this.items = items;
     }
 }

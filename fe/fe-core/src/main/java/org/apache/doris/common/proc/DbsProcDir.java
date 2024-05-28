@@ -113,7 +113,7 @@ public class DbsProcDir implements ProcDirInterface {
                 String readableQuota = DebugUtil.printByteWithUnit(dataQuota);
                 String lastCheckTime = (db instanceof Database) ? TimeUtils.longToTimeString(
                         ((Database) db).getLastCheckTime()) : FeConstants.null_string;
-                long replicaCount = (db instanceof Database) ? ((Database) db).getReplicaCountWithLock() : 0;
+                long replicaCount = (db instanceof Database) ? ((Database) db).getReplicaCount() : 0;
                 long replicaQuota = (db instanceof Database) ? ((Database) db).getReplicaQuota() : 0;
                 long transactionNum =  (db instanceof Database) ? env.getGlobalTransactionMgr()
                         .getRunningTxnNums(db.getId()) : 0;

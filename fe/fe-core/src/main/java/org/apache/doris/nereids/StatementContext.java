@@ -20,6 +20,8 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.Hint;
@@ -30,8 +32,10 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -39,7 +43,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.statistics.Statistics;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -56,6 +62,7 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -100,6 +107,7 @@ public class StatementContext implements Closeable {
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
     private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
+    private final IdGenerator<TableId> talbeIdGenerator = TableId.createGenerator();
 
     private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
     private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
@@ -141,6 +149,13 @@ public class StatementContext implements Closeable {
     // and value is the new string used for replacement.
     private final TreeMap<Pair<Integer, Integer>, String> indexInSqlToString
             = new TreeMap<>(new Pair.PairComparator<>());
+    // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
+    // the value is the auto-increment id in the cascades context
+    private final Map<TableIdentifier, TableId> tableIdMapping = new LinkedHashMap<>();
+    // Record the materialization statistics by id which is used for cost estimation.
+    // Maybe return null, which means the id according statistics should calc normally rather than getting
+    // form this map
+    private final Map<RelationId, Statistics> relationIdToStatisticsMap = new LinkedHashMap<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -293,6 +308,10 @@ public class StatementContext implements Closeable {
         return relationIdGenerator.getNextId();
     }
 
+    public TableId getNextTableId() {
+        return talbeIdGenerator.getNextId();
+    }
+
     public void setParsedStatement(StatementBase parsedStatement) {
         this.parsedStatement = parsedStatement;
     }
@@ -403,6 +422,24 @@ public class StatementContext implements Closeable {
         indexInSqlToString.put(pair, replacement);
     }
 
+    public void addStatistics(Id id, Statistics statistics) {
+        if (id instanceof RelationId) {
+            this.relationIdToStatisticsMap.put((RelationId) id, statistics);
+        }
+    }
+
+    public Optional<Statistics> getStatistics(Id id) {
+        if (id instanceof RelationId) {
+            return Optional.ofNullable(this.relationIdToStatisticsMap.get((RelationId) id));
+        }
+        return Optional.empty();
+    }
+
+    @VisibleForTesting
+    public Map<RelationId, Statistics> getRelationIdToStatisticsMap() {
+        return relationIdToStatisticsMap;
+    }
+
     /** addTableReadLock */
     public synchronized void addTableReadLock(TableIf tableIf) {
         if (!tableIf.needReadLockWhenPlan()) {
@@ -495,5 +532,17 @@ public class StatementContext implements Closeable {
 
     public boolean isKeyColumn(Column column) {
         return keyColumns.contains(column);
+    }
+
+    /** Get table id with lazy */
+    public TableId getTableId(TableIf tableIf) {
+        TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
+        TableId tableId = this.tableIdMapping.get(tableIdentifier);
+        if (tableId != null) {
+            return tableId;
+        }
+        tableId = StatementScopeIdGenerator.newTableId();
+        this.tableIdMapping.put(tableIdentifier, tableId);
+        return tableId;
     }
 }

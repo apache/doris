@@ -52,7 +52,7 @@ private:
     friend class StatefulOperatorX;
     Status _distinct_pre_agg_with_serialized_key(vectorized::Block* in_block,
                                                  vectorized::Block* out_block);
-    void _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
+    Status _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
     void _emplace_into_hash_table_to_distinct(vectorized::IColumn::Selector& distinct_row,
                                               vectorized::ColumnRawPtrs& key_columns,
                                               const size_t num_rows);
@@ -96,7 +96,7 @@ class DistinctStreamingAggOperatorX final
         : public StatefulOperatorX<DistinctStreamingAggLocalState> {
 public:
     DistinctStreamingAggOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                  const DescriptorTbl& descs);
+                                  const DescriptorTbl& descs, bool require_bucket_distribution);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;

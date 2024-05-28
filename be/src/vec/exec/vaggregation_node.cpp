@@ -161,8 +161,9 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
-    init_agg_hash_method(_agg_data.get(), probe_exprs, _is_first_phase);
+Status AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
+    RETURN_IF_ERROR(init_agg_hash_method(_agg_data.get(), probe_exprs, _is_first_phase));
+    return Status::OK();
 }
 
 Status AggregationNode::prepare_profile(RuntimeState* state) {
@@ -269,7 +270,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                 std::bind<void>(&AggregationNode::_update_memusage_without_key, this);
         _executor.close = std::bind<void>(&AggregationNode::_close_without_key, this);
     } else {
-        _init_hash_method(_probe_expr_ctxs);
+        RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
 
         std::visit(Overload {[&](std::monostate& arg) {
                                  throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -1107,7 +1108,7 @@ Status AggregationNode::_spill_hash_table(HashTableCtxType& agg_method, HashTabl
         for (size_t j = 0; j < partitioned_indices.size(); ++j) {
             if (partitioned_indices[j] != i) {
                 if (length > 0) {
-                    mutable_block.add_rows(&block, begin, length);
+                    RETURN_IF_ERROR(mutable_block.add_rows(&block, begin, length));
                 }
                 length = 0;
                 continue;
@@ -1120,7 +1121,7 @@ Status AggregationNode::_spill_hash_table(HashTableCtxType& agg_method, HashTabl
         }
 
         if (length > 0) {
-            mutable_block.add_rows(&block, begin, length);
+            RETURN_IF_ERROR(mutable_block.add_rows(&block, begin, length));
         }
 
         CHECK_EQ(mutable_block.rows(), blocks_rows[i]);

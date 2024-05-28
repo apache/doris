@@ -57,8 +57,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             _should_build_hash_table = info.task_idx == 0;
             if (_should_build_hash_table) {
                 profile()->add_info_string("ShareHashTableEnabled", "true");
-                CHECK(p._shared_hashtable_controller->should_build_hash_table(
-                        state->fragment_instance_id(), p.node_id()));
+                p._shared_hashtable_controller->set_builder_and_consumers(
+                        state->fragment_instance_id(), p.node_id());
             }
         } else {
             profile()->add_info_string("ShareHashTableEnabled", "false");
@@ -119,7 +119,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
-    if (!_runtime_filter_slots || _runtime_filters.empty()) {
+    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled()) {
         return Status::OK();
     }
     auto* block = _shared_state->build_block.get();

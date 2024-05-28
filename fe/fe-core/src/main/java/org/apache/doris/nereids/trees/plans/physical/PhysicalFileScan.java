@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
@@ -45,6 +46,7 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
     private final Set<Expression> conjuncts;
     private final SelectedPartitions selectedPartitions;
     private final Optional<TableSample> tableSample;
+    private final Optional<TableSnapshot> tableSnapshot;
 
     /**
      * Constructor for PhysicalFileScan.
@@ -52,12 +54,14 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
     public PhysicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, Set<Expression> conjuncts,
-            SelectedPartitions selectedPartitions, Optional<TableSample> tableSample) {
+            SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
+            Optional<TableSnapshot> tableSnapshot) {
         super(id, PlanType.PHYSICAL_FILE_SCAN, table, qualifier, groupExpression, logicalProperties);
         this.distributionSpec = distributionSpec;
         this.conjuncts = conjuncts;
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
+        this.tableSnapshot = tableSnapshot;
     }
 
     /**
@@ -67,13 +71,14 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, Set<Expression> conjuncts, SelectedPartitions selectedPartitions,
-            Optional<TableSample> tableSample) {
+            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot) {
         super(id, PlanType.PHYSICAL_FILE_SCAN, table, qualifier, groupExpression, logicalProperties,
                 physicalProperties, statistics);
         this.distributionSpec = distributionSpec;
         this.conjuncts = conjuncts;
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
+        this.tableSnapshot = tableSnapshot;
     }
 
     public DistributionSpec getDistributionSpec() {
@@ -90,6 +95,10 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
 
     public Optional<TableSample> getTableSample() {
         return tableSample;
+    }
+
+    public Optional<TableSnapshot> getTableSnapshot() {
+        return tableSnapshot;
     }
 
     @Override
@@ -112,14 +121,14 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
     @Override
     public PhysicalFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), conjuncts, selectedPartitions, tableSample);
+                groupExpression, getLogicalProperties(), conjuncts, selectedPartitions, tableSample, tableSnapshot);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, logicalProperties.get(), conjuncts, selectedPartitions, tableSample);
+                groupExpression, logicalProperties.get(), conjuncts, selectedPartitions, tableSample, tableSnapshot);
     }
 
     @Override
@@ -132,6 +141,6 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
                                                        Statistics statistics) {
         return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, conjuncts,
-                selectedPartitions, tableSample);
+                selectedPartitions, tableSample, tableSnapshot);
     }
 }

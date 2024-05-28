@@ -103,11 +103,11 @@ Status ScannerScheduler::init(ExecEnv* env) {
             _remote_thread_pool_max_size, remote_scan_pool_queue_size, "RemoteScanThreadPool");
 
     // 3. limited scan thread pool
-    static_cast<void>(ThreadPoolBuilder("LimitedScanThreadPool")
-                              .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-                              .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-                              .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-                              .build(&_limited_scan_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("LimitedScanThreadPool")
+                            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
+                            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+                            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
+                            .build(&_limited_scan_thread_pool));
     _register_metrics();
     _is_init = true;
     return Status::OK();
@@ -151,41 +151,33 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
         scanner_delegate->_scanner->start_wait_worker_timer();
         TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
-        bool ret = false;
-        if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-            if (auto* scan_sched = ctx->get_simple_scan_scheduler()) {
+        auto sumbit_task = [&]() {
+            bool is_local = type == TabletStorageType::STORAGE_TYPE_LOCAL;
+            auto* scan_sched =
+                    is_local ? ctx->get_simple_scan_scheduler() : ctx->get_remote_scan_scheduler();
+            auto& thread_pool = is_local ? _local_scan_thread_pool : _remote_scan_thread_pool;
+            if (scan_sched) {
                 auto work_func = [this, scanner_ref = scan_task, ctx]() {
                     this->_scanner_scan(ctx, scanner_ref);
                 };
                 SimplifiedScanTask simple_scan_task = {work_func, ctx};
-                ret = scan_sched->submit_scan_task(simple_scan_task);
-            } else {
-                PriorityThreadPool::Task task;
-                task.work_function = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
-                };
-                task.priority = nice;
-                ret = _local_scan_thread_pool->offer(task);
+                return scan_sched->submit_scan_task(simple_scan_task);
             }
-        } else {
-            if (auto* remote_scan_sched = ctx->get_remote_scan_scheduler()) {
-                auto work_func = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
-                };
-                SimplifiedScanTask simple_scan_task = {work_func, ctx};
-                ret = remote_scan_sched->submit_scan_task(simple_scan_task);
-            } else {
-                PriorityThreadPool::Task task;
-                task.work_function = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
-                };
-                task.priority = nice;
-                ret = _remote_scan_thread_pool->offer(task);
-            }
-        }
-        if (!ret) {
-            scan_task->set_status(
-                    Status::InternalError("Failed to submit scanner to scanner pool"));
+
+            PriorityThreadPool::Task task;
+            task.work_function = [this, scanner_ref = scan_task, ctx]() {
+                this->_scanner_scan(ctx, scanner_ref);
+            };
+            task.priority = nice;
+            return thread_pool->offer(task)
+                           ? Status::OK()
+                           : Status::InternalError("Scan thread pool had shutdown");
+        };
+
+        if (auto ret = sumbit_task(); !ret) {
+            scan_task->set_status(Status::InternalError(
+                    "Failed to submit scanner to scanner pool reason:" + std::string(ret.msg()) +
+                    "|type:" + std::to_string(type)));
             ctx->append_block_to_queue(scan_task);
             return;
         }
@@ -246,7 +238,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         scanner->set_opened();
     }
 
-    static_cast<void>(scanner->try_append_late_arrival_runtime_filter());
+    Status rf_status = scanner->try_append_late_arrival_runtime_filter();
+    if (!rf_status.ok()) {
+        LOG(WARNING) << "Failed to append late arrival runtime filter: " << rf_status.to_string();
+    }
 
     size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     size_t raw_bytes_read = 0;

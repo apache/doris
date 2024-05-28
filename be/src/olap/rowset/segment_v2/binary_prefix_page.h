@@ -41,9 +41,12 @@ namespace segment_v2 {
 // Entry := SharedPrefixLength(vint), UnsharedLength(vint), Byte^UnsharedLength
 // Trailer := NumEntry(uint32_t), RESTART_POINT_INTERVAL(uint8_t)
 //            RestartPointStartOffset(uint32_t)^NumRestartPoints,NumRestartPoints(uint32_t)
-class BinaryPrefixPageBuilder : public PageBuilder {
+class BinaryPrefixPageBuilder : public PageBuilderHelper<BinaryPrefixPageBuilder> {
 public:
-    BinaryPrefixPageBuilder(const PageBuilderOptions& options) : _options(options) { reset(); }
+    using Self = BinaryPrefixPageBuilder;
+    friend class PageBuilderHelper<Self>;
+
+    Status init() override { return reset(); }
 
     bool is_page_full() override { return size() >= _options.data_page_size; }
 
@@ -51,12 +54,13 @@ public:
 
     OwnedSlice finish() override;
 
-    void reset() override {
+    Status reset() override {
         _restart_points_offset.clear();
         _last_entry.clear();
         _count = 0;
         _buffer.clear();
         _finished = false;
+        return Status::OK();
     }
 
     uint64_t size() const override {
@@ -88,6 +92,8 @@ public:
     }
 
 private:
+    BinaryPrefixPageBuilder(const PageBuilderOptions& options) : _options(options) {}
+
     PageBuilderOptions _options;
     std::vector<uint32_t> _restart_points_offset;
     faststring _first_entry;

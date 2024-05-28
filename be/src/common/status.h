@@ -412,7 +412,6 @@ public:
         if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
             // Delete the first one frame pointers, which are inside the status.h
             status._err_msg->_stack = get_stack_trace(1);
-            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
         return status;
@@ -431,7 +430,6 @@ public:
 #ifdef ENABLE_STACKTRACE
         if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
             status._err_msg->_stack = get_stack_trace(1);
-            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
         return status;
@@ -545,6 +543,50 @@ private:
     }
 };
 
+// There are many thread using status to indicate the cancel state, one thread may update it and
+// the other thread will read it. Status is not thread safe, for example, if one thread is update it
+// and another thread is call to_string method, it may core, because the _err_msg is an unique ptr and
+// it is deconstructed during copy method.
+// And also we could not use lock, because we need get status frequently to check if it is cancelled.
+// The defaule value is ok.
+class AtomicStatus {
+public:
+    AtomicStatus() : error_st_(Status::OK()) {}
+
+    bool ok() const { return error_code_.load(std::memory_order_acquire) == 0; }
+
+    bool update(const Status& new_status) {
+        // If new status is normal, or the old status is abnormal, then not need update
+        if (new_status.ok() || error_code_.load(std::memory_order_acquire) != 0) {
+            return false;
+        }
+        std::lock_guard l(mutex_);
+        if (error_code_.load(std::memory_order_acquire) != 0) {
+            return false;
+        }
+        error_st_ = new_status;
+        error_code_.store(new_status.code(), std::memory_order_release);
+        return true;
+    }
+
+    // will copy a new status object to avoid concurrency
+    // This stauts could only be called when ok==false
+    Status status() const {
+        std::lock_guard l(mutex_);
+        return error_st_;
+    }
+
+private:
+    std::atomic_int16_t error_code_ = 0;
+    Status error_st_;
+    // mutex's lock is not a const method, but we will use this mutex in
+    // some const method, so that it should be mutable.
+    mutable std::mutex mutex_;
+
+    AtomicStatus(const AtomicStatus&) = delete;
+    void operator=(const AtomicStatus&) = delete;
+};
+
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']';
     ostr << status.msg();
@@ -563,7 +605,7 @@ inline std::string Status::to_string() const {
 }
 
 inline std::string Status::to_string_no_stack() const {
-    return fmt::format("[{}] {}", code_as_string(), msg());
+    return fmt::format("[{}]{}", code_as_string(), msg());
 }
 
 // some generally useful macros
@@ -573,6 +615,13 @@ inline std::string Status::to_string_no_stack() const {
         if (UNLIKELY(!_status_.ok())) { \
             return _status_;            \
         }                               \
+    } while (false)
+
+#define PROPAGATE_FALSE(stmt)                     \
+    do {                                          \
+        if (UNLIKELY(!static_cast<bool>(stmt))) { \
+            return false;                         \
+        }                                         \
     } while (false)
 
 #define THROW_IF_ERROR(stmt)            \

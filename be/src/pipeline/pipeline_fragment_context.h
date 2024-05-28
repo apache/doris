@@ -76,6 +76,8 @@ public:
 
     uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
+    int timeout_second() const { return _timeout; }
+
     PipelinePtr add_pipeline();
 
     PipelinePtr add_pipeline(PipelinePtr parent, int idx = -1);
@@ -89,9 +91,6 @@ public:
     Status prepare(const doris::TPipelineFragmentParams& request);
 
     Status submit();
-
-    void close_if_prepare_failed(Status st);
-    void close_sink();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
@@ -107,14 +106,6 @@ public:
 
     Status send_report(bool);
 
-    Status update_status(Status status) {
-        std::lock_guard<std::mutex> l(_status_lock);
-        if (!status.ok() && _query_ctx->exec_status().ok()) {
-            _query_ctx->set_exec_status(status);
-        }
-        return _query_ctx->exec_status();
-    }
-
     void trigger_report_if_necessary();
     void refresh_next_report_time();
 
@@ -125,8 +116,6 @@ public:
     [[nodiscard]] int max_operator_id() const { return _operator_id; }
 
     [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
-
-    [[nodiscard]] int max_sink_operator_id() const { return _sink_operator_id; }
 
     void instance_ids(std::vector<TUniqueId>& ins_ids) const {
         ins_ids.resize(_fragment_instance_ids.size());
@@ -140,11 +129,6 @@ public:
         for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
             ins_ids[i] = print_id(_fragment_instance_ids[i]);
         }
-    }
-
-    void add_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
-        _merge_controller_handlers.emplace_back(handler);
     }
 
 private:
@@ -207,8 +191,6 @@ private:
     std::atomic_bool _prepared = false;
     bool _submitted = false;
 
-    std::mutex _status_lock;
-
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
     std::mutex _task_mutex;
@@ -228,6 +210,11 @@ private:
 
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _prepare_timer = nullptr;
+    RuntimeProfile::Counter* _init_context_timer = nullptr;
+    RuntimeProfile::Counter* _build_pipelines_timer = nullptr;
+    RuntimeProfile::Counter* _plan_local_shuffle_timer = nullptr;
+    RuntimeProfile::Counter* _prepare_all_pipelines_timer = nullptr;
+    RuntimeProfile::Counter* _build_tasks_timer = nullptr;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
     bool _is_fragment_instance_closed = false;

@@ -98,7 +98,7 @@ Status DistinctStreamingAggLocalState::open(RuntimeState* state) {
         _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
                 _agg_profile_arena->alloc(p._total_size_of_aggregate_states));
     } else {
-        _init_hash_method(_probe_expr_ctxs);
+        RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
     }
     return Status::OK();
 }
@@ -168,11 +168,12 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
             _agg_data->method_variant);
 }
 
-void DistinctStreamingAggLocalState::_init_hash_method(
+Status DistinctStreamingAggLocalState::_init_hash_method(
         const vectorized::VExprContextSPtrs& probe_exprs) {
-    init_agg_hash_method(
+    RETURN_IF_ERROR(init_agg_hash_method(
             _agg_data.get(), probe_exprs,
-            Base::_parent->template cast<DistinctStreamingAggOperatorX>()._is_first_phase);
+            Base::_parent->template cast<DistinctStreamingAggOperatorX>()._is_first_phase));
+    return Status::OK();
 }
 
 Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
@@ -322,7 +323,8 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
 
 DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, int operator_id,
                                                              const TPlanNode& tnode,
-                                                             const DescriptorTbl& descs)
+                                                             const DescriptorTbl& descs,
+                                                             bool require_bucket_distribution)
         : StatefulOperatorX<DistinctStreamingAggLocalState>(pool, tnode, operator_id, descs),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
@@ -330,7 +332,8 @@ DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, i
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
           _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
                                                                : std::vector<TExpr> {}),
-          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate) {
+          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate &&
+                       require_bucket_distribution) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {

@@ -109,11 +109,10 @@ public:
 
     [[nodiscard]] bool is_closed() const { return _is_closed; }
 
-    [[nodiscard]] virtual int id() const = 0;
-
     virtual size_t revocable_mem_size(RuntimeState* state) const { return 0; }
 
-    virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); };
+    virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
+    [[nodiscard]] virtual bool require_data_distribution() const { return false; }
 
 protected:
     OperatorXPtr _child_x = nullptr;
@@ -493,8 +492,6 @@ public:
         return result.value()->close(state, exec_status);
     }
 
-    [[nodiscard]] int id() const override { return node_id(); }
-
     [[nodiscard]] int operator_id() const { return _operator_id; }
 
     [[nodiscard]] const std::vector<int>& dests_id() const { return _dests_id; }
@@ -707,7 +704,6 @@ public:
     [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
     [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
 
-    [[nodiscard]] int id() const override { return node_id(); }
     [[nodiscard]] int operator_id() const { return _operator_id; }
     [[nodiscard]] int node_id() const { return _node_id; }
 

@@ -54,7 +54,7 @@ Status LocalExchangeSinkLocalState::close(RuntimeState* state, Status exec_statu
     if (exec_status.ok()) {
         DCHECK(_release_count) << "Do not finish correctly! " << debug_string(0)
                                << " state: { cancel = " << state->is_cancelled() << ", "
-                               << state->query_status().to_string() << "} query ctx: { cancel = "
+                               << state->cancel_reason().to_string() << "} query ctx: { cancel = "
                                << state->get_query_ctx()->is_cancelled() << ", "
                                << state->get_query_ctx()->exec_status().to_string() << "}";
     }
@@ -65,10 +65,11 @@ std::string LocalExchangeSinkLocalState::debug_string(int indentation_level) con
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
                    "{}, _channel_id: {}, _num_partitions: {}, _num_senders: {}, _num_sources: {}, "
-                   "_running_sink_operators: {}, _release_count: {}",
+                   "_running_sink_operators: {}, _running_source_operators: {}, _release_count: {}",
                    Base::debug_string(indentation_level), _channel_id, _exchanger->_num_partitions,
                    _exchanger->_num_senders, _exchanger->_num_sources,
-                   _exchanger->_running_sink_operators, _release_count);
+                   _exchanger->_running_sink_operators, _exchanger->_running_source_operators,
+                   _release_count);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -79,6 +80,12 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     RETURN_IF_ERROR(local_state._exchanger->sink(state, in_block, eos, local_state));
 
+    // If all exchange sources ended due to limit reached, current task should also finish
+    if (local_state._exchanger->_running_source_operators == 0) {
+        local_state._release_count = true;
+        local_state._shared_state->sub_running_sink_operators();
+        return Status::EndOfFile("receiver eof");
+    }
     if (eos) {
         local_state._shared_state->sub_running_sink_operators();
         local_state._release_count = true;

@@ -635,13 +635,13 @@ public class ScalarType extends Type {
                 break;
             case DECIMALV2:
                 if (Strings.isNullOrEmpty(precisionStr)) {
-                    stringBuilder.append("DECIMAL").append("(").append(precision)
+                    stringBuilder.append("DECIMALV2").append("(").append(precision)
                             .append(", ").append(scale).append(")");
                 } else if (!Strings.isNullOrEmpty(precisionStr) && !Strings.isNullOrEmpty(scaleStr)) {
-                    stringBuilder.append("DECIMAL").append("(`").append(precisionStr)
+                    stringBuilder.append("DECIMALV2").append("(`").append(precisionStr)
                             .append("`, `").append(scaleStr).append("`)");
                 } else {
-                    stringBuilder.append("DECIMAL").append("(`").append(precisionStr).append("`)");
+                    stringBuilder.append("DECIMALV2").append("(`").append(precisionStr).append("`)");
                 }
                 break;
             case DECIMAL32:

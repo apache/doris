@@ -18,10 +18,10 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -90,6 +90,11 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     @Override
+    public LogicalOneRowRelation withRelationId(RelationId relationId) {
+        throw new RuntimeException("should not call LogicalOneRowRelation's withRelationId method");
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return projects.stream()
                 .map(NamedExpression::toSlot)
@@ -138,13 +143,13 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     @Override
-    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
-        getOutput().forEach(fdBuilder::addUniqueSlot);
+    public void computeUnique(DataTrait.Builder builder) {
+        getOutput().forEach(builder::addUniqueSlot);
     }
 
     @Override
-    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
-        getOutput().forEach(fdBuilder::addUniformSlot);
+    public void computeUniform(DataTrait.Builder builder) {
+        getOutput().forEach(builder::addUniformSlot);
     }
 
     @Override
@@ -162,12 +167,12 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     @Override
-    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+    public void computeEqualSet(DataTrait.Builder builder) {
         Map<Expression, NamedExpression> aliasMap = new HashMap<>();
         for (NamedExpression namedExpr : getOutputs()) {
             if (namedExpr instanceof Alias) {
                 if (aliasMap.containsKey(namedExpr.child(0))) {
-                    fdBuilder.addEqualPair(namedExpr.toSlot(), aliasMap.get(namedExpr.child(0)).toSlot());
+                    builder.addEqualPair(namedExpr.toSlot(), aliasMap.get(namedExpr.child(0)).toSlot());
                 }
                 aliasMap.put(namedExpr.child(0), namedExpr);
             }
@@ -175,7 +180,7 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     @Override
-    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+    public void computeFd(DataTrait.Builder builder) {
         // don't generate
     }
 }

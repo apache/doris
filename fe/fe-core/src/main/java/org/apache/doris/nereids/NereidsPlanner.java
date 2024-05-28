@@ -27,6 +27,7 @@ import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -54,10 +55,12 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
+import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
@@ -500,7 +503,7 @@ public class NereidsPlanner extends Planner {
                         this.getPhysicalPlan());
                 if (statementContext != null) {
                     if (statementContext.isHasUnknownColStats()) {
-                        plan += "planed with unknown column statistics\n";
+                        plan += "\n\nStatistics\n planed with unknown column statistics\n";
                     }
                 }
         }
@@ -594,6 +597,19 @@ public class NereidsPlanner extends Planner {
                 );
             }
             return Optional.of(resultSet);
+        } else if (child instanceof PhysicalHashAggregate && getScanNodes().size() > 0
+                && getScanNodes().get(0) instanceof IcebergScanNode) {
+            List<Column> columns = Lists.newArrayList();
+            NamedExpression output = physicalPlan.getOutput().get(0);
+            columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
+            if (((IcebergScanNode) getScanNodes().get(0)).rowCount > 0) {
+                ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+                ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(
+                        Lists.newArrayList(String.valueOf(((IcebergScanNode) getScanNodes().get(0)).rowCount))));
+                // only support one iceberg scan node and one count, e.g. select count(*) from icetbl;
+                return Optional.of(resultSet);
+            }
+            return Optional.empty();
         } else {
             return Optional.empty();
         }
@@ -700,5 +716,10 @@ public class NereidsPlanner extends Planner {
         } else {
             task.run();
         }
+    }
+
+    @Override
+    public List<TopnFilter> getTopnFilters() {
+        return cascadesContext.getTopnFilterContext().getTopnFilters();
     }
 }

@@ -42,6 +42,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -63,7 +64,6 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
-import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
@@ -93,6 +93,7 @@ import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.THivePartitionUpdate;
+import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -116,6 +117,7 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
+import org.apache.doris.thrift.TTopnFilterDesc;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -143,6 +145,7 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -246,6 +249,9 @@ public class Coordinator implements CoordInterface {
     // Collect all hivePartitionUpdates obtained from be
     Consumer<List<THivePartitionUpdate>> hivePartitionUpdateFunc;
 
+    // Collect all icebergCommitData obtained from be
+    Consumer<List<TIcebergCommitData>> icebergCommitDataFunc;
+
     // Input parameter
     private long jobId = -1; // job which this task belongs to
     private TUniqueId queryId;
@@ -259,8 +265,8 @@ public class Coordinator implements CoordInterface {
 
     private boolean enableShareHashTableForBroadcastJoin = false;
 
-    private boolean enablePipelineEngine = false;
-    private boolean enablePipelineXEngine = false;
+    private boolean enablePipelineEngine = true;
+    private boolean enablePipelineXEngine = true;
     private boolean useNereids = false;
 
     // Runtime filter merge instance address and ID
@@ -271,6 +277,7 @@ public class Coordinator implements CoordInterface {
     public Map<RuntimeFilterId, List<FRuntimeFilterTargetParam>> ridToTargetParam = Maps.newHashMap();
     // The runtime filter that expects the instance to be used
     public List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
+    public List<TopnFilter> topnFilters = new ArrayList<>();
     // Runtime filter ID to the builder instance number
     public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
     private ConnectContext context;
@@ -328,11 +335,6 @@ public class Coordinator implements CoordInterface {
 
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
-        // Only enable pipeline query engine in query, not load
-        this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
-                && (fragments.size() > 0);
-        this.enablePipelineXEngine = context.getSessionVariable().getEnablePipelineXEngine()
-                && (fragments.size() > 0);
 
         initQueryOptions(context);
         useNereids = planner instanceof NereidsPlanner;
@@ -356,6 +358,7 @@ public class Coordinator implements CoordInterface {
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
+        this.topnFilters = planner.getTopnFilters();
         this.executionProfile = new ExecutionProfile(queryId, fragments);
     }
 
@@ -380,6 +383,14 @@ public class Coordinator implements CoordInterface {
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
         this.executionProfile = new ExecutionProfile(queryId, fragments);
+        // Need to be same with LoadLoadingTask
+        // https://github.com/apache/doris/blob/bd6f5b6a0e5f1b12744607336123d7f97eb76af9/fe/fe-core/src/main/java/org/apache/doris/load/loadv2/LoadLoadingTask.java#L155
+        this.enablePipelineEngine = Config.enable_pipeline_load;
+        this.enablePipelineXEngine = Config.enable_pipeline_load;
+        // make sure Coordinator can update profile correctlly
+        if (this.enablePipelineXEngine) {
+            this.executionProfile.setPipelineX();
+        }
     }
 
     private void setFromUserProperty(ConnectContext connectContext) {
@@ -407,8 +418,8 @@ public class Coordinator implements CoordInterface {
 
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
-        this.queryOptions.setEnablePipelineEngine(SessionVariable.enablePipelineEngine());
-        this.queryOptions.setEnablePipelineXEngine(SessionVariable.enablePipelineEngine());
+        this.queryOptions.setEnablePipelineEngine(true);
+        this.queryOptions.setEnablePipelineXEngine(true);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
@@ -450,9 +461,9 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setQueryType(type);
     }
 
-    public void setExecPipEngine(boolean vec) {
-        this.queryOptions.setEnablePipelineEngine(vec);
-        this.queryOptions.setEnablePipelineXEngine(vec);
+    public void setExecPipEngine() {
+        this.queryOptions.setEnablePipelineEngine(true);
+        this.queryOptions.setEnablePipelineXEngine(true);
     }
 
     public Status getExecStatus() {
@@ -608,7 +619,7 @@ public class Coordinator implements CoordInterface {
     }
 
 
-    public TExecPlanFragmentParams getStreamLoadPlan() throws Exception {
+    public TPipelineFragmentParams getStreamLoadPlan() throws Exception {
         processFragmentAssignmentAndParams();
 
         // This is a load process.
@@ -618,9 +629,9 @@ public class Coordinator implements CoordInterface {
         Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
         LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
 
-        List<TExecPlanFragmentParams> tExecPlanFragmentParams
-                = ((FragmentExecParams) this.fragmentExecParamsMap.values().toArray()[0]).toThrift(0);
-        TExecPlanFragmentParams fragmentParams = tExecPlanFragmentParams.get(0);
+        Map<TNetworkAddress, TPipelineFragmentParams> tExecPlanFragmentParams
+                = ((FragmentExecParams) this.fragmentExecParamsMap.values().toArray()[0]).toTPipelineParams(0);
+        TPipelineFragmentParams fragmentParams = tExecPlanFragmentParams.values().stream().findFirst().get();
         return fragmentParams;
     }
 
@@ -1532,12 +1543,12 @@ public class Coordinator implements CoordInterface {
 
     private void cancelRemoteFragmentsAsync(Status cancelReason) {
         if (enablePipelineEngine) {
-            for (PipelineExecContext ctx : pipelineExecContexts.values()) {
-                ctx.cancelFragmentInstance(cancelReason);
+            for (PipelineExecContexts ctx : beToPipelineExecCtxs.values()) {
+                ctx.cancelQuery(cancelReason);
             }
         } else {
-            for (BackendExecState backendExecState : backendExecStates) {
-                backendExecState.cancelFragmentInstance(cancelReason);
+            for (BackendExecStates backendExecState : beToExecStates.values()) {
+                backendExecState.cancelQuery(cancelReason);
             }
         }
     }
@@ -1667,7 +1678,6 @@ public class Coordinator implements CoordInterface {
                             destHosts.get(param.host).instancesSharingHashTable.add(param.instanceId);
                         } else {
                             destHosts.put(param.host, param);
-                            param.buildHashTableForBroadcastJoin = true;
                             TPlanFragmentDestination dest = new TPlanFragmentDestination();
                             param.recvrId = params.destinations.size();
                             dest.fragment_instance_id = param.instanceId;
@@ -1791,7 +1801,6 @@ public class Coordinator implements CoordInterface {
                             destHosts.get(param.host).instancesSharingHashTable.add(param.instanceId);
                         } else {
                             destHosts.put(param.host, param);
-                            param.buildHashTableForBroadcastJoin = true;
                             TPlanFragmentDestination dest = new TPlanFragmentDestination();
                             dest.fragment_instance_id = param.instanceId;
                             param.recvrId = params.destinations.size();
@@ -2275,7 +2284,13 @@ public class Coordinator implements CoordInterface {
     protected void computeScanRangeAssignment() throws Exception {
         Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         Map<TNetworkAddress, Long> replicaNumPerHost = getReplicaNumPerHostForOlapTable();
-        Collections.shuffle(scanNodes);
+        boolean isAllOlapTables = scanNodes.stream().allMatch(e -> e instanceof OlapScanNode);
+        boolean isEnableOrderedLocations = ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().enableOrderedScanRangeLocations
+                && isAllOlapTables;
+        if (isEnableOrderedLocations) {
+            sortScanNodes();
+        }
         // set scan ranges/locations for scan nodes
         for (ScanNode scanNode : scanNodes) {
             if (!(scanNode instanceof ExternalScanNode)) {
@@ -2287,6 +2302,9 @@ public class Coordinator implements CoordInterface {
             if (locations == null) {
                 // only analysis olap scan node
                 continue;
+            }
+            if (isEnableOrderedLocations) {
+                sortScanRangeLocations(locations);
             }
             Set<Integer> scanNodeIds = fragmentIdToScanNodeIds.computeIfAbsent(scanNode.getFragmentId(),
                     k -> Sets.newHashSet());
@@ -2307,7 +2325,8 @@ public class Coordinator implements CoordInterface {
             // A fragment may contain both colocate join and bucket shuffle join
             // on need both compute scanRange to init basic data for query coordinator
             if (fragmentContainsColocateJoin) {
-                computeScanRangeAssignmentByColocate((OlapScanNode) scanNode, assignedBytesPerHost, replicaNumPerHost);
+                computeScanRangeAssignmentByColocate((OlapScanNode) scanNode, assignedBytesPerHost,
+                        replicaNumPerHost, isEnableOrderedLocations);
             }
             if (fragmentContainsBucketShuffleJoin) {
                 bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode,
@@ -2315,7 +2334,7 @@ public class Coordinator implements CoordInterface {
             }
             if (!(fragmentContainsColocateJoin || fragmentContainsBucketShuffleJoin)) {
                 computeScanRangeAssignmentByScheduler(scanNode, locations, assignment, assignedBytesPerHost,
-                        replicaNumPerHost);
+                        replicaNumPerHost, isEnableOrderedLocations);
             }
         }
     }
@@ -2323,7 +2342,7 @@ public class Coordinator implements CoordInterface {
     // To ensure the same bucketSeq tablet to the same execHostPort
     private void computeScanRangeAssignmentByColocate(
             final OlapScanNode scanNode, Map<TNetworkAddress, Long> assignedBytesPerHost,
-            Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+            Map<TNetworkAddress, Long> replicaNumPerHost, boolean isEnableOrderedLocations) throws Exception {
         if (!fragmentIdToSeqToAddressMap.containsKey(scanNode.getFragmentId())) {
             fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashMap<>());
             fragmentIdTobucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
@@ -2344,7 +2363,8 @@ public class Coordinator implements CoordInterface {
             List<TScanRangeLocations> locations = scanNode.bucketSeq2locations.get(bucketSeq);
             if (!bucketSeqToAddress.containsKey(bucketSeq)) {
                 getExecHostPortForFragmentIDAndBucketSeq(locations.get(0),
-                        scanNode.getFragmentId(), bucketSeq, assignedBytesPerHost, replicaNumPerHost);
+                        scanNode.getFragmentId(), bucketSeq, assignedBytesPerHost,
+                        replicaNumPerHost, isEnableOrderedLocations);
             }
 
             for (TScanRangeLocations location : locations) {
@@ -2366,29 +2386,55 @@ public class Coordinator implements CoordInterface {
     //ensure bucket sequence distribued to every host evenly
     private void getExecHostPortForFragmentIDAndBucketSeq(TScanRangeLocations seqLocation,
             PlanFragmentId fragmentId, Integer bucketSeq, Map<TNetworkAddress, Long> assignedBytesPerHost,
-            Map<TNetworkAddress, Long> replicaNumPerHost)
+            Map<TNetworkAddress, Long> replicaNumPerHost, boolean isEnableOrderedLocations)
             throws Exception {
         Reference<Long> backendIdRef = new Reference<Long>();
-        selectBackendsByRoundRobin(seqLocation, assignedBytesPerHost, replicaNumPerHost, backendIdRef);
+        selectBackendsByRoundRobin(seqLocation, assignedBytesPerHost, replicaNumPerHost,
+                backendIdRef, isEnableOrderedLocations);
         Backend backend = this.idToBackend.get(backendIdRef.getRef());
         TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
         this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
         this.fragmentIdToSeqToAddressMap.get(fragmentId).put(bucketSeq, execHostPort);
     }
 
+    private void sortScanNodes() {
+        Collections.sort(scanNodes, new Comparator<ScanNode>() {
+            @Override
+            public int compare(ScanNode s1, ScanNode s2) {
+                return java.lang.Integer.compare(s1.getId().asInt(), s2.getId().asInt());
+            }
+        });
+    }
+
+    private void sortScanRangeLocations(List<TScanRangeLocations> locations) {
+        Collections.sort(locations, new Comparator<TScanRangeLocations>() {
+            @Override
+            public int compare(TScanRangeLocations o1, TScanRangeLocations o2) {
+                return org.apache.thrift.TBaseHelper.compareTo(
+                        o1.getScanRange().getPaloScanRange().tablet_id,
+                        o2.getScanRange().getPaloScanRange().tablet_id);
+            }
+        });
+    }
+
     public TScanRangeLocation selectBackendsByRoundRobin(TScanRangeLocations seqLocation,
                                                          Map<TNetworkAddress, Long> assignedBytesPerHost,
                                                          Map<TNetworkAddress, Long> replicaNumPerHost,
-                                                         Reference<Long> backendIdRef) throws UserException {
+                                                         Reference<Long> backendIdRef,
+                                                         boolean isEnableOrderedLocations) throws UserException {
+        List<TScanRangeLocation> locations = seqLocation.getLocations();
+        if (isEnableOrderedLocations) {
+            Collections.sort(locations);
+        }
         if (!Config.enable_local_replica_selection) {
-            return selectBackendsByRoundRobin(seqLocation.getLocations(), assignedBytesPerHost, replicaNumPerHost,
+            return selectBackendsByRoundRobin(locations, assignedBytesPerHost, replicaNumPerHost,
                     backendIdRef);
         }
 
         List<TScanRangeLocation> localLocations = new ArrayList<>();
         List<TScanRangeLocation> nonlocalLocations = new ArrayList<>();
         long localBeId = Env.getCurrentSystemInfo().getBackendIdByHost(FrontendOptions.getLocalHostAddress());
-        for (final TScanRangeLocation location : seqLocation.getLocations()) {
+        for (final TScanRangeLocation location : locations) {
             if (location.backend_id == localBeId) {
                 localLocations.add(location);
             } else {
@@ -2406,14 +2452,15 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    public TScanRangeLocation selectBackendsByRoundRobin(List<TScanRangeLocation> locations,
+    public TScanRangeLocation selectBackendsByRoundRobin(List<TScanRangeLocation> sortedLocations,
             Map<TNetworkAddress, Long> assignedBytesPerHost, Map<TNetworkAddress, Long> replicaNumPerHost,
             Reference<Long> backendIdRef) throws UserException {
         Long minAssignedBytes = Long.MAX_VALUE;
         Long minReplicaNum = Long.MAX_VALUE;
         TScanRangeLocation minLocation = null;
         Long step = 1L;
-        for (final TScanRangeLocation location : locations) {
+
+        for (final TScanRangeLocation location : sortedLocations) {
             Long assignedBytes = findOrInsert(assignedBytesPerHost, location.server, 0L);
             if (assignedBytes < minAssignedBytes || (assignedBytes.equals(minAssignedBytes)
                     && replicaNumPerHost.get(location.server) < minReplicaNum)) {
@@ -2422,10 +2469,10 @@ public class Coordinator implements CoordInterface {
                 minLocation = location;
             }
         }
-        for (TScanRangeLocation location : locations) {
+        for (TScanRangeLocation location : sortedLocations) {
             replicaNumPerHost.put(location.server, replicaNumPerHost.get(location.server) - 1);
         }
-        TScanRangeLocation location = SimpleScheduler.getLocation(minLocation, locations,
+        TScanRangeLocation location = SimpleScheduler.getLocation(minLocation, sortedLocations,
                 this.idToBackend, backendIdRef);
         assignedBytesPerHost.put(location.server, assignedBytesPerHost.get(location.server) + step);
 
@@ -2437,7 +2484,8 @@ public class Coordinator implements CoordInterface {
             final List<TScanRangeLocations> locations,
             FragmentScanRangeAssignment assignment,
             Map<TNetworkAddress, Long> assignedBytesPerHost,
-            Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+            Map<TNetworkAddress, Long> replicaNumPerHost,
+            boolean isEnableOrderedLocations) throws Exception {
         // Type of locations is List, it could have elements that have same "location"
         // and we do have this situation for some scan node.
         // The duplicate "location" will NOT be filtered by FragmentScanRangeAssignment,
@@ -2446,7 +2494,7 @@ public class Coordinator implements CoordInterface {
         for (TScanRangeLocations scanRangeLocations : locations) {
             Reference<Long> backendIdRef = new Reference<Long>();
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,
-                    assignedBytesPerHost, replicaNumPerHost, backendIdRef);
+                    assignedBytesPerHost, replicaNumPerHost, backendIdRef, isEnableOrderedLocations);
             Backend backend = this.idToBackend.get(backendIdRef.getRef());
             TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
             this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
@@ -2494,6 +2542,10 @@ public class Coordinator implements CoordInterface {
 
     public void setHivePartitionUpdateFunc(Consumer<List<THivePartitionUpdate>> hivePartitionUpdateFunc) {
         this.hivePartitionUpdateFunc = hivePartitionUpdateFunc;
+    }
+
+    public void setIcebergCommitDataFunc(Consumer<List<TIcebergCommitData>> icebergCommitDataFunc) {
+        this.icebergCommitDataFunc = icebergCommitDataFunc;
     }
 
     // update job progress from BE
@@ -2546,8 +2598,10 @@ public class Coordinator implements CoordInterface {
             if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
                 hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
             }
+            if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
+                icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
+            }
 
-            Preconditions.checkArgument(params.isSetDetailedReport());
             if (ctx.done) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query {} fragment {} is marked done",
@@ -2610,6 +2664,9 @@ public class Coordinator implements CoordInterface {
                 }
                 if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
                     hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+                }
+                if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
+                    icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
                 }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query {} instance {} is marked done",
@@ -2682,6 +2739,9 @@ public class Coordinator implements CoordInterface {
                 }
                 if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
                     hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+                }
+                if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
+                    icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
                 }
                 instancesDoneLatch.markedCountDown(params.getFragmentInstanceId(), -1L);
             }
@@ -3084,8 +3144,6 @@ public class Coordinator implements CoordInterface {
         Backend backend;
         long lastMissingHeartbeatTime = -1;
         TUniqueId instanceId;
-        private boolean hasCancelled = false;
-        private boolean cancelInProcess = false;
 
         public BackendExecState(PlanFragmentId fragmentId, int instanceId,
                                 TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID,
@@ -3134,76 +3192,6 @@ public class Coordinator implements CoordInterface {
             return true;
         }
 
-        // cancel the fragment instance.
-        // return true if cancel success. Otherwise, return false
-        public synchronized void cancelFragmentInstance(Status cancelReason) {
-            LOG.warn("cancelRemoteFragments initiated={} done={} backend: {},"
-                            + " fragment instance id={}, reason: {}",
-                    this.initiated, this.done, backend.getId(),
-                    DebugUtil.printId(fragmentInstanceId()), cancelReason.toString());
-            try {
-                if (!this.initiated) {
-                    return;
-                }
-                // don't cancel if it is already finished
-                if (this.done) {
-                    return;
-                }
-                if (this.hasCancelled || this.cancelInProcess) {
-                    LOG.info("Fragment instance has already been cancelled {} or under cancel {}."
-                            + " initiated={} done={} backend: {},"
-                            + "fragment instance id={}, reason: {}",
-                            this.hasCancelled, this.cancelInProcess,
-                            this.initiated, this.done, backend.getId(),
-                            DebugUtil.printId(fragmentInstanceId()), cancelReason.toString());
-                    return;
-                }
-                try {
-                    ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelResult =
-                            BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddress,
-                                    fragmentInstanceId(), cancelReason);
-                    Futures.addCallback(cancelResult, new FutureCallback<InternalService.PCancelPlanFragmentResult>() {
-                        public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
-                            cancelInProcess = false;
-                            if (result.hasStatus()) {
-                                Status status = new Status(result.getStatus());
-                                if (status.getErrorCode() == TStatusCode.OK) {
-                                    hasCancelled = true;
-                                } else {
-                                    LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                            + "fragment instance id={}, reason: {}",
-                                            DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                            DebugUtil.printId(fragmentInstanceId()), status.toString());
-                                }
-                            }
-                            LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                    + "fragment instance id={}, reason: {}",
-                                    DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                    DebugUtil.printId(fragmentInstanceId()), "without status");
-                        }
-
-                        public void onFailure(Throwable t) {
-                            cancelInProcess = false;
-                            LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                    + "fragment instance id={}, reason: {}",
-                                    DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                    DebugUtil.printId(fragmentInstanceId()), cancelReason.toString(), t);
-                        }
-                    }, backendRpcCallbackExecutor);
-                    cancelInProcess = true;
-                } catch (RpcException e) {
-                    LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
-                            brpcAddress.getPort());
-                    SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
-                }
-
-            } catch (Exception e) {
-                LOG.warn("catch a exception", e);
-                return;
-            }
-            return;
-        }
-
         public boolean isBackendStateHealthy() {
             if (backend.getLastMissingHeartbeatTime() > lastMissingHeartbeatTime && !backend.isAlive()) {
                 LOG.warn("backend {} is down while joining the coordinator. job id: {}",
@@ -3240,8 +3228,6 @@ public class Coordinator implements CoordInterface {
         long profileReportProgress = 0;
         long beProcessEpoch = 0;
         private final int numInstances;
-        private boolean hasCancelled = false;
-        private boolean cancelInProcess = false;
 
         public PipelineExecContext(PlanFragmentId fragmentId,
                 TPipelineFragmentParams rpcParams, Long backendId,
@@ -3326,149 +3312,6 @@ public class Coordinator implements CoordInterface {
             }
         }
 
-        // Just send the cancel message to BE, not care about the result, because there is no retry
-        // logic in upper logic.
-        private synchronized void cancelFragment(Status cancelReason) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("cancelRemoteFragments initiated={} done={} backend: {},"
-                        + " fragment id={} query={}, reason: {}",
-                        this.initiated, this.done, backend.getId(),
-                        this.fragmentId,
-                        DebugUtil.printId(queryId), cancelReason.toString());
-            }
-
-            if (this.hasCancelled || this.cancelInProcess) {
-                LOG.info("Frangment has already been cancelled. Query {} backend: {}, fragment id={}",
-                        DebugUtil.printId(queryId), backend.getId(), this.fragmentId);
-                return;
-            }
-            try {
-                try {
-                    ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelResult =
-                            BackendServiceProxy.getInstance().cancelPipelineXPlanFragmentAsync(brpcAddress,
-                            this.fragmentId, queryId, cancelReason);
-                    Futures.addCallback(cancelResult, new FutureCallback<InternalService.PCancelPlanFragmentResult>() {
-                        public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
-                            cancelInProcess = false;
-                            if (result.hasStatus()) {
-                                Status status = new Status(result.getStatus());
-                                if (status.getErrorCode() == TStatusCode.OK) {
-                                    hasCancelled = true;
-                                } else {
-                                    LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                            + "fragment id={}, reason: {}",
-                                            DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                            fragmentId, status.toString());
-                                }
-                            }
-                            LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                    + "fragment id={}, reason: {}",
-                                    DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                    fragmentId, "without status");
-                        }
-
-                        public void onFailure(Throwable t) {
-                            cancelInProcess = false;
-                            LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                    + "fragment id={}, reason: {}",
-                                    DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                    fragmentId, cancelReason.toString(), t);
-                        }
-                    }, backendRpcCallbackExecutor);
-                    cancelInProcess = true;
-                } catch (RpcException e) {
-                    LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
-                            brpcAddress.getPort());
-                    SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
-                }
-            } catch (Exception e) {
-                LOG.warn("catch a exception", e);
-                return;
-            }
-            return;
-        }
-
-        // Just send the cancel logic to BE, not care about the result, and there is no retry logic
-        // in upper logic.
-        private synchronized void cancelInstance(Status cancelReason) {
-            for (TPipelineInstanceParams localParam : rpcParams.local_params) {
-                LOG.warn("cancelRemoteFragments initiated={} done={} backend:{},"
-                        + " fragment instance id={} query={}, reason: {}",
-                        this.initiated, this.done, backend.getId(),
-                        DebugUtil.printId(localParam.fragment_instance_id),
-                        DebugUtil.printId(queryId), cancelReason.toString());
-                if (this.hasCancelled || this.cancelInProcess) {
-                    LOG.info("fragment instance has already been cancelled {} or in process {}. "
-                            + "initiated={} done={} backend:{},"
-                            + " fragment instance id={} query={}, reason: {}",
-                            this.hasCancelled, this.cancelInProcess,
-                            this.initiated, this.done, backend.getId(),
-                            DebugUtil.printId(localParam.fragment_instance_id),
-                            DebugUtil.printId(queryId), cancelReason.toString());
-                    return;
-                }
-                try {
-                    ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelResult =
-                            BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddress,
-                                    localParam.fragment_instance_id, cancelReason);
-                    Futures.addCallback(cancelResult, new FutureCallback<InternalService.PCancelPlanFragmentResult>() {
-                        public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
-                            cancelInProcess = false;
-                            if (result.hasStatus()) {
-                                Status status = new Status(result.getStatus());
-                                if (status.getErrorCode() == TStatusCode.OK) {
-                                    hasCancelled = true;
-                                } else {
-                                    LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                            + "fragment instance id={}, reason: {}",
-                                            DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                            DebugUtil.printId(localParam.fragment_instance_id), status.toString());
-                                }
-                            }
-                            LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                    + "fragment instance id={}, reason: {}",
-                                    DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                    DebugUtil.printId(localParam.fragment_instance_id), "without status");
-                        }
-
-                        public void onFailure(Throwable t) {
-                            cancelInProcess = false;
-                            LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                    + "fragment instance id={}, reason: {}",
-                                    DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                    DebugUtil.printId(localParam.fragment_instance_id), cancelReason.toString(), t);
-                        }
-                    }, backendRpcCallbackExecutor);
-                    cancelInProcess = true;
-                } catch (Exception e) {
-                    LOG.warn("catch a exception", e);
-                    return;
-                }
-            }
-            return;
-        }
-
-        /// TODO: refactor rpcParams
-        public synchronized void cancelFragmentInstance(Status cancelReason) {
-            if (!this.initiated) {
-                LOG.warn("Query {}, ccancel before initiated", DebugUtil.printId(queryId));
-                return;
-            }
-            // don't cancel if it is already finished
-            if (this.done) {
-                LOG.warn("Query {}, cancel after finished", DebugUtil.printId(queryId));
-                return;
-            }
-
-            if (this.enablePipelineX) {
-                cancelFragment(cancelReason);
-                return;
-            } else {
-                cancelInstance(cancelReason);
-                return;
-            }
-        }
-
         public boolean isBackendStateHealthy() {
             if (backend.getLastMissingHeartbeatTime() > lastMissingHeartbeatTime && !backend.isAlive()) {
                 LOG.warn("backend {} is down while joining the coordinator. job id: {}",
@@ -3494,6 +3337,8 @@ public class Coordinator implements CoordInterface {
         List<BackendExecState> states = Lists.newArrayList();
         boolean twoPhaseExecution = false;
         long beProcessEpoch = 0;
+        boolean hasCancelled = false;
+        boolean cancelInProcess = false;
 
         public BackendExecStates(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution, long beProcessEpoch) {
             this.beId = beId;
@@ -3584,6 +3429,56 @@ public class Coordinator implements CoordInterface {
                 }
             };
         }
+
+        // cancel the fragment instance.
+        // return true if cancel success. Otherwise, return false
+        public synchronized void cancelQuery(Status cancelReason) {
+            LOG.warn("cancelRemoteFragments  backend: {}, reason: {}",
+                    idToBackend.get(beId), cancelReason.toString());
+            try {
+                if (this.hasCancelled || this.cancelInProcess) {
+                    LOG.info("Fragment instance has already been cancelled {} or under cancel {}."
+                                    + " backend: {}, reason: {}",
+                            this.hasCancelled, this.cancelInProcess,
+                            idToBackend.get(beId), cancelReason.toString());
+                    return;
+                }
+                try {
+                    ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelResult =
+                            BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddr, cancelReason);
+                    Futures.addCallback(cancelResult, new FutureCallback<InternalService.PCancelPlanFragmentResult>() {
+                        public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
+                            cancelInProcess = false;
+                            if (result.hasStatus()) {
+                                Status status = new Status(result.getStatus());
+                                if (status.getErrorCode() == TStatusCode.OK) {
+                                    hasCancelled = true;
+                                } else {
+                                    LOG.warn("Failed to cancel query {}  backend: {}, reason: {}",
+                                            DebugUtil.printId(queryId), idToBackend.get(beId), status.toString());
+                                }
+                            }
+                            LOG.warn("Failed to cancel query {} backend: {}, without status",
+                                    DebugUtil.printId(queryId), idToBackend.get(beId));
+                        }
+
+                        public void onFailure(Throwable t) {
+                            cancelInProcess = false;
+                            LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
+                                    DebugUtil.printId(queryId), idToBackend.get(beId), cancelReason.toString(), t);
+                        }
+                    }, backendRpcCallbackExecutor);
+                    cancelInProcess = true;
+                } catch (RpcException e) {
+                    LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddr.getHostname(),
+                            brpcAddr.getPort());
+                    SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddr), e.getMessage());
+                }
+
+            } catch (Exception e) {
+                LOG.warn("catch a exception", e);
+            }
+        }
     }
 
     public class PipelineExecContexts {
@@ -3593,6 +3488,8 @@ public class Coordinator implements CoordInterface {
         boolean twoPhaseExecution = false;
         int instanceNumber;
         ByteString serializedFragments = null;
+        boolean hasCancelled = false;
+        boolean cancelInProcess = false;
 
         public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution,
                 int instanceNumber) {
@@ -3704,6 +3601,58 @@ public class Coordinator implements CoordInterface {
             return String.format("query %s, sending pipeline fragments: %s to be %s bprc address %s",
                     DebugUtil.printId(queryId), infos, beId, brpcAddr.toString());
         }
+
+        // Just send the cancel message to BE, not care about the result, because there is no retry
+        // logic in upper logic.
+        private synchronized void cancelQuery(Status cancelReason) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("cancelRemoteFragments backend: {}, query={}, reason: {}",
+                         idToBackend.get(beId), DebugUtil.printId(queryId), cancelReason.toString());
+            }
+
+            if (this.hasCancelled || this.cancelInProcess) {
+                LOG.info("Frangment has already been cancelled. Query {} backend: {}",
+                        DebugUtil.printId(queryId), idToBackend.get(beId));
+                return;
+            }
+            try {
+                try {
+                    ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelResult =
+                            BackendServiceProxy.getInstance().cancelPipelineXPlanFragmentAsync(brpcAddr, queryId,
+                                    cancelReason);
+                    Futures.addCallback(cancelResult, new FutureCallback<InternalService.PCancelPlanFragmentResult>() {
+                        public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
+                            cancelInProcess = false;
+                            if (result.hasStatus()) {
+                                Status status = new Status(result.getStatus());
+                                if (status.getErrorCode() == TStatusCode.OK) {
+                                    hasCancelled = true;
+                                } else {
+                                    LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
+                                            DebugUtil.printId(queryId), idToBackend.get(beId), status.toString());
+                                }
+                            }
+                            LOG.warn("Failed to cancel query {} backend: {} reason: {}",
+                                    DebugUtil.printId(queryId), idToBackend.get(beId), "without status");
+                        }
+
+                        public void onFailure(Throwable t) {
+                            cancelInProcess = false;
+                            LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
+                                    DebugUtil.printId(queryId), idToBackend.get(beId),  cancelReason.toString(), t);
+                        }
+                    }, backendRpcCallbackExecutor);
+                    cancelInProcess = true;
+                } catch (RpcException e) {
+                    LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddr.getHostname(),
+                            brpcAddr.getPort());
+                    SimpleScheduler.addToBlacklist(beId, e.getMessage());
+                }
+            } catch (Exception e) {
+                LOG.warn("catch a exception", e);
+                return;
+            }
+        }
     }
 
     // execution parameters for a single fragment,
@@ -3738,7 +3687,6 @@ public class Coordinator implements CoordInterface {
                 params.setFragment(fragment.toThrift());
                 params.setDescTbl(descTable);
                 params.setParams(new TPlanFragmentExecParams());
-                params.setBuildHashTableForBroadcastJoin(instanceExecParam.buildHashTableForBroadcastJoin);
                 params.params.setQueryId(queryId);
                 params.params.setFragmentInstanceId(instanceExecParam.instanceId);
 
@@ -3835,12 +3783,6 @@ public class Coordinator implements CoordInterface {
                 int rate = Math.min(Config.query_colocate_join_memory_limit_penalty_factor, instanceExecParams.size());
                 memLimit = queryOptions.getMemLimit() / rate;
             }
-            Set<Integer> topnFilterSources = Sets.newLinkedHashSet();
-            for (ScanNode scanNode : scanNodes) {
-                for (SortNode sortNode : scanNode.getTopnFilterSortNodes()) {
-                    topnFilterSources.add(sortNode.getId().asInt());
-                }
-            }
 
             Map<TNetworkAddress, TPipelineFragmentParams> res = new HashMap();
             Map<TNetworkAddress, Integer> instanceIdx = new HashMap();
@@ -3903,7 +3845,6 @@ public class Coordinator implements CoordInterface {
                         params.getLocalParams().size());
                 TPipelineInstanceParams localParams = new TPipelineInstanceParams();
 
-                localParams.setBuildHashTableForBroadcastJoin(instanceExecParam.buildHashTableForBroadcastJoin);
                 localParams.setFragmentInstanceId(instanceExecParam.instanceId);
                 localParams.setPerNodeScanRanges(scanRanges);
                 localParams.setPerNodeSharedScans(perNodeSharedScans);
@@ -3911,11 +3852,12 @@ public class Coordinator implements CoordInterface {
                 localParams.setBackendNum(backendNum++);
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
                 localParams.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
-                if (!topnFilterSources.isEmpty()) {
-                    // topn_filter_source_node_ids is used by nereids not by legacy planner.
-                    // if there is no topnFilterSources, do not set it.
-                    // topn_filter_source_node_ids=null means legacy planner
-                    localParams.topn_filter_source_node_ids = Lists.newArrayList(topnFilterSources);
+                if (!topnFilters.isEmpty()) {
+                    List<TTopnFilterDesc> filterDescs = new ArrayList<>();
+                    for (TopnFilter filter : topnFilters) {
+                        filterDescs.add(filter.toThrift());
+                    }
+                    localParams.setTopnFilterDescs(filterDescs);
                 }
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     Set<Integer> broadCastRf = assignedRuntimeFilters.stream().filter(RuntimeFilter::isBroadcast)
@@ -4055,8 +3997,6 @@ public class Coordinator implements CoordInterface {
         Set<Integer> bucketSeqSet = Sets.newHashSet();
 
         FragmentExecParams fragmentExecParams;
-
-        boolean buildHashTableForBroadcastJoin = false;
 
         int recvrId = -1;
 

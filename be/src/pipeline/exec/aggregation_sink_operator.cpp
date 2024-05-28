@@ -20,6 +20,7 @@
 #include <memory>
 #include <string>
 
+#include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/hash_table/hash.h"
@@ -100,7 +101,7 @@ Status AggSinkLocalState::open(RuntimeState* state) {
             _executor = std::make_unique<Executor<true, false>>();
         }
     } else {
-        _init_hash_method(Base::_shared_state->probe_expr_ctxs);
+        RETURN_IF_ERROR(_init_hash_method(Base::_shared_state->probe_expr_ctxs));
 
         std::visit(vectorized::Overload {
                            [&](std::monostate& arg) {
@@ -130,7 +131,8 @@ Status AggSinkLocalState::open(RuntimeState* state) {
 
         _should_limit_output = p._limit != -1 &&       // has limit
                                (!p._have_conjuncts) && // no having conjunct
-                               p._needs_finalize;      // agg's finalize step
+                               p._needs_finalize &&    // agg's finalize step
+                               !Base::_shared_state->enable_spill;
     }
     for (auto& evaluator : p._aggregate_evaluators) {
         Base::_shared_state->aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
@@ -302,8 +304,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                                     _places.data(),
                                     Base::_parent->template cast<AggSinkOperatorX>()
                                             ._offsets_of_aggregate_states[i],
-                                    _deserialize_buffer.data(),
-                                    (vectorized::ColumnString*)(column.get()), _agg_arena_pool,
+                                    _deserialize_buffer.data(), column.get(), _agg_arena_pool,
                                     rows);
                 }
             } else {
@@ -347,8 +348,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                                     _places.data(),
                                     Base::_parent->template cast<AggSinkOperatorX>()
                                             ._offsets_of_aggregate_states[i],
-                                    _deserialize_buffer.data(),
-                                    (vectorized::ColumnString*)(column.get()), _agg_arena_pool,
+                                    _deserialize_buffer.data(), column.get(), _agg_arena_pool,
                                     rows);
                 }
             } else {
@@ -463,7 +463,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
                     _places.data(), _agg_arena_pool));
         }
 
-        if (_should_limit_output && !Base::_shared_state->enable_spill) {
+        if (_should_limit_output) {
             _reach_limit = _get_hash_table_size() >=
                            Base::_parent->template cast<AggSinkOperatorX>()._limit;
             if (_reach_limit &&
@@ -565,9 +565,11 @@ void AggSinkLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places
                _agg_data->method_variant);
 }
 
-void AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
-    init_agg_hash_method(_agg_data, probe_exprs,
-                         Base::_parent->template cast<AggSinkOperatorX>()._is_first_phase);
+Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
+    RETURN_IF_ERROR(
+            init_agg_hash_method(_agg_data, probe_exprs,
+                                 Base::_parent->template cast<AggSinkOperatorX>()._is_first_phase));
+    return Status::OK();
 }
 
 AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
@@ -582,10 +584,8 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPla
           _limit(tnode.limit),
           _have_conjuncts((tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) ||
                           (tnode.__isset.conjuncts && !tnode.conjuncts.empty())),
-          _partition_exprs(require_bucket_distribution ? (tnode.__isset.distribute_expr_lists
-                                                                  ? tnode.distribute_expr_lists[0]
-                                                                  : std::vector<TExpr> {})
-                                                       : tnode.agg_node.grouping_exprs),
+          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
+                                                               : std::vector<TExpr> {}),
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate &&
                        require_bucket_distribution),
           _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}

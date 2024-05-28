@@ -46,22 +46,26 @@ private:
     static const int min_be_exec_version;
 };
 
-/*
+/**
  * When we have some breaking change for execute engine, we should update be_exec_version.
+ * NOTICE: The change could only be dont in X.Y.0 version. and if you introduced new version number N,
+ *  remember remove version N-1's all REUSEABLE changes in master branch only. REUSEABLE means scalar or agg functions' replacement.
+ *  If not, the old replacement will happens in the new version which is wrong.
+ *
  * 0: not contain be_exec_version.
- * 1: start from doris 1.2
+ * 1: start from doris 1.2.0
  *    a. remove ColumnString terminating zero.
  *    b. runtime filter use new hash method.
- * 2: start from doris 2.0
+ * 2: start from doris 2.0.0
  *    a. function month/day/hour/minute/second's return type is changed to smaller type.
  *    b. in order to solve agg of sum/count is not compatibility during the upgrade process
  *    c. change the string hash method in runtime filter
  *    d. elt function return type change to nullable(string)
  *    e. add repeat_max_num in repeat function
- * 3: start from doris 2.0 (by some mistakes)
+ * 3: start from doris 2.0.0 (by some mistakes)
  *    a. aggregation function do not serialize bitmap to string.
  *    b. support window funnel mode.
- * 4: start from doris 2.1
+ * 4: start from doris 2.1.0
  *    a. ignore this line, window funnel mode should be enabled from 2.0.
  *    b. array contains/position/countequal function return nullable in less situations.
  *    c. cleared old version of Version 2.
@@ -71,9 +75,10 @@ private:
  *    g. do local merge of remote runtime filter
  *    h. "now": ALWAYS_NOT_NULLABLE -> DEPEND_ON_ARGUMENTS
  *
- * 5: start from doris 2.1.4
- *    a. change the impl of percentile
-*/
+ * 5: start from doris 3.0.0
+ *    a. change the impl of percentile (need fix)
+ *    b. clear old version of version 3->4
+ */
 constexpr inline int BeExecVersionManager::max_be_exec_version = 5;
 constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
 

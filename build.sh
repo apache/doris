@@ -372,7 +372,12 @@ if [[ ! -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
     fi
 else
     if [[ -z "${USE_JEMALLOC_HOOK}" ]]; then
-        USE_JEMALLOC_HOOK='OFF'
+        if [[ "$(uname -s)" != 'Darwin' ]]; then
+            USE_JEMALLOC_HOOK='OFF'
+        else
+            # compile jemalloc on mac have default prefix `je_`, so default use prefix jemalloc to ensure code uniformity.
+            USE_JEMALLOC_HOOK='ON'
+        fi
     fi
     # update jemalloc prefix
     rm -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
@@ -542,6 +547,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-scanner")
     modules+=("be-java-extensions/avro-scanner")
+    modules+=("be-java-extensions/lakesoul-scanner")
     modules+=("be-java-extensions/preload-extensions")
 
     # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
@@ -829,6 +835,7 @@ EOF
     extensions_modules+=("trino-connector-scanner")
     extensions_modules+=("max-compute-scanner")
     extensions_modules+=("avro-scanner")
+    extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then

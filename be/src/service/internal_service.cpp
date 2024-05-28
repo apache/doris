@@ -376,14 +376,14 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
             tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
         }
 
-        LoadStreamSharedPtr load_stream;
+        LoadStream* load_stream = nullptr;
         auto st = _load_stream_mgr->open_load_stream(request, load_stream);
         if (!st.ok()) {
             st.to_protobuf(response->mutable_status());
             return;
         }
 
-        stream_options.handler = load_stream.get();
+        stream_options.handler = load_stream;
         stream_options.idle_timeout_ms = request->idle_timeout_ms();
         DBUG_EXECUTE_IF("PInternalServiceImpl.open_load_stream.set_idle_timeout",
                         { stream_options.idle_timeout_ms = 1; });
@@ -592,19 +592,12 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
             actual_cancel_status = Status::InternalError("unknown error");
         }
 
-        if (request->has_fragment_id()) {
-            TUniqueId query_id;
-            query_id.__set_hi(request->query_id().hi());
-            query_id.__set_lo(request->query_id().lo());
-            LOG(INFO) << fmt::format("Cancel query {}, reason: {}", print_id(query_id),
-                                     actual_cancel_status.to_string());
-            _exec_env->fragment_mgr()->cancel_fragment(query_id, request->fragment_id(),
-                                                       actual_cancel_status);
-        } else {
-            LOG(INFO) << fmt::format("Cancel instance {}, reason: {}", print_id(tid),
-                                     actual_cancel_status.to_string());
-            _exec_env->fragment_mgr()->cancel_instance(tid, actual_cancel_status);
-        }
+        TUniqueId query_id;
+        query_id.__set_hi(request->query_id().hi());
+        query_id.__set_lo(request->query_id().lo());
+        LOG(INFO) << fmt::format("Cancel query {}, reason: {}", print_id(query_id),
+                                 actual_cancel_status.to_string());
+        _exec_env->fragment_mgr()->cancel_query(query_id, actual_cancel_status);
 
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
@@ -1072,6 +1065,7 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                         ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                                 host, brpc_port));
                 rpc_contexts[i].cid = rpc_contexts[i].cntl.call_id();
+                rpc_contexts[i].cntl.set_timeout_ms(config::fetch_remote_schema_rpc_timeout_ms);
                 stub->fetch_remote_tablet_schema(&rpc_contexts[i].cntl, &remote_request,
                                                  &rpc_contexts[i].response, brpc::DoNothing());
             }
@@ -1498,13 +1492,29 @@ void PInternalService::transmit_block(google::protobuf::RpcController* controlle
                                       const PTransmitDataParams* request,
                                       PTransmitDataResult* response,
                                       google::protobuf::Closure* done) {
-    int64_t receive_time = GetCurrentTimeNanos();
-    response->set_receive_time(receive_time);
-
-    // under high concurrency, thread pool will have a lot of lock contention.
-    // May offer failed to the thread pool, so that we should avoid using thread
-    // pool here.
-    _transmit_block(controller, request, response, done, Status::OK());
+    if (config::enable_bthread_transmit_block) {
+        int64_t receive_time = GetCurrentTimeNanos();
+        response->set_receive_time(receive_time);
+        // under high concurrency, thread pool will have a lot of lock contention.
+        // May offer failed to the thread pool, so that we should avoid using thread
+        // pool here.
+        _transmit_block(controller, request, response, done, Status::OK());
+    } else {
+        bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+            int64_t receive_time = GetCurrentTimeNanos();
+            response->set_receive_time(receive_time);
+            // Sometimes transmit block function is the last owner of PlanFragmentExecutor
+            // It will release the object. And the object maybe a JNIContext.
+            // JNIContext will hold some TLS object. It could not work correctly under bthread
+            // Context. So that put the logic into pthread.
+            // But this is rarely happens, so this config is disabled by default.
+            _transmit_block(controller, request, response, done, Status::OK());
+        });
+        if (!ret) {
+            offer_failed(response, done, _light_work_pool);
+            return;
+        }
+    }
 }
 
 void PInternalService::transmit_block_by_http(google::protobuf::RpcController* controller,

@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("inject_hdfs_load_error") {
+suite("inject_hdfs_load_error", "nonConcurrent") {
     if (!enableStoragevault()) {
         logger.info("skip create storgage vault case")
         return
@@ -27,7 +27,7 @@ suite("inject_hdfs_load_error") {
         CREATE STORAGE VAULT IF NOT EXISTS inject_hdfs_select_error
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="${getHdfsFs()}",
+        "fs.defaultFS"="${getHmsHdfsFs()}",
         "path_prefix" = "inject_hdfs_select_error"
         );
     """

@@ -178,11 +178,7 @@ Status Channel<Parent>::open(RuntimeState* state) {
 
 std::shared_ptr<pipeline::Dependency> PipChannel::get_local_channel_dependency() {
     if (!Channel<pipeline::ExchangeSinkLocalState>::_local_recvr) {
-        throw Exception(
-                ErrorCode::INTERNAL_ERROR,
-                "_local_recvr is null: " +
-                        std::to_string(Channel<pipeline::ExchangeSinkLocalState>::_parent->parent()
-                                               ->node_id()));
+        return nullptr;
     }
     return Channel<pipeline::ExchangeSinkLocalState>::_local_recvr->get_local_channel_dependency(
             Channel<pipeline::ExchangeSinkLocalState>::_parent->sender_id());
@@ -858,7 +854,7 @@ Status BlockSerializer<Parent>::next_serialized_block(Block* block, PBlock* dest
             if (!rows->empty()) {
                 SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());
                 const auto* begin = rows->data();
-                _mutable_block->add_rows(block, begin, begin + rows->size());
+                RETURN_IF_ERROR(_mutable_block->add_rows(block, begin, begin + rows->size()));
             }
         } else if (!block->empty()) {
             SCOPED_TIMER(_parent->merge_block_timer());

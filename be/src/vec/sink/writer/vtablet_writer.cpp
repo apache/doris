@@ -905,7 +905,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     _close_time_ms = UnixMillis() - _close_time_ms;
 
     if (_cancelled || state->is_cancelled()) {
-        cancel(state->cancel_reason());
+        cancel(state->cancel_reason().to_string());
     }
 
     if (_add_batches_finished) {

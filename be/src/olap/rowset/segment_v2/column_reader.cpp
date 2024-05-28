@@ -263,9 +263,12 @@ Status ColumnReader::new_inverted_index_iterator(
         std::shared_ptr<InvertedIndexFileReader> index_file_reader, const TabletIndex* index_meta,
         const StorageReadOptions& read_options, std::unique_ptr<InvertedIndexIterator>* iterator) {
     RETURN_IF_ERROR(_ensure_inverted_index_loaded(std::move(index_file_reader), index_meta));
-    if (_inverted_index) {
-        RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats,
-                                                      read_options.runtime_state, iterator));
+    {
+        std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
+        if (_inverted_index) {
+            RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats,
+                                                          read_options.runtime_state, iterator));
+        }
     }
     return Status::OK();
 }
@@ -537,7 +540,7 @@ Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory
 
 Status ColumnReader::_load_inverted_index_index(
         std::shared_ptr<InvertedIndexFileReader> index_file_reader, const TabletIndex* index_meta) {
-    std::lock_guard<std::mutex> wlock(_load_index_lock);
+    std::unique_lock<std::shared_mutex> wlock(_load_index_lock);
 
     if (_inverted_index && index_meta &&
         _inverted_index->get_index_id() == index_meta->index_id()) {
@@ -877,7 +880,7 @@ Status OffsetFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
         size_t n = 1;
         RETURN_IF_ERROR(offset_page_decoder->peek_next_batch(&n, offset_col)); // not null
         DCHECK(offset_col->size() == 1);
-        *offset = offset_col->get_uint(0);
+        *offset = assert_cast<const vectorized::ColumnUInt64*>(offset_col.get())->get_element(0);
     } else {
         *offset = _offset_iterator->get_current_page()->next_array_item_ordinal;
     }

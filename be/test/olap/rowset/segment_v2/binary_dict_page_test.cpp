@@ -43,6 +43,8 @@ public:
         options.data_page_size = 256 * 1024;
         options.dict_page_size = 256 * 1024;
         BinaryDictPageBuilder page_builder(options);
+        Status ret0 = page_builder.init();
+        EXPECT_TRUE(ret0.ok());
         size_t count = slices.size();
 
         const Slice* ptr = &slices[0];
@@ -132,6 +134,8 @@ public:
         options.data_page_size = 1 * 1024 * 1024;
         options.dict_page_size = 1 * 1024 * 1024;
         BinaryDictPageBuilder page_builder(options);
+        Status ret0 = page_builder.init();
+        EXPECT_TRUE(ret0.ok());
         size_t count = contents.size();
         std::vector<OwnedSlice> results;
         std::vector<size_t> page_start_ids;

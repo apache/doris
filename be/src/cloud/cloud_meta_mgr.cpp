@@ -835,6 +835,17 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
             add_obj_store(vault.obj_info());
         }
     });
+
+    for (int i = 0; i < resp.obj_info_size(); ++i) {
+        resp.mutable_obj_info(i)->set_sk(resp.obj_info(i).sk().substr(0, 2) + "xxx");
+    }
+    for (int i = 0; i < resp.storage_vault_size(); ++i) {
+        auto j = resp.mutable_storage_vault(i);
+        if (!j->has_obj_info()) continue;
+        j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
+    }
+
+    LOG(INFO) << "get storage vault response: " << resp.ShortDebugString();
     return Status::OK();
 }
 

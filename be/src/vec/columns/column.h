@@ -164,36 +164,11 @@ public:
     /// Is used to optimize some computations (in aggregation, for example).
     virtual StringRef get_data_at(size_t n) const = 0;
 
-    /// If column stores integers, it returns n-th element transformed to UInt64 using static_cast.
-    /// If column stores floating point numbers, bits of n-th elements are copied to lower bits of UInt64, the remaining bits are zeros.
-    /// Is used to optimize some computations (in aggregation, for example).
-    virtual UInt64 get64(size_t /*n*/) const {
-        LOG(FATAL) << "Method get64 is not supported for ";
-        return 0;
-    }
-
-    /// If column stores native numeric type, it returns n-th element casted to Float64
-    /// Is used in regression methods to cast each features into uniform type
-    virtual Float64 get_float64(size_t /*n*/) const {
-        LOG(FATAL) << "Method get_float64 is not supported for " << get_name();
-        return 0;
-    }
-
-    /** If column is numeric, return value of n-th element, casted to UInt64.
-      * For NULL values of Nullable column it is allowed to return arbitrary value.
-      * Otherwise throw an exception.
-      */
-    virtual UInt64 get_uint(size_t /*n*/) const {
-        LOG(FATAL) << "Method get_uint is not supported for " << get_name();
-        return 0;
-    }
-
     virtual Int64 get_int(size_t /*n*/) const {
         LOG(FATAL) << "Method get_int is not supported for " << get_name();
         return 0;
     }
 
-    virtual bool is_default_at(size_t n) const { return get64(n) == 0; }
     virtual bool is_null_at(size_t /*n*/) const { return false; }
 
     /** If column is numeric, return value of n-th element, casted to bool.
@@ -437,13 +412,6 @@ public:
     using Permutation = PaddedPODArray<size_t>;
     virtual Ptr permute(const Permutation& perm, size_t limit) const = 0;
 
-    /// Creates new column with values column[indexes[:limit]]. If limit is 0, all indexes are used.
-    /// Indexes must be one of the ColumnUInt. For default implementation, see select_index_impl from ColumnsCommon.h
-    virtual Ptr index(const IColumn& indexes, size_t limit) const {
-        LOG(FATAL) << "column not support index";
-        __builtin_unreachable();
-    }
-
     /** Compares (*this)[n] and rhs[m]. Column rhs should have the same type.
       * Returns negative number, 0, or positive number (*this)[n] is less, equal, greater than rhs[m] respectively.
       * Is used in sortings.
@@ -456,8 +424,10 @@ public:
       * For non Nullable and non floating point types, nan_direction_hint is ignored.
       * For array/map/struct types, we compare with nested column element and offsets size
       */
-    virtual int compare_at(size_t n, size_t m, const IColumn& rhs,
-                           int nan_direction_hint) const = 0;
+    virtual int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "compare_at for " + std::string(get_family_name()));
+    }
 
     /**
      * To compare all rows in this column with another row (with row_id = rhs_row_id in column rhs)
@@ -476,7 +446,10 @@ public:
       * nan_direction_hint - see above.
       */
     virtual void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                 Permutation& res) const = 0;
+                                 Permutation& res) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_permutation for " + std::string(get_family_name()));
+    }
 
     /** Copies each element according offsets parameter.
       * (i-th element should be copied offsets[i] - offsets[i - 1] times.)
@@ -490,16 +463,6 @@ public:
             insert(field);
         }
     }
-    /// Returns indices of values in column, that not equal to default value of column.
-    virtual void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                                 size_t limit) const {
-        LOG(FATAL) << "column not support get_indices_of_non_default_rows";
-        __builtin_unreachable();
-    }
-
-    template <typename Derived>
-    void get_indices_of_non_default_rows_impl(IColumn::Offsets64& indices, size_t from,
-                                              size_t limit) const;
 
     /// Returns column with @total_size elements.
     /// In result column values from current column are at positions from @offsets.
@@ -620,9 +583,6 @@ public:
       * To avoid confusion between these cases, we don't have isContiguous method.
       */
 
-    /// Values in column have fixed size (including the case when values span many memory segments).
-    virtual bool values_have_fixed_size() const { return is_fixed_and_contiguous(); }
-
     /// Values in column are represented as continuous memory segment of fixed size. Implies values_have_fixed_size.
     virtual bool is_fixed_and_contiguous() const { return false; }
 
@@ -640,15 +600,7 @@ public:
 
     /// Returns ratio of values in column, that are equal to default value of column.
     /// Checks only @sample_ratio ratio of rows.
-    virtual double get_ratio_of_default_rows(double sample_ratio = 1.0) const {
-        LOG(FATAL) << fmt::format("get_ratio_of_default_rows of column {} are not implemented.",
-                                  get_name());
-        return 0.0;
-    }
-
-    /// Template is to devirtualize calls to 'isDefaultAt' method.
-    template <typename Derived>
-    double get_ratio_of_default_rows_impl(double sample_ratio) const;
+    virtual double get_ratio_of_default_rows(double sample_ratio = 1.0) const { return 0.0; }
 
     /// Column is ColumnVector of numbers or ColumnConst of it. Note that Nullable columns are not numeric.
     /// Implies is_fixed_and_contiguous.
@@ -689,9 +641,6 @@ public:
     // only used in agg value replace
     // ColumnString should replace according to 0,1,2... ,size,0,1,2...
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
-
-    // only used in ColumnNullable replace_column_data
-    virtual void replace_column_data_default(size_t self_row = 0) = 0;
 
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
@@ -775,6 +724,6 @@ namespace doris {
 struct ColumnPtrWrapper {
     vectorized::ColumnPtr column_ptr;
 
-    ColumnPtrWrapper(vectorized::ColumnPtr col) : column_ptr(col) {}
+    ColumnPtrWrapper(vectorized::ColumnPtr col) : column_ptr(std::move(col)) {}
 };
 } // namespace doris

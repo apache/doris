@@ -40,6 +40,7 @@ import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -71,6 +72,16 @@ import java.util.stream.Collectors;
  * table info in creating table.
  */
 public class CreateTableInfo {
+
+    public static final String ENGINE_OLAP = "olap";
+    public static final String ENGINE_JDBC = "jdbc";
+    public static final String ENGINE_ELASTICSEARCH = "elasticsearch";
+    public static final String ENGINE_ODBC = "odbc";
+    public static final String ENGINE_MYSQL = "mysql";
+    public static final String ENGINE_BROKER = "broker";
+    public static final String ENGINE_HIVE = "hive";
+    public static final String ENGINE_ICEBERG = "iceberg";
+
     private final boolean ifNotExists;
     private String ctlName;
     private String dbName;
@@ -207,9 +218,9 @@ public class CreateTableInfo {
             properties = Maps.newHashMap();
         }
 
-        if (engineName.equalsIgnoreCase("olap")) {
+        if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
             if (distribution == null) {
-                throw new AnalysisException("Create olap table should contain distribution desc");
+                distribution = new DistributionDescriptor(false, true, FeConstants.default_bucket_num, null);
             }
             properties = maybeRewriteByAutoBucket(distribution, properties);
         }
@@ -220,7 +231,7 @@ public class CreateTableInfo {
             throw new AnalysisException(e.getMessage(), e);
         }
 
-        if (engineName.equals("olap")) {
+        if (engineName.equals(ENGINE_OLAP)) {
             if (!ctlName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
                 throw new AnalysisException("Cannot create olap table out of internal catalog."
                     + " Make sure 'engine' type is specified when use the catalog: " + ctlName);
@@ -273,7 +284,7 @@ public class CreateTableInfo {
             }
         });
 
-        if (engineName.equalsIgnoreCase("olap")) {
+        if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
             boolean enableDuplicateWithoutKeysByDefault = false;
             properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(ctlName, dbName, properties);
             try {
@@ -435,7 +446,8 @@ public class CreateTableInfo {
 
             // validate partition
             partitionTableInfo.extractPartitionColumns();
-            partitionTableInfo.validatePartitionInfo(columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
+            partitionTableInfo.validatePartitionInfo(
+                    engineName, columns, columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
 
             // validate distribution descriptor
             distribution.updateCols(columns.get(0).getName());
@@ -473,28 +485,29 @@ public class CreateTableInfo {
                 throw new AnalysisException(engineName + " catalog doesn't support rollup tables.");
             }
 
-            if (engineName.equalsIgnoreCase("iceberg") && distribution != null) {
+            if (engineName.equalsIgnoreCase(ENGINE_ICEBERG) && distribution != null) {
                 throw new AnalysisException(
                     "Iceberg doesn't support 'DISTRIBUTE BY', "
                         + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
             }
             for (ColumnDefinition columnDef : columns) {
                 if (!columnDef.isNullable()
-                        && engineName.equalsIgnoreCase("hive")) {
+                        && engineName.equalsIgnoreCase(ENGINE_HIVE)) {
                     throw new AnalysisException(engineName + " catalog doesn't support column with 'NOT NULL'.");
                 }
                 columnDef.setIsKey(true);
                 columnDef.setAggType(AggregateType.NONE);
             }
             // TODO: support iceberg partition check
-            if (engineName.equalsIgnoreCase("hive")) {
-                partitionTableInfo.validatePartitionInfo(columnMap, properties, ctx, false, true);
+            if (engineName.equalsIgnoreCase(ENGINE_HIVE)) {
+                partitionTableInfo.validatePartitionInfo(
+                        engineName, columns, columnMap, properties, ctx, false, true);
             }
         }
 
         // validate column
         try {
-            if (!engineName.equals("elasticsearch") && columns.isEmpty()) {
+            if (!engineName.equals(ENGINE_ELASTICSEARCH) && columns.isEmpty()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
             }
         } catch (Exception e) {
@@ -504,7 +517,7 @@ public class CreateTableInfo {
         final boolean finalEnableMergeOnWrite = isEnableMergeOnWrite;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         keysSet.addAll(keys);
-        columns.forEach(c -> c.validate(engineName.equals("olap"), keysSet, finalEnableMergeOnWrite,
+        columns.forEach(c -> c.validate(engineName.equals(ENGINE_OLAP), keysSet, finalEnableMergeOnWrite,
                 keysType));
 
         // validate index
@@ -514,7 +527,7 @@ public class CreateTableInfo {
 
             for (IndexDefinition indexDef : indexes) {
                 indexDef.validate();
-                if (!engineName.equalsIgnoreCase("olap")) {
+                if (!engineName.equalsIgnoreCase(ENGINE_OLAP)) {
                     throw new AnalysisException(
                             "index only support in olap engine at current version.");
                 }
@@ -547,16 +560,21 @@ public class CreateTableInfo {
     }
 
     private void paddingEngineName(String ctlName, ConnectContext ctx) {
+        Preconditions.checkArgument(!Strings.isNullOrEmpty(ctlName));
         if (Strings.isNullOrEmpty(engineName)) {
-            if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(ctlName)) {
-                engineName = "olap";
-            } else if (ctx.getCurrentCatalog() instanceof HMSExternalCatalog) {
-                engineName = "hive";
-            } else if (ctx.getCurrentCatalog() instanceof IcebergExternalCatalog) {
-                engineName = "iceberg";
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+            if (catalog == null) {
+                throw new AnalysisException("Unknown catalog: " + ctlName);
+            }
+
+            if (catalog instanceof InternalCatalog) {
+                engineName = ENGINE_OLAP;
+            } else if (catalog instanceof HMSExternalCatalog) {
+                engineName = ENGINE_HIVE;
+            } else if (catalog instanceof IcebergExternalCatalog) {
+                engineName = ENGINE_ICEBERG;
             } else {
-                // set to olap by default
-                engineName = "olap";
+                throw new AnalysisException("Current catalog does not support create table: " + ctlName);
             }
         }
     }
@@ -570,7 +588,7 @@ public class CreateTableInfo {
         paddingEngineName(catalogName, ctx);
         this.columns = Utils.copyRequiredMutableList(columns);
         // bucket num is hard coded 10 to be consistent with legacy planner
-        if (engineName.equals("olap") && this.distribution == null) {
+        if (engineName.equals(ENGINE_OLAP) && this.distribution == null) {
             if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
                 throw new AnalysisException("Cannot create olap table out of internal catalog."
                         + " Make sure 'engine' type is specified when use the catalog: " + catalogName);
@@ -582,9 +600,9 @@ public class CreateTableInfo {
     }
 
     private void checkEngineName() {
-        if (engineName.equals("mysql") || engineName.equals("odbc") || engineName.equals("broker")
-                || engineName.equals("elasticsearch") || engineName.equals("hive") || engineName.equals("iceberg")
-                || engineName.equals("jdbc")) {
+        if (engineName.equals(ENGINE_MYSQL) || engineName.equals(ENGINE_ODBC) || engineName.equals(ENGINE_BROKER)
+                || engineName.equals(ENGINE_ELASTICSEARCH) || engineName.equals(ENGINE_HIVE)
+                || engineName.equals(ENGINE_ICEBERG) || engineName.equals(ENGINE_JDBC)) {
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;
@@ -593,14 +611,14 @@ public class CreateTableInfo {
             if (isExternal) {
                 throw new AnalysisException(
                         "Do not support external table with engine name = olap");
-            } else if (!engineName.equals("olap")) {
+            } else if (!engineName.equals(ENGINE_OLAP)) {
                 throw new AnalysisException(
                         "Do not support table with engine name = " + engineName);
             }
         }
 
-        if (!Config.enable_odbc_mysql_broker_table && (engineName.equals("odbc")
-                || engineName.equals("mysql") || engineName.equals("broker"))) {
+        if (!Config.enable_odbc_mysql_broker_table && (engineName.equals(ENGINE_ODBC)
+                || engineName.equals(ENGINE_MYSQL) || engineName.equals(ENGINE_BROKER))) {
             throw new AnalysisException("odbc, mysql and broker table is no longer supported."
                     + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
                     + " For broker table, use table valued function instead."
@@ -752,18 +770,18 @@ public class CreateTableInfo {
 
         // TODO should move this code to validate function
         // EsUtil.analyzePartitionAndDistributionDesc only accept DistributionDesc and PartitionDesc
-        if (engineName.equals("elasticsearch")) {
+        if (engineName.equals(ENGINE_ELASTICSEARCH)) {
             try {
                 EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
-        } else if (!engineName.equals("olap")) {
-            if (!engineName.equals("hive") && distributionDesc != null) {
+        } else if (!engineName.equals(ENGINE_OLAP)) {
+            if (!engineName.equals(ENGINE_HIVE) && distributionDesc != null) {
                 throw new AnalysisException("Create " + engineName
                     + " table should not contain distribution desc");
             }
-            if (!engineName.equals("hive") && !engineName.equals("iceberg") && partitionDesc != null) {
+            if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_ICEBERG) && partitionDesc != null) {
                 throw new AnalysisException("Create " + engineName
                         + " table should not contain partition desc");
             }
@@ -781,3 +799,4 @@ public class CreateTableInfo {
         this.isExternal = isExternal;
     }
 }
+

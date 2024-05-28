@@ -89,7 +89,7 @@ public class InferTest extends SqlTestBase {
                 .matches(
                         innerLogicalJoin(
                                 logicalProject(),
-                                leftSemiLogicalJoin()
+                                logicalProject(leftSemiLogicalJoin())
                         )
                 );
     }

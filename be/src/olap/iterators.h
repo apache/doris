@@ -99,9 +99,8 @@ public:
     TabletSchemaSPtr tablet_schema = nullptr;
     bool enable_unique_key_merge_on_write = false;
     bool record_rowids = false;
-    // flag for enable topn opt
-    bool use_topn_opt = false;
     std::vector<int> topn_filter_source_node_ids;
+    int topn_filter_target_node_id = -1;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
     // columns for orderby keys
@@ -115,7 +114,7 @@ public:
     RuntimeState* runtime_state = nullptr;
     RowsetId rowset_id;
     Version version;
-    int32_t tablet_id = 0;
+    int64_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, PrimitiveType> target_cast_type_for_variants;
     RowRanges row_ranges;

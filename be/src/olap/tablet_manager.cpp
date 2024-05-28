@@ -730,6 +730,13 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
     TabletSharedPtr best_tablet;
     TabletSharedPtr best_single_compact_tablet;
     auto handler = [&](const TabletSharedPtr& tablet_ptr) {
+        if (tablet_ptr->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+            LOG_EVERY_N(INFO, 500) << "Tablet " << tablet_ptr->tablet_id()
+                                   << " will be ignored by automatic compaction tasks since it's "
+                                   << "set to disabled automatic compaction.";
+            return;
+        }
+
         if (config::enable_skip_tablet_compaction &&
             tablet_ptr->should_skip_compaction(compaction_type, UnixSeconds())) {
             return;

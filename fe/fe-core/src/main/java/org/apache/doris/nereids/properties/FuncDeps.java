@@ -20,8 +20,11 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -58,17 +61,83 @@ public class FuncDeps {
     }
 
     private final Set<FuncDepsItem> items;
+    private final Map<Set<Slot>, Set<Set<Slot>>> edges;
 
-    FuncDeps() {
+    public FuncDeps() {
         items = new HashSet<>();
+        edges = new HashMap<>();
     }
 
     public void addFuncItems(Set<Slot> determinants, Set<Slot> dependencies) {
         items.add(new FuncDepsItem(determinants, dependencies));
+        edges.computeIfAbsent(determinants, k -> new HashSet<>());
+        edges.get(determinants).add(dependencies);
     }
 
     public int size() {
         return items.size();
+    }
+
+    public boolean isEmpty() {
+        return items.isEmpty();
+    }
+
+    private void dfs(Set<Slot> parent, Set<Set<Slot>> visited, Set<FuncDepsItem> circleItem) {
+        visited.add(parent);
+        if (!edges.containsKey(parent)) {
+            return;
+        }
+        for (Set<Slot> child : edges.get(parent)) {
+            if (visited.contains(child)) {
+                circleItem.add(new FuncDepsItem(parent, child));
+                continue;
+            }
+            dfs(child, visited, circleItem);
+        }
+    }
+
+    // find item that not in a circle
+    private Set<FuncDepsItem> findValidItems() {
+        Set<FuncDepsItem> circleItem = new HashSet<>();
+        Set<Set<Slot>> visited = new HashSet<>();
+        for (Set<Slot> parent : edges.keySet()) {
+            if (!visited.contains(parent)) {
+                dfs(parent, visited, circleItem);
+            }
+        }
+        return Sets.difference(items, circleItem);
+    }
+
+    /**
+     * Reduces a given set of slot sets by eliminating dependencies using a breadth-first search (BFS) approach.
+     * <p>
+     * Let's assume we have the following sets of slots and functional dependencies:
+     * Slots: {A, B, C}, {D, E}, {F}
+     * Dependencies: {A} -> {B}, {D, E} -> {F}
+     * The BFS reduction process would look like this:
+     * 1. Initial set: [{A, B, C}, {D, E}, {F}]
+     * 2. Apply {A} -> {B}:
+     *    - New set: [{A, C}, {D, E}, {F}]
+     * 3. Apply {D, E} -> {F}:
+     *    - New set: [{A, C}, {D, E}]
+     * 4. No more dependencies can be applied, output: [{A, C}, {D, E}]
+     * </p>
+     *
+     * @param slots the initial set of slot sets to be reduced
+     * @return the minimal set of slot sets after applying all possible reductions
+     */
+    public Set<Set<Slot>> eliminateDeps(Set<Set<Slot>> slots) {
+        Set<Set<Slot>> minSlotSet = Sets.newHashSet(slots);
+        Set<Set<Slot>> eliminatedSlots = new HashSet<>();
+        Set<FuncDepsItem> validItems = findValidItems();
+        for (FuncDepsItem funcDepsItem : validItems) {
+            if (minSlotSet.contains(funcDepsItem.dependencies)
+                    && minSlotSet.contains(funcDepsItem.determinants)) {
+                eliminatedSlots.add(funcDepsItem.dependencies);
+            }
+        }
+        minSlotSet.removeAll(eliminatedSlots);
+        return minSlotSet;
     }
 
     public boolean isFuncDeps(Set<Slot> dominate, Set<Slot> dependency) {

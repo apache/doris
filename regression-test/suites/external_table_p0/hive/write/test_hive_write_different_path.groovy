@@ -28,13 +28,13 @@ suite("test_hive_write_different_path", "p0,external,hive,external_docker,extern
         setHivePrefix(hivePrefix)
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-            String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
+            String hdfs_port2 = context.config.otherConfigs.get("hive2HdfsPort")
+            String hdfs_port3 = context.config.otherConfigs.get("hive3HdfsPort")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             String catalog1 = "test_${hivePrefix}_write_insert_without_defaultfs"
-            String catalog2 = "test_${hivePrefix}_write_insert_with_external_ip"
-            String catalog3 = "test_${hivePrefix}_write_insert_with_local_ip"
-            String localEnvIp = "127.0.0.1"
+            String catalog2 = "test_${hivePrefix}_write_insert_with_hdfs2"
+            String catalog3 = "test_${hivePrefix}_write_insert_with_hdfs3"
 
             sql """drop catalog if exists ${catalog1}"""
             sql """drop catalog if exists ${catalog2}"""
@@ -45,51 +45,54 @@ suite("test_hive_write_different_path", "p0,external,hive,external_docker,extern
             );"""
 
             sql """ use ${catalog1}.write_test """
-            sql """ drop table if exists tb_with_external_ip """
-            sql """ drop table if exists tb_with_local_ip """
+            sql """ drop table if exists tb_with_hdfs2 """
+            sql """ drop table if exists tb_with_hdfs3 """
 
             sql """
-              CREATE TABLE `tb_with_external_ip`
+              CREATE TABLE `tb_with_hdfs2`
               (
-                `col_bigint_undef_signed` BIGINT NULL,   
-                `col_varchar_10__undef_signed` VARCHAR(10) NULL,   
-                `col_varchar_64__undef_signed` VARCHAR(64) NULL,   
+                `col_bigint_undef_signed` BIGINT NULL,
+                `col_varchar_10__undef_signed` VARCHAR(10) NULL,
+                `col_varchar_64__undef_signed` VARCHAR(64) NULL,
                 `pk` INT NULL ) properties (
-                'location' = 'hdfs://${externalEnvIp}:${hdfs_port}/user/hive/warehouse/write_test.db/tb_with_external_ip/'
-              ); 
+                'location' = 'hdfs://${externalEnvIp}:${hdfs_port2}/user/hive/warehouse/write_test.db/tb_with_hdfs2/'
+              );
             """
 
             sql """
-              CREATE TABLE `tb_with_local_ip`
+              CREATE TABLE `tb_with_hdfs3`
               (
-                `col_bigint_undef_signed` BIGINT NULL,   
-                `col_varchar_10__undef_signed` VARCHAR(10) NULL,   
-                `col_varchar_64__undef_signed` VARCHAR(64) NULL,   
+                `col_bigint_undef_signed` BIGINT NULL,
+                `col_varchar_10__undef_signed` VARCHAR(10) NULL,
+                `col_varchar_64__undef_signed` VARCHAR(64) NULL,
                 `pk` INT NULL ) properties (
-                'location' = 'hdfs://${localEnvIp}:${hdfs_port}/user/hive/warehouse/write_test.db/tb_with_local_ip/'
-              ); 
+                'location' = 'hdfs://${externalEnvIp}:${hdfs_port3}/user/hive/warehouse/write_test.db/tb_with_hdfs3/'
+              );
             """
-            
+
             sql """create catalog if not exists ${catalog2} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port2}'
             );"""
             sql """create catalog if not exists ${catalog3} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'fs.defaultFS' = 'hdfs://${localEnvIp}:${hdfs_port}'
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port3}'
             );"""
 
-            sql """ insert into ${catalog1}.write_test.tb_with_external_ip values (1,'a','a',1) """
-            sql """ insert into ${catalog2}.write_test.tb_with_external_ip values (2,'b','a',1) """
-            sql """ insert into ${catalog3}.write_test.tb_with_external_ip values (3,'c','a',1) """
-            sql """ insert into ${catalog1}.write_test.tb_with_local_ip values (4,'d','a',1) """
-            sql """ insert into ${catalog2}.write_test.tb_with_local_ip values (5,'e','a',1) """
-            sql """ insert into ${catalog3}.write_test.tb_with_local_ip values (6,'f','a',1) """
+            sql """ insert into ${catalog1}.write_test.tb_with_hdfs2 values (1,'a','a',1) """
+            sql """ insert into ${catalog2}.write_test.tb_with_hdfs2 values (2,'b','a',1) """
+            sql """ insert into ${catalog3}.write_test.tb_with_hdfs2 values (3,'c','a',1) """
+            sql """ insert into ${catalog1}.write_test.tb_with_hdfs3 values (4,'d','a',1) """
+            sql """ insert into ${catalog2}.write_test.tb_with_hdfs3 values (5,'e','a',1) """
+            sql """ insert into ${catalog3}.write_test.tb_with_hdfs3 values (6,'f','a',1) """
 
-            qt_q01 """ select * from ${catalog1}.write_test.tb_with_external_ip order by col_bigint_undef_signed """
-            qt_q02 """ select * from ${catalog1}.write_test.tb_with_local_ip order by col_bigint_undef_signed """
+            order_qt_q001 """ select * from ${catalog1}.write_test.tb_with_hdfs2 order by col_bigint_undef_signed """
+            order_qt_q002 """ select * from ${catalog1}.write_test.tb_with_hdfs3 order by col_bigint_undef_signed """
+
+            sql """drop table ${catalog1}.write_test.tb_with_hdfs2"""
+            sql """drop table ${catalog1}.write_test.tb_with_hdfs3"""
 
             sql """drop catalog if exists ${catalog1}"""
             sql """drop catalog if exists ${catalog2}"""
