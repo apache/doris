@@ -627,6 +627,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     private void treeToThriftHelper(TPlan container) {
         TPlanNode msg = new TPlanNode();
         msg.node_id = id.asInt();
+        msg.nereids_id = nereidsId;
+        msg.estimated_cardinality = cardinality;
         msg.num_children = children.size();
         msg.limit = limit;
         for (TupleId tid : tupleIds) {

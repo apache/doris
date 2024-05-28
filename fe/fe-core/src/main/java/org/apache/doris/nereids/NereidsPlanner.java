@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
@@ -93,6 +94,7 @@ public class NereidsPlanner extends Planner {
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
     private final List<ScanNode> scanNodeList = Lists.newArrayList();
+    private final List<PhysicalRelation> physicalRelations = Lists.newArrayList();
     private DescriptorTable descTable;
 
     private Plan parsedPlan;
@@ -332,6 +334,7 @@ public class NereidsPlanner extends Planner {
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
 
         scanNodeList.addAll(planTranslatorContext.getScanNodes());
+        physicalRelations.addAll(planTranslatorContext.getPhysicalRelations());
         descTable = planTranslatorContext.getDescTable();
         fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
         for (int seq = 0; seq < fragments.size(); seq++) {
@@ -363,6 +366,10 @@ public class NereidsPlanner extends Planner {
     @Override
     public List<ScanNode> getScanNodes() {
         return scanNodeList;
+    }
+
+    public List<PhysicalRelation> getPhysicalRelations() {
+        return physicalRelations;
     }
 
     public Group getRoot() {
