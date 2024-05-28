@@ -381,11 +381,13 @@ RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TT
     DCHECK_GT(row_tuples.size(), 0);
     _num_materialized_slots = 0;
     _num_null_slots = 0;
+    _num_slots = 0;
 
     for (int i = 0; i < row_tuples.size(); ++i) {
         TupleDescriptor* tupleDesc = desc_tbl.get_tuple_descriptor(row_tuples[i]);
         _num_materialized_slots += tupleDesc->num_materialized_slots();
         _num_null_slots += tupleDesc->num_null_slots();
+        _num_slots += tupleDesc->slots().size();
         _tuple_desc_map.push_back(tupleDesc);
         DCHECK(_tuple_desc_map.back() != nullptr);
     }
@@ -399,6 +401,7 @@ RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable)
         : _tuple_desc_map(1, tuple_desc), _tuple_idx_nullable_map(1, is_nullable) {
     init_tuple_idx_map();
     init_has_varlen_slots();
+    _num_slots = tuple_desc->slots().size();
 }
 
 RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc) {
@@ -414,6 +417,8 @@ RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescrip
                                    rhs_row_desc._tuple_idx_nullable_map.end());
     init_tuple_idx_map();
     init_has_varlen_slots();
+
+    _num_slots = lhs_row_desc.num_slots() + rhs_row_desc.num_slots();
 }
 
 void RowDescriptor::init_tuple_idx_map() {
