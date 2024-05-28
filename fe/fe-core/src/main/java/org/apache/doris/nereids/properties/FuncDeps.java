@@ -22,9 +22,9 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -61,13 +61,17 @@ public class FuncDeps {
     }
 
     private final Set<FuncDepsItem> items;
+    private final Map<Set<Slot>, Set<Set<Slot>>> edges;
 
-    FuncDeps() {
+    public FuncDeps() {
         items = new HashSet<>();
+        edges = new HashMap<>();
     }
 
     public void addFuncItems(Set<Slot> determinants, Set<Slot> dependencies) {
         items.add(new FuncDepsItem(determinants, dependencies));
+        edges.computeIfAbsent(determinants, k -> new HashSet<>());
+        edges.get(determinants).add(dependencies);
     }
 
     public int size() {
@@ -76,6 +80,32 @@ public class FuncDeps {
 
     public boolean isEmpty() {
         return items.isEmpty();
+    }
+
+    private void dfs(Set<Slot> parent, Set<Set<Slot>> visited, Set<FuncDepsItem> circleItem) {
+        visited.add(parent);
+        if (!edges.containsKey(parent)) {
+            return;
+        }
+        for (Set<Slot> child : edges.get(parent)) {
+            if (visited.contains(child)) {
+                circleItem.add(new FuncDepsItem(parent, child));
+                continue;
+            }
+            dfs(child, visited, circleItem);
+        }
+    }
+
+    // find item that not in a circle
+    private Set<FuncDepsItem> findValidItems() {
+        Set<FuncDepsItem> circleItem = new HashSet<>();
+        Set<Set<Slot>> visited = new HashSet<>();
+        for (Set<Slot> parent : edges.keySet()) {
+            if (!visited.contains(parent)) {
+                dfs(parent, visited, circleItem);
+            }
+        }
+        return Sets.difference(items, circleItem);
     }
 
     /**
@@ -97,30 +127,16 @@ public class FuncDeps {
      * @return the minimal set of slot sets after applying all possible reductions
      */
     public Set<Set<Slot>> eliminateDeps(Set<Set<Slot>> slots) {
-        Set<Set<Slot>> minSlotSet = slots;
-        List<Set<Set<Slot>>> reduceSlotSets = new ArrayList<>();
-        reduceSlotSets.add(slots);
-        // To avoid memory usage due to multiple iterations,
-        // we set a maximum number of loop iterations.
-        int count = 0;
-        while (!reduceSlotSets.isEmpty() && count < 100) {
-            count += 1;
-            List<Set<Set<Slot>>> newReduceSlotSets = new ArrayList<>();
-            for (Set<Set<Slot>> slotSet : reduceSlotSets) {
-                for (FuncDepsItem funcDepsItem : items) {
-                    if (slotSet.contains(funcDepsItem.dependencies)
-                            && slotSet.contains(funcDepsItem.determinants)) {
-                        Set<Set<Slot>> newSet = Sets.newHashSet(slotSet);
-                        newSet.remove(funcDepsItem.dependencies);
-                        if (minSlotSet.size() > newSet.size()) {
-                            minSlotSet = newSet;
-                        }
-                        newReduceSlotSets.add(newSet);
-                    }
-                }
+        Set<Set<Slot>> minSlotSet = Sets.newHashSet(slots);
+        Set<Set<Slot>> eliminatedSlots = new HashSet<>();
+        Set<FuncDepsItem> validItems = findValidItems();
+        for (FuncDepsItem funcDepsItem : validItems) {
+            if (minSlotSet.contains(funcDepsItem.dependencies)
+                    && minSlotSet.contains(funcDepsItem.determinants)) {
+                eliminatedSlots.add(funcDepsItem.dependencies);
             }
-            reduceSlotSets = newReduceSlotSets;
         }
+        minSlotSet.removeAll(eliminatedSlots);
         return minSlotSet;
     }
 
