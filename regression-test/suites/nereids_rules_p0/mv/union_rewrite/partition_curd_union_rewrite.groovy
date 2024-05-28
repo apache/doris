@@ -141,7 +141,6 @@ suite ("partition_curd_union_rewrite") {
         ${mv_def_sql}
         """
 
-
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
@@ -174,7 +173,6 @@ suite ("partition_curd_union_rewrite") {
     }
     compare_res(partition_sql + order_by_stmt)
 
-    /*
     // Part partition is invalid, test can not use partition 2023-10-17 to rewrite
     sql """
     insert into lineitem values 
@@ -230,5 +228,4 @@ suite ("partition_curd_union_rewrite") {
         contains("${mv_name}(${mv_name})")
     }
     compare_res(partition_sql + order_by_stmt)
-     */
 }
