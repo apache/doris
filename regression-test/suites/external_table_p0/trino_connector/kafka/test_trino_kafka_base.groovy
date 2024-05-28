@@ -76,10 +76,10 @@ suite("test_trino_kafka_base", "external,kafka,external_docker,external_docker_k
         sql """
             create catalog if not exists ${catalog_name} properties (
                 "type"="trino-connector",
-                "connector.name"="kafka",
-                "kafka.table-names"="${db_name}.${basic_data_table}",
-                "kafka.nodes"="${externalEnvIp}:${kafka_port}",
-                "kafka.table-description-dir" = "${context.file.parent}/table_desc"
+                "trino.connector.name"="kafka",
+                "trino.kafka.table-names"="${db_name}.${basic_data_table}",
+                "trino.kafka.nodes"="${externalEnvIp}:${kafka_port}",
+                "trino.kafka.table-description-dir" = "${context.file.parent}/table_desc"
             );
         """
         sql """use `${catalog_name}`.`${db_name}`"""
