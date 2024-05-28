@@ -111,7 +111,9 @@ rm -f custom_env.sh
 cp "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/custom_env.sh .
 if [[ "${target_branch}" == "master" ]]; then
     echo "export JAVA_HOME=/usr/lib/jvm/jdk-17.0.2" >>custom_env.sh
-    jdk17_str="&& cd /usr/lib/jvm/ && wget --continue -t3 https://download.java.net/java/GA/jdk17.0.2/dfd4a8d0985749f896bed50d7138ee7f/8/GPL/openjdk-17.0.2_linux-x64_bin.tar.gz && yum install -y pigz  && tar -I pigz -xf openjdk-17.0.2_linux-x64_bin.tar.gz && cd -"
+    # 不在每次启动docker的时候安装jdk17，在阿里云弹性扩缩容的生命周期挂钩里安装jdk17
+    # jdk17_str="&& cd /usr/lib/jvm/ && wget --continue -t3 https://download.java.net/java/GA/jdk17.0.2/dfd4a8d0985749f896bed50d7138ee7f/8/GPL/openjdk-17.0.2_linux-x64_bin.tar.gz && yum install -y pigz  && tar -I pigz -xf openjdk-17.0.2_linux-x64_bin.tar.gz && cd -"
+    jdk17_str=""
 fi
 rm -rf "${teamcity_build_checkoutDir}"/output
 set -x
