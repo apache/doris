@@ -52,7 +52,7 @@ bvar::PerSecond<bvar::Adder<uint64_t>> s3_read_througthput("s3_file_reader", "s3
 // Although we can get QPS from s3_bytes_per_read, but s3_bytes_per_read only
 // record successfull request, and s3_get_request_qps will record all request.
 bvar::PerSecond<bvar::Adder<uint64_t>> s3_get_request_qps("s3_file_reader", "s3_get_request",
-                                                           &s3_file_reader_read_counter);
+                                                          &s3_file_reader_read_counter);
 
 S3FileReader::S3FileReader(size_t file_size, std::string key, std::shared_ptr<S3FileSystem> fs,
                            RuntimeProfile* profile)
@@ -111,9 +111,9 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
 
     int retry_count = 0;
-    const int base_wait_time = config::s3_read_base_wait_time_ms ; // Base wait time in milliseconds
-    const int max_wait_time = config::s3_read_max_wait_time_ms;  // Maximum wait time in milliseconds
-    const int max_retries = config::max_s3_client_retry;     // wait 1s, 2s, 4s, 8s for each backoff
+    const int base_wait_time = config::s3_read_base_wait_time_ms; // Base wait time in milliseconds
+    const int max_wait_time = config::s3_read_max_wait_time_ms; // Maximum wait time in milliseconds
+    const int max_retries = config::max_s3_client_retry; // wait 1s, 2s, 4s, 8s for each backoff
 
     int total_sleep_time = 0;
     while (retry_count <= max_retries) {
