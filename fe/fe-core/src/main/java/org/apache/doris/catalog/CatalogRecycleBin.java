@@ -923,6 +923,34 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         // 3. erase db from idToDatabase and idToRecycleTime
         idToDatabase.remove(dbId);
         idToRecycleTime.remove(dbId);
+
+        // 4. remove all tables with the same dbId
+        List<Long> tableIdToErase = Lists.newArrayList();
+        Iterator<Map.Entry<Long, RecycleTableInfo>> tableIterator = idToTable.entrySet().iterator();
+        while (tableIterator.hasNext()) {
+            Map.Entry<Long, RecycleTableInfo> entry = tableIterator.next();
+            RecycleTableInfo tableInfo = entry.getValue();
+            if (tableInfo.getDbId() == dbId) {
+                tableIdToErase.add(entry.getKey());
+            }
+        }
+        for (Long tableId : tableIdToErase) {
+            eraseTableInstantly(tableId);
+        }
+
+        // 5. remove all partitions with the same dbId
+        List<Long> partitionIdToErase = Lists.newArrayList();
+        Iterator<Map.Entry<Long, RecyclePartitionInfo>> partitionIterator = idToPartition.entrySet().iterator();
+        while (partitionIterator.hasNext()) {
+            Map.Entry<Long, RecyclePartitionInfo> entry = partitionIterator.next();
+            RecyclePartitionInfo partitionInfo = entry.getValue();
+            if (partitionInfo.getDbId() == dbId) {
+                partitionIdToErase.add(entry.getKey());
+            }
+        }
+        for (Long partitionId : partitionIdToErase) {
+            erasePartitionInstantly(partitionId);
+        }
     }
 
     // erase table in catalog recycle bin instantly
@@ -946,6 +974,20 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         // 3. erase table from idToTable and idToRecycleTime
         idToTable.remove(tableId);
         idToRecycleTime.remove(tableId);
+
+        // 4. erase all partitions with the same tableId
+        List<Long> partitionIdToErase = Lists.newArrayList();
+        Iterator<Map.Entry<Long, RecyclePartitionInfo>> partitionIterator = idToPartition.entrySet().iterator();
+        while (partitionIterator.hasNext()) {
+            Map.Entry<Long, RecyclePartitionInfo> entry = partitionIterator.next();
+            RecyclePartitionInfo partitionInfo = entry.getValue();
+            if (partitionInfo.getTableId() == tableId) {
+                partitionIdToErase.add(entry.getKey());
+            }
+        }
+        for (Long partitionId : partitionIdToErase) {
+            erasePartitionInstantly(partitionId);
+        }
     }
 
     // erase partition in catalog recycle bin instantly

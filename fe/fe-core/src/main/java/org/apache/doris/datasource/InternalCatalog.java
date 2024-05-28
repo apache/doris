@@ -34,7 +34,6 @@ import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropCatalogRecycleBinStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
@@ -143,6 +142,7 @@ import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.info.DropCatalogRecycleBinInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -709,16 +709,19 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void dropCatalogRecycleBin(DropCatalogRecycleBinStmt dropStmt) throws DdlException {
-        if (dropStmt.getIdType().equals("'DbId'")) {
-            Env.getCurrentRecycleBin().eraseDatabaseInstantly(dropStmt.getDbId());
-            LOG.info("drop database[{}] in catalog recycle bin", dropStmt.getDbId());
-        } else if (dropStmt.getIdType().equals("'TableId'")) {
-            Env.getCurrentRecycleBin().eraseTableInstantly(dropStmt.getTableId());
-            LOG.info("drop table[{}] in catalog recycle bin", dropStmt.getTableId());
-        } else if (dropStmt.getIdType().equals("'PartitionId'")) {
-            Env.getCurrentRecycleBin().erasePartitionInstantly(dropStmt.getPartitionId());
-            LOG.info("drop partition[{}] in catalog recycle bin", dropStmt.getPartitionId());
+    public void dropCatalogRecycleBin(DropCatalogRecycleBinInfo dropInfo) throws DdlException {
+        if (dropInfo.getIdType().equalsIgnoreCase("'DbId'")
+                || dropInfo.getIdType().equalsIgnoreCase("\"DbId\"")) {
+            Env.getCurrentRecycleBin().eraseDatabaseInstantly(dropInfo.getDbId());
+            LOG.info("drop database[{}] in catalog recycle bin", dropInfo.getDbId());
+        } else if (dropInfo.getIdType().equalsIgnoreCase("'TableId'")
+                || dropInfo.getIdType().equalsIgnoreCase("\"TableId\"")) {
+            Env.getCurrentRecycleBin().eraseTableInstantly(dropInfo.getTableId());
+            LOG.info("drop table[{}] in catalog recycle bin", dropInfo.getTableId());
+        } else if (dropInfo.getIdType().equalsIgnoreCase("'PartitionId'")
+                || dropInfo.getIdType().equalsIgnoreCase("\"PartitionId\"")) {
+            Env.getCurrentRecycleBin().erasePartitionInstantly(dropInfo.getPartitionId());
+            LOG.info("drop partition[{}] in catalog recycle bin", dropInfo.getPartitionId());
         }
     }
 

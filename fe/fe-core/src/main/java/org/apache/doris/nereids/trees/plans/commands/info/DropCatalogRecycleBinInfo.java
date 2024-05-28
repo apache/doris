@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.DropCatalogRecycleBinStmt;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
@@ -36,11 +35,11 @@ public class DropCatalogRecycleBinInfo {
      */
     public DropCatalogRecycleBinInfo(String idType, long id) {
         this.idType = idType;
-        if (idType.equals("'DbId'")) {
+        if (idType.equalsIgnoreCase("'DbId'") || idType.equalsIgnoreCase("\"DbId\"")) {
             this.dbId = id;
-        } else if (idType.equals("'TableId'")) {
+        } else if (idType.equalsIgnoreCase("'TableId'") || idType.equalsIgnoreCase("\"TableId\"")) {
             this.tableId = id;
-        } else if (idType.equals("'PartitionId'")) {
+        } else if (idType.equalsIgnoreCase("'PartitionId'") || idType.equalsIgnoreCase("\"PartitionId\"")) {
             this.partitionId = id;
         }
     }
@@ -51,7 +50,12 @@ public class DropCatalogRecycleBinInfo {
      * @param ctx ConnectContext
      */
     public void analyze(ConnectContext ctx) {
-        if (!idType.equals("'DbId'") && !idType.equals("'TableId'") && !idType.equals("'PartitionId'")) {
+        if (!idType.equalsIgnoreCase("'DbId'")
+                && !idType.equalsIgnoreCase("\"DbId\"")
+                && !idType.equalsIgnoreCase("'TableId'")
+                && !idType.equalsIgnoreCase("\"TableId\"")
+                && !idType.equalsIgnoreCase("'PartitionId'")
+                && !idType.equalsIgnoreCase("\"PartitionId\"")) {
             String message = "DROP CATALOG RECYCLE BIN: " + idType + " should be 'DbId', 'TableId' or 'PartitionId'.";
             throw new AnalysisException(message);
         }
@@ -83,20 +87,5 @@ public class DropCatalogRecycleBinInfo {
      */
     public long getPartitionId() {
         return partitionId;
-    }
-
-    /**
-     * translate to DropCatalogRecycleBinStmt
-     */
-    public DropCatalogRecycleBinStmt translateToLegacyStmt() {
-        DropCatalogRecycleBinStmt dropStmt = null;
-        if (idType.equals("'DbId'")) {
-            dropStmt = new DropCatalogRecycleBinStmt(idType, dbId);
-        } else if (idType.equals("'TableId'")) {
-            dropStmt = new DropCatalogRecycleBinStmt(idType, tableId);
-        } else if (idType.equals("'PartitionId'")) {
-            dropStmt = new DropCatalogRecycleBinStmt(idType, partitionId);
-        }
-        return dropStmt;
     }
 }

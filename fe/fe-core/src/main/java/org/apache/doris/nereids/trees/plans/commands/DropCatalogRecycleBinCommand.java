@@ -29,7 +29,7 @@ import java.util.Objects;
 /**
  * drop catalog recycle bin command
  */
-public class DropCatalogRecycleBinCommand extends Command implements NoForward {
+public class DropCatalogRecycleBinCommand extends Command implements ForwardWithSync {
 
     private final DropCatalogRecycleBinInfo dropInfo;
 
@@ -44,7 +44,7 @@ public class DropCatalogRecycleBinCommand extends Command implements NoForward {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         dropInfo.analyze(ctx);
-        Env.getCurrentEnv().dropCatalogRecycleBin(dropInfo.translateToLegacyStmt());
+        Env.getCurrentEnv().dropCatalogRecycleBin(dropInfo);
     }
 
     @Override

@@ -55,7 +55,6 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropCatalogRecycleBinStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
@@ -192,6 +191,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropCatalogRecycleBinInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
@@ -3117,8 +3117,8 @@ public class Env {
         getInternalCatalog().recoverPartition(recoverStmt);
     }
 
-    public void dropCatalogRecycleBin(DropCatalogRecycleBinStmt dropStmt) throws DdlException {
-        getInternalCatalog().dropCatalogRecycleBin(dropStmt);
+    public void dropCatalogRecycleBin(DropCatalogRecycleBinInfo dropInfo) throws DdlException {
+        getInternalCatalog().dropCatalogRecycleBin(dropInfo);
     }
 
     public void replayEraseDatabase(long dbId) throws DdlException {
