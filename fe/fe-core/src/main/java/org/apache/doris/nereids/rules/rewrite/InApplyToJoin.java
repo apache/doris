@@ -89,6 +89,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         Lists.newArrayList(expr),
                         JoinHint.NONE,
+                        apply.getMarkJoinSlotReference(),
                         apply.left(), agg);
             }
 
