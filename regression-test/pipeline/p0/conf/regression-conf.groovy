@@ -64,7 +64,6 @@ excludeGroups = ""
 
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "test_bitmap_filter," +
-    "test_export_empty_table," + // http://jira.selectdb-in.cc/browse/DORIS-12104
     "test_dump_image," +
     "test_index_failure_injection," +
     "test_profile," +
