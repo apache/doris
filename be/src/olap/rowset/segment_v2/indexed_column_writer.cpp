@@ -118,7 +118,7 @@ Status IndexedColumnWriter::_finish_current_data_page(size_t& num_val) {
 
     // IndexedColumn doesn't have NULLs, thus data page body only contains encoded values
     OwnedSlice page_body = _data_page_builder->finish();
-    _data_page_builder->reset();
+    RETURN_IF_ERROR(_data_page_builder->reset());
 
     PageFooterPB footer;
     footer.set_type(DATA_PAGE);

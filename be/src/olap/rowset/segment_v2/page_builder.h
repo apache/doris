@@ -42,6 +42,9 @@ public:
 
     virtual ~PageBuilder() {}
 
+    // Init the internal state of the page builder.
+    virtual Status init() = 0;
+
     // Used by column writer to determine whether the current page is full.
     // Column writer depends on the result to decide whether to flush current page.
     virtual bool is_page_full() = 0;
@@ -69,7 +72,7 @@ public:
     // Reset the internal state of the page builder.
     //
     // Any data previously returned by finish may be invalidated by this call.
-    virtual void reset() = 0;
+    virtual Status reset() = 0;
 
     // Return the number of entries that have been added to the page.
     virtual size_t count() const = 0;
@@ -89,6 +92,16 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(PageBuilder);
+};
+
+template <typename Derived>
+class PageBuilderHelper : public PageBuilder {
+public:
+    template <typename... Args>
+    static Status create(PageBuilder** builder, Args&&... args) {
+        *builder = new Derived(std::forward<Args>(args)...);
+        return (*builder)->init();
+    }
 };
 
 } // namespace segment_v2
