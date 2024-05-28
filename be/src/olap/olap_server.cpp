@@ -898,17 +898,10 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                             : copied_base_map[data_dir],
                     &disk_max_score, _cumulative_compaction_policies);
             if (tablet != nullptr) {
-                if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
-                    if (need_pick_tablet) {
-                        tablets_compaction.emplace_back(tablet);
-                    }
-                    max_compaction_score = std::max(max_compaction_score, disk_max_score);
-                } else {
-                    LOG_EVERY_N(INFO, 500)
-                            << "Tablet " << tablet->tablet_id()
-                            << " will be ignored by automatic compaction tasks since it's "
-                            << "set to disabled automatic compaction.";
+                if (need_pick_tablet) {
+                    tablets_compaction.emplace_back(tablet);
                 }
+                max_compaction_score = std::max(max_compaction_score, disk_max_score);
             }
         }
     }
