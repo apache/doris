@@ -48,6 +48,8 @@ public:
         // encode
         PageBuilderOptions options;
         BinaryPrefixPageBuilder page_builder(options);
+        Status ret0 = page_builder.init();
+        EXPECT_TRUE(ret0.ok());
 
         size_t count = slices.size();
         const Slice* ptr = &slices[0];
@@ -162,6 +164,8 @@ public:
         // encode
         PageBuilderOptions options;
         BinaryPrefixPageBuilder page_builder(options);
+        Status ret0 = page_builder.init();
+        EXPECT_TRUE(ret0.ok());
 
         size_t count = slices.size();
         const Slice* ptr = &slices[0];
@@ -273,6 +277,8 @@ public:
         // encode
         PageBuilderOptions options;
         BinaryPrefixPageBuilder page_builder(options);
+        Status ret0 = page_builder.init();
+        EXPECT_TRUE(ret0.ok());
 
         size_t count = slices.size();
         const Slice* ptr = &slices[0];

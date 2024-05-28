@@ -718,7 +718,7 @@ Status ScalarColumnWriter::finish_current_page() {
     // build data page body : encoded values + [nullmap]
     std::vector<Slice> body;
     OwnedSlice encoded_values = _page_builder->finish();
-    _page_builder->reset();
+    RETURN_IF_ERROR(_page_builder->reset());
     body.push_back(encoded_values.slice());
 
     OwnedSlice nullmap;
