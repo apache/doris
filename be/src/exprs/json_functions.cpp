@@ -218,7 +218,7 @@ void JsonFunctions::parse_json_paths(const std::string& path_string,
                 path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
         std::vector<std::string> paths(tok.begin(), tok.end());
         get_parsed_paths(paths, parsed_paths);
-    } catch (boost::escaped_list_error err) {
+    } catch (const boost::escaped_list_error& err) {
         throw doris::Exception(ErrorCode::INVALID_JSON_PATH, "meet error {}", err.what());
     }
 }
