@@ -2656,7 +2656,7 @@ public class Config extends ConfigBase {
     public static int cloud_cold_read_percent = 10; // 10%
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_create_bitmap_index_as_inverted_index = false;
+    public static boolean enable_create_bitmap_index_as_inverted_index = true;
 
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,
