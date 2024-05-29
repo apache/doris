@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_backup_restore_mtmv", "backup_restore") {
-    String suiteName = "test_backup_restore"
+    String suiteName = "test_backup_restore_mtmv"
     String repoName = "${suiteName}_repo"
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
