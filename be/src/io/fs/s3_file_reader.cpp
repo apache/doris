@@ -113,15 +113,12 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     if (!client) {
         return Status::InternalError("init s3 client error");
     }
-    auto resp = client->get_object(
-            {
-                    .bucket = _bucket,
-                    .key = _key,
-            },
+    // clang-format off
+    auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
             to, offset, bytes_req, bytes_read);
+    // clang-format on
     if (!resp.status.ok()) {
-        return s3fs_error(std::move(resp.status),
-                          fmt::format("failed to read from {}", _path.native()));
+        return resp.status.append(fmt::format("failed to read from {}", _path.native()));
     }
     if (*bytes_read != bytes_req) {
         return Status::InternalError("failed to read from {}(bytes read: {}, bytes req: {})",

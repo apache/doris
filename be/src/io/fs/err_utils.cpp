@@ -129,9 +129,5 @@ Status s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
     }
 }
 
-Status s3fs_error(Status msg, std::string_view path) {
-    return msg.append(fmt::format(" occured on path {}", path));
-}
-
 } // namespace io
 } // namespace doris

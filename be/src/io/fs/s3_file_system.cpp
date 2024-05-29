@@ -132,9 +132,8 @@ Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
     });
 
     if (!resp.status.ok()) {
-        return ResultError(
-                s3fs_error(std::move(resp.status),
-                           fmt::format("failed to head s3 file {}", full_s3_path(bucket, key))));
+        return ResultError(resp.status.append(
+                fmt::format("failed to head s3 file {}", full_s3_path(bucket, key))));
     }
 
     return resp.file_size;
@@ -211,8 +210,7 @@ Status S3FileSystem::delete_file_impl(const Path& file) {
     if (resp.status.ok() || resp.status.is<ErrorCode::NOT_FOUND>()) {
         return Status::OK();
     }
-    return s3fs_error(std::move(resp.status),
-                      fmt::format("failed to delete file {}", full_s3_path(key)));
+    return resp.status.append(fmt::format("failed to delete file {}", full_s3_path(key)));
 }
 
 Status S3FileSystem::delete_directory_impl(const Path& dir) {
@@ -252,12 +250,10 @@ Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
         if (objects.empty()) {
             return Status::OK();
         }
-        RETURN_IF_ERROR(client->delete_objects(
-                                      {
-                                              .bucket = _bucket,
-                                      },
-                                      std::move(objects))
+        // clang-format off
+        RETURN_IF_ERROR(client->delete_objects( {.bucket = _bucket,}, std::move(objects))
                                 .status);
+        // clang-format on
     } while (path_iter != remote_files.end());
 
     return Status::OK();
@@ -275,8 +271,7 @@ Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
     } else if (resp.status.is<ErrorCode::NOT_FOUND>()) {
         *res = false;
     } else {
-        return s3fs_error(std::move(resp.status),
-                          fmt::format("failed to check exists {}", full_s3_path(key)));
+        return resp.status.append(fmt::format("failed to check exists {}", full_s3_path(key)));
     }
     return Status::OK();
 }
@@ -299,12 +294,9 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
         prefix.push_back('/');
     }
 
-    auto resp = client->list_objects(
-            {
-                    .bucket = _bucket,
-                    .prefix = prefix,
-            },
-            files);
+    // clang-format off
+    auto resp = client->list_objects( {.bucket = _bucket, .prefix = prefix,}, files);
+    // clang-format on
 
     return resp.status;
 }
@@ -405,12 +397,10 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
     RETURN_IF_ERROR(file_size(remote_file, &size));
     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
     size_t bytes_read = 0;
-    auto resp = client->get_object(
-            {
-                    .bucket = _bucket,
-                    .key = key,
-            },
+    // clang-format off
+    auto resp = client->get_object( {.bucket = _bucket, .key = key,},
             buf.get(), 0, size, &bytes_read);
+    // clang-format on
     if (!resp.status.ok()) {
         return resp.status;
     }
