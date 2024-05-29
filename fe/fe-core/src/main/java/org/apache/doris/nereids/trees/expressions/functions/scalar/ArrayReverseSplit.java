@@ -1,0 +1,86 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.expressions.functions.scalar;
+
+import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+
+/**
+ * ScalarFunction 'array_reverse_split'.
+ */
+public class ArrayReverseSplit extends ScalarFunction implements PropagateNullable, HighOrderFunction {
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.retArgType(0).args(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX),
+                    ArrayType.of(BooleanType.INSTANCE)));
+
+    private ArrayReverseSplit(List<Expression> expressions) {
+        super("array_reverse_split", expressions);
+    }
+
+    /**
+     * constructor with arguments.
+     */
+    public ArrayReverseSplit(Expression arg0, Expression arg1) {
+        super("array_reverse_split", arg0, arg1);
+    }
+
+    /**
+     * constructor with arguments.
+     * array_split(lambda, a1, ...) = array_split(a1, array_map(lambda, a1, ...))
+     */
+    public ArrayReverseSplit(Expression arg) {
+        super("array_reverse_split", arg.child(1).child(0), new ArrayMap(arg));
+        if (!(arg instanceof Lambda)) {
+            throw new AnalysisException(
+                    String.format("The 1st arg of %s must be lambda but is %s", getName(), arg));
+        }
+    }
+
+    @Override
+    public ArrayReverseSplit withChildren(List<Expression> children) {
+        return new ArrayReverseSplit(children.get(0), children.get(1));
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitArrayReverseSplit(this, context);
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        FunctionSignature functionSignature = super.computeSignature(signature);
+        DataType argType0 = functionSignature.getArgType(0);
+        return signature.withReturnType(ArrayType.of(argType0));
+    }
+
+    @Override
+    public List<FunctionSignature> getImplSignature() {
+        return SIGNATURES;
+    }
+}
