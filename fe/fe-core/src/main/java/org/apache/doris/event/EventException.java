@@ -15,53 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mtmv;
 
-/**
- * refresh enum
- */
-public class MTMVRefreshEnum {
+package org.apache.doris.event;
 
-    /**
-     * RefreshMethod
-     */
-    public enum RefreshMethod {
-        COMPLETE, //complete
-        AUTO //try to update incrementally, if not possible, update in full
+public class EventException extends Exception {
+
+    public EventException(String msg, Throwable cause) {
+        super(msg, cause);
     }
 
-    /**
-     * BuildMode
-     */
-    public enum BuildMode {
-        IMMEDIATE, //right now
-        DEFERRED // deferred
+    public EventException(String msg) {
+        super(msg);
     }
 
-    /**
-     * RefreshTrigger
-     */
-    public enum RefreshTrigger {
-        MANUAL, //manual
-        COMMIT, //manual
-        SCHEDULE // schedule
-    }
-
-    /**
-     * MTMVState
-     */
-    public enum MTMVState {
-        INIT,
-        NORMAL,
-        SCHEMA_CHANGE
-    }
-
-    /**
-     * MTMVRefreshState
-     */
-    public enum MTMVRefreshState {
-        INIT,
-        FAIL,
-        SUCCESS
+    public EventException(Exception e) {
+        super(e);
     }
 }
