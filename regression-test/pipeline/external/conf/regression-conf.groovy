@@ -91,14 +91,14 @@ enableBrokerLoad=true
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
-enableJdbcTest=false
+enableJdbcTest=true
 mysql_57_port=7111
 pg_14_port=7121
 mariadb_10_port=3326
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
-enableHiveTest=false
+enableHiveTest=true
 hms_port=7141
 hiveServerPort=10000
 
@@ -111,7 +111,7 @@ kafka_port=19193
 // iceberg test config
 iceberg_rest_uri_port=18181
 
-enableEsTest=false
+enableEsTest=true
 es_6_port=19200
 es_7_port=29200
 es_8_port=39200
