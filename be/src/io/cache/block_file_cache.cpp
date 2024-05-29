@@ -1425,10 +1425,11 @@ void BlockFileCache::check_disk_resource_limit(const std::string& path) {
     }
     if (_disk_resource_limit_mode) {
         // log per mins
-        LOG_EVERY_N(WARNING, 3) << "file cache background thread space percent=" << capacity_percentage
-            << " inode percent=" << inode_percentage
-            << " is inode insufficient=" << inode_is_insufficient(inode_percentage)
-            << " mode run in resource limit";
+        LOG_EVERY_N(WARNING, 3) << "file cache background thread space percent="
+                                << capacity_percentage << " inode percent=" << inode_percentage
+                                << " is inode insufficient="
+                                << inode_is_insufficient(inode_percentage)
+                                << " mode run in resource limit";
     }
 }
 
