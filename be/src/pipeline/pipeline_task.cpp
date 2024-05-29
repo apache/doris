@@ -120,6 +120,7 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
 }
 
 Status PipelineTask::_extract_dependencies() {
+    std::unique_lock<std::mutex> lc(_dependency_lock);
     _read_dependencies.resize(_operators.size());
     size_t i = 0;
     for (auto& op : _operators) {
@@ -413,7 +414,7 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
 }
 
 void PipelineTask::finalize() {
-    std::unique_lock<std::mutex> lc(_release_lock);
+    std::unique_lock<std::mutex> lc(_dependency_lock);
     _finished = true;
     _sink_shared_state.reset();
     _op_shared_states.clear();
@@ -447,7 +448,7 @@ Status PipelineTask::close(Status exec_status) {
 }
 
 std::string PipelineTask::debug_string() {
-    std::unique_lock<std::mutex> lc(_release_lock);
+    std::unique_lock<std::mutex> lc(_dependency_lock);
     fmt::memory_buffer debug_string_buffer;
 
     fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
