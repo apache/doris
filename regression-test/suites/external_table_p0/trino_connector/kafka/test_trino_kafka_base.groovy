@@ -40,7 +40,9 @@ suite("test_trino_kafka_base", "external,kafka,external_docker,external_docker_k
 
 
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    String enabled_trino_connector = context.config.otherConfigs.get("enableTrinoConnectorTest")
+    if (enabled != null && enabled.equalsIgnoreCase("true")
+        && enabled_trino_connector!= null && enabled_trino_connector.equalsIgnoreCase("true")) {
         def kafkaCsvTpoics = [
                 "trino_kafka_basic_data"
             ]
