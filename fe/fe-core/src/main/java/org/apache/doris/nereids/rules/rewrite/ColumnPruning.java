@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -168,6 +169,30 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     @Override
     public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, PruneContext context) {
         return pruneAggregate(repeat, context);
+    }
+
+    @Override
+    public Plan visitLogicalWindow(LogicalWindow<? extends Plan> window, PruneContext context) {
+        boolean pruned = false;
+        boolean reserved = false;
+        ImmutableList.Builder<NamedExpression> reservedWindowExpressions = ImmutableList.builder();
+        for (NamedExpression windowExpression : window.getWindowExpressions()) {
+            if (context.requiredSlots.contains(windowExpression.toSlot())) {
+                reservedWindowExpressions.add(windowExpression);
+                reserved = true;
+            } else {
+                pruned = true;
+            }
+        }
+        if (!pruned) {
+            return pruneChildren(window, context.requiredSlots);
+        }
+        if (!reserved) {
+            return window.child().accept(this, context);
+        }
+        LogicalWindow<? extends Plan> prunedWindow
+                = window.withExpressionsAndChild(reservedWindowExpressions.build(), window.child());
+        return pruneChildren(prunedWindow, context.requiredSlots);
     }
 
     private Plan pruneAggregate(Aggregate agg, PruneContext context) {
