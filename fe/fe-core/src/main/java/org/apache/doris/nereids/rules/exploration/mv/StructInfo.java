@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
-import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.PredicateAddContext;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.PredicateAdder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -65,6 +66,7 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -668,43 +670,49 @@ public class StructInfo {
     }
 
     /**
-     * Add predicates on base table when materialized view scan contains invalid partitions
+     * Add or remove partition on base table and mv when materialized view scan contains invalid partitions
      */
-    public static class InvalidPartitionRemover extends DefaultPlanRewriter<Pair<List<String>, Set<Long>>> {
-        // materialized view scan is always LogicalOlapScan, so just handle LogicalOlapScan
+    public static class PartitionRemover extends DefaultPlanRewriter<Map<BaseTableInfo, Set<String>>> {
         @Override
-        public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, Pair<List<String>, Set<Long>> context) {
-            if (olapScan.getTable().getFullQualifiers().equals(context.key())) {
-                List<Long> selectedPartitionIds = olapScan.getSelectedPartitionIds();
-                return olapScan.withSelectedPartitionIds(selectedPartitionIds.stream()
-                        .filter(partitionId -> !context.value().contains(partitionId))
-                        .collect(Collectors.toList()));
+        public Plan visitLogicalOlapScan(LogicalOlapScan olapScan,
+                Map<BaseTableInfo, Set<String>> context) {
+            // todo Support other partition table
+            BaseTableInfo tableInfo = new BaseTableInfo(olapScan.getTable());
+            if (!context.containsKey(tableInfo)) {
+                return olapScan;
             }
-            return olapScan;
+            Set<String> targetPartitionNameSet = context.get(tableInfo);
+            List<Long> selectedPartitionIds = new ArrayList<>(olapScan.getSelectedPartitionIds());
+            // need remove partition
+            selectedPartitionIds = selectedPartitionIds.stream()
+                    .filter(partitionId -> !targetPartitionNameSet.contains(
+                            olapScan.getTable().getPartition(partitionId).getName()))
+                    .collect(Collectors.toList());
+            return olapScan.withSelectedPartitionIds(selectedPartitionIds);
         }
     }
 
     /**
-     * Collect partitions which scan used according to given table
+     * Collect partitions on base table
      */
-    public static class QueryScanPartitionsCollector extends DefaultPlanVisitor<Plan, Map<Long, Set<PartitionItem>>> {
+    public static class QueryScanPartitionsCollector extends DefaultPlanVisitor<Plan,
+            Map<BaseTableInfo, Set<Partition>>> {
         @Override
         public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation,
-                Map<Long, Set<PartitionItem>> context) {
+                Map<BaseTableInfo, Set<Partition>> targetTablePartitionMap) {
             TableIf table = catalogRelation.getTable();
-            if (!context.containsKey(table.getId())) {
+            BaseTableInfo relatedPartitionTable = new BaseTableInfo(table);
+            if (!targetTablePartitionMap.containsKey(relatedPartitionTable)) {
                 return catalogRelation;
             }
-            // Only support check olap partition currently
+            // todo Support other type partition table
             if (catalogRelation instanceof LogicalOlapScan) {
                 LogicalOlapScan logicalOlapScan = (LogicalOlapScan) catalogRelation;
-                PartitionInfo partitionInfo = logicalOlapScan.getTable().getPartitionInfo();
-                logicalOlapScan.getSelectedPartitionIds().stream()
-                        .map(partitionInfo::getItem)
-                        .forEach(partitionItem -> context.computeIfPresent(table.getId(), (key, oldValue) -> {
-                            oldValue.add(partitionItem);
-                            return oldValue;
-                        }));
+                for (Long partitionId : logicalOlapScan.getSelectedPartitionIds()) {
+                    Set<Partition> partitions = targetTablePartitionMap.computeIfAbsent(relatedPartitionTable,
+                            key -> new HashSet<>());
+                    partitions.add(logicalOlapScan.getTable().getPartition(partitionId));
+                }
             }
             return catalogRelation;
         }
@@ -713,10 +721,16 @@ public class StructInfo {
     /**
      * Add filter on table scan according to table filter map
      */
-    public static Plan addFilterOnTableScan(Plan queryPlan, Map<TableIf, Set<Expression>> filterOnOriginPlan,
+    public static Plan addFilterOnTableScan(Plan queryPlan, Map<BaseTableInfo, Set<String>> partitionOnOriginPlan,
+            String partitionColumn,
             CascadesContext parentCascadesContext) {
         // Firstly, construct filter form invalid partition, this filter should be added on origin plan
-        Plan queryPlanWithUnionFilter = queryPlan.accept(new PredicateAdder(), filterOnOriginPlan);
+        PredicateAddContext predicateAddContext = new PredicateAddContext(partitionOnOriginPlan, partitionColumn);
+        Plan queryPlanWithUnionFilter = queryPlan.accept(new PredicateAdder(),
+                predicateAddContext);
+        if (!predicateAddContext.isAddSuccess()) {
+            return null;
+        }
         // Deep copy the plan to avoid the plan output is the same with the later union output, this may cause
         // exec by mistake
         queryPlanWithUnionFilter = new LogicalPlanDeepCopier().deepCopy(
