@@ -76,6 +76,7 @@ public:
     const char* get_family_name() const override { return "Map"; }
 
     MutableColumnPtr create_column() const override;
+    Status check_column_type(const IColumn* column) const override;
     Field get_default() const override;
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {

@@ -17,17 +17,23 @@
 
 #include "vec/exprs/vexpr_context.h"
 
+#include <fmt/core.h>
+
 #include <ostream>
 #include <string>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
+#include "common/logging.h"
+#include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "udf/udf.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -55,6 +61,33 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
         st = _root->execute(this, block, result_column_id);
         _last_result_column_id = *result_column_id;
     });
+    RETURN_IF_ERROR(st);
+#ifndef NDEBUG
+    RETURN_IF_ERROR(check_column_data_type(block, *result_column_id));
+#else
+#endif
+    return Status::OK();
+}
+
+Status VExprContext::check_column_data_type(vectorized::Block* block, int result_column_id) {
+    if (result_column_id < 0) {
+        return Status::InternalError("result_column_id error value {}", result_column_id);
+    }
+    ColumnWithTypeAndName data = block->get_by_position(result_column_id);
+    DataTypePtr column_data_type = data.type;
+    DataTypePtr expr_data_type = root()->data_type();
+    auto column_ptr = data.column->convert_to_full_column_if_const();
+    auto st = column_data_type->check_column_type(column_ptr.get());
+    if (!st.ok()) {
+        return Status::InternalError(
+                "VExprContext expr match failed ,"
+                "col name = {} , expr expected type = {} , "
+                "column expected type = {} , "
+                "column dump_structure = {} , "
+                "error type msg = {}",
+                data.name, expr_data_type->get_name(), column_data_type->get_name(),
+                column_ptr->dump_structure(), st.msg());
+    }
     return st;
 }
 
