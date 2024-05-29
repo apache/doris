@@ -265,9 +265,13 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
     case TYPE_MAP: {
         type = orc::createMapType(
                 _build_orc_type(type_descriptor.children[0],
-                                &nested_field->field_type()->as_map_type()->key_field()),
+                                nested_field
+                                        ? &nested_field->field_type()->as_map_type()->key_field()
+                                        : nullptr),
                 _build_orc_type(type_descriptor.children[1],
-                                &nested_field->field_type()->as_map_type()->value_field()));
+                                nested_field
+                                        ? &nested_field->field_type()->as_map_type()->value_field()
+                                        : nullptr));
         break;
     }
     default: {
