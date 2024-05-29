@@ -18,6 +18,7 @@
 import org.junit.Assert;
 
 suite("test_truncate_table_mtmv","mtmv") {
+    String suiteName = "test_truncate_table_mtmv"
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
     sql """drop table if exists `${tableName}`"""
