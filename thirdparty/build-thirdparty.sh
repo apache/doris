@@ -1850,30 +1850,19 @@ build_base64() {
 build_azure() {
     check_if_source_exist "${AZURE_SOURCE}"
     cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
+    azure_dir=$(pwd)
 
     rm -rf "${BUILD_DIR}"
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    # export BUILD_PERFORMANCE_TESTS=FALSE
-    # export BUILD_WINDOWS_UWP=TRUE
-    # export CMAKE_UNITY_BUILD=FALSE
-    # export DISABLE_AZURE_CORE_OPENTELEMETRY=TRUE
-    # export AZURE_SDK_DISABLE_AUTO_VCPKG=TRUE
-    # export AZURE_SDK_VCPKG_COMMIT=3b3bd424827a1f7f4813216f6b32b6c61e386b2e
+    # We need use openssl 1.1.1n, which is already carried in vcpkg-custom-ports
     AZURE_PORTS="vcpkg-custom-ports"
     AZURE_MANIFEST_DIR="."
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
-
-    # unset AZURE_SDK_DISABLE_AUTO_VCPKG
-
-    # unset BUILD_PERFORMANCE_TESTS
-    # unset BUILD_WINDOWS_UWP
-    # unset CMAKE_UNITY_BUILD
-    # unset DISABLE_AZURE_CORE_OPENTELEMETRY
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
