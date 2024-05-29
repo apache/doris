@@ -197,8 +197,8 @@ public class ColumnDefinition {
             }
         }
         if (type.isHllType() || type.isQuantileStateType() || type.isBitmapType()) {
-            if (aggType != null) {
-                isNullable = false;
+            if (isNullable) {
+                throw new AnalysisException("complex type column must be not nullable, column:" + name);
             }
         }
 
@@ -268,7 +268,10 @@ public class ColumnDefinition {
             // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.
             // If default value is not set, we set it NULL
             if (aggType == AggregateType.REPLACE_IF_NOT_NULL) {
-                isNullable = true;
+                if (!isNullable) {
+                    throw new AnalysisException(
+                            "REPLACE_IF_NOT_NULL column must be nullable, maybe should use REPLACE, column:" + name);
+                }
                 if (!defaultValue.isPresent()) {
                     defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
                 }
@@ -368,7 +371,6 @@ public class ColumnDefinition {
                                 + " column can't support aggregation " + aggType);
                     }
                 }
-                isNullable = false;
             } else {
                 if (aggType != null && aggType != AggregateType.NONE && aggType != AggregateType.REPLACE) {
                     throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()

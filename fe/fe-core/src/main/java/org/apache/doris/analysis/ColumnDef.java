@@ -330,7 +330,9 @@ public class ColumnDef {
                     throw new AnalysisException("complex type have to use aggregate function: " + name);
                 }
             }
-            isAllowNull = false;
+            if (isAllowNull) {
+                throw new AnalysisException("complex type column must be not nullable, column:" + name);
+            }
         }
 
         // A column is a key column if and only if isKey is true.
@@ -422,10 +424,11 @@ public class ColumnDef {
         }
 
 
-        // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.
-        // If default value is not set, we set it NULL
         if (aggregateType == AggregateType.REPLACE_IF_NOT_NULL) {
-            isAllowNull = true;
+            if (!isAllowNull) {
+                throw new AnalysisException(
+                        "REPLACE_IF_NOT_NULL column must be nullable, maybe should use REPLACE, column:" + name);
+            }
             if (!defaultValue.isSet) {
                 defaultValue = DefaultValue.NULL_DEFAULT_VALUE;
             }
