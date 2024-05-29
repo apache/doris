@@ -16,31 +16,22 @@
 // under the License.
 
 #pragma once
+#include <any>
 
-#include <gen_cpp/DataSinks_types.h>
-
-#include <algorithm>
-#include <iostream>
-#include <regex>
-#include <sstream>
-#include <string>
-#include <vector>
+#include "vec/exec/format/table/iceberg/types.h"
 
 namespace doris {
-namespace vectorized {
+namespace iceberg {
 
-class VHiveUtils {
-private:
-    VHiveUtils();
-
+class StructLike {
 public:
-    static const std::regex PATH_CHAR_TO_ESCAPE;
+    virtual ~StructLike() = default;
+    virtual int size() const = 0;
 
-    static std::string make_partition_name(const std::vector<THiveColumn>& columns,
-                                           const std::vector<int>& partition_columns_input_index,
-                                           const std::vector<std::string>& values);
+    virtual std::any get(int pos) const = 0;
 
-    static std::string escape_path_name(const std::string& path);
+    virtual void set(int pos, const std::any& value) = 0;
 };
-} // namespace vectorized
+
+} // namespace iceberg
 } // namespace doris
