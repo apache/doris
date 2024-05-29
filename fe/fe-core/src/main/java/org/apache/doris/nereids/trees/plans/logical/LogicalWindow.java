@@ -88,9 +88,8 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return windowExpressions;
     }
 
-    public LogicalWindow<Plan> withExpression(List<NamedExpression> windowExpressions, Plan child) {
-        return new LogicalWindow<>(windowExpressions, isChecked, Optional.empty(),
-                Optional.empty(), child);
+    public LogicalWindow<Plan> withExpressionsAndChild(List<NamedExpression> windowExpressions, Plan child) {
+        return new LogicalWindow<>(windowExpressions, isChecked, child);
     }
 
     public LogicalWindow<Plan> withChecked(List<NamedExpression> windowExpressions, Plan child) {
