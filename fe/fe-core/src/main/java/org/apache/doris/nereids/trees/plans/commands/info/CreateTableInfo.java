@@ -1048,5 +1048,9 @@ public class CreateTableInfo {
             return isGeneratedColumn;
         }
     }
+
+    public PartitionTableInfo getPartitionTableInfo() {
+        return partitionTableInfo;
+    }
 }
 
