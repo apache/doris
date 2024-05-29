@@ -17,30 +17,35 @@
 
 #pragma once
 
-#include <gen_cpp/DataSinks_types.h>
-
-#include <algorithm>
-#include <iostream>
-#include <regex>
-#include <sstream>
-#include <string>
-#include <vector>
+#include "vec/exec/format/table/iceberg/struct_like.h"
 
 namespace doris {
 namespace vectorized {
 
-class VHiveUtils {
-private:
-    VHiveUtils();
-
+class PartitionData : public iceberg::StructLike {
 public:
-    static const std::regex PATH_CHAR_TO_ESCAPE;
+    explicit PartitionData(std::vector<std::any> partition_values)
+            : _partition_values(std::move(partition_values)) {}
 
-    static std::string make_partition_name(const std::vector<THiveColumn>& columns,
-                                           const std::vector<int>& partition_columns_input_index,
-                                           const std::vector<std::string>& values);
+    int size() const override { return _partition_values.size(); }
 
-    static std::string escape_path_name(const std::string& path);
+    std::any get(int pos) const override {
+        if (pos < 0 || pos >= _partition_values.size()) {
+            throw std::out_of_range("Index out of range");
+        }
+        return _partition_values[pos];
+    }
+
+    void set(int pos, const std::any& value) override {
+        if (pos < 0 || pos >= _partition_values.size()) {
+            throw std::out_of_range("Index out of range");
+        }
+        _partition_values[pos] = value;
+    }
+
+private:
+    std::vector<std::any> _partition_values;
 };
+
 } // namespace vectorized
 } // namespace doris
