@@ -403,6 +403,8 @@ public class BackupJob extends AbstractJob {
             tbl.readLock();
             try {
                 switch (tbl.getType()) {
+                    case MATERIALIZED_VIEW:
+                        break;
                     case OLAP:
                         OlapTable olapTable = (OlapTable) tbl;
                         if (!checkOlapTable(olapTable, tableRef).ok()) {
