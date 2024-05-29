@@ -610,8 +610,6 @@ Status PipelineFragmentContext::_build_pipelines(ObjectPool* pool,
 
     int node_idx = 0;
 
-    cur_pipe->_name.append(std::to_string(cur_pipe->id()));
-
     RETURN_IF_ERROR(_create_tree_helper(pool, request.fragment.plan.nodes, request, descs, nullptr,
                                         &node_idx, root, cur_pipe, 0));
 
@@ -650,10 +648,6 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
     } else {
         *root = op;
     }
-
-    cur_pipe->_name.push_back('-');
-    cur_pipe->_name.append(std::to_string(op->node_id()));
-    cur_pipe->_name.append(op->get_name());
 
     // rely on that tnodes is preorder of the plan
     for (int i = 0; i < num_children; i++) {

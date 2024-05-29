@@ -21,14 +21,13 @@ from typing import List
 import json
 
 class Record:
-    def __init__(self, query_id, task_name, core_id, thread_id, start_time, end_time, state_name, group_id) -> None:
+    def __init__(self, query_id, task_name, core_id, thread_id, start_time, end_time, group_id) -> None:
         self.query_id : str = query_id
         self.task_name : str = task_name
         self.core_id : int = int(core_id)
         self.thread_id : int = int(thread_id)
         self.start_time : int = int(start_time)
         self.end_time : int = int(end_time)
-        self.state_name : str = state_name
         self.group_id : int = int(group_id)
 
     def print(self) :
@@ -38,7 +37,7 @@ class Record:
         return 1 if same_core else self.core_id
 
     def to_json(self) :
-        json = {"name": self.task_name, "cat": self.state_name, "ph": "X", "ts": self.start_time, "dur": self.end_time - self.start_time,
+        json = {"name": self.task_name, "ph": "X", "ts": self.start_time, "dur": self.end_time - self.start_time,
                 "pid": self.get_core(), "tid": self.thread_id}
         return json
 
