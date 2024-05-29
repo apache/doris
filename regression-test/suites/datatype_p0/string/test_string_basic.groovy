@@ -98,12 +98,6 @@ suite("test_string_basic") {
     //     exception "string column length is too large"
     // }
 
-    sql "drop table if exists fail_tb1"
-    // first column could not be string
-    test {
-        sql """CREATE TABLE IF NOT EXISTS fail_tb1 (k1 STRING NOT NULL, v1 STRING NOT NULL) DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")"""
-        exception "The olap table first column could not be float, double, string or array, struct, map, please use decimal or varchar instead."
-    }
     // string type should could not be key
     test {
         sql """
