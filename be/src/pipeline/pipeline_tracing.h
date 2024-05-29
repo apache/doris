@@ -85,7 +85,6 @@ private:
 
     std::filesystem::path _log_dir = fmt::format("{}/pipe_tracing", getenv("LOG_DIR"));
 
-    std::mutex _data_lock; // lock for map, not map items.
     std::shared_ptr<QueryTracesMap> _data;
     std::mutex _tg_lock; //TODO: use an lockfree DS
     phmap::flat_hash_map<TUniqueId, uint64_t>

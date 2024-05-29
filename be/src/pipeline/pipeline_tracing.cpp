@@ -35,10 +35,6 @@
 
 namespace doris::pipeline {
 
-bool operator<(const TUniqueId& a, const TUniqueId& b) {
-    return a.hi < b.hi && a.lo < b.lo;
-}
-
 void PipelineTracerContext::record(ScheduleRecord record) {
     if (_dump_type == RecordType::None) [[unlikely]] {
         return;
