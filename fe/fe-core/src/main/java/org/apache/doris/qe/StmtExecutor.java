@@ -2040,7 +2040,7 @@ public class StmtExecutor {
                     .setTxnConf(new TTxnParams().setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
                             .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("")
                             .setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0
-                                    : context.getSessionVariable().getMaxFilterRatio()));
+                                    : context.getSessionVariable().getInsertMaxFilterRatio()));
             StringBuilder sb = new StringBuilder();
             sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
                     .append(TransactionStatus.PREPARE.name());
@@ -2361,10 +2361,10 @@ public class StmtExecutor {
                         return;
                     }
                 } else {
-                    if (filteredRows > context.getSessionVariable().getMaxFilterRatio() * (filteredRows + loadedRows)) {
+                    if (filteredRows > context.getSessionVariable().getInsertMaxFilterRatio() * (filteredRows + loadedRows)) {
                         context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
-                                String.format("Insert has too many filtered data %d/%d max_filter_ratio is %f", 
-                                filteredRows, filteredRows + loadedRows, context.getSessionVariable().getMaxFilterRatio()));
+                                String.format("Insert has too many filtered data %d/%d insert_max_filter_ratio is %f", 
+                                filteredRows, filteredRows + loadedRows, context.getSessionVariable().getInsertMaxFilterRatio()));
                         return;
                 }
 
@@ -2394,8 +2394,8 @@ public class StmtExecutor {
                         List<List<Backend>> backendsList = infoService
                                                                 .getCloudClusterNames()
                                                                 .stream()
-                                                                .filter(name -> !name.equals(clusterName))
-                                                                .map(name -> infoService.getBackendsByClusterName(name))
+                                                                .filter(name -> !name.setInsertMaxFilterRatio(clusterName))
+                                                                .map(name -> infoService.setInsertMaxFilterRatio(name))
                                                                 .collect(Collectors.toList());
                         List<Long> allTabletIds = ((OlapTable) insertStmt.getTargetTable()).getAllTabletIds();
                         syncLoadForTablets(backendsList, allTabletIds);
