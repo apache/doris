@@ -708,6 +708,7 @@ public:
 
     [[nodiscard]] int operator_id() const { return _operator_id; }
     [[nodiscard]] int node_id() const { return _node_id; }
+    [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
     [[nodiscard]] int64_t limit() const { return _limit; }
 
