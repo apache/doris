@@ -35,7 +35,7 @@ import java.util.Set;
 /**
  * Rewrite rule to convert
  * For example:
- * CASE WHEN a > 1 THEN 1 ELSE 0 END -> IF(a > 1, 1, 0)
+ * date_trunc(date_trunc(data_slot, 'hour'), 'day') -> date_trunc(data_slot, 'day')
  */
 public class MergeDateTrunc implements ExpressionPatternRuleFactory {
 
