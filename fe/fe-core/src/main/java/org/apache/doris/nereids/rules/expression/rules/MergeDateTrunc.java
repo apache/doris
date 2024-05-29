@@ -79,6 +79,6 @@ public class MergeDateTrunc implements ExpressionPatternRuleFactory {
         if (parentTimeUnit.get().getLevel() < childTimeUnit.get().getLevel()) {
             return dateTrunc;
         }
-        return new DateTrunc(childDateTrunc.getArgument(0), VarcharLiteral.of(parentTimeUnit.get().toString()));
+        return new DateTrunc(childDateTrunc.getArgument(0), new VarcharLiteral(parentTimeUnit.get().toString()));
     }
 }

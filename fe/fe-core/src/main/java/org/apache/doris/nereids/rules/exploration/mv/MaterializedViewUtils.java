@@ -143,7 +143,7 @@ public class MaterializedViewUtils {
             return new RelatedTableInfo(new BaseTableInfo(entry.getKey()), true,
                     entry.getValue().getName());
         }
-        return new RelatedTableInfo("can't not find valid partition track column");
+        return new RelatedTableInfo("can't not find valid partition track column finally");
     }
 
     /**
