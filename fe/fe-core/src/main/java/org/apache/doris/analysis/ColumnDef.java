@@ -22,6 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -183,22 +184,43 @@ public class ColumnDef {
     private String comment;
     private boolean visible;
     private int clusterKeyId = -1;
+    private final ColumnNullableType nullableType;
 
     public ColumnDef(String name, TypeDef typeDef) {
-        this(name, typeDef, false, null, false, -1, DefaultValue.NOT_SET, "");
+        this(name, typeDef, false, null, ColumnNullableType.NOT_NULLABLE, DefaultValue.NOT_SET, "");
+    }
+
+    public ColumnDef(String name, TypeDef typeDef, ColumnNullableType nullableType) {
+        this(name, typeDef, false, null, nullableType, DefaultValue.NOT_SET, "");
     }
 
     public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
-            boolean isAllowNull, long autoIncInitValue, DefaultValue defaultValue, String comment) {
-        this(name, typeDef, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment, true);
-    }
-
-    public ColumnDef(String name, TypeDef typeDef, boolean isAllowNull) {
-        this(name, typeDef, false, null, isAllowNull, DefaultValue.NOT_SET, "");
+            ColumnNullableType nullableType, long autoIncInitValue, DefaultValue defaultValue, String comment) {
+        this(name, typeDef, isKey, aggregateType, nullableType, autoIncInitValue, defaultValue, comment, true);
     }
 
     public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
-            boolean isAllowNull, DefaultValue defaultValue, String comment) {
+            ColumnNullableType nullableType, DefaultValue defaultValue, String comment) {
+        this(name, typeDef, isKey, aggregateType, nullableType, -1, defaultValue, comment, true);
+    }
+
+    public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
+            ColumnNullableType nullableType, long autoIncInitValue, DefaultValue defaultValue, String comment,
+            boolean visible) {
+        this.name = name;
+        this.typeDef = typeDef;
+        this.isKey = isKey;
+        this.aggregateType = aggregateType;
+        this.nullableType = nullableType;
+        this.isAutoInc = autoIncInitValue != -1;
+        this.autoIncInitValue = autoIncInitValue;
+        this.defaultValue = defaultValue;
+        this.comment = comment;
+        this.visible = visible;
+    }
+
+    public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
+            DefaultValue defaultValue, String comment) {
         this(name, typeDef, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, true);
     }
 
@@ -209,6 +231,7 @@ public class ColumnDef {
         this.isKey = isKey;
         this.aggregateType = aggregateType;
         this.isAllowNull = isAllowNull;
+        this.nullableType = ColumnNullableType.UNKNOWN;
         this.isAutoInc = autoIncInitValue != -1;
         this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
@@ -217,44 +240,51 @@ public class ColumnDef {
     }
 
     public static ColumnDef newDeleteSignColumnDef() {
-        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, null, false,
-                -1, new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
+        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, null,
+                ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
+                "doris delete flag hidden column", false);
     }
 
     public static ColumnDef newDeleteSignColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, aggregateType, false,
-                -1, new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
+        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, aggregateType,
+                ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
+                "doris delete flag hidden column", false);
     }
 
     public static ColumnDef newSequenceColumnDef(Type type) {
-        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, null, true,
-                -1, DefaultValue.NULL_DEFAULT_VALUE, "sequence column hidden column", false);
+        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, null, ColumnNullableType.NULLABLE, -1,
+                DefaultValue.NULL_DEFAULT_VALUE, "sequence column hidden column", false);
     }
 
     public static ColumnDef newSequenceColumnDef(Type type, AggregateType aggregateType) {
-        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false,
-                aggregateType, true, -1, DefaultValue.NULL_DEFAULT_VALUE,
-                "sequence column hidden column", false);
+        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, aggregateType, ColumnNullableType.NULLABLE,
+                -1, DefaultValue.NULL_DEFAULT_VALUE, "sequence column hidden column", false);
     }
 
     public static ColumnDef newRowStoreColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.ROW_STORE_COL, TypeDef.create(PrimitiveType.STRING), false,
-                aggregateType, false, -1,
-                new ColumnDef.DefaultValue(true, ""), "doris row store hidden column", false);
+        return new ColumnDef(Column.ROW_STORE_COL, TypeDef.create(PrimitiveType.STRING), false, aggregateType,
+                ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, ""),
+                "doris row store hidden column", false);
     }
 
     public static ColumnDef newVersionColumnDef() {
-        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, null, false, -1,
-                new ColumnDef.DefaultValue(true, "0"), "doris version hidden column", false);
+        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, null,
+                ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
+                "doris version hidden column", false);
     }
 
     public static ColumnDef newVersionColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, aggregateType, false,
-                -1, new ColumnDef.DefaultValue(true, "0"), "doris version hidden column", false);
+        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, aggregateType,
+                ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
+                "doris version hidden column", false);
     }
 
     public boolean isAllowNull() {
         return isAllowNull;
+    }
+
+    public ColumnNullableType nullableType() {
+        return nullableType;
     }
 
     public String getDefaultValue() {
@@ -318,6 +348,10 @@ public class ColumnDef {
         if (!Config.enable_quantile_state_type && type.isQuantileStateType()) {
             throw new AnalysisException("quantile_state is disabled"
                     + "Set config 'enable_quantile_state_type' = 'true' to enable this column type.");
+        }
+
+        if (nullableType != ColumnNullableType.UNKNOWN) {
+            isAllowNull = nullableType.getNullable(type.getPrimitiveType());
         }
 
         // disable Bitmap Hll type in keys, values without aggregate function.
