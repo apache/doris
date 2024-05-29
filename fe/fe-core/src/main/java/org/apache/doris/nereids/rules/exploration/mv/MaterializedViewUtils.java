@@ -106,7 +106,7 @@ public class MaterializedViewUtils {
             List<Object> dataTruncExpressions = dateTrunc.collectToList(DateTrunc.class::isInstance);
             if (dataTruncExpressions.size() > 1) {
                 // mv time unit level is little then query
-                return new RelatedTableInfo("partition column time unit level should be"
+                return new RelatedTableInfo("partition column time unit level should be "
                         + "greater than sql select column");
             }
             columnExpr = (Slot) dateTrunc.getArgument(0);
@@ -349,7 +349,7 @@ public class MaterializedViewUtils {
                     || joinType.isRightSemiJoin()) && !useLeft) {
                 return visit(join.right(), context);
             }
-            context.addFailReason(String.format("partition track doesn't support join type, "
+            context.addFailReason(String.format("partition column is in un supported join null generate side, "
                     + "current join type is %s", joinType));
             return null;
         }

@@ -401,6 +401,8 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
+                                    "self join doesn't support partition update"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
 
@@ -415,6 +417,8 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
+                                    "self join doesn't support partition update"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
 
@@ -429,6 +433,8 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
+                                    "partition column is in un supported join null generate side"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
@@ -488,6 +494,8 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
+                                    "partition column is in un supported join null generate side"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
@@ -506,6 +514,8 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("PS_SUPPLYCOST", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
+                                    "self join doesn't support partition update"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
@@ -557,6 +567,8 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
+                                    "window partition sets doesn't contain the target partition"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
@@ -616,6 +628,8 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("date_alias", "hour",
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
+                                    "partition column time unit level should be greater than sql select column"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
