@@ -95,6 +95,7 @@ Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& con
     _jdbc_param.passwd = jdbc_table->jdbc_passwd();
     _jdbc_param.tuple_desc = _tuple_desc;
     _jdbc_param.query_string = std::move(_query_string);
+    _jdbc_param.use_transaction = false; // not useful for scanner but only sink.
     _jdbc_param.table_type = _table_type;
     _jdbc_param.connection_pool_min_size = jdbc_table->connection_pool_min_size();
     _jdbc_param.connection_pool_max_size = jdbc_table->connection_pool_max_size();
