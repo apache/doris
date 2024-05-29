@@ -152,7 +152,7 @@ public class Config extends ConfigBase {
     public static String jdbc_driver_secure_path = "*";
 
     @ConfField(description = {"MySQL Jdbc Catalog mysql 不支持下推的函数",
-            "MySQL Jdbc Catalog mysql does not support pushdown functions"})
+            "MySQL Jdbc Catalog mysql does not support pushdown functions"}, options = {"date_trunc", "money_format"})
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {};
 
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
