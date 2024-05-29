@@ -1113,6 +1113,8 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
     _source_column_ptr = &const_cast<ColumnObject&>(variant);
     _source_column_ptr->finalize(false);
     _root_data_convertor = std::make_unique<OlapColumnDataConvertorVarChar>(true);
+    _root_data_convertor->set_source_column(
+            {_source_column_ptr->get_root()->get_ptr(), nullptr, ""}, row_pos, num_rows);
     OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
                                                                            num_rows);
 }
@@ -1120,8 +1122,9 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
 // convert root data
 Status OlapBlockDataConvertor::OlapColumnDataConvertorVariant::convert_to_olap() {
     RETURN_IF_ERROR(vectorized::schema_util::encode_variant_sparse_subcolumns(*_source_column_ptr));
-    _root_data_convertor->set_source_column(
-            {_source_column_ptr->get_root()->get_ptr(), nullptr, ""}, _row_pos, _num_rows);
+#ifndef NDEBUG
+    _source_column_ptr->check_consistency();
+#endif
     const auto* nullable = assert_cast<const ColumnNullable*>(_source_column_ptr->get_root().get());
     const auto* root_column = assert_cast<const ColumnString*>(&nullable->get_nested_column());
     RETURN_IF_ERROR(_root_data_convertor->convert_to_olap(_nullmap, root_column));

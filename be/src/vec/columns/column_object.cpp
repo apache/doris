@@ -745,6 +745,8 @@ void ColumnObject::insert_from(const IColumn& src, size_t n) {
 void ColumnObject::try_insert(const Field& field) {
     if (field.get_type() != Field::Types::VariantMap) {
         auto* root = get_subcolumn({});
+        // Insert to an emtpy ColumnObject may result root null,
+        // so create a root column of Variant is expected.
         if (root == nullptr) {
             bool succ = add_sub_column({}, num_rows);
             if (!succ) {
@@ -1291,9 +1293,12 @@ Status ColumnObject::merge_sparse_to_root_column() {
                                        parser.getWriter().getOutput()->getSize());
         result_column_nullable->get_null_map_data().push_back(0);
     }
-
-    // assign merged column
-    subcolumns.get_mutable_root()->data.get_finalized_column_ptr() = mresult->get_ptr();
+    subcolumns.get_mutable_root()->data.get_finalized_column().clear();
+    // assign merged column, do insert_range_from to make a copy, instead of replace the ptr itselft
+    // to make sure the root column ptr is not changed
+    subcolumns.get_mutable_root()->data.get_finalized_column().insert_range_from(
+            *mresult->get_ptr(), 0, num_rows);
+    // subcolumns.get_mutable_root()->data.get_finalized_column_ptr() = mresult->get_ptr();
     return Status::OK();
 }
 
