@@ -1366,6 +1366,10 @@ public class Env {
 
             editLog.rollEditLog();
 
+            if (Config.enable_advance_next_id) {
+                advanceNextId();
+            }
+
             // Log meta_version
             long journalVersion = MetaContext.get().getMetaVersion();
             if (journalVersion < FeConstants.meta_version) {
@@ -1445,6 +1449,27 @@ public class Env {
             LOG.error("failed to transfer to master.", e);
             System.exit(-1);
         }
+    }
+
+    /*
+     * Advance the id generator, ensuring it doesn't roll back.
+     *
+     * If we need to support time travel, the next id cannot be rolled back to avoid
+     * errors in the corresponding relationship of the metadata recorded in BE/MS.
+     */
+    void advanceNextId() {
+        long currentId = idGenerator.getBatchEndId();
+        long currentNanos = System.nanoTime();
+        long nextId = currentId + 1;
+        if (nextId < currentNanos) {
+            nextId = currentNanos;
+        }
+
+        // ATTN: Because MetaIdGenerator has guaranteed that each id it returns must have
+        // been persisted, there is no need to perform persistence again here.
+        idGenerator.setId(nextId);
+
+        LOG.info("advance the next id from {} to {}", currentId, nextId);
     }
 
     /*
