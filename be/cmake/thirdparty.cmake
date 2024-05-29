@@ -143,7 +143,6 @@ add_thirdparty(azure-core)
 add_thirdparty(azure-identity)
 add_thirdparty(azure-storage-blobs)
 add_thirdparty(azure-storage-common)
-add_thirdparty(azure-storage-files-datalake)
 
 add_thirdparty(minizip LIB64)
 add_thirdparty(simdjson LIB64)
