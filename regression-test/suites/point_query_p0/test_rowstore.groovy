@@ -48,4 +48,13 @@ suite("test_rowstore", "p0") {
          ALTER table ${tableName} ADD COLUMN new_column1 INT default "123";
     """
     qt_sql """select * from ${tableName} where k1 = 1"""
+
+    sql """
+         ALTER table ${tableName} ADD COLUMN new_column2 DATETIMEV2(3) DEFAULT "1970-01-01 00:00:00.111";
+    """
+    sleep(1000)
+    qt_sql """select * from ${tableName} where k1 = 1"""
+   
+    sql """insert into ${tableName} values (2, 'def', 1111919.12345678919, 456, NULL)"""
+    qt_sql """select * from ${tableName} where k1 = 2"""
 }
