@@ -3549,18 +3549,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDropCatalogRecycleBin(DropCatalogRecycleBinContext ctx) {
         String idTypeStr = ctx.idType.getText().substring(1, ctx.idType.getText().length() - 1);
-        IdType idType;
-        if (idTypeStr.equalsIgnoreCase("DbId")) {
-            idType = IdType.DATABASE_ID;
-        } else if (idTypeStr.equalsIgnoreCase("TableId")) {
-            idType = IdType.TABLE_ID;
-        } else if (idTypeStr.equalsIgnoreCase("PartitionId")) {
-            idType = IdType.PARTITION_ID;
-        } else {
-            String message = "DROP CATALOG RECYCLE BIN: " + idTypeStr
-                    + " should be 'DbId', 'TableId' or 'PartitionId'.";
-            throw new AnalysisException(message);
-        }
+        IdType idType = IdType.fromString(idTypeStr);
         long id = Long.parseLong(ctx.id.getText());
 
         return ParserUtils.withOrigin(ctx, () -> new DropCatalogRecycleBinCommand(idType, id));

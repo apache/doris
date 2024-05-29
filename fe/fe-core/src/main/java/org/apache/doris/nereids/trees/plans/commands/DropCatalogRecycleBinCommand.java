@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -35,6 +36,25 @@ public class DropCatalogRecycleBinCommand extends Command implements ForwardWith
         DATABASE_ID,
         TABLE_ID,
         PARTITION_ID;
+
+        /**
+         * return IdType according to given String
+         */
+        public static IdType fromString(String idTypeStr) {
+            IdType idType;
+            if (idTypeStr.equalsIgnoreCase("DbId")) {
+                idType = DATABASE_ID;
+            } else if (idTypeStr.equalsIgnoreCase("TableId")) {
+                idType = TABLE_ID;
+            } else if (idTypeStr.equalsIgnoreCase("PartitionId")) {
+                idType = PARTITION_ID;
+            } else {
+                String message = "DROP CATALOG RECYCLE BIN: " + idTypeStr
+                        + " should be 'DbId', 'TableId' or 'PartitionId'.";
+                throw new AnalysisException(message);
+            }
+            return idType;
+        }
     }
 
     private final IdType idType;
