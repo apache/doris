@@ -21,29 +21,69 @@ suite("test_ctas_with_hdfs","external,hive,tvf,external_docker") {
 
     // It's okay to use random `hdfsUser`, but can not be empty.
     def hdfsUserName = "doris"
-    def format = "parquet"
+    def format = "orc"
     def defaultFS = "hdfs://${externalEnvIp}:${hdfs_port}"
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String tableName = "ctas_tvf";
+        String tableName = "ctas_tvf_1";
+        def uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc/orc_all_types/p1_col=desktops/p2_col=bigint_col/*"
+
         sql """drop table if exists ${tableName}; """
-        def uri = "${defaultFS}" + "/user/doris/preinstalled_data/parquet/partition_table/nation=cn/city=beijing/beijing1"
         sql """ create table ${tableName}
-            PARTITION BY LIST(nation, city) (
-                PARTITION p1 VALUES IN (("cn", "beijing")),
-                PARTITION p2 VALUES IN (("usa", "newyork"))
+            PARTITION BY LIST(p1_col,p2_col) (
+                PARTITION p1 VALUES IN (("desktops", "bigint_col")),
+                PARTITION p2 VALUES IN (("phones", "float_col"))
             )
             PROPERTIES("replication_num" = "1") 
             as
-            select * from HDFS(
+            select * from
+            HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",
-                "path_partition_keys"="nation,city",
-                "format" = "${format}") where l_orderkey < 50;
+                "path_partition_keys"="p1_col,p2_col",
+                "format" = "${format}") where tinyint_col < 4;
         """
-
         order_qt_desc """desc ${tableName};"""
-        order_qt_select """ select * from ${tableName} order by l_orderkey"""
+        order_qt_select """ select * from ${tableName} order by tinyint_col"""
+
+        tableName = "ctas_tvf_2";
+        sql """drop table if exists ${tableName}; """
+        sql """
+            create table ${tableName}
+            PARTITION BY LIST(char_col) (
+                PARTITION p1 VALUES IN (("desktops"))
+            )
+            PROPERTIES("replication_num" = "1")
+            as
+            select * from
+            HDFS(
+                "uri" = "${uri}",
+                "hadoop.username" = "${hdfsUserName}",
+                "format" = "${format}") where tinyint_col < 4;
+            """
+        order_qt_desc_2 """desc ${tableName};"""
+        order_qt_select_2 """ select * from ${tableName} order by tinyint_col"""
+
+
+        tableName = "ctas_tvf_3";
+        sql """drop table if exists ${tableName}; """
+        sql """
+            create table ${tableName}
+            PARTITION BY LIST(tinyint_col) (
+                PARTITION p1 VALUES IN ((1)),
+                PARTITION p2 VALUES IN ((2)),
+                PARTITION p3 VALUES IN ((3))
+            )
+            PROPERTIES("replication_num" = "1")
+            as
+            select * from
+            HDFS(
+                "uri" = "${uri}",
+                "hadoop.username" = "${hdfsUserName}",
+                "format" = "${format}") where tinyint_col < 4;
+            """
+        order_qt_desc_3 """desc ${tableName};"""
+        order_qt_select_3 """ select * from ${tableName} order by tinyint_col"""
     }
 }
