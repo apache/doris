@@ -54,7 +54,6 @@ PipelineTask::PipelineTask(
         int task_idx)
         : _index(task_id),
           _pipeline(pipeline),
-          _prepared(false),
           _opened(false),
           _state(state),
           _fragment_context(fragment_context),
@@ -113,16 +112,22 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
                 _state->get_local_state(op->operator_id())->get_query_statistics_ptr());
     }
     {
+        std::vector<Dependency*> filter_dependencies;
         const auto& deps = _state->get_local_state(_source->operator_id())->filter_dependencies();
         std::copy(deps.begin(), deps.end(),
-                  std::inserter(_filter_dependencies, _filter_dependencies.end()));
+                  std::inserter(filter_dependencies, filter_dependencies.end()));
+
+        std::unique_lock<std::mutex> lc(_dependency_lock);
+        filter_dependencies.swap(_filter_dependencies);
     }
-    _prepared = true;
     return Status::OK();
 }
 
 Status PipelineTask::_extract_dependencies() {
-    _read_dependencies.resize(_operators.size());
+    std::vector<std::vector<Dependency*>> read_dependencies;
+    std::vector<Dependency*> write_dependencies;
+    std::vector<Dependency*> finish_dependencies;
+    read_dependencies.resize(_operators.size());
     size_t i = 0;
     for (auto& op : _operators) {
         auto result = _state->get_local_state_result(op->operator_id());
@@ -130,10 +135,10 @@ Status PipelineTask::_extract_dependencies() {
             return result.error();
         }
         auto* local_state = result.value();
-        _read_dependencies[i] = local_state->dependencies();
+        read_dependencies[i] = local_state->dependencies();
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
-            _finish_dependencies.push_back(fin_dep);
+            finish_dependencies.push_back(fin_dep);
         }
         i++;
     }
@@ -144,13 +149,19 @@ Status PipelineTask::_extract_dependencies() {
     });
     {
         auto* local_state = _state->get_sink_local_state();
-        _write_dependencies = local_state->dependencies();
-        DCHECK(std::all_of(_write_dependencies.begin(), _write_dependencies.end(),
+        write_dependencies = local_state->dependencies();
+        DCHECK(std::all_of(write_dependencies.begin(), write_dependencies.end(),
                            [](auto* dep) { return dep->is_write_dependency(); }));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
-            _finish_dependencies.push_back(fin_dep);
+            finish_dependencies.push_back(fin_dep);
         }
+    }
+    {
+        std::unique_lock<std::mutex> lc(_dependency_lock);
+        read_dependencies.swap(_read_dependencies);
+        write_dependencies.swap(_write_dependencies);
+        finish_dependencies.swap(_finish_dependencies);
     }
     return Status::OK();
 }
@@ -172,7 +183,6 @@ void PipelineTask::_init_profile() {
 
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
 
-    _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
@@ -416,7 +426,7 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
 }
 
 void PipelineTask::finalize() {
-    std::unique_lock<std::mutex> lc(_release_lock);
+    std::unique_lock<std::mutex> lc(_dependency_lock);
     _finished = true;
     _sink_shared_state.reset();
     _op_shared_states.clear();
@@ -449,12 +459,8 @@ Status PipelineTask::close(Status exec_status) {
     return s;
 }
 
-Status PipelineTask::close_sink(Status exec_status) {
-    return _sink->close(_state, exec_status);
-}
-
 std::string PipelineTask::debug_string() {
-    std::unique_lock<std::mutex> lc(_release_lock);
+    std::unique_lock<std::mutex> lc(_dependency_lock);
     fmt::memory_buffer debug_string_buffer;
 
     fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));

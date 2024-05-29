@@ -332,4 +332,19 @@ suite("aggregate") {
     qt_having_with_limit """
         select k1 as k, avg(k2) as k2  from tempbaseall group by k1 having k2 < -32765 order by k1 limit 1;
     """
+
+    sql "drop table if exists table_10_undef_partitions2_keys3_properties4_distributed_by5"
+
+    sql """create table table_10_undef_partitions2_keys3_properties4_distributed_by5 (
+            col_bigint_undef_signed bigint/*agg_type_placeholder*/   ,
+                    col_varchar_10__undef_signed varchar(10)/*agg_type_placeholder*/   ,
+            col_varchar_64__undef_signed varchar(64)/*agg_type_placeholder*/   ,
+                    pk int/*agg_type_placeholder*/
+    ) engine=olap
+    distributed by hash(pk) buckets 10
+    properties("replication_num" = "1")"""
+
+    sql "insert into table_10_undef_partitions2_keys3_properties4_distributed_by5(pk,col_bigint_undef_signed,col_varchar_10__undef_signed,col_varchar_64__undef_signed) values (0,111,'from','t'),(1,null,'h','out'),(2,3814,'get','q'),(3,5166561111626303305,'s','right'),(4,2688963514917402600,'b','hey'),(5,-5065987944147755706,'p','mean'),(6,31061,'v','d'),(7,122,'the','t'),(8,-2882446,'going','a'),(9,-43,'y','a');"
+
+    sql "SELECT MIN( `pk` ) FROM table_10_undef_partitions2_keys3_properties4_distributed_by5  WHERE ( col_varchar_64__undef_signed  LIKE CONCAT ('come' , '%' ) OR col_varchar_10__undef_signed  IN ( 'could' , 'was' , 'that' ) ) OR ( `pk` IS  NULL OR  ( `pk` <> 186 ) ) AND ( `pk` IS NOT NULL OR `pk`  BETWEEN 255 AND -99 + 8 ) AND (  ( `pk` != 6 ) OR `pk` IS  NULL );"
 }

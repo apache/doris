@@ -48,23 +48,25 @@ LoadStreamMgr::LoadStreamMgr(uint32_t segment_file_writer_thread_num,
 }
 
 LoadStreamMgr::~LoadStreamMgr() {
+    _load_streams_map.clear();
     _file_writer_thread_pool->shutdown();
 }
 
 Status LoadStreamMgr::open_load_stream(const POpenLoadStreamRequest* request,
-                                       LoadStreamSharedPtr& load_stream) {
+                                       LoadStream*& load_stream) {
     UniqueId load_id(request->load_id());
 
     {
         std::lock_guard l(_lock);
         auto it = _load_streams_map.find(load_id);
         if (it != _load_streams_map.end()) {
-            load_stream = it->second;
+            load_stream = it->second.get();
         } else {
-            load_stream = std::make_shared<LoadStream>(request->load_id(), this,
-                                                       request->enable_profile());
-            RETURN_IF_ERROR(load_stream->init(request));
-            _load_streams_map[load_id] = load_stream;
+            auto p = std::make_unique<LoadStream>(request->load_id(), this,
+                                                  request->enable_profile());
+            RETURN_IF_ERROR(p->init(request));
+            load_stream = p.get();
+            _load_streams_map[load_id] = std::move(p);
         }
         load_stream->add_source(request->src_id());
     }

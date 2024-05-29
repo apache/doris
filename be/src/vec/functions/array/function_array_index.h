@@ -79,7 +79,7 @@ struct ParamValue {
     Field value;
 };
 
-template <typename ConcreteAction, bool OldVersion = false>
+template <typename ConcreteAction>
 class FunctionArrayIndex : public IFunction {
 public:
     using ResultType = typename ConcreteAction::ResultType;
@@ -157,14 +157,10 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if constexpr (OldVersion) {
+        if (arguments[0]->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
         } else {
-            if (arguments[0]->is_nullable()) {
-                return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
-            } else {
-                return std::make_shared<DataTypeNumber<ResultType>>();
-            }
+            return std::make_shared<DataTypeNumber<ResultType>>();
         }
     }
 
@@ -236,14 +232,11 @@ private:
             }
             dst_data[row] = res;
         }
-        if constexpr (OldVersion) {
-            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
-        } else {
-            if (outer_null_map == nullptr) {
-                return dst;
-            }
-            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+
+        if (outer_null_map == nullptr) {
+            return dst;
         }
+        return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
     }
 
     template <typename NestedColumnType, typename RightColumnType>
@@ -300,14 +293,11 @@ private:
             }
             dst_data[row] = res;
         }
-        if constexpr (OldVersion) {
-            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
-        } else {
-            if (outer_null_map == nullptr) {
-                return dst;
-            }
-            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+
+        if (outer_null_map == nullptr) {
+            return dst;
         }
+        return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
     }
 
     template <typename NestedColumnType>

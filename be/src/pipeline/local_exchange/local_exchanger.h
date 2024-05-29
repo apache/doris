@@ -30,12 +30,14 @@ class Exchanger {
 public:
     Exchanger(int running_sink_operators, int num_partitions, int free_block_limit)
             : _running_sink_operators(running_sink_operators),
+              _running_source_operators(num_partitions),
               _num_partitions(num_partitions),
               _num_senders(running_sink_operators),
               _num_sources(num_partitions),
               _free_block_limit(free_block_limit) {}
     Exchanger(int running_sink_operators, int num_sources, int num_partitions, int free_block_limit)
             : _running_sink_operators(running_sink_operators),
+              _running_source_operators(num_partitions),
               _num_partitions(num_partitions),
               _num_senders(running_sink_operators),
               _num_sources(num_sources),
@@ -51,8 +53,10 @@ protected:
     friend struct LocalExchangeSharedState;
     friend struct ShuffleBlockWrapper;
     friend class LocalExchangeSourceLocalState;
+    friend class LocalExchangeSinkOperatorX;
     friend class LocalExchangeSinkLocalState;
     std::atomic<int> _running_sink_operators = 0;
+    std::atomic<int> _running_source_operators = 0;
     const int _num_partitions;
     const int _num_senders;
     const int _num_sources;

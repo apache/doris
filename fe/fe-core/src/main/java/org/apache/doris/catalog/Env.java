@@ -1494,6 +1494,8 @@ public class Env {
             long replayEndTime = System.currentTimeMillis();
             LOG.info("finish replay in " + (replayEndTime - replayStartTime) + " msec");
 
+            removeDroppedFrontends(removedFrontends);
+
             if (Config.enable_check_compatibility_mode) {
                 String msg = "check metadata compatibility successfully";
                 LOG.info(msg);
@@ -2998,6 +3000,9 @@ public class Env {
                 ensureSafeToDropAliveFollower();
             }
 
+            editLog.logRemoveFrontend(fe);
+            LOG.info("remove frontend: {}", fe);
+
             int targetFollowerCount = getFollowerCount() - 1;
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                 haProtocol.removeElectableNode(fe.getNodeName());
@@ -3006,16 +3011,20 @@ public class Env {
                 ha.removeUnReadyElectableNode(fe.getNodeName(), targetFollowerCount);
             }
 
-            LOG.info("remove frontend: {}", fe);
-
             // Only remove frontend after removing the electable node success, to ensure the
             // exception safety.
             frontends.remove(fe.getNodeName());
             removedFrontends.add(fe.getNodeName());
 
-            editLog.logRemoveFrontend(fe);
         } finally {
             unlock();
+        }
+    }
+
+    private void removeDroppedFrontends(ConcurrentLinkedQueue<String> removedFrontends) {
+        if (haProtocol != null && haProtocol instanceof BDBHA) {
+            BDBHA bdbha = (BDBHA) haProtocol;
+            bdbha.removeDroppedMember(removedFrontends);
         }
     }
 
@@ -3926,6 +3935,7 @@ public class Env {
             }
 
             removedFrontends.add(removedFe.getNodeName());
+
         } finally {
             unlock();
         }

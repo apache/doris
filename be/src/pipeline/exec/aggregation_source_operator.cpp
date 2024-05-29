@@ -535,11 +535,6 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
                         _shared_state->agg_arena_pool.get(), rows);
             }
         }
-
-        if (_should_limit_output) {
-            _reach_limit = _get_hash_table_size() >=
-                           Base::_parent->template cast<AggSourceOperatorX>()._limit;
-        }
     }
 
     return Status::OK();

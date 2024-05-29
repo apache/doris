@@ -436,6 +436,8 @@ public:
 
     std::vector<THivePartitionUpdate>& hive_partition_updates() { return _hive_partition_updates; }
 
+    std::vector<TIcebergCommitData>& iceberg_commit_datas() { return _iceberg_commit_datas; }
+
     const std::vector<TErrorTabletInfo>& error_tablet_infos() const { return _error_tablet_infos; }
 
     std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
@@ -723,6 +725,8 @@ private:
     int _task_num = 0;
 
     std::vector<THivePartitionUpdate> _hive_partition_updates;
+
+    std::vector<TIcebergCommitData> _iceberg_commit_datas;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
 

@@ -61,6 +61,7 @@
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/hudi_jni_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
+#include "vec/exec/format/table/lakesoul_jni_reader.h"
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
@@ -326,7 +327,17 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
     do {
         RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
-            RETURN_IF_ERROR(_get_next_reader());
+            // The file may not exist because the file list is got from meta cache,
+            // And the file may already be removed from storage.
+            // Just ignore not found files.
+            Status st = _get_next_reader();
+            if (st.is<ErrorCode::NOT_FOUND>()) {
+                _cur_reader_eof = true;
+                COUNTER_UPDATE(_empty_file_counter, 1);
+                continue;
+            } else if (!st) {
+                return st;
+            }
         }
 
         if (_scanner_eof) {
@@ -806,6 +817,13 @@ Status VFileScanner::_get_next_reader() {
                                                            _file_slot_descs, _state, _profile);
                 init_status =
                         ((HudiJniReader*)_cur_reader.get())->init_reader(_colname_to_value_range);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "lakesoul") {
+                _cur_reader =
+                        LakeSoulJniReader::create_unique(range.table_format_params.lakesoul_params,
+                                                         _file_slot_descs, _state, _profile);
+                init_status = ((LakeSoulJniReader*)_cur_reader.get())
+                                      ->init_reader(_colname_to_value_range);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "trino_connector") {
                 _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,

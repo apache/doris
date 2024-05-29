@@ -376,14 +376,14 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
             tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
         }
 
-        LoadStreamSharedPtr load_stream;
+        LoadStream* load_stream = nullptr;
         auto st = _load_stream_mgr->open_load_stream(request, load_stream);
         if (!st.ok()) {
             st.to_protobuf(response->mutable_status());
             return;
         }
 
-        stream_options.handler = load_stream.get();
+        stream_options.handler = load_stream;
         stream_options.idle_timeout_ms = request->idle_timeout_ms();
         DBUG_EXECUTE_IF("PInternalServiceImpl.open_load_stream.set_idle_timeout",
                         { stream_options.idle_timeout_ms = 1; });
@@ -1065,6 +1065,7 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                         ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                                 host, brpc_port));
                 rpc_contexts[i].cid = rpc_contexts[i].cntl.call_id();
+                rpc_contexts[i].cntl.set_timeout_ms(config::fetch_remote_schema_rpc_timeout_ms);
                 stub->fetch_remote_tablet_schema(&rpc_contexts[i].cntl, &remote_request,
                                                  &rpc_contexts[i].response, brpc::DoNothing());
             }

@@ -246,7 +246,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         List<NamedExpression> windowExpressions =
                 updateExpressions(window.getWindowExpressions(), replaceMap);
         windowExpressions.forEach(w -> replaceMap.put(w.getExprId(), w.toSlot()));
-        return window.withExpression(windowExpressions, window.child());
+        return window.withExpressionsAndChild(windowExpressions, window.child());
     }
 
     @Override

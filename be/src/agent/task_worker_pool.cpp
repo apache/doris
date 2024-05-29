@@ -197,9 +197,10 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                     .tag("new_tablet_id", new_tablet_id)
                     .tag("mem_limit",
                          engine.memory_limitation_bytes_per_thread_for_schema_change());
-            DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
             SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2,
-                                std::to_string(agent_task_req.alter_tablet_req_v2.job_id));
+                                std::to_string(agent_task_req.alter_tablet_req_v2.__isset.job_id
+                                                       ? agent_task_req.alter_tablet_req_v2.job_id
+                                                       : 0));
             status = job.process_alter_tablet(agent_task_req.alter_tablet_req_v2);
         } catch (const Exception& e) {
             status = e.to_status();

@@ -179,9 +179,6 @@ void FragmentMgr::stop() {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_instance_map.clear();
         _query_ctx_map.clear();
-        for (auto& pipeline : _pipeline_map) {
-            pipeline.second->close_sink();
-        }
         _pipeline_map.clear();
     }
     _async_report_thread_pool->shutdown();
@@ -412,6 +409,23 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                     params.hive_partition_updates.insert(params.hive_partition_updates.end(),
                                                          rs->hive_partition_updates().begin(),
                                                          rs->hive_partition_updates().end());
+                }
+            }
+        }
+
+        if (!req.runtime_state->iceberg_commit_datas().empty()) {
+            params.__isset.iceberg_commit_datas = true;
+            params.iceberg_commit_datas.reserve(req.runtime_state->iceberg_commit_datas().size());
+            for (auto& iceberg_commit_data : req.runtime_state->iceberg_commit_datas()) {
+                params.iceberg_commit_datas.push_back(iceberg_commit_data);
+            }
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->iceberg_commit_datas().empty()) {
+                    params.__isset.iceberg_commit_datas = true;
+                    params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(),
+                                                       rs->iceberg_commit_datas().begin(),
+                                                       rs->iceberg_commit_datas().end());
                 }
             }
         }
@@ -834,6 +848,14 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
     return fmt::to_string(debug_string_buffer);
 }
 
+std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
+    if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
+        return q_ctx->print_all_pipeline_context();
+    } else {
+        return fmt::format("Query context (query id = {}) not found. \n", print_id(query_id));
+    }
+}
+
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        const FinishCallback& cb) {
     VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
@@ -860,7 +882,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         SCOPED_RAW_TIMER(&duration_ns);
         auto prepare_st = context->prepare(params);
         if (!prepare_st.ok()) {
-            context->close_if_prepare_failed(prepare_st);
+            query_ctx->cancel(prepare_st, params.fragment_id);
             query_ctx->set_execution_dependency_ready();
             return prepare_st;
         }
