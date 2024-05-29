@@ -101,7 +101,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         createTable("CREATE TABLE test.bitmap_table (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
-                + "  `id2` bitmap bitmap_union NULL\n"
+                + "  `id2` bitmap bitmap_union \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
@@ -137,8 +137,8 @@ public class QueryPlanTest extends TestWithFeService {
 
         createTable("CREATE TABLE test.bitmap_table_2 (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
-                + "  `id2` bitmap bitmap_union NULL,\n"
-                + "  `id3` bitmap bitmap_union NULL\n"
+                + "  `id2` bitmap bitmap_union ,\n"
+                + "  `id3` bitmap bitmap_union \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
@@ -148,7 +148,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         createTable("CREATE TABLE test.hll_table (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
-                + "  `id2` hll hll_union NULL\n"
+                + "  `id2` hll hll_union \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
@@ -2179,7 +2179,7 @@ public class QueryPlanTest extends TestWithFeService {
         createTable("CREATE TABLE test.bitmap_tb (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
                 + "  `id2` int(11) NULL COMMENT \"\",\n"
-                + "  `id3` bitmap bitmap_union NULL\n"
+                + "  `id3` bitmap bitmap_union \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`,`id2`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
