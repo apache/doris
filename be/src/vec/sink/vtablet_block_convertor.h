@@ -80,7 +80,7 @@ private:
 
     // some output column of output expr may have different nullable property with dest slot desc
     // so here need to do the convert operation
-    void _convert_to_dest_desc_block(vectorized::Block* block);
+    Status _convert_to_dest_desc_block(vectorized::Block* block);
 
     Status _fill_auto_inc_cols(vectorized::Block* block, size_t rows);
 

@@ -100,7 +100,7 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
             // because of "data unqualified"
             return Status::DataQualityError("Encountered unqualified data, stop processing");
         }
-        _convert_to_dest_desc_block(block.get());
+        RETURN_IF_ERROR(_convert_to_dest_desc_block(block.get()));
     }
 
     return Status::OK();
@@ -462,7 +462,7 @@ Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::
     return Status::OK();
 }
 
-void OlapTableBlockConvertor::_convert_to_dest_desc_block(doris::vectorized::Block* block) {
+Status OlapTableBlockConvertor::_convert_to_dest_desc_block(doris::vectorized::Block* block) {
     for (int i = 0; i < _output_tuple_desc->slots().size() && i < block->columns(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
         if (desc->is_nullable() != block->get_by_position(i).type->is_nullable()) {
@@ -472,15 +472,12 @@ void OlapTableBlockConvertor::_convert_to_dest_desc_block(doris::vectorized::Blo
                 block->get_by_position(i).column =
                         vectorized::make_nullable(block->get_by_position(i).column);
             } else {
-                block->get_by_position(i).type = assert_cast<const vectorized::DataTypeNullable&>(
-                                                         *block->get_by_position(i).type)
-                                                         .get_nested_type();
-                block->get_by_position(i).column = assert_cast<const vectorized::ColumnNullable&>(
-                                                           *block->get_by_position(i).column)
-                                                           .get_nested_column_ptr();
+                return Status::InternalError(
+                        "can not insert to a not nullalbe column from nullable column ");
             }
         }
     }
+    return Status::OK();
 }
 
 Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, size_t rows) {
