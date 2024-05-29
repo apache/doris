@@ -138,7 +138,6 @@ import org.apache.doris.thrift.TDescribeTablesParams;
 import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
@@ -1957,7 +1956,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (Config.enable_pipeline_load) {
                     result.setPipelineParams((TPipelineFragmentParams) streamLoadHandler.getFragmentParams().get(0));
                 } else {
-                    result.setParams((TExecPlanFragmentParams) streamLoadHandler.getFragmentParams().get(0));
+                    throw new UserException("Pipeline load should be enabled");
                 }
             }
             if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
