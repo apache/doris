@@ -335,6 +335,9 @@ public class TabletInvertedIndex {
                 // make transaction VISIBLE when last publish failed.
                 Map<Long, List<PublishVersionTask>> publishVersionTask = transactionState.getPublishVersionTasks();
                 List<PublishVersionTask> tasks = publishVersionTask.get(backendId);
+                if (tasks == null) {
+                    continue;
+                }
                 for (PublishVersionTask task : tasks) {
                     if (task != null && task.isFinished()) {
                         List<Long> errorTablets = task.getErrorTablets();
