@@ -37,6 +37,7 @@
 #include "vec/sink/multi_cast_data_stream_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vhive_table_sink.h"
+#include "vec/sink/viceberg_table_sink.h"
 #include "vec/sink/vmemory_scratch_sink.h"
 #include "vec/sink/volap_table_sink.h"
 #include "vec/sink/volap_table_sink_v2.h"
@@ -163,6 +164,13 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing hive table sink.");
         }
         sink->reset(new vectorized::VHiveTableSink(pool, row_desc, output_exprs));
+        break;
+    }
+    case TDataSinkType::ICEBERG_TABLE_SINK: {
+        if (!thrift_sink.__isset.iceberg_table_sink) {
+            return Status::InternalError("Missing iceberg table sink.");
+        }
+        sink->reset(new vectorized::VIcebergTableSink(pool, row_desc, output_exprs));
         break;
     }
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
@@ -311,6 +319,13 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing hive table sink.");
         }
         sink->reset(new vectorized::VHiveTableSink(pool, row_desc, output_exprs));
+        break;
+    }
+    case TDataSinkType::ICEBERG_TABLE_SINK: {
+        if (!thrift_sink.__isset.iceberg_table_sink) {
+            return Status::InternalError("Missing iceberg table sink.");
+        }
+        sink->reset(new vectorized::VIcebergTableSink(pool, row_desc, output_exprs));
         break;
     }
     case TDataSinkType::MULTI_CAST_DATA_STREAM_SINK: {

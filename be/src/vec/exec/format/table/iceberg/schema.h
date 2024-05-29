@@ -17,30 +17,39 @@
 
 #pragma once
 
-#include <gen_cpp/DataSinks_types.h>
-
-#include <algorithm>
-#include <iostream>
-#include <regex>
-#include <sstream>
-#include <string>
-#include <vector>
+#include "vec/exec/format/table/iceberg/types.h"
 
 namespace doris {
-namespace vectorized {
+namespace iceberg {
 
-class VHiveUtils {
-private:
-    VHiveUtils();
+class Type;
+class StructType;
 
+class Schema {
 public:
-    static const std::regex PATH_CHAR_TO_ESCAPE;
+    Schema(int schema_id, std::vector<NestedField> columns);
 
-    static std::string make_partition_name(const std::vector<THiveColumn>& columns,
-                                           const std::vector<int>& partition_columns_input_index,
-                                           const std::vector<std::string>& values);
+    Schema(std::vector<NestedField> columns);
 
-    static std::string escape_path_name(const std::string& path);
+    int schema_id() const { return _schema_id; }
+
+    const StructType& root_struct() const { return _root_struct; }
+
+    const std::vector<NestedField>& columns() const { return _root_struct.fields(); }
+
+    Type* find_type(int id) const;
+
+    const NestedField* find_field(int id) const;
+
+private:
+    static const char NEWLINE = '\n';
+    static const std::string ALL_COLUMNS;
+    static const int DEFAULT_SCHEMA_ID;
+
+    int _schema_id;
+    StructType _root_struct;
+    std::unordered_map<int, const NestedField*> _id_to_field;
 };
-} // namespace vectorized
+
+} // namespace iceberg
 } // namespace doris
