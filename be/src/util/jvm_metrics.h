@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <jni.h>
-
 #include "jni.h"
 #include "util/jni-util.h"
 #include "util/metrics.h"
@@ -27,7 +25,7 @@ namespace doris {
 
 class JvmMetrics;
 
-class jvmStats {
+class JvmStats {
 private:
     JNIEnv* env = nullptr;
     jclass _managementFactoryClass = nullptr;
@@ -98,16 +96,16 @@ private:
     bool _init_complete = false;
 
 public:
-    jvmStats(JNIEnv* ENV);
-    bool init_complete() { return _init_complete; }
+    JvmStats(JNIEnv* ENV);
+    bool init_complete() const { return _init_complete; }
     void refresh(JvmMetrics* jvm_metrics);
-    ~jvmStats();
+    ~JvmStats();
 };
 
 class JvmMetrics {
 public:
     JvmMetrics(MetricRegistry* registry, JNIEnv* env);
-    ~JvmMetrics() {}
+    ~JvmMetrics() = default;
     void update();
 
     IntGauge* jvm_heap_size_bytes_max = nullptr;
@@ -140,7 +138,7 @@ public:
     IntGauge* jvm_gc_g1_old_generation_time_ms = nullptr;
 
 private:
-    jvmStats _jvm_stats;
+    JvmStats _jvm_stats;
     std::shared_ptr<MetricEntity> _server_entity;
     static const char* _s_hook_name;
     MetricRegistry* _registry = nullptr;

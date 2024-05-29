@@ -17,10 +17,12 @@
 
 #include "jvm_metrics.h"
 
+#include <util/jni-util.h>
+
 #include <functional>
 
+#include "common/config.h"
 #include "util/metrics.h"
-
 namespace doris {
 
 #define DEFINE_JVM_SIZE_BYTES_METRIC(name, type)                                     \
@@ -82,7 +84,7 @@ JvmMetrics::JvmMetrics(MetricRegistry* registry, JNIEnv* env) : _jvm_stats(env) 
 
     _server_entity = _registry->register_entity("server");
     DCHECK(_server_entity != nullptr);
-    if (_jvm_stats.init_complete()) {
+    if (doris::config::enable_jvm_monitor && _jvm_stats.init_complete()) {
         _server_entity->register_hook(_s_hook_name, std::bind(&JvmMetrics::update, this));
     }
 
@@ -119,9 +121,11 @@ JvmMetrics::JvmMetrics(MetricRegistry* registry, JNIEnv* env) : _jvm_stats(env) 
 void JvmMetrics::update() {
     _jvm_stats.refresh(this);
 }
-#include <util/jni-util.h>
 
-jvmStats::jvmStats(JNIEnv* ENV) : env(ENV) {
+JvmStats::JvmStats(JNIEnv* ENV) : env(ENV) {
+    if (!config::enable_jvm_monitor) {
+        return;
+    }
     _managementFactoryClass = env->FindClass("java/lang/management/ManagementFactory");
     if (_managementFactoryClass == nullptr) {
         LOG(WARNING)
@@ -246,9 +250,7 @@ jvmStats::jvmStats(JNIEnv* ENV) : env(ENV) {
     _init_complete = true;
 }
 
-#include "jni.h"
-
-void jvmStats::refresh(JvmMetrics* jvm_metrics) {
+void JvmStats::refresh(JvmMetrics* jvm_metrics) {
     if (!_init_complete) {
         return;
     }
@@ -302,8 +304,8 @@ void jvmStats::refresh(JvmMetrics* jvm_metrics) {
 
         jstring name =
                 (jstring)env->CallObjectMethod(memoryPoolMXBean, _getMemoryPollMXBeanNameMethod);
-        const char* nameStr = env->GetStringUTFChars(name, NULL);
-        if (nameStr != NULL) {
+        const char* nameStr = env->GetStringUTFChars(name, nullptr);
+        if (nameStr != nullptr) {
             auto it = _memoryPoolName.find(nameStr);
             if (it == _memoryPoolName.end()) {
                 continue;
@@ -408,16 +410,22 @@ void jvmStats::refresh(JvmMetrics* jvm_metrics) {
     env->DeleteLocalRef(threadMXBean);
     env->DeleteLocalRef(gcMXBeansList);
 }
-jvmStats::~jvmStats() {
+JvmStats::~JvmStats() {
     if (!_init_complete) {
         return;
     }
-    env->DeleteLocalRef(_newThreadStateObj);
-    env->DeleteLocalRef(_runnableThreadStateObj);
-    env->DeleteLocalRef(_blockedThreadStateObj);
-    env->DeleteLocalRef(_waitingThreadStateObj);
-    env->DeleteLocalRef(_timedWaitingThreadStateObj);
-    env->DeleteLocalRef(_terminatedThreadStateObj);
+    try {
+        env->DeleteLocalRef(_newThreadStateObj);
+        env->DeleteLocalRef(_runnableThreadStateObj);
+        env->DeleteLocalRef(_blockedThreadStateObj);
+        env->DeleteLocalRef(_waitingThreadStateObj);
+        env->DeleteLocalRef(_timedWaitingThreadStateObj);
+        env->DeleteLocalRef(_terminatedThreadStateObj);
+
+    } catch (...) {
+        // When be is killed, DeleteLocalRef may fail.
+        // In order to exit more gracefully, we catch the exception here.
+    }
 }
 
 } // namespace doris
