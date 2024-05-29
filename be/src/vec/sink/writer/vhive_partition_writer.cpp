@@ -139,9 +139,6 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
 }
 
 Status VHivePartitionWriter::close(const Status& status) {
-    if (status.ok()) {
-        _state->hive_partition_updates().emplace_back(_build_partition_update());
-    }
     if (_file_format_transformer != nullptr) {
         Status st = _file_format_transformer->close();
         if (!st.ok()) {
@@ -155,6 +152,9 @@ Status VHivePartitionWriter::close(const Status& status) {
         if (!st.ok()) {
             LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
         }
+    }
+    if (status.ok()) {
+        _state->hive_partition_updates().emplace_back(_build_partition_update());
     }
     return Status::OK();
 }
