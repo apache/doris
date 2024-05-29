@@ -202,6 +202,10 @@ Status HttpService::start() {
     LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/load_streams", load_stream_action);
 
+    QueryPipelineTaskAction* query_pipeline_task_action = _pool.add(new QueryPipelineTaskAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/query_pipeline_tasks/{query_id}",
+                                      query_pipeline_task_action);
+
     // Register Tablets Info action
     TabletsInfoAction* tablets_info_action =
             _pool.add(new TabletsInfoAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
