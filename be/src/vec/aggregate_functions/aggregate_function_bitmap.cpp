@@ -35,7 +35,7 @@ AggregateFunctionPtr create_with_int_data_type(const DataTypes& argument_type) {
     }
     FOR_INTEGER_TYPES(DISPATCH)
 #undef DISPATCH
-    LOG(WARNING) << "with unknowed type, failed in create_with_int_data_type bitmap_union_int"
+    LOG(WARNING) << "with unknown type, failed in create_with_int_data_type bitmap_union_int"
                  << " and type is: " << argument_type[0]->get_name();
     return nullptr;
 }

@@ -176,7 +176,7 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3ClientConf& s
     if ("" != _ca_cert_file_path) {
         aws_config.caFile = _ca_cert_file_path;
     } else {
-        // config::ca_cert_file_paths is valmutable,get newest value if file path invaild
+        // config::ca_cert_file_paths is valmutable,get newest value if file path invalid
         _ca_cert_file_path = get_valid_ca_cert_path();
         if ("" != _ca_cert_file_path) {
             aws_config.caFile = _ca_cert_file_path;

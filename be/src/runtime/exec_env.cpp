@@ -96,14 +96,14 @@ void ExecEnv::update_frontends(const std::vector<TFrontendInfo>& new_fe_infos) {
         }
 
         if (coming_fe_info.process_uuid == itr->second.info.process_uuid) {
-            itr->second.last_reveiving_time_ms = GetCurrentTimeMicros() / 1000;
+            itr->second.last_receiving_time_ms = GetCurrentTimeMicros() / 1000;
             continue;
         }
 
         // If we get here, means this frontend has already restarted.
         itr->second.info.process_uuid = coming_fe_info.process_uuid;
         itr->second.first_receiving_time_ms = GetCurrentTimeMicros() / 1000;
-        itr->second.last_reveiving_time_ms = GetCurrentTimeMicros() / 1000;
+        itr->second.last_receiving_time_ms = GetCurrentTimeMicros() / 1000;
         LOG(INFO) << "Update frontend " << PrintFrontendInfo(coming_fe_info);
     }
 
@@ -128,7 +128,7 @@ std::map<TNetworkAddress, FrontendInfo> ExecEnv::get_running_frontends() {
             // FE is in an unknown state, regart it as alive. conservative
             res[brpc_addr] = fe_info;
         } else {
-            if (now - fe_info.last_reveiving_time_ms < expired_duration) {
+            if (now - fe_info.last_receiving_time_ms < expired_duration) {
                 // If fe info has just been update in last expired_duration, regard it as running.
                 res[brpc_addr] = fe_info;
             } else {

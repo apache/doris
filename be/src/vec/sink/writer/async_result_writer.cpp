@@ -156,7 +156,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
 
     bool need_finish = false;
     {
-        // If the last block is sent successfuly, then call finish to clear the buffer or commit
+        // If the last block is sent successfully, then call finish to clear the buffer or commit
         // transactions.
         // Using lock to make sure the writer status is not modified
         // There is a unique ptr err_msg in Status, if it is modified, the unique ptr

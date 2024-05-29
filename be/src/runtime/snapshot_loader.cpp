@@ -595,7 +595,7 @@ Status SnapshotLoader::remote_http_download(
                 uint64_t local_file_size = std::filesystem::file_size(local_file_path, ec);
                 if (ec) {
                     LOG(WARNING) << "download file error" << ec.message();
-                    return Status::IOError("can't retrive file_size of {}, due to {}",
+                    return Status::IOError("can't retrieve file_size of {}, due to {}",
                                            local_file_path, ec.message());
                 }
                 if (local_file_size != file_size) {

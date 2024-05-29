@@ -179,9 +179,9 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     LOG(INFO) << "init olap tablet sink, load_id: " << print_id(_load_id)
               << ", num senders: " << _num_senders << ", stream per node: " << _stream_per_node
               << ", total_streams " << _total_streams << ", num_local_sink: " << _num_local_sink;
-    DCHECK(_stream_per_node > 0) << "load stream per node should be greator than 0";
-    DCHECK(_total_streams > 0) << "total load streams should be greator than 0";
-    DCHECK(_num_local_sink > 0) << "num local sink should be greator than 0";
+    DCHECK(_stream_per_node > 0) << "load stream per node should be greater than 0";
+    DCHECK(_total_streams > 0) << "total load streams should be greater than 0";
+    DCHECK(_num_local_sink > 0) << "num local sink should be greater than 0";
     _is_high_priority =
             (state->execution_timeout() <= config::load_task_high_priority_threshold_second);
     DBUG_EXECUTE_IF("VTabletWriterV2._init.is_high_priority", { _is_high_priority = true; });

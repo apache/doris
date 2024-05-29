@@ -80,7 +80,7 @@ struct AggregateFunctionAvgData {
             // null is handled in AggregationNode::_get_without_key_result
             return static_cast<ResultT>(sum);
         }
-        // to keep the same result with row vesion; see AggregateFunctions::decimalv2_avg_get_value
+        // to keep the same result with row version; see AggregateFunctions::decimalv2_avg_get_value
         if constexpr (IsDecimalV2<T> && IsDecimalV2<ResultT>) {
             DecimalV2Value decimal_val_count(count, 0);
             DecimalV2Value decimal_val_sum(sum);
