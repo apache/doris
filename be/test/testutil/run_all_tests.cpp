@@ -76,6 +76,7 @@ int main(int argc, char** argv) {
 
     ::testing::TestEventListeners& listeners = ::testing::UnitTest::GetInstance()->listeners();
     listeners.Append(new TestListener);
+    doris::ExecEnv::GetInstance()->set_tracking_memory(false);
 
     int res = RUN_ALL_TESTS();
     return res;
