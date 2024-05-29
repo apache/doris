@@ -52,8 +52,8 @@ namespace doris::cloud {
         return (expr);                                          \
     }()
 
-ObjectStorageResponse S3ObjClient::PutObject(const ObjectStoragePathOptions& opts,
-                                             std::string_view stream) {
+ObjectStorageResponse S3ObjClient::put_object(const ObjectStoragePathOptions& opts,
+                                              std::string_view stream) {
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     auto input = Aws::MakeShared<Aws::StringStream>("S3Accessor");
@@ -72,7 +72,7 @@ ObjectStorageResponse S3ObjClient::PutObject(const ObjectStoragePathOptions& opt
     }
     return 0;
 }
-ObjectStorageResponse S3ObjClient::HeadObject(const ObjectStoragePathOptions& opts) {
+ObjectStorageResponse S3ObjClient::head_object(const ObjectStoragePathOptions& opts) {
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(s3_client_->HeadObject(request),
@@ -91,8 +91,8 @@ ObjectStorageResponse S3ObjClient::HeadObject(const ObjectStoragePathOptions& op
         return -1;
     }
 }
-ObjectStorageResponse S3ObjClient::ListObjects(const ObjectStoragePathOptions& opts,
-                                               std::vector<ObjectMeta>* files) {
+ObjectStorageResponse S3ObjClient::list_objects(const ObjectStoragePathOptions& opts,
+                                                std::vector<ObjectMeta>* files) {
     Aws::S3::Model::ListObjectsV2Request request;
     request.WithBucket(opts.bucket).WithPrefix(opts.prefix);
 
@@ -121,8 +121,8 @@ ObjectStorageResponse S3ObjClient::ListObjects(const ObjectStoragePathOptions& o
     } while (is_truncated);
     return 0;
 }
-ObjectStorageResponse S3ObjClient::DeleteObjects(const ObjectStoragePathOptions& opts,
-                                                 std::vector<std::string> objs) {
+ObjectStorageResponse S3ObjClient::delete_objects(const ObjectStoragePathOptions& opts,
+                                                  std::vector<std::string> objs) {
     Aws::S3::Model::DeleteObjectsRequest delete_request;
     delete_request.SetBucket(opts.bucket);
     Aws::S3::Model::Delete del;
@@ -157,7 +157,7 @@ ObjectStorageResponse S3ObjClient::DeleteObjects(const ObjectStoragePathOptions&
     return {0};
 }
 
-ObjectStorageResponse S3ObjClient::DeleteObject(const ObjectStoragePathOptions& opts) {
+ObjectStorageResponse S3ObjClient::delete_object(const ObjectStoragePathOptions& opts) {
     Aws::S3::Model::DeleteObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
@@ -175,7 +175,8 @@ ObjectStorageResponse S3ObjClient::DeleteObject(const ObjectStoragePathOptions& 
     return 0;
 }
 
-ObjectStorageResponse S3ObjClient::RecursiveDelete(const ObjectStoragePathOptions& opts) {
+ObjectStorageResponse S3ObjClient::delete_objects_recursively(
+        const ObjectStoragePathOptions& opts) {
     Aws::S3::Model::ListObjectsV2Request request;
     request.WithBucket(opts.bucket).WithPrefix(opts.prefix);
 
@@ -246,8 +247,8 @@ ObjectStorageResponse S3ObjClient::RecursiveDelete(const ObjectStoragePathOption
     } while (is_truncated);
     return {0};
 }
-ObjectStorageResponse S3ObjClient::DeleteExpired(const ObjectStorageDeleteExpiredOptions& opts,
-                                                 int64_t expired_time) {
+ObjectStorageResponse S3ObjClient::delete_expired(const ObjectStorageDeleteExpiredOptions& opts,
+                                                  int64_t expired_time) {
     Aws::S3::Model::ListObjectsV2Request request;
     request.WithBucket(opts.path_opts.bucket).WithPrefix(opts.path_opts.prefix);
 
@@ -286,7 +287,7 @@ ObjectStorageResponse S3ObjClient::DeleteExpired(const ObjectStorageDeleteExpire
             }
         }
 
-        auto ret = DeleteObjects(opts.path_opts, std::move(expired_keys));
+        auto ret = delete_objects(opts.path_opts, std::move(expired_keys));
         if (ret.ret != 0) {
             return ret;
         }
@@ -301,8 +302,8 @@ ObjectStorageResponse S3ObjClient::DeleteExpired(const ObjectStorageDeleteExpire
     } while (is_truncated);
     return 0;
 }
-ObjectStorageResponse S3ObjClient::GetLifeCycle(const ObjectStoragePathOptions& opts,
-                                                int64_t* expiration_days) {
+ObjectStorageResponse S3ObjClient::get_life_cycle(const ObjectStoragePathOptions& opts,
+                                                  int64_t* expiration_days) {
     Aws::S3::Model::GetBucketLifecycleConfigurationRequest request;
     request.SetBucket(opts.bucket);
 
@@ -338,7 +339,7 @@ ObjectStorageResponse S3ObjClient::GetLifeCycle(const ObjectStoragePathOptions& 
     return 0;
 }
 
-ObjectStorageResponse S3ObjClient::CheckVersioning(const ObjectStoragePathOptions& opts) {
+ObjectStorageResponse S3ObjClient::check_versioning(const ObjectStoragePathOptions& opts) {
     Aws::S3::Model::GetBucketVersioningRequest request;
     request.SetBucket(opts.bucket);
     auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(s3_client_->GetBucketVersioning(request),

@@ -32,21 +32,21 @@ public:
     S3ObjClient(std::shared_ptr<Aws::S3::S3Client> client) : s3_client_(std::move(client)) {}
     ~S3ObjClient() override = default;
 
-    ObjectStorageResponse PutObject(const ObjectStoragePathOptions& opts,
-                                    std::string_view stream) override;
-    ObjectStorageResponse HeadObject(const ObjectStoragePathOptions& opts) override;
-    ObjectStorageResponse ListObjects(const ObjectStoragePathOptions& opts,
-                                      std::vector<ObjectMeta>* files) override;
-    ObjectStorageResponse DeleteObjects(const ObjectStoragePathOptions& opts,
-                                        std::vector<std::string> objs) override;
-    ObjectStorageResponse DeleteObject(const ObjectStoragePathOptions& opts) override;
-    ObjectStorageResponse RecursiveDelete(const ObjectStoragePathOptions& opts) override;
-    ObjectStorageResponse DeleteExpired(const ObjectStorageDeleteExpiredOptions& opts,
-                                        int64_t expired_time) override;
-    ObjectStorageResponse GetLifeCycle(const ObjectStoragePathOptions& opts,
-                                       int64_t* expiration_days) override;
+    ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
+                                     std::string_view stream) override;
+    ObjectStorageResponse head_object(const ObjectStoragePathOptions& opts) override;
+    ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
+                                       std::vector<ObjectMeta>* files) override;
+    ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
+                                         std::vector<std::string> objs) override;
+    ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override;
+    ObjectStorageResponse delete_objects_recursively(const ObjectStoragePathOptions& opts) override;
+    ObjectStorageResponse delete_expired(const ObjectStorageDeleteExpiredOptions& opts,
+                                         int64_t expired_time) override;
+    ObjectStorageResponse get_life_cycle(const ObjectStoragePathOptions& opts,
+                                         int64_t* expiration_days) override;
 
-    ObjectStorageResponse CheckVersioning(const ObjectStoragePathOptions& opts) override;
+    ObjectStorageResponse check_versioning(const ObjectStoragePathOptions& opts) override;
 
     const std::shared_ptr<Aws::S3::S3Client>& s3_client() { return s3_client_; }
 

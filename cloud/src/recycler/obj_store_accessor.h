@@ -86,29 +86,43 @@ struct ObjectStorageDeleteExpiredOptions {
 struct ObjectCompleteMultiParts {};
 
 struct ObjectStorageResponse {
-    ObjectStorageResponse(int r) : ret(r) {}
-    int ret {0};
+    ObjectStorageResponse(int r, std::string msg = "") : ret(r), error_msg(std::move(msg)) {}
+    // clang-format off
+    int ret {0}; // To unify the error handle logic with BE, we'd better use the same error code as BE
+    // clang-format on
+    std::string error_msg;
 };
 
 // wrapper class owned by concret fs
 class ObjStorageClient {
 public:
     virtual ~ObjStorageClient() = default;
-    virtual ObjectStorageResponse PutObject(const ObjectStoragePathOptions& opts,
-                                            std::string_view stream) = 0;
-    virtual ObjectStorageResponse HeadObject(const ObjectStoragePathOptions& opts) = 0;
-    virtual ObjectStorageResponse ListObjects(const ObjectStoragePathOptions& opts,
-                                              std::vector<ObjectMeta>* files) = 0;
-    virtual ObjectStorageResponse DeleteObjects(const ObjectStoragePathOptions& opts,
-                                                std::vector<std::string> objs) = 0;
-    virtual ObjectStorageResponse DeleteObject(const ObjectStoragePathOptions& opts) = 0;
-    virtual ObjectStorageResponse RecursiveDelete(const ObjectStoragePathOptions& opts) = 0;
-    virtual ObjectStorageResponse DeleteExpired(const ObjectStorageDeleteExpiredOptions& opts,
-                                                int64_t expired_time) = 0;
-    virtual ObjectStorageResponse GetLifeCycle(const ObjectStoragePathOptions& opts,
-                                               int64_t* expiration_days) = 0;
-
-    virtual ObjectStorageResponse CheckVersioning(const ObjectStoragePathOptions& opts) = 0;
+    // To directly upload a piece of data to object storage and generate a user-visible file.
+    // You need to clearly specify the bucket and key
+    virtual ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
+                                             std::string_view stream) = 0;
+    // According to the passed bucket and key, it will access whether the corresponding file exists in the object storage.
+    // If it exists, it will return the corresponding file size
+    virtual ObjectStorageResponse head_object(const ObjectStoragePathOptions& opts) = 0;
+    // According to the passed bucket and prefix, it traverses and retrieves all files under the prefix, and returns the name and file size of all files.
+    virtual ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
+                                               std::vector<ObjectMeta>* files) = 0;
+    // According to the bucket and prefix specified by the user, it performs batch deletion based on the object names in the object array.
+    virtual ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
+                                                 std::vector<std::string> objs) = 0;
+    // Delete the file named key in the object storage bucket.
+    virtual ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) = 0;
+    // According to the prefix, recursively delete all files under the prefix.
+    virtual ObjectStorageResponse delete_objects_recursively(
+            const ObjectStoragePathOptions& opts) = 0;
+    // Delete all the objects under the prefix which expires before the expired_time
+    virtual ObjectStorageResponse delete_expired(const ObjectStorageDeleteExpiredOptions& opts,
+                                                 int64_t expired_time) = 0;
+    // Get the objects' expiration time on the bucket
+    virtual ObjectStorageResponse get_life_cycle(const ObjectStoragePathOptions& opts,
+                                                 int64_t* expiration_days) = 0;
+    // Check if the objects' versioning is on or off
+    virtual ObjectStorageResponse check_versioning(const ObjectStoragePathOptions& opts) = 0;
 };
 
 } // namespace doris::cloud

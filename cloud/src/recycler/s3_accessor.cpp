@@ -154,7 +154,7 @@ int S3Accessor::init() {
 
 int S3Accessor::delete_objects_by_prefix(const std::string& relative_path) {
     return s3_get_rate_limit([&]() {
-               return obj_client_->RecursiveDelete(
+               return obj_client_->delete_objects_recursively(
                        {.bucket = conf_.bucket, .prefix = get_key(relative_path)});
            })
             .ret;
@@ -185,7 +185,7 @@ int S3Accessor::delete_objects(const std::vector<std::string>& relative_paths) {
             return 0;
         }
         if (auto delete_resp = s3_put_rate_limit([&]() {
-                return obj_client_->DeleteObjects({.bucket = conf_.bucket}, std::move(objects));
+                return obj_client_->delete_objects({.bucket = conf_.bucket}, std::move(objects));
             });
             delete_resp.ret != 0) {
             return delete_resp.ret;
@@ -197,7 +197,7 @@ int S3Accessor::delete_objects(const std::vector<std::string>& relative_paths) {
 
 int S3Accessor::delete_object(const std::string& relative_path) {
     return s3_put_rate_limit([&]() {
-        return obj_client_->DeleteObject({.bucket = conf_.bucket, .key = get_key(relative_path)})
+        return obj_client_->delete_object({.bucket = conf_.bucket, .key = get_key(relative_path)})
                 .ret;
     });
 }
@@ -205,7 +205,7 @@ int S3Accessor::delete_object(const std::string& relative_path) {
 int S3Accessor::put_object(const std::string& relative_path, const std::string& content) {
     return s3_put_rate_limit([&]() {
         return obj_client_
-                ->PutObject({.bucket = conf_.bucket, .key = get_key(relative_path)}, content)
+                ->put_object({.bucket = conf_.bucket, .key = get_key(relative_path)}, content)
                 .ret;
     });
 }
@@ -213,21 +213,22 @@ int S3Accessor::put_object(const std::string& relative_path, const std::string& 
 int S3Accessor::list(const std::string& relative_path, std::vector<ObjectMeta>* files) {
     return s3_get_rate_limit([&]() {
         return obj_client_
-                ->ListObjects({.bucket = conf_.bucket, .prefix = get_key(relative_path)}, files)
+                ->list_objects({.bucket = conf_.bucket, .prefix = get_key(relative_path)}, files)
                 .ret;
     });
 }
 
 int S3Accessor::exist(const std::string& relative_path) {
     return s3_get_rate_limit([&]() {
-        return obj_client_->HeadObject({.bucket = conf_.bucket, .key = get_key(relative_path)}).ret;
+        return obj_client_->head_object({.bucket = conf_.bucket, .key = get_key(relative_path)})
+                .ret;
     });
 }
 
 int S3Accessor::delete_expired_objects(const std::string& relative_path, int64_t expired_time) {
     return s3_put_rate_limit([&]() {
         return obj_client_
-                ->DeleteExpired(
+                ->delete_expired(
                         {.path_opts = {.bucket = conf_.bucket, .prefix = get_key(relative_path)},
                          .relative_path_factory =
                                  [&](const std::string& key) { return get_relative_path(key); }},
@@ -238,13 +239,13 @@ int S3Accessor::delete_expired_objects(const std::string& relative_path, int64_t
 
 int S3Accessor::get_bucket_lifecycle(int64_t* expiration_days) {
     return s3_get_rate_limit([&]() {
-        return obj_client_->GetLifeCycle({.bucket = conf_.bucket}, expiration_days).ret;
+        return obj_client_->get_life_cycle({.bucket = conf_.bucket}, expiration_days).ret;
     });
 }
 
 int S3Accessor::check_bucket_versioning() {
     return s3_get_rate_limit(
-            [&]() { return obj_client_->CheckVersioning({.bucket = conf_.bucket}).ret; });
+            [&]() { return obj_client_->check_versioning({.bucket = conf_.bucket}).ret; });
 }
 
 int GcsAccessor::delete_objects(const std::vector<std::string>& relative_paths) {
