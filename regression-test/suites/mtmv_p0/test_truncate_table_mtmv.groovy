@@ -20,7 +20,6 @@ import org.junit.Assert;
 suite("test_truncate_table_mtmv","mtmv") {
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
-    String dbName = context.config.getDbNameByFile(context.file)
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
@@ -78,4 +77,6 @@ suite("test_truncate_table_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_truncate_table "SELECT * FROM ${mvName}"
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
 }
