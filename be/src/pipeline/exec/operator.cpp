@@ -96,12 +96,22 @@ Status OperatorBase::close(RuntimeState* state) {
 
 template <typename SharedStateArg>
 std::string PipelineXLocalState<SharedStateArg>::name_suffix() const {
-    return " (id=" + std::to_string(_parent->node_id()) + ")";
+    return " (id=" + std::to_string(_parent->node_id()) + [&]() -> std::string {
+        if (_parent->nereids_id() == -1) {
+            return "";
+        }
+        return " , nereids_id=" + std::to_string(_parent->nereids_id());
+    }() + ")";
 }
 
 template <typename SharedStateArg>
 std::string PipelineXSinkLocalState<SharedStateArg>::name_suffix() {
-    return " (id=" + std::to_string(_parent->node_id()) + ")";
+    return " (id=" + std::to_string(_parent->node_id()) + [&]() -> std::string {
+        if (_parent->nereids_id() == -1) {
+            return "";
+        }
+        return " , nereids_id=" + std::to_string(_parent->nereids_id());
+    }() + ")";
 }
 
 DataDistribution DataSinkOperatorXBase::required_data_distribution() const {
@@ -140,6 +150,7 @@ std::string OperatorXBase::debug_string(RuntimeState* state, int indentation_lev
 
 Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     std::string node_name = print_plan_node_type(tnode.node_type);
+    _nereids_id = tnode.nereids_id;
     if (!tnode.intermediate_output_tuple_id_list.empty()) {
         if (!tnode.__isset.output_tuple_id) {
             return Status::InternalError("no final output tuple id");
@@ -352,9 +363,8 @@ Status DataSinkOperatorXBase::init(const TDataSink& tsink) {
 
 Status DataSinkOperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) {
     std::string op_name = print_plan_node_type(tnode.node_type);
-
+    _nereids_id = tnode.nereids_id;
     auto substr = op_name.substr(0, op_name.find("_NODE"));
-
     _name = substr + "_SINK_OPERATOR";
     return Status::OK();
 }
