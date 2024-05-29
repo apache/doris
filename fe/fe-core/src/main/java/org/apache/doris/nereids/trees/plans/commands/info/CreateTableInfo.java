@@ -232,7 +232,7 @@ public class CreateTableInfo {
             columns.stream()
                     .filter(
                             column -> partitionTableInfo.inIdentifierPartitions(column.getName())
-                                   || distribution.inDistributionColumns(column.getName()))
+                                   || (distribution != null && distribution.inDistributionColumns(column.getName())))
                     .filter(column -> column.getType().isStringType())
                     .forEach(column -> {
                         LOG.warn("Doris currently does not support using string as a partition field,"
