@@ -334,6 +334,13 @@ bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_
         return false;
     }
     const auto min_revocable_mem_bytes = state->min_revocable_mem();
+
+    if (UNLIKELY(state->enable_force_spill())) {
+        if (revocable_mem_bytes >= min_revocable_mem_bytes) {
+            LOG_ONCE(INFO) << "spill force, query: " << print_id(state->query_id());
+            return true;
+        }
+    }
     bool is_wg_mem_low_water_mark = false;
     bool is_wg_mem_high_water_mark = false;
     wg->check_mem_used(&is_wg_mem_low_water_mark, &is_wg_mem_high_water_mark);
