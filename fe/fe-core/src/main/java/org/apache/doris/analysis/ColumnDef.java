@@ -183,10 +183,13 @@ public class ColumnDef {
     private String comment;
     private boolean visible;
     private int clusterKeyId = -1;
-    private final ColumnNullableType nullableType;
 
     public ColumnDef(String name, TypeDef typeDef) {
         this(name, typeDef, false, null, ColumnNullableType.NOT_NULLABLE, DefaultValue.NOT_SET, "");
+    }
+
+    public ColumnDef(String name, TypeDef typeDef, boolean isAllowNull) {
+        this(name, typeDef, false, null, isAllowNull, DefaultValue.NOT_SET, "");
     }
 
     public ColumnDef(String name, TypeDef typeDef, ColumnNullableType nullableType) {
@@ -210,7 +213,9 @@ public class ColumnDef {
         this.typeDef = typeDef;
         this.isKey = isKey;
         this.aggregateType = aggregateType;
-        this.nullableType = nullableType;
+        if (nullableType != ColumnNullableType.UNKNOWN) {
+            isAllowNull = nullableType.getNullable(typeDef.getType().getPrimitiveType());
+        }
         this.isAutoInc = autoIncInitValue != -1;
         this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
@@ -230,7 +235,6 @@ public class ColumnDef {
         this.isKey = isKey;
         this.aggregateType = aggregateType;
         this.isAllowNull = isAllowNull;
-        this.nullableType = ColumnNullableType.UNKNOWN;
         this.isAutoInc = autoIncInitValue != -1;
         this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
@@ -280,10 +284,6 @@ public class ColumnDef {
 
     public boolean isAllowNull() {
         return isAllowNull;
-    }
-
-    public ColumnNullableType nullableType() {
-        return nullableType;
     }
 
     public String getDefaultValue() {
@@ -347,10 +347,6 @@ public class ColumnDef {
         if (!Config.enable_quantile_state_type && type.isQuantileStateType()) {
             throw new AnalysisException("quantile_state is disabled"
                     + "Set config 'enable_quantile_state_type' = 'true' to enable this column type.");
-        }
-
-        if (nullableType != ColumnNullableType.UNKNOWN) {
-            isAllowNull = nullableType.getNullable(type.getPrimitiveType());
         }
 
         // disable Bitmap Hll type in keys, values without aggregate function.

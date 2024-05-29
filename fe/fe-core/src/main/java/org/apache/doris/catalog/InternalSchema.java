@@ -85,7 +85,7 @@ public class InternalSchema {
         PARTITION_STATS_SCHEMA
                 .add(new ColumnDef("count", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         PARTITION_STATS_SCHEMA
-                .add(new ColumnDef("ndv", TypeDef.create(PrimitiveType.HLL), ColumnNullableType.NULLABLE));
+                .add(new ColumnDef("ndv", TypeDef.create(PrimitiveType.HLL), ColumnNullableType.NOT_NULLABLE));
         PARTITION_STATS_SCHEMA
                 .add(new ColumnDef("null_count", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         PARTITION_STATS_SCHEMA.add(new ColumnDef("min", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH),
@@ -173,7 +173,7 @@ public class InternalSchema {
         }
         List<ColumnDef> copiedSchema = Lists.newArrayList();
         for (ColumnDef columnDef : schema) {
-            copiedSchema.add(new ColumnDef(columnDef.getName(), columnDef.getTypeDef(), columnDef.nullableType()));
+            copiedSchema.add(new ColumnDef(columnDef.getName(), columnDef.getTypeDef(), columnDef.isAllowNull()));
         }
         return copiedSchema;
     }
