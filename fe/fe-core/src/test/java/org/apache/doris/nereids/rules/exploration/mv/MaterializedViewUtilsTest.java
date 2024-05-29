@@ -28,8 +28,6 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Optional;
-
 /**
  * Test for materialized view util
  */
@@ -251,7 +249,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "on t1.l_orderkey = o_orderkey;",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             checkRelatedTableInfo(relatedTableInfo,
@@ -278,7 +276,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             checkRelatedTableInfo(relatedTableInfo,
@@ -305,10 +303,10 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            Assertions.assertTrue(relatedTableInfo.isPresent());
+                            Assertions.assertTrue(relatedTableInfo.isPctPossible());
                         });
     }
 
@@ -329,7 +327,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "GROUP BY l.L_SHIPDATE, o.O_ORDERDATE ",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("ship_data_alias", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             checkRelatedTableInfo(relatedTableInfo,
@@ -360,7 +358,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "t2.O_ORDERSTATUS;",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             checkRelatedTableInfo(relatedTableInfo,
@@ -380,7 +378,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "        group by l_shipdate, l_orderkey",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             checkRelatedTableInfo(relatedTableInfo,
@@ -400,10 +398,10 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "    group by t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            Assertions.assertFalse(relatedTableInfo.isPresent());
+                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
 
         PlanChecker.from(connectContext)
@@ -414,10 +412,10 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "    group by t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            Assertions.assertFalse(relatedTableInfo.isPresent());
+                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
 
         PlanChecker.from(connectContext)
@@ -428,10 +426,10 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "    group by t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            Assertions.assertFalse(relatedTableInfo.isPresent());
+                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
 
@@ -456,7 +454,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "t2.O_ORDERSTATUS;",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             checkRelatedTableInfo(relatedTableInfo,
@@ -487,10 +485,10 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "t2.O_ORDERSTATUS;",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            Assertions.assertFalse(relatedTableInfo.isPresent());
+                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
 
@@ -505,10 +503,10 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "ON ps_1.PS_PARTKEY = ps_2.PS_SUPPKEY ",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("PS_SUPPLYCOST", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            Assertions.assertFalse(relatedTableInfo.isPresent());
+                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
 
@@ -529,7 +527,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             checkRelatedTableInfo(relatedTableInfo,
@@ -556,10 +554,10 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            Assertions.assertFalse(relatedTableInfo.isPresent());
+                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
 
@@ -584,7 +582,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "t2.O_ORDERSTATUS;",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("date_alias", "day",
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             checkRelatedTableInfo(relatedTableInfo,
@@ -615,10 +613,10 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "t2.O_ORDERSTATUS;",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("date_alias", "hour",
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            Assertions.assertFalse(relatedTableInfo.isPresent());
+                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
 
@@ -654,7 +652,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + ")t2 on t1.vin_type1 = t2.vin_type2;",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Optional<RelatedTableInfo> relatedTableInfo =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("upgrade_day", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             checkRelatedTableInfo(relatedTableInfo,
@@ -704,12 +702,12 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                         });
     }
 
-    private void checkRelatedTableInfo(Optional<RelatedTableInfo> relatedTableInfo,
+    private void checkRelatedTableInfo(RelatedTableInfo relatedTableInfo,
             String expectTableName,
             String expectColumnName,
             boolean pctPossible) {
-        Assertions.assertTrue(relatedTableInfo.isPresent());
-        BaseTableInfo relatedBaseTableInfo = relatedTableInfo.get().getTableInfo();
+        Assertions.assertNotNull(relatedTableInfo);
+        BaseTableInfo relatedBaseTableInfo = relatedTableInfo.getTableInfo();
         try {
             TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
                     .getCatalogOrAnalysisException(relatedBaseTableInfo.getCtlId())
@@ -719,7 +717,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         } catch (Exception exception) {
             Assertions.fail();
         }
-        Assertions.assertEquals(relatedTableInfo.get().getColumn().toLowerCase(), expectColumnName.toLowerCase());
+        Assertions.assertEquals(relatedTableInfo.getColumn().toLowerCase(), expectColumnName.toLowerCase());
         Assertions.assertTrue(pctPossible);
     }
 }

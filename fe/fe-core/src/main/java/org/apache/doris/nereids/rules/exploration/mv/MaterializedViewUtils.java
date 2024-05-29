@@ -82,7 +82,7 @@ public class MaterializedViewUtils {
      * @param materializedViewPlan this should be rewritten or analyzed plan, should not be physical plan.
      * @param column ref column name.
      */
-    public static Optional<RelatedTableInfo> getRelatedTableInfo(String column, String timeUnit,
+    public static RelatedTableInfo getRelatedTableInfo(String column, String timeUnit,
             Plan materializedViewPlan, CascadesContext cascadesContext) {
 
         List<Slot> outputExpressions = materializedViewPlan.getOutput();
@@ -95,26 +95,30 @@ public class MaterializedViewUtils {
             }
         }
         if (columnExpr == null) {
-            return Optional.empty();
+            return new RelatedTableInfo("partition column can not find from sql select column");
         }
         if (timeUnit != null) {
             Expression dateTrunc = new DateTrunc(columnExpr, new VarcharLiteral(timeUnit));
             dateTrunc = ExpressionUtils.shuttleExpressionWithLineage(dateTrunc, materializedViewPlan, new BitSet());
+            // merge date_trunc
             dateTrunc = new ExpressionNormalization().rewrite(dateTrunc,
                     new ExpressionRewriteContext(cascadesContext));
             List<Object> dataTruncExpressions = dateTrunc.collectToList(DateTrunc.class::isInstance);
             if (dataTruncExpressions.size() > 1) {
                 // mv time unit level is little then query
-                return Optional.empty();
+                return new RelatedTableInfo("partition column time unit level should be"
+                        + "greater than sql select column");
             }
             columnExpr = (Slot) dateTrunc.getArgument(0);
         }
         if (!(columnExpr instanceof SlotReference)) {
-            return Optional.empty();
+            return new RelatedTableInfo("partition reference column should be direct column "
+                    + "rather then expression");
         }
         SlotReference columnSlot = (SlotReference) columnExpr;
         if (!columnSlot.isColumnFromTable()) {
-            return Optional.empty();
+            return new RelatedTableInfo("partition slot referenced column should be "
+                    + "direct column rather then expression");
         }
         // Collect table relation map which is used to identify self join
         List<CatalogRelation> catalogRelationObjs =
@@ -131,14 +135,15 @@ public class MaterializedViewUtils {
         Multimap<TableIf, Column> partitionRelatedTableAndColumnMap =
                 checkContext.getPartitionRelatedTableAndColumnMap();
         if (partitionRelatedTableAndColumnMap.isEmpty()) {
-            return Optional.empty();
+            return new RelatedTableInfo(String.format("can't not find valid partition track column, because %s",
+                            String.join(",", checkContext.getFailReasons())));
         }
         // TODO support to return only one related table info, support multi later
         for (Map.Entry<TableIf, Column> entry : partitionRelatedTableAndColumnMap.entries()) {
-            return Optional.of(new RelatedTableInfo(new BaseTableInfo(entry.getKey()), true,
-                    entry.getValue().getName()));
+            return new RelatedTableInfo(new BaseTableInfo(entry.getKey()), true,
+                    entry.getValue().getName());
         }
-        return Optional.empty();
+        return new RelatedTableInfo("can't not find valid partition track column");
     }
 
     /**
@@ -322,6 +327,7 @@ public class MaterializedViewUtils {
         public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
                 IncrementCheckerContext context) {
             if (join.isMarkJoin()) {
+                context.addFailReason("partition track doesn't support mark join");
                 return null;
             }
             Plan left = join.child(0);
@@ -343,12 +349,16 @@ public class MaterializedViewUtils {
                     || joinType.isRightSemiJoin()) && !useLeft) {
                 return visit(join.right(), context);
             }
+            context.addFailReason(String.format("partition track doesn't support join type, "
+                    + "current join type is %s", joinType));
             return null;
         }
 
         @Override
         public Void visitLogicalRelation(LogicalRelation relation, IncrementCheckerContext context) {
             if (!(relation instanceof LogicalCatalogRelation)) {
+                context.addFailReason(String.format("relation should be LogicalCatalogRelation, "
+                        + "but now is %s", relation.getClass().getSimpleName()));
                 return null;
             }
             LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) relation;
@@ -356,18 +366,26 @@ public class MaterializedViewUtils {
             // if self join, self join can not partition track now, remove the partition column correspondingly
             if (context.getRelationByTable(table).size() > 1) {
                 context.getPartitionRelatedTableAndColumnMap().removeAll(table);
+                context.addFailReason(String.format("self join doesn't support partition update, "
+                        + "self join table name is %s", table.getName()));
                 return null;
             }
             // TODO: 2024/1/31 support only one partition referenced column, support multi later
             if (!context.getPartitionRelatedTableAndColumnMap().isEmpty()) {
+                context.addFailReason(String.format("partition track already has an related base table column,"
+                        + "track info is %s", context.getPartitionRelatedTableAndColumnMap()));
                 return null;
             }
             if (!(table instanceof MTMVRelatedTableIf)) {
+                context.addFailReason(String.format("relation base table is not MTMVRelatedTableIf, the table is %s",
+                        table.getName()));
                 return null;
             }
             MTMVRelatedTableIf relatedTable = (MTMVRelatedTableIf) table;
             PartitionType type = relatedTable.getPartitionType();
             if (PartitionType.UNPARTITIONED.equals(type)) {
+                context.addFailReason(String.format("related base table is not partition table, the table is %s",
+                        table.getName()));
                 return null;
             }
             Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
@@ -375,6 +393,10 @@ public class MaterializedViewUtils {
             if (partitionColumnSet.contains(mvReferenceColumn)
                     && (!mvReferenceColumn.isAllowNull() || relatedTable.isPartitionColumnAllowNull())) {
                 context.addTableColumn(table, mvReferenceColumn);
+            } else {
+                context.addFailReason(String.format("related base table partition column doesn't contain the mv"
+                                + " partition or partition nullable check fail, the mvReferenceColumn is %s",
+                        mvReferenceColumn));
             }
             return visit(relation, context);
         }
@@ -384,6 +406,7 @@ public class MaterializedViewUtils {
                 IncrementCheckerContext context) {
             Set<Expression> groupByExprSet = new HashSet<>(aggregate.getGroupByExpressions());
             if (groupByExprSet.isEmpty()) {
+                context.addFailReason("group by sets is empty, doesn't contain the target partition");
                 return null;
             }
             Set<Column> originalGroupbyExprSet = new HashSet<>();
@@ -393,6 +416,7 @@ public class MaterializedViewUtils {
                 }
             });
             if (!originalGroupbyExprSet.contains(context.getMvPartitionColumn().getColumn().get())) {
+                context.addFailReason("group by sets doesn't contain the target partition");
                 return null;
             }
             return visit(aggregate, context);
@@ -406,6 +430,7 @@ public class MaterializedViewUtils {
             }
             for (NamedExpression namedExpression : windowExpressions) {
                 if (!checkWindowPartition(namedExpression, context)) {
+                    context.addFailReason("window partition sets doesn't contain the target partition");
                     return null;
                 }
             }
@@ -450,6 +475,7 @@ public class MaterializedViewUtils {
         private final SlotReference mvPartitionColumn;
         private final Multimap<TableIdentifier, CatalogRelation> tableAndCatalogRelationMap;
         private final Multimap<TableIf, Column> partitionRelatedTableAndColumnMap = HashMultimap.create();
+        private final Set<String> failReasons = new HashSet<>();
 
         public IncrementCheckerContext(SlotReference mvPartitionColumn,
                 Multimap<TableIdentifier, CatalogRelation> tableAndCatalogRelationMap) {
@@ -476,20 +502,38 @@ public class MaterializedViewUtils {
         public void addTableAndRelation(TableIf tableIf, CatalogRelation relation) {
             tableAndCatalogRelationMap.put(new TableIdentifier(tableIf), relation);
         }
+
+        public Set<String> getFailReasons() {
+            return failReasons;
+        }
+
+        public void addFailReason(String failReason) {
+            this.failReasons.add(failReason);
+        }
     }
 
     /**
      * The related table info that mv relate
      */
     public static final class RelatedTableInfo {
-        private BaseTableInfo tableInfo;
-        private boolean pctPossible;
-        private String column;
+        private final BaseTableInfo tableInfo;
+        private final boolean pctPossible;
+        private final String column;
+        private final Set<String> failReasons = new HashSet<>();
+
+        public RelatedTableInfo(String failReason) {
+            this(null, false, null, failReason);
+        }
 
         public RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column) {
+            this(tableInfo, pctPossible, column, "");
+        }
+
+        public RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column, String failReason) {
             this.tableInfo = tableInfo;
             this.pctPossible = pctPossible;
             this.column = column;
+            this.failReasons.add(failReason);
         }
 
         public BaseTableInfo getTableInfo() {
@@ -502,6 +546,14 @@ public class MaterializedViewUtils {
 
         public String getColumn() {
             return column;
+        }
+
+        public void addFailReason(String failReason) {
+            this.failReasons.add(failReason);
+        }
+
+        public String getFailReason() {
+            return String.join(",", failReasons);
         }
     }
 }

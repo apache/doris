@@ -51,7 +51,6 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.collect.Sets;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -127,12 +126,13 @@ public class MTMVPartitionDefinition {
         try {
             Plan mvRewrittenPlan =
                     planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
-            Optional<RelatedTableInfo> relatedTableInfo = MaterializedViewUtils
+            RelatedTableInfo relatedTableInfo = MaterializedViewUtils
                     .getRelatedTableInfo(partitionColName, timeUnit, mvRewrittenPlan, cascadesContext);
-            if (!relatedTableInfo.isPresent() || !relatedTableInfo.get().isPctPossible()) {
-                throw new AnalysisException("Unable to find a suitable base table for partitioning");
+            if (!relatedTableInfo.isPctPossible()) {
+                throw new AnalysisException(String.format("Unable to find a suitable base table for partitioning,"
+                        + " the fail reason is %s", relatedTableInfo.getFailReason()));
             }
-            MTMVRelatedTableIf mtmvBaseRealtedTable = MTMVUtil.getRelatedTable(relatedTableInfo.get().getTableInfo());
+            MTMVRelatedTableIf mtmvBaseRealtedTable = MTMVUtil.getRelatedTable(relatedTableInfo.getTableInfo());
             Set<String> partitionColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             try {
                 partitionColumnNames.addAll(mtmvBaseRealtedTable.getPartitionColumnNames());
@@ -140,14 +140,14 @@ public class MTMVPartitionDefinition {
                 throw new AnalysisException(e.getMessage(), e);
             }
 
-            if (!partitionColumnNames.contains(relatedTableInfo.get().getColumn())) {
-                throw new AnalysisException("error related column: " + relatedTableInfo.get().getColumn());
+            if (!partitionColumnNames.contains(relatedTableInfo.getColumn())) {
+                throw new AnalysisException("error related column: " + relatedTableInfo.getColumn());
             }
             if (!(mtmvBaseRealtedTable instanceof HMSExternalTable)
                     && partitionColumnNames.size() != 1) {
                 throw new AnalysisException("only hms table support multi column partition.");
             }
-            return relatedTableInfo.get();
+            return relatedTableInfo;
         } finally {
             // after operate, roll back the disable rules
             sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
