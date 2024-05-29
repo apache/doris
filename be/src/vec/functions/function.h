@@ -488,7 +488,8 @@ public:
     bool can_fast_execute() const override {
         auto function_name = function->get_name();
         return function_name == "eq" || function_name == "ne" || function_name == "lt" ||
-               function_name == "gt" || function_name == "le" || function_name == "ge";
+               function_name == "gt" || function_name == "le" || function_name == "ge" ||
+               function_name == "in";
     }
 
     IFunctionBase::Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
