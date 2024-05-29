@@ -1331,8 +1331,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 ColumnDef columnDef;
                 if (resultExpr.getSrcSlotRef() == null) {
-                    columnDef = new ColumnDef(name, typeDef, false, null,
-                            true, -1, new DefaultValue(false, null), "",true);
+                    columnDef = new ColumnDef(name, typeDef, false, null, true, -1, new DefaultValue(false, null), "",
+                            true);
                 } else {
                     Column column = resultExpr.getSrcSlotRef().getDesc().getColumn();
                     boolean setDefault = StringUtils.isNotBlank(column.getDefaultValue());
