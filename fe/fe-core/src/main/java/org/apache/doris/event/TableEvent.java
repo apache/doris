@@ -15,53 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mtmv;
+package org.apache.doris.event;
 
-/**
- * refresh enum
- */
-public class MTMVRefreshEnum {
+public abstract class TableEvent extends Event {
+    protected final long ctlId;
+    protected final long dbId;
+    protected final long tableId;
 
-    /**
-     * RefreshMethod
-     */
-    public enum RefreshMethod {
-        COMPLETE, //complete
-        AUTO //try to update incrementally, if not possible, update in full
+    public TableEvent(EventType eventType, long ctlId, long dbId, long tableId) {
+        super(eventType);
+        this.ctlId = ctlId;
+        this.dbId = dbId;
+        this.tableId = tableId;
     }
 
-    /**
-     * BuildMode
-     */
-    public enum BuildMode {
-        IMMEDIATE, //right now
-        DEFERRED // deferred
+    public long getCtlId() {
+        return ctlId;
     }
 
-    /**
-     * RefreshTrigger
-     */
-    public enum RefreshTrigger {
-        MANUAL, //manual
-        COMMIT, //manual
-        SCHEDULE // schedule
+    public long getDbId() {
+        return dbId;
     }
 
-    /**
-     * MTMVState
-     */
-    public enum MTMVState {
-        INIT,
-        NORMAL,
-        SCHEMA_CHANGE
+    public long getTableId() {
+        return tableId;
     }
 
-    /**
-     * MTMVRefreshState
-     */
-    public enum MTMVRefreshState {
-        INIT,
-        FAIL,
-        SUCCESS
+    @Override
+    public String toString() {
+        return "TableEvent{"
+                + "ctlId=" + ctlId
+                + ", dbId=" + dbId
+                + ", tableId=" + tableId
+                + "} " + super.toString();
     }
 }
