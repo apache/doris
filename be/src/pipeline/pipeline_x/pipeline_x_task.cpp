@@ -109,9 +109,13 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
                 _state->get_local_state(op->operator_id())->get_query_statistics_ptr());
     }
     {
+        std::vector<Dependency*> filter_dependencies;
         const auto& deps = _state->get_local_state(_source->operator_id())->filter_dependencies();
         std::copy(deps.begin(), deps.end(),
-                  std::inserter(_filter_dependencies, _filter_dependencies.end()));
+                  std::inserter(filter_dependencies, filter_dependencies.end()));
+
+        std::unique_lock<std::mutex> lc(_dependency_lock);
+        filter_dependencies.swap(_filter_dependencies);
     }
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);
@@ -120,6 +124,9 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
 }
 
 Status PipelineXTask::_extract_dependencies() {
+    std::vector<Dependency*> read_dependencies;
+    std::vector<Dependency*> write_dependencies;
+    std::vector<Dependency*> finish_dependencies;
     for (auto op : _operators) {
         auto result = _state->get_local_state_result(op->operator_id());
         if (!result) {
@@ -128,10 +135,10 @@ Status PipelineXTask::_extract_dependencies() {
         auto* local_state = result.value();
         const auto& deps = local_state->dependencies();
         std::copy(deps.begin(), deps.end(),
-                  std::inserter(_read_dependencies, _read_dependencies.end()));
+                  std::inserter(read_dependencies, read_dependencies.end()));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
-            _finish_dependencies.push_back(fin_dep);
+            finish_dependencies.push_back(fin_dep);
         }
     }
     DBUG_EXECUTE_IF("fault_inject::PipelineXTask::_extract_dependencies", {
@@ -141,13 +148,19 @@ Status PipelineXTask::_extract_dependencies() {
     });
     {
         auto* local_state = _state->get_sink_local_state();
-        _write_dependencies = local_state->dependencies();
-        DCHECK(std::all_of(_write_dependencies.begin(), _write_dependencies.end(),
+        write_dependencies = local_state->dependencies();
+        DCHECK(std::all_of(write_dependencies.begin(), write_dependencies.end(),
                            [](auto* dep) { return dep->is_write_dependency(); }));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
-            _finish_dependencies.push_back(fin_dep);
+            finish_dependencies.push_back(fin_dep);
         }
+    }
+    {
+        std::unique_lock<std::mutex> lc(_dependency_lock);
+        read_dependencies.swap(_read_dependencies);
+        write_dependencies.swap(_write_dependencies);
+        finish_dependencies.swap(_finish_dependencies);
     }
     return Status::OK();
 }
@@ -379,7 +392,7 @@ bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_
 }
 void PipelineXTask::finalize() {
     PipelineTask::finalize();
-    std::unique_lock<std::mutex> lc(_release_lock);
+    std::unique_lock<std::mutex> lc(_dependency_lock);
     _finished = true;
     _sink_shared_state.reset();
     _op_shared_states.clear();
@@ -417,7 +430,7 @@ Status PipelineXTask::close_sink(Status exec_status) {
 }
 
 std::string PipelineXTask::debug_string() {
-    std::unique_lock<std::mutex> lc(_release_lock);
+    std::unique_lock<std::mutex> lc(_dependency_lock);
     fmt::memory_buffer debug_string_buffer;
 
     fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));

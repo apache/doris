@@ -141,7 +141,7 @@ public:
     void clear_blocking_state() {
         // Another thread may call finalize to release all dependencies
         // And then it will core.
-        std::unique_lock<std::mutex> lc(_release_lock);
+        std::unique_lock<std::mutex> lc(_dependency_lock);
         if (!_finished && get_state() != PipelineTaskState::PENDING_FINISH && _blocked_dep) {
             _blocked_dep->set_ready();
             _blocked_dep = nullptr;
@@ -234,7 +234,7 @@ private:
     Dependency* _execution_dep = nullptr;
 
     std::atomic<bool> _finished {false};
-    std::mutex _release_lock;
+    std::mutex _dependency_lock;
 };
 
 } // namespace doris::pipeline
