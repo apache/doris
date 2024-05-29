@@ -81,7 +81,7 @@ public class DynamicPartitionTableTest {
 
     @AfterClass
     public static void tearDown() {
-        UtFrameUtils.cleanDorisFeDir(runningDir);
+        //UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 
     private static void changeBeDisk(TStorageMedium storageMedium) {
