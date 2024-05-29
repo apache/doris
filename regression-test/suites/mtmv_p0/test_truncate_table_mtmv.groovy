@@ -61,6 +61,8 @@ suite("test_truncate_table_mtmv","mtmv") {
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     waitingMTMVTaskFinishedByMvName(mvName)
+
+    // truncate partition
     order_qt_init "SELECT * FROM ${mvName}"
     sql """
     truncate table ${tableName} partition(p1);
@@ -70,8 +72,10 @@ suite("test_truncate_table_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_truncate_partition "SELECT * FROM ${mvName}"
+
+    // truncate table
     sql """
-        truncate table ${tableName} partition(p1);
+        truncate table ${tableName};
         """
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
