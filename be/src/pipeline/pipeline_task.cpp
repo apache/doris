@@ -120,8 +120,8 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
 }
 
 Status PipelineTask::_extract_dependencies() {
-    std::unique_lock<std::mutex> lc(_dependency_lock);
-    _read_dependencies.resize(_operators.size());
+    std::vector<std::vector<Dependency*>> read_dependencies;
+    read_dependencies.resize(_operators.size());
     size_t i = 0;
     for (auto& op : _operators) {
         auto result = _state->get_local_state_result(op->operator_id());
@@ -129,12 +129,16 @@ Status PipelineTask::_extract_dependencies() {
             return result.error();
         }
         auto* local_state = result.value();
-        _read_dependencies[i] = local_state->dependencies();
+        read_dependencies[i] = local_state->dependencies();
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             _finish_dependencies.push_back(fin_dep);
         }
         i++;
+    }
+    {
+        std::unique_lock<std::mutex> lc(_dependency_lock);
+        read_dependencies.swap(_read_dependencies);
     }
     DBUG_EXECUTE_IF("fault_inject::PipelineXTask::_extract_dependencies", {
         Status status = Status::Error<INTERNAL_ERROR>(
