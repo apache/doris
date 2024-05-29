@@ -222,6 +222,12 @@ public:
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
+    void stop_if_eos() {
+        if (_sink->eos(_state)) {
+            clear_blocking_state();
+        }
+    }
+
 private:
     friend class RuntimeFilterDependency;
     bool _is_blocked();

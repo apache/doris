@@ -52,6 +52,9 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
         return Status::OK();
     }
 
+    if (_exchanger) {
+        _exchanger->close(*this);
+    }
     if (_shared_state) {
         _shared_state->sub_running_source_operators();
     }
