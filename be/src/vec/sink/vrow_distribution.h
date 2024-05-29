@@ -123,6 +123,7 @@ public:
     // mv where clause
     // v1 needs index->node->row_ids - tabletids
     // v2 needs index,tablet->rowids
+    template <bool need_validate_block = true>
     Status generate_rows_distribution(vectorized::Block& input_block,
                                       std::shared_ptr<vectorized::Block>& block,
                                       int64_t& filtered_rows, bool& has_filtered_rows,

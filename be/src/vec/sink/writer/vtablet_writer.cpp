@@ -1367,7 +1367,8 @@ Status VTabletWriter::_send_new_partition_batch() {
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
-        RETURN_IF_ERROR(this->write(tmp_block));
+        // The _batching_block has already been checked, so there is no need to validate its again.
+        RETURN_IF_ERROR(this->_write_impl<false>(tmp_block));
         _row_distribution._batching_block->set_mutable_columns(
                 tmp_block.mutate_columns()); // Recovery back
         _row_distribution._batching_block->clear_column_data();
@@ -1666,7 +1667,8 @@ void VTabletWriter::_generate_index_channels_payloads(
     }
 }
 
-Status VTabletWriter::write(doris::vectorized::Block& input_block) {
+template <bool need_validate_block>
+Status VTabletWriter::_write_impl(doris::vectorized::Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -1699,7 +1701,7 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     DorisMetrics::instance()->load_bytes->increment(bytes);
 
     _row_distribution_watch.start();
-    RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
+    RETURN_IF_ERROR(_row_distribution.generate_rows_distribution<need_validate_block>(
             input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
             _number_input_rows));
 

@@ -545,7 +545,7 @@ class VTabletWriter final : public AsyncResultWriter {
 public:
     VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    Status write(Block& block) override;
+    Status write(Block& block) override { return _write_impl(block); }
 
     Status close(Status) override;
 
@@ -570,6 +570,9 @@ private:
     Status _init_row_distribution();
 
     Status _init(RuntimeState* state, RuntimeProfile* profile);
+
+    template <bool need_validate_block = true>
+    Status _write_impl(Block& block);
 
     void _generate_one_index_channel_payload(RowPartTabletIds& row_part_tablet_tuple,
                                              int32_t index_idx,

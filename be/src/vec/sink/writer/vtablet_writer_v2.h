@@ -106,7 +106,7 @@ public:
 
     ~VTabletWriterV2() override;
 
-    Status write(Block& block) override;
+    Status write(Block& block) override { return _write_impl(block); }
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
@@ -125,6 +125,9 @@ private:
     Status _init_row_distribution();
 
     Status _init(RuntimeState* state, RuntimeProfile* profile);
+
+    template <bool need_validate_block = true>
+    Status _write_impl(Block& block);
 
     Status _open_streams();
 
