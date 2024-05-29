@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -47,10 +48,12 @@ public class MTMVCache {
     private final Plan logicalPlan;
     // The original plan of mv def sql
     private final Plan originalPlan;
+    private final Statistics statistics;
 
-    public MTMVCache(Plan logicalPlan, Plan originalPlan) {
+    public MTMVCache(Plan logicalPlan, Plan originalPlan, Statistics statistics) {
         this.logicalPlan = logicalPlan;
         this.originalPlan = originalPlan;
+        this.statistics = statistics;
     }
 
     public Plan getLogicalPlan() {
@@ -59,6 +62,10 @@ public class MTMVCache {
 
     public Plan getOriginalPlan() {
         return originalPlan;
+    }
+
+    public Statistics getStatistics() {
+        return statistics;
     }
 
     public static MTMVCache from(MTMV mtmv, ConnectContext connectContext) {
@@ -71,7 +78,8 @@ public class MTMVCache {
         }
         // Can not convert to table sink, because use the same column from different table when self join
         // the out slot is wrong
-        Plan originPlan = planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+        planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        Plan originPlan = planner.getCascadesContext().getRewritePlan();
         // Eliminate result sink because sink operator is useless in query rewrite by materialized view
         // and the top sort can also be removed
         Plan mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
@@ -88,6 +96,6 @@ public class MTMVCache {
                     ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
             return childContext.getRewritePlan();
         }, mvPlan, originPlan);
-        return new MTMVCache(mvPlan, originPlan);
+        return new MTMVCache(mvPlan, originPlan, planner.getCascadesContext().getMemo().getRoot().getStatistics());
     }
 }

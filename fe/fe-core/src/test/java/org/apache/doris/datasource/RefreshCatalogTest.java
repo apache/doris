@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -103,7 +104,7 @@ public class RefreshCatalogTest extends TestWithFeService {
         List<String> dbNames2 = test1.getDbNames();
         Assertions.assertEquals(5, dbNames2.size());
         ExternalInfoSchemaDatabase infoDb = (ExternalInfoSchemaDatabase) test1.getDb(InfoSchemaDb.DATABASE_NAME).get();
-        Assertions.assertEquals(32, infoDb.getTables().size());
+        Assertions.assertEquals(SchemaTable.TABLE_MAP.size(), infoDb.getTables().size());
         TestExternalDatabase testDb = (TestExternalDatabase) test1.getDb("db1").get();
         Assertions.assertEquals(2, testDb.getTables().size());
         ExternalMysqlDatabase mysqlDb = (ExternalMysqlDatabase) test1.getDb(MysqlDb.DATABASE_NAME).get();
@@ -114,7 +115,7 @@ public class RefreshCatalogTest extends TestWithFeService {
         CatalogMgr mgr2 = GsonUtils.GSON.fromJson(json, CatalogMgr.class);
         test1 = mgr2.getCatalog("test1");
         infoDb = (ExternalInfoSchemaDatabase) test1.getDb(InfoSchemaDb.DATABASE_NAME).get();
-        Assertions.assertEquals(32, infoDb.getTables().size());
+        Assertions.assertEquals(SchemaTable.TABLE_MAP.size(), infoDb.getTables().size());
         testDb = (TestExternalDatabase) test1.getDb("db1").get();
         Assertions.assertEquals(2, testDb.getTables().size());
         mysqlDb = (ExternalMysqlDatabase) test1.getDb(MysqlDb.DATABASE_NAME).get();

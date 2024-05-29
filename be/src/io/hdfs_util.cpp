@@ -47,7 +47,11 @@ uint64 hdfs_hash_code(const THdfsParams& hdfs_params, const std::string& fs_name
     // If there is no specified fsname, the default fsname is used
     if (!fs_name.empty()) {
         hash_code ^= Fingerprint(fs_name);
-    } else if (hdfs_params.__isset.user) {
+    } else if (hdfs_params.__isset.fs_name) {
+        hash_code ^= Fingerprint(hdfs_params.fs_name);
+    }
+
+    if (hdfs_params.__isset.user) {
         hash_code ^= Fingerprint(hdfs_params.user);
     }
     if (hdfs_params.__isset.hdfs_kerberos_principal) {

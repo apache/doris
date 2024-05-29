@@ -676,6 +676,9 @@ DECLARE_mInt32(priority_queue_remaining_tasks_increased_frequency);
 // sync tablet_meta when modifying meta
 DECLARE_mBool(sync_tablet_meta);
 
+// sync a file writer when it is closed
+DECLARE_mBool(sync_file_on_close);
+
 // default thrift rpc timeout ms
 DECLARE_mInt32(thrift_rpc_timeout_ms);
 
@@ -1281,7 +1284,7 @@ DECLARE_String(spill_storage_root_path);
 //   disk_capacity_bytes * storage_flood_stage_usage_percent * spill_storage_limit
 DECLARE_String(spill_storage_limit);
 DECLARE_mInt32(spill_gc_interval_ms);
-DECLARE_mInt32(spill_gc_file_count);
+DECLARE_mInt32(spill_gc_work_time_ms);
 DECLARE_Int32(spill_io_thread_pool_thread_num);
 DECLARE_Int32(spill_io_thread_pool_queue_size);
 
@@ -1312,6 +1315,9 @@ DECLARE_mInt32(table_sink_partition_write_max_partition_nums_per_writer);
 
 /** Hive sink configurations **/
 DECLARE_mInt64(hive_sink_max_file_size);
+
+/** Iceberg sink configurations **/
+DECLARE_mInt64(iceberg_sink_max_file_size);
 
 // Number of open tries, default 1 means only try to open once.
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
@@ -1352,6 +1358,8 @@ DECLARE_Int64(max_nonblock_close_thread_num);
 // The possibility that mem allocator throws an exception during memory allocation
 // This config is for test usage, be careful when changing it.
 DECLARE_mDouble(mem_alloc_fault_probability);
+// The time out milliseconds for remote fetch schema RPC
+DECLARE_mInt64(fetch_remote_schema_rpc_timeout_ms);
 
 #ifdef BE_TEST
 // test s3

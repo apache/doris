@@ -414,6 +414,25 @@ size_t Block::bytes() const {
     return res;
 }
 
+std::string Block::columns_bytes() const {
+    std::stringstream res;
+    res << "column bytes: [";
+    for (const auto& elem : data) {
+        if (!elem.column) {
+            std::stringstream ss;
+            for (const auto& e : data) {
+                ss << e.name + " ";
+            }
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
+                            elem.name, ss.str());
+        }
+        res << ", " << elem.column->byte_size();
+    }
+    res << "]";
+    return res.str();
+}
+
 size_t Block::allocated_bytes() const {
     size_t res = 0;
     for (const auto& elem : data) {

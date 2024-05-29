@@ -47,7 +47,7 @@ public abstract class MaterializedViewScanRule extends AbstractMaterializedViewR
         List<Expression> expressionsRewritten = rewriteExpression(
                 queryStructInfo.getExpressions(),
                 queryStructInfo.getTopPlan(),
-                materializationContext.getMvExprToMvScanExprMapping(),
+                materializationContext.getExprToScanExprMapping(),
                 targetToSourceMapping,
                 true,
                 queryStructInfo.getTableBitSet()
@@ -58,7 +58,7 @@ public abstract class MaterializedViewScanRule extends AbstractMaterializedViewR
                     "Rewrite expressions by view in scan fail",
                     () -> String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
                                     + "targetToSourceMapping = %s", queryStructInfo.getExpressions(),
-                            materializationContext.getMvExprToMvScanExprMapping(),
+                            materializationContext.getExprToScanExprMapping(),
                             targetToSourceMapping));
             return null;
         }

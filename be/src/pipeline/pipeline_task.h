@@ -141,7 +141,7 @@ public:
 
     void clear_blocking_state() {
         // We use a lock to assure all dependencies are not deconstructed here.
-        std::unique_lock<std::mutex> lc(_release_lock);
+        std::unique_lock<std::mutex> lc(_dependency_lock);
         if (!_finished) {
             _execution_dep->set_always_ready();
             for (auto* dep : _filter_dependencies) {
@@ -235,7 +235,6 @@ private:
     uint32_t _index;
     PipelinePtr _pipeline;
     bool _has_exceed_timeout = false;
-    bool _prepared;
     bool _opened;
     RuntimeState* _state = nullptr;
     int _previous_schedule_id = -1;
@@ -254,7 +253,6 @@ private:
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
     int _core_id = 0;
-    Status _open_status = Status::OK();
 
     RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;
@@ -266,7 +264,6 @@ private:
     RuntimeProfile::Counter* _get_block_counter = nullptr;
     RuntimeProfile::Counter* _sink_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
-    RuntimeProfile::Counter* _block_counts = nullptr;
     RuntimeProfile::Counter* _schedule_counts = nullptr;
     MonotonicStopWatch _wait_worker_watcher;
     RuntimeProfile::Counter* _wait_worker_timer = nullptr;
@@ -301,7 +298,7 @@ private:
     Dependency* _execution_dep = nullptr;
 
     std::atomic<bool> _finished {false};
-    std::mutex _release_lock;
+    std::mutex _dependency_lock;
 
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};

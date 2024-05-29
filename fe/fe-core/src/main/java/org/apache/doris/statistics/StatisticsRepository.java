@@ -67,6 +67,12 @@ public class StatisticsRepository {
             + FULL_QUALIFIED_COLUMN_STATISTICS_NAME
             + " WHERE `id` = '${id}' AND `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}'";
 
+    private static final String FETCH_PARTITION_STATISTIC_TEMPLATE = "SELECT `catalog_id`, `db_id`, `tbl_id`, `idx_id`,"
+            + "`col_id`, `count`, hll_to_base64(`ndv`) as ndv, `null_count`, `min`, `max`, `data_size_in_bytes`, "
+            + "`update_time` FROM " + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
+            + " WHERE `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}' AND `tbl_id` = ${tableId}"
+            + " AND `idx_id` = '${indexId}' AND `part_id` = '${partId}' AND `col_id` = '${columnId}'";
+
     private static final String FETCH_PARTITIONS_STATISTIC_TEMPLATE = "SELECT col_id, part_id, idx_id, count, "
             + "hll_cardinality(ndv) as ndv, null_count, min, max, data_size_in_bytes, update_time FROM "
             + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
@@ -407,6 +413,18 @@ public class StatisticsRepository {
         generateCtlDbIdParams(ctlId, dbId, params);
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
                 .replace(FETCH_COLUMN_STATISTIC_TEMPLATE));
+    }
+
+    public static List<ResultRow> loadPartitionColumnStats(long ctlId, long dbId, long tableId, long idxId,
+                                                     String partName, String colName) {
+        Map<String, String> params = new HashMap<>();
+        generateCtlDbIdParams(ctlId, dbId, params);
+        params.put("tableId", String.valueOf(tableId));
+        params.put("indexId", String.valueOf(idxId));
+        params.put("partId", partName);
+        params.put("columnId", colName);
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
+            .replace(FETCH_PARTITION_STATISTIC_TEMPLATE));
     }
 
     public static List<ResultRow> loadPartStats(Collection<StatisticsCacheKey> keys) {

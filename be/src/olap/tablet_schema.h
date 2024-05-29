@@ -162,6 +162,7 @@ public:
     int32_t parent_unique_id() const { return _parent_col_unique_id; }
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
+    void set_has_bitmap_index(bool has_bitmap_index) { _has_bitmap_index = has_bitmap_index; }
     std::shared_ptr<const vectorized::IDataType> get_vec_type() const;
 
     void append_sparse_column(TabletColumn column);
@@ -282,6 +283,7 @@ public:
     // Must make sure the row column is always the last column
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
+    void update_index_info_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
     // Don't use.
     // TODO: memory size of TabletSchema cannot be accurately tracked.

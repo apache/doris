@@ -177,6 +177,9 @@ public:
         _inner_sink_operator = sink_operator;
         _inner_probe_operator = probe_operator;
     }
+    bool require_data_distribution() const override {
+        return _inner_probe_operator->require_data_distribution();
+    }
 
 private:
     Status _revoke_memory(RuntimeState* state);
