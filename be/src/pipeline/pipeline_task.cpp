@@ -112,15 +112,21 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
                 _state->get_local_state(op->operator_id())->get_query_statistics_ptr());
     }
     {
+        std::vector<Dependency*> filter_dependencies;
         const auto& deps = _state->get_local_state(_source->operator_id())->filter_dependencies();
         std::copy(deps.begin(), deps.end(),
-                  std::inserter(_filter_dependencies, _filter_dependencies.end()));
+                  std::inserter(filter_dependencies, filter_dependencies.end()));
+
+        std::unique_lock<std::mutex> lc(_dependency_lock);
+        filter_dependencies.swap(_filter_dependencies);
     }
     return Status::OK();
 }
 
 Status PipelineTask::_extract_dependencies() {
     std::vector<std::vector<Dependency*>> read_dependencies;
+    std::vector<Dependency*> write_dependencies;
+    std::vector<Dependency*> finish_dependencies;
     read_dependencies.resize(_operators.size());
     size_t i = 0;
     for (auto& op : _operators) {
@@ -132,13 +138,9 @@ Status PipelineTask::_extract_dependencies() {
         read_dependencies[i] = local_state->dependencies();
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
-            _finish_dependencies.push_back(fin_dep);
+            finish_dependencies.push_back(fin_dep);
         }
         i++;
-    }
-    {
-        std::unique_lock<std::mutex> lc(_dependency_lock);
-        read_dependencies.swap(_read_dependencies);
     }
     DBUG_EXECUTE_IF("fault_inject::PipelineXTask::_extract_dependencies", {
         Status status = Status::Error<INTERNAL_ERROR>(
@@ -147,13 +149,19 @@ Status PipelineTask::_extract_dependencies() {
     });
     {
         auto* local_state = _state->get_sink_local_state();
-        _write_dependencies = local_state->dependencies();
-        DCHECK(std::all_of(_write_dependencies.begin(), _write_dependencies.end(),
+        write_dependencies = local_state->dependencies();
+        DCHECK(std::all_of(write_dependencies.begin(), write_dependencies.end(),
                            [](auto* dep) { return dep->is_write_dependency(); }));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
-            _finish_dependencies.push_back(fin_dep);
+            finish_dependencies.push_back(fin_dep);
         }
+    }
+    {
+        std::unique_lock<std::mutex> lc(_dependency_lock);
+        read_dependencies.swap(_read_dependencies);
+        write_dependencies.swap(_write_dependencies);
+        finish_dependencies.swap(_finish_dependencies);
     }
     return Status::OK();
 }
