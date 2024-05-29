@@ -199,16 +199,16 @@ public class PartitionTableInfo {
                 // 2. The partition field must be at the end of the schema
                 // 3. The order of partition fields in the schema
                 //    must be consistent with the order defined in `PARTITIONED BY LIST()`
-                if (partitionColumns.size() == columns.size()) {
+                if (identifierPartitionColumns.size() == columns.size()) {
                     throw new AnalysisException("Cannot set all columns as partitioning columns.");
                 }
                 List<ColumnDefinition> partitionInSchema = columns.subList(
-                        columns.size() - partitionColumns.size(), columns.size());
+                        columns.size() - identifierPartitionColumns.size(), columns.size());
                 for (int i = 0; i < partitionInSchema.size(); i++) {
-                    if (!partitionColumns.contains(partitionInSchema.get(i).getName())) {
+                    if (!identifierPartitionColumns.contains(partitionInSchema.get(i).getName())) {
                         throw new AnalysisException("The partition field must be at the end of the schema.");
                     }
-                    if (!partitionInSchema.get(i).getName().equals(partitionColumns.get(i))) {
+                    if (!partitionInSchema.get(i).getName().equals(identifierPartitionColumns.get(i))) {
                         throw new AnalysisException("The order of partition fields in the schema "
                             + "must be consistent with the order defined in `PARTITIONED BY LIST()`");
                     }
@@ -269,7 +269,7 @@ public class PartitionTableInfo {
 
             try {
                 ArrayList<Expr> exprs = convertToLegacyAutoPartitionExprs(partitionList);
-                // here we have already extracted partitionColumns
+                // here we have already extracted identifierPartitionColumns
                 if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
                         partitionDesc = new RangePartitionDesc(exprs, identifierPartitionColumns, partitionDescs);
@@ -319,7 +319,7 @@ public class PartitionTableInfo {
     }
 
     /**
-     *  Get column names and put in partitionColumns
+     *  Get column names and put in identifierPartitionColumns
      */
     public void extractPartitionColumns() throws AnalysisException {
         if (partitionList == null) {
