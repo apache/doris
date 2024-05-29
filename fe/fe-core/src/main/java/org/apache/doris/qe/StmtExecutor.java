@@ -2361,11 +2361,14 @@ public class StmtExecutor {
                         return;
                     }
                 } else {
-                    if (filteredRows > context.getSessionVariable().getInsertMaxFilterRatio() * (filteredRows + loadedRows)) {
+                    if (filteredRows > context.getSessionVariable().getInsertMaxFilterRatio()
+                            * (filteredRows + loadedRows)) {
                         context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
-                                String.format("Insert has too many filtered data %d/%d insert_max_filter_ratio is %f", 
-                                filteredRows, filteredRows + loadedRows, context.getSessionVariable().getInsertMaxFilterRatio()));
+                                String.format("Insert has too many filtered data %d/%d insert_max_filter_ratio is %f",
+                                        filteredRows, filteredRows + loadedRows,
+                                        context.getSessionVariable().getInsertMaxFilterRatio()));
                         return;
+                    }
                 }
 
                 if (tblType != TableType.OLAP && tblType != TableType.MATERIALIZED_VIEW) {
@@ -2394,8 +2397,8 @@ public class StmtExecutor {
                         List<List<Backend>> backendsList = infoService
                                                                 .getCloudClusterNames()
                                                                 .stream()
-                                                                .filter(name -> !name.setInsertMaxFilterRatio(clusterName))
-                                                                .map(name -> infoService.setInsertMaxFilterRatio(name))
+                                                                .filter(name -> !name.equals(clusterName))
+                                                                .map(name -> infoService.getBackendsByClusterName(name))
                                                                 .collect(Collectors.toList());
                         List<Long> allTabletIds = ((OlapTable) insertStmt.getTargetTable()).getAllTabletIds();
                         syncLoadForTablets(backendsList, allTabletIds);
