@@ -54,13 +54,13 @@ struct ObjectStorageResponse {
             : code(msg_pair.first), err_msg(std::move(msg_pair.second)) {}
     ObjectStorageResponse(Status st) : ObjectStorageResponse(st.retrieve_error_msg()) {}
     int code {0};
-    std::string err_msg;
+    std::string err_msg = std::string();
 };
 
 struct ObjectStorageUploadResponse {
     ObjectStorageResponse resp;
-    std::optional<std::string> upload_id;
-    std::optional<std::string> etag;
+    std::optional<std::string> upload_id = std::nullopt;
+    std::optional<std::string> etag = std::nullopt;
 };
 
 struct ObjectStorageHeadResponse {
