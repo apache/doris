@@ -212,7 +212,10 @@ public class StatisticsCache {
                 }
                 putCache(k, c);
             } catch (Throwable t) {
-                LOG.warn("Error when preheating stats cache. Row:[{}]", r, t);
+                LOG.warn("Error when preheating stats cache. reason: [{}]. Row:[{}]", t.getMessage(), r);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(t);
+                }
             }
         }
     }
