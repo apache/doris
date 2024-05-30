@@ -721,7 +721,6 @@ class Suite implements GroovyInterceptable {
         logger.info("Execute: ${cmd}".toString())
         Process process = cmd.execute()
         def code = process.waitFor()
-        staticLogger.info("execute result ${process.getText()}.")
         Assert.assertEquals(0, code)
     }
 
