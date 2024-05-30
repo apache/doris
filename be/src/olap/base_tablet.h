@@ -254,8 +254,10 @@ protected:
     //
     // for example:
     //     [0-4][5-5][8-8][9-9][14-14]
-    // if spec_version = 12, it will return [6-7],[10-12]
-    static Versions calc_missed_versions(int64_t spec_version, Versions existing_versions);
+    // for cloud, if spec_version = 12, it will return [6-7],[10-12]
+    // for local, if spec_version = 12, it will return [6, 6], [7, 7], [10, 10], [11, 11], [12, 12]
+    virtual Versions calc_missed_versions(int64_t spec_version,
+                                          Versions existing_versions) const = 0;
 
     void _print_missed_versions(const Versions& missed_versions) const;
     bool _reconstruct_version_tracker_if_necessary();
