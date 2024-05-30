@@ -371,7 +371,7 @@ public:
 
     MutableColumnPtr clone_finalized() const {
         auto finalized = IColumn::mutate(get_ptr());
-        static_cast<ColumnObject*>(finalized.get())->finalize();
+        assert_cast<ColumnObject*>(finalized.get())->finalize();
         return finalized;
     }
 

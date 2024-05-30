@@ -112,7 +112,7 @@ public:
         NullMapType* dest_null_map = nullptr;
         if (dest_nested_column->is_nullable()) {
             ColumnNullable* dest_nested_nullable_col =
-                    reinterpret_cast<ColumnNullable*>(dest_nested_column);
+                    assert_cast<ColumnNullable*>(dest_nested_column);
             dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
             dest_null_map = &dest_nested_nullable_col->get_null_map_column().get_data();
         }
@@ -146,7 +146,7 @@ private:
         }
         const PaddedPODArray<NestType>& src_datas = src_data_concrete->get_data();
 
-        ColumnType& dest_data_concrete = reinterpret_cast<ColumnType&>(dest_column);
+        ColumnType& dest_data_concrete = assert_cast<ColumnType&>(dest_column);
         PaddedPODArray<NestType>& dest_datas = dest_data_concrete.get_data();
 
         using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>,
@@ -199,7 +199,7 @@ private:
             return false;
         }
 
-        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_column);
+        ColumnString& dest_column_string = assert_cast<ColumnString&>(dest_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(src_column.size());

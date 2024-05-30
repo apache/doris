@@ -459,12 +459,12 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             DCHECK(delete_sign_idx > 0);
             auto target_columns = block->mutate_columns();
             MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
-            reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(block_rows);
+            assert_cast<ColumnUInt8*>(delete_filter_column.get())->resize(block_rows);
 
             auto* __restrict filter_data =
-                    reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->get_data().data();
+                    assert_cast<ColumnUInt8*>(delete_filter_column.get())->get_data().data();
             auto* __restrict delete_data =
-                    reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
+                    assert_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
                             ->get_data()
                             .data();
 

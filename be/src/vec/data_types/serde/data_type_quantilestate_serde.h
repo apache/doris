@@ -93,7 +93,7 @@ public:
     }
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override {
-        auto& col = reinterpret_cast<ColumnQuantileState&>(column);
+        auto& col = assert_cast<ColumnQuantileState&>(column);
         auto blob = static_cast<const JsonbBlobVal*>(arg);
         QuantileState val;
         val.deserialize(Slice(blob->getBlob()));

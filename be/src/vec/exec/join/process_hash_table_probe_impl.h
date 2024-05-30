@@ -37,12 +37,12 @@ ProcessHashTableProbe<JoinOpType, Parent>::ProcessHashTableProbe(Parent* parent,
           _batch_size(batch_size),
           _build_block(parent->build_block()),
           _tuple_is_null_left_flags(parent->is_outer_join()
-                                            ? &(reinterpret_cast<ColumnUInt8&>(
+                                            ? &(assert_cast<ColumnUInt8&>(
                                                         *parent->_tuple_is_null_left_flag_column)
                                                         .get_data())
                                             : nullptr),
           _tuple_is_null_right_flags(parent->is_outer_join()
-                                             ? &(reinterpret_cast<ColumnUInt8&>(
+                                             ? &(assert_cast<ColumnUInt8&>(
                                                          *parent->_tuple_is_null_right_flag_column)
                                                          .get_data())
                                              : nullptr),

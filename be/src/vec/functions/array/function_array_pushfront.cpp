@@ -85,10 +85,10 @@ public:
 
         // prepare dst nullable array column
         auto result_col = block.get_by_position(result).type->create_column();
-        auto result_nullable_col = static_cast<ColumnNullable*>(result_col.get());
+        auto result_nullable_col = assert_cast<ColumnNullable*>(result_col.get());
         auto& result_null_map = result_nullable_col->get_null_map_data();
         auto result_array_col =
-                static_cast<ColumnArray*>(result_nullable_col->get_nested_column_ptr().get());
+                assert_cast<ColumnArray*>(result_nullable_col->get_nested_column_ptr().get());
 
         auto& result_nested_data_col = result_array_col->get_data();
         auto& result_offset_col = result_array_col->get_offsets();

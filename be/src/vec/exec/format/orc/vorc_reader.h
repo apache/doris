@@ -316,7 +316,7 @@ private:
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
         auto* cvb_data = data->data.data();
-        auto& column_data = static_cast<ColumnVector<CppType>&>(*data_column).get_data();
+        auto& column_data = assert_cast<ColumnVector<CppType>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
         for (int i = 0; i < num_values; ++i) {
@@ -368,7 +368,7 @@ private:
 
         auto* cvb_data = data->values.data();
         auto& column_data =
-                static_cast<ColumnDecimal<DecimalPrimitiveType>&>(*data_column).get_data();
+                assert_cast<ColumnDecimal<DecimalPrimitiveType>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
 
@@ -446,7 +446,7 @@ private:
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
-        auto& column_data = static_cast<ColumnVector<DorisColumnType>&>(*data_column).get_data();
+        auto& column_data = assert_cast<ColumnVector<DorisColumnType>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
         UInt8* __restrict filter_data;

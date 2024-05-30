@@ -376,7 +376,7 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
 void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                               int start, int end,
                                               const cctz::time_zone& ctz) const {
-    auto& column_map = static_cast<ColumnMap&>(column);
+    auto& column_map = assert_cast<ColumnMap&>(column);
     auto& offsets_data = column_map.get_offsets();
     auto concrete_map = dynamic_cast<const arrow::MapArray*>(arrow_array);
     auto arrow_offsets_array = concrete_map->offsets();

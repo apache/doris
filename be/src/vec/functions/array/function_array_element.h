@@ -166,7 +166,7 @@ private:
         const auto& nested_data = reinterpret_cast<const ColumnType&>(nested_column).get_data();
 
         auto dst_column = nested_column.clone_empty();
-        auto& dst_data = reinterpret_cast<ColumnType&>(*dst_column).get_data();
+        auto& dst_data = assert_cast<ColumnType&>(*dst_column).get_data();
         dst_data.resize(offsets.size());
 
         // process

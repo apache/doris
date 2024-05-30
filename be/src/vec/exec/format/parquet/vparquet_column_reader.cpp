@@ -597,7 +597,7 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
         return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
     }
 
-    ColumnPtr& element_column = static_cast<ColumnArray&>(*data_column).get_data_ptr();
+    ColumnPtr& element_column = assert_cast<ColumnArray&>(*data_column).get_data_ptr();
     DataTypePtr& element_type = const_cast<DataTypePtr&>(
             (reinterpret_cast<const DataTypeArray*>(remove_nullable(type).get()))
                     ->get_nested_type());
@@ -608,7 +608,7 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
         return Status::OK();
     }
 
-    ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*data_column).get_offsets();
+    ColumnArray::Offsets64& offsets_data = assert_cast<ColumnArray&>(*data_column).get_offsets();
     // fill offset and null map
     fill_array_offset(_field_schema, offsets_data, null_map_ptr, _element_reader->get_rep_level(),
                       _element_reader->get_def_level());
@@ -646,7 +646,7 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
         return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
     }
 
-    auto& map = static_cast<ColumnMap&>(*data_column);
+    auto& map = assert_cast<ColumnMap&>(*data_column);
     DataTypePtr& key_type = const_cast<DataTypePtr&>(
             reinterpret_cast<const DataTypeMap*>(remove_nullable(type).get())->get_key_type());
     DataTypePtr& value_type = const_cast<DataTypePtr&>(
@@ -713,7 +713,7 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
     }
 
-    auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
+    auto& doris_struct = assert_cast<ColumnStruct&>(*data_column);
     const DataTypeStruct* doris_struct_type =
             reinterpret_cast<const DataTypeStruct*>(remove_nullable(type).get());
 

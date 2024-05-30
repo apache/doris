@@ -553,7 +553,7 @@ public:
         auto shrinked_column = ColumnStr<T>::create();
         for (int i = 0; i < size(); i++) {
             StringRef str = get_data_at(i);
-            reinterpret_cast<ColumnStr<T>*>(shrinked_column.get())
+            assert_cast<ColumnStr<T>*>(shrinked_column.get())
                     ->insert_data(str.data, strnlen(str.data, str.size));
         }
         return shrinked_column;

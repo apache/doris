@@ -29,14 +29,14 @@
 
 #define FILL_MAP_DATA_INTO_DEFAULT_COLUMN()                                \
     ++dst_off;                                                             \
-    auto& dst_data = static_cast<ColumnType&>(*dst.nested_col).get_data(); \
+    auto& dst_data = assert_cast<ColumnType&>(*dst.nested_col).get_data(); \
     dst_data.push_back(entry.get_first());                                 \
     if (dst.nested_nullmap_data) {                                         \
         dst.nested_nullmap_data->push_back(0);                             \
     }
 
 #define FILL_MAP_DATA_INTO_STRING_COLUMN()                       \
-    auto& dst_col = static_cast<ColumnString&>(*dst.nested_col); \
+    auto& dst_col = assert_cast<ColumnString&>(*dst.nested_col); \
     StringRef key = entry.get_first();                           \
     ++dst_off;                                                   \
     dst_col.insert_data(key.data, key.size);                     \

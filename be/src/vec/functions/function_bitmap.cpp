@@ -103,7 +103,7 @@ struct ToBitmap {
             const ColumnString::Chars& data = col->get_chars();
             const ColumnString::Offsets& offsets = col->get_offsets();
 
-            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+            auto* res_column = assert_cast<ColumnBitmap*>(col_res.get());
             auto& res_data = res_column->get_data();
             size_t size = offsets.size();
 
@@ -122,7 +122,7 @@ struct ToBitmap {
                 }
             }
         } else if constexpr (std::is_same_v<ColumnType, ColumnInt64>) {
-            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+            auto* res_column = assert_cast<ColumnBitmap*>(col_res.get());
             auto& res_data = res_column->get_data();
             size_t size = col->size();
 
@@ -159,7 +159,7 @@ struct ToBitmapWithCheck {
         if constexpr (std::is_same_v<ColumnType, ColumnString>) {
             const ColumnString::Chars& data = col->get_chars();
             const ColumnString::Offsets& offsets = col->get_offsets();
-            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+            auto* res_column = assert_cast<ColumnBitmap*>(col_res.get());
             auto& res_data = res_column->get_data();
             size_t size = offsets.size();
 
@@ -185,7 +185,7 @@ struct ToBitmapWithCheck {
                 }
             }
         } else if constexpr (std::is_same_v<ColumnType, ColumnInt64>) {
-            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+            auto* res_column = assert_cast<ColumnBitmap*>(col_res.get());
             auto& res_data = res_column->get_data();
             size_t size = col->size();
 
@@ -431,7 +431,7 @@ struct BitmapHash {
         if constexpr (std::is_same_v<ColumnType, ColumnString>) {
             const ColumnString::Chars& data = col->get_chars();
             const ColumnString::Offsets& offsets = col->get_offsets();
-            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+            auto* res_column = assert_cast<ColumnBitmap*>(col_res.get());
             auto& res_data = res_column->get_data();
             size_t size = offsets.size();
 
@@ -457,7 +457,7 @@ struct BitmapHash {
         if constexpr (std::is_same_v<ColumnType, ColumnString>) {
             const ColumnString::Chars& data = col->get_chars();
             const ColumnString::Offsets& offsets = col->get_offsets();
-            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+            auto* res_column = assert_cast<ColumnBitmap*>(col_res.get());
             auto& res_data = res_column->get_data();
             size_t size = offsets.size();
 
@@ -1217,7 +1217,7 @@ public:
 
         IColumn* dest_nested_column = &dest_array_column_ptr->get_data();
         ColumnNullable* dest_nested_nullable_col =
-                reinterpret_cast<ColumnNullable*>(dest_nested_column);
+                assert_cast<ColumnNullable*>(dest_nested_column);
         dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
         auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_column().get_data();
 

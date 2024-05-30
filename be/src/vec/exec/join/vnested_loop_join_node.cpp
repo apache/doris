@@ -350,8 +350,8 @@ void VNestedLoopJoinNode::_update_additional_flags(Block* block) {
     if (_is_outer_join) {
         auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
         auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
-        auto& left_null_map = reinterpret_cast<ColumnUInt8&>(*p0);
-        auto& right_null_map = reinterpret_cast<ColumnUInt8&>(*p1);
+        auto& left_null_map = assert_cast<ColumnUInt8&>(*p0);
+        auto& right_null_map = assert_cast<ColumnUInt8&>(*p1);
         auto left_size = left_null_map.size();
         auto right_size = right_null_map.size();
 
@@ -373,10 +373,10 @@ void VNestedLoopJoinNode::_update_additional_flags(Block* block) {
 void VNestedLoopJoinNode::_resize_fill_tuple_is_null_column(size_t new_size, int left_flag,
                                                             int right_flag) {
     if (_is_outer_join) {
-        reinterpret_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
+        assert_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
                 ->get_data()
                 .resize_fill(new_size, left_flag);
-        reinterpret_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
+        assert_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
                 ->get_data()
                 .resize_fill(new_size, right_flag);
     }

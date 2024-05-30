@@ -288,7 +288,7 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
 
         // handle empty element
         if (element.size == 0) {
-            auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
+            auto& nested_null_col = assert_cast<ColumnNullable&>(nested_column);
             nested_null_col.get_nested_column().insert_default();
             nested_null_col.get_null_map_data().push_back(0);
             ++element_num;
@@ -298,7 +298,7 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         // handle null element, need to distinguish null and "null"
         if (!has_quota && element.size == 4 && strncmp(element.data, "null", 4) == 0) {
             // insert null
-            auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
+            auto& nested_null_col = assert_cast<ColumnNullable&>(nested_column);
             nested_null_col.get_nested_column().insert_default();
             nested_null_col.get_null_map_data().push_back(1);
             ++element_num;

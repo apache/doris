@@ -257,7 +257,7 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
             max_size = rhs.max_size;
 
             data->insert_range_from(*rhs.data, 0,
-                                    std::min(assert_cast<size_t>(max_size - size()), rhs.size()));
+                                    std::min(static_cast<size_t>(max_size - size()), rhs.size()));
         } else {
             data->insert_range_from(*rhs.data, 0, rhs.size());
         }
@@ -354,7 +354,7 @@ struct AggregateFunctionArrayAggData {
     void insert_result_into(IColumn& to) const {
         auto& to_arr = assert_cast<ColumnArray&>(to);
         auto& to_nested_col = to_arr.get_data();
-        auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
+        auto col_null = assert_cast<ColumnNullable*>(&to_nested_col);
         auto& vec = assert_cast<ColVecType&>(col_null->get_nested_column()).get_data();
         size_t num_rows = null_map->size();
         auto& nested_column_data = nested_column->get_data();
@@ -454,7 +454,7 @@ struct AggregateFunctionArrayAggData<StringRef> {
     void insert_result_into(IColumn& to) const {
         auto& to_arr = assert_cast<ColumnArray&>(to);
         auto& to_nested_col = to_arr.get_data();
-        auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
+        auto col_null = assert_cast<ColumnNullable*>(&to_nested_col);
         auto& vec = assert_cast<ColVecType&>(col_null->get_nested_column());
         size_t num_rows = null_map->size();
         for (size_t i = 0; i < num_rows; ++i) {
@@ -602,7 +602,7 @@ public:
             this->data(place).insert_result_into(to);
         } else {
             if (to_nested_col.is_nullable()) {
-                auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
+                auto col_null = assert_cast<ColumnNullable*>(&to_nested_col);
                 this->data(place).insert_result_into(col_null->get_nested_column());
                 col_null->get_null_map_data().resize_fill(col_null->get_nested_column().size(), 0);
             } else {
@@ -705,7 +705,7 @@ public:
             auto& to_arr = assert_cast<ColumnArray&>(*dst);
             auto& to_nested_col = to_arr.get_data();
             DCHECK(num_rows == columns[0]->size());
-            auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
+            auto col_null = assert_cast<ColumnNullable*>(&to_nested_col);
             const auto& col_src = assert_cast<const ColumnNullable&>(*(columns[0]));
 
             for (size_t i = 0; i < num_rows; ++i) {

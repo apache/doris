@@ -61,7 +61,7 @@ Status DataTypeJsonb::from_string(ReadBuffer& rb, IColumn* column) const {
     JsonBinaryValue value;
     RETURN_IF_ERROR(value.from_json_string(rb.position(), rb.count()));
 
-    auto* column_string = static_cast<ColumnString*>(column);
+    auto* column_string = assert_cast<ColumnString*>(column);
     column_string->insert_data(value.value(), value.size());
 
     return Status::OK();

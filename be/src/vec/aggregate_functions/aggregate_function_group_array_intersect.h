@@ -101,7 +101,7 @@ struct AggregateFunctionGroupArrayIntersectData {
 
         if (is_column_data_nullable) {
             auto* const_col_data = const_cast<IColumn*>(&column_data);
-            col_null = static_cast<ColumnNullable*>(const_col_data);
+            col_null = assert_cast<ColumnNullable*>(const_col_data);
             nested_column_data = &assert_cast<const ColVecType&>(col_null->get_nested_column());
         } else {
             nested_column_data = &static_cast<const ColVecType&>(column_data);
@@ -300,7 +300,7 @@ public:
 
         const auto& set = this->data(place).value;
         if (is_nullable) {
-            auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
+            auto col_null = assert_cast<ColumnNullable*>(&to_nested_col);
             auto& nested_col =
                     assert_cast<typename State::ColVecType&>(col_null->get_nested_column());
             offsets_to.push_back(offsets_to.back() + set->size() + (set->contain_null() ? 1 : 0));
@@ -379,7 +379,7 @@ public:
 
         if (is_column_data_nullable) {
             auto const_col_data = const_cast<IColumn*>(&column_data);
-            col_null = static_cast<ColumnNullable*>(const_col_data);
+            col_null = assert_cast<ColumnNullable*>(const_col_data);
         }
 
         auto process_element = [&](size_t i) {
@@ -498,7 +498,7 @@ public:
         auto& arr_to = assert_cast<ColumnArray&>(to);
         ColumnArray::Offsets64& offsets_to = arr_to.get_offsets();
         auto& data_to = arr_to.get_data();
-        auto col_null = reinterpret_cast<ColumnNullable*>(&data_to);
+        auto col_null = assert_cast<ColumnNullable*>(&data_to);
 
         const auto& set = this->data(place).value;
         auto res_size = set->size();

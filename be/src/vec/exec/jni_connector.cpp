@@ -354,11 +354,11 @@ Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColum
 
 Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                         DataTypePtr& data_type, size_t num_rows) {
-    ColumnPtr& element_column = static_cast<ColumnArray&>(*doris_column).get_data_ptr();
+    ColumnPtr& element_column = assert_cast<ColumnArray&>(*doris_column).get_data_ptr();
     DataTypePtr& element_type = const_cast<DataTypePtr&>(
             (reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
                     ->get_nested_type());
-    ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*doris_column).get_offsets();
+    ColumnArray::Offsets64& offsets_data = assert_cast<ColumnArray&>(*doris_column).get_offsets();
 
     int64* offsets = reinterpret_cast<int64*>(address.next_meta_as_ptr());
     size_t origin_size = offsets_data.size();
@@ -376,7 +376,7 @@ Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumn
 
 Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                       DataTypePtr& data_type, size_t num_rows) {
-    auto& map = static_cast<ColumnMap&>(*doris_column);
+    auto& map = assert_cast<ColumnMap&>(*doris_column);
     DataTypePtr& key_type = const_cast<DataTypePtr&>(
             reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type());
     DataTypePtr& value_type = const_cast<DataTypePtr&>(
@@ -402,7 +402,7 @@ Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPt
 
 Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                          DataTypePtr& data_type, size_t num_rows) {
-    auto& doris_struct = static_cast<ColumnStruct&>(*doris_column);
+    auto& doris_struct = assert_cast<ColumnStruct&>(*doris_column);
     const DataTypeStruct* doris_struct_type =
             reinterpret_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
     for (int i = 0; i < doris_struct.tuple_size(); ++i) {
@@ -624,15 +624,15 @@ Status JniConnector::_fill_column_meta(ColumnPtr& doris_column, DataTypePtr& dat
     case TypeIndex::String:
         [[fallthrough]];
     case TypeIndex::FixedString: {
-        auto& string_column = static_cast<ColumnString&>(*data_column);
+        auto& string_column = assert_cast<ColumnString&>(*data_column);
         // inert offsets
         meta_data.emplace_back((long)string_column.get_offsets().data());
         meta_data.emplace_back((long)string_column.get_chars().data());
         break;
     }
     case TypeIndex::Array: {
-        ColumnPtr& element_column = static_cast<ColumnArray&>(*data_column).get_data_ptr();
-        meta_data.emplace_back((long)static_cast<ColumnArray&>(*data_column).get_offsets().data());
+        ColumnPtr& element_column = assert_cast<ColumnArray&>(*data_column).get_data_ptr();
+        meta_data.emplace_back((long)assert_cast<ColumnArray&>(*data_column).get_offsets().data());
         DataTypePtr& element_type = const_cast<DataTypePtr&>(
                 (reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
                         ->get_nested_type());
@@ -640,7 +640,7 @@ Status JniConnector::_fill_column_meta(ColumnPtr& doris_column, DataTypePtr& dat
         break;
     }
     case TypeIndex::Struct: {
-        auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
+        auto& doris_struct = assert_cast<ColumnStruct&>(*data_column);
         const DataTypeStruct* doris_struct_type =
                 reinterpret_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
         for (int i = 0; i < doris_struct.tuple_size(); ++i) {
@@ -651,7 +651,7 @@ Status JniConnector::_fill_column_meta(ColumnPtr& doris_column, DataTypePtr& dat
         break;
     }
     case TypeIndex::Map: {
-        auto& map = static_cast<ColumnMap&>(*data_column);
+        auto& map = assert_cast<ColumnMap&>(*data_column);
         DataTypePtr& key_type = const_cast<DataTypePtr&>(
                 reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
                         ->get_key_type());

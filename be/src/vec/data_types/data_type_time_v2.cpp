@@ -83,7 +83,7 @@ void DataTypeDateV2::to_string(const IColumn& column, size_t row_num, BufferWrit
 }
 
 Status DataTypeDateV2::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnUInt32*>(column);
+    auto* column_data = assert_cast<ColumnUInt32*>(column);
     UInt32 val = 0;
     if (!read_date_v2_text_impl<UInt32>(val, rb)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",

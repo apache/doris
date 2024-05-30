@@ -118,37 +118,37 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
     } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16> ||
                          std::is_same_v<T, Int32>) {
         column.resize(old_column_size + arg.int32_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = assert_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int32_value_size(); ++i) {
             data[old_column_size + i] = arg.int32_value(i);
         }
     } else if constexpr (std::is_same_v<T, UInt64>) {
         column.resize(old_column_size + arg.uint64_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = assert_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.uint64_value_size(); ++i) {
             data[old_column_size + i] = arg.uint64_value(i);
         }
     } else if constexpr (std::is_same_v<T, Int64>) {
         column.resize(old_column_size + arg.int64_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = assert_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int64_value_size(); ++i) {
             data[old_column_size + i] = arg.int64_value(i);
         }
     } else if constexpr (std::is_same_v<T, float>) {
         column.resize(old_column_size + arg.float_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = assert_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.float_value_size(); ++i) {
             data[old_column_size + i] = arg.float_value(i);
         }
     } else if constexpr (std::is_same_v<T, double>) {
         column.resize(old_column_size + arg.double_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = assert_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.double_value_size(); ++i) {
             data[old_column_size + i] = arg.double_value(i);
         }
     } else if constexpr (std::is_same_v<T, Int128>) {
         column.resize(old_column_size + arg.bytes_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = assert_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.bytes_value_size(); ++i) {
             data[old_column_size + i] = *(int128_t*)(arg.bytes_value(i).c_str());
         }
@@ -233,7 +233,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
 template <typename T>
 void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                       const JsonbValue* arg) const {
-    auto& col = reinterpret_cast<ColumnType&>(column);
+    auto& col = assert_cast<ColumnType&>(column);
     if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) {
         col.insert_value(static_cast<const JsonbInt8Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Int16> || std::is_same_v<T, UInt16>) {
@@ -320,7 +320,7 @@ Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
 template <typename T>
 Status DataTypeNumberSerDe<T>::read_one_cell_from_json(IColumn& column,
                                                        const rapidjson::Value& value) const {
-    auto& col = reinterpret_cast<ColumnType&>(column);
+    auto& col = assert_cast<ColumnType&>(column);
     switch (value.GetType()) {
     case rapidjson::Type::kNumberType:
         if (value.IsUint()) {

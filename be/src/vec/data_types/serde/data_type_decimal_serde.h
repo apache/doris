@@ -157,7 +157,7 @@ Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValu
                   std::is_same_v<T, Decimal256> || std::is_same_v<T, Decimal<Int32>>) {
         auto old_column_size = column.size();
         column.resize(old_column_size + arg.bytes_value_size());
-        auto& data = reinterpret_cast<ColumnDecimal<T>&>(column).get_data();
+        auto& data = assert_cast<ColumnDecimal<T>&>(column).get_data();
         for (int i = 0; i < arg.bytes_value_size(); ++i) {
             data[old_column_size + i] = *(T*)(arg.bytes_value(i).c_str());
         }
@@ -201,7 +201,7 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
 template <typename T>
 void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                        const JsonbValue* arg) const {
-    auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
+    auto& col = assert_cast<ColumnDecimal<T>&>(column);
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Decimal128V3>) {

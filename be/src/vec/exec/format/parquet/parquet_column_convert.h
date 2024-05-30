@@ -287,7 +287,7 @@ public:
         auto* src_data = static_cast<const ColumnUInt8*>(from_col.get());
         size_t length = src_data->size();
         size_t num_values = length / _type_length;
-        auto& string_col = static_cast<ColumnString&>(*to_col.get());
+        auto& string_col = assert_cast<ColumnString&>(*to_col.get());
         auto& offsets = string_col.get_offsets();
         auto& chars = string_col.get_chars();
 
@@ -357,7 +357,7 @@ public:
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        auto& data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data();
+        auto& data = assert_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data();
         size_t offset = 0;
         for (int i = 0; i < rows; i++) {
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
@@ -402,7 +402,7 @@ class StringToDecimal : public PhysicalToLogicalConverter {
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        auto& data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data();
+        auto& data = assert_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data();
         for (int i = 0; i < rows; i++) {
             size_t len = offset[i] - offset[i - 1];
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
@@ -443,7 +443,7 @@ class NumberToDecimal : public PhysicalToLogicalConverter {
         dst_col->resize(start_idx + rows);
 
         DecimalScaleParams& scale_params = _convert_params->decimal_scale;
-        auto* data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data().data();
+        auto* data = assert_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data().data();
 
         for (int i = 0; i < rows; i++) {
             ValueCopyType value = src_data[i];
@@ -468,7 +468,7 @@ class Int32ToDate : public PhysicalToLogicalConverter {
         dst_col->reserve(start_idx + rows);
 
         auto& src_data = static_cast<const ColumnVector<int32>*>(src_col.get())->get_data();
-        auto& data = static_cast<ColumnDateV2*>(dst_col.get())->get_data();
+        auto& data = assert_cast<ColumnDateV2*>(dst_col.get())->get_data();
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
 
         for (int i = 0; i < rows; i++) {
@@ -490,7 +490,7 @@ struct Int64ToTimestamp : public PhysicalToLogicalConverter {
         dst_col->resize(start_idx + rows);
 
         auto src_data = static_cast<const ColumnVector<int64_t>*>(src_col.get())->get_data().data();
-        auto& data = static_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
+        auto& data = assert_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
 
         for (int i = 0; i < rows; i++) {
             int64_t x = src_data[i];
@@ -514,7 +514,7 @@ struct Int96toTimestamp : public PhysicalToLogicalConverter {
         auto ParquetInt96_data = (ParquetInt96*)src_data.data();
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
-        auto& data = static_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
+        auto& data = assert_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
 
         for (int i = 0; i < rows; i++) {
             ParquetInt96 src_cell_data = ParquetInt96_data[i];

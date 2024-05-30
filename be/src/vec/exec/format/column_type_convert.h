@@ -153,7 +153,7 @@ class NumericToStringConverter : public ColumnTypeConverter {
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
-        auto& string_col = static_cast<ColumnString&>(*to_col.get());
+        auto& string_col = assert_cast<ColumnString&>(*to_col.get());
         for (int i = 0; i < rows; ++i) {
             if constexpr (SrcPrimitiveType == TYPE_LARGEINT) {
                 string value = int128_to_string(src_data[i]);
@@ -183,7 +183,7 @@ public:
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
-        auto& string_col = static_cast<ColumnString&>(*to_col.get());
+        auto& string_col = assert_cast<ColumnString&>(*to_col.get());
         for (int i = 0; i < rows; ++i) {
             std::string value = src_data[i].to_string(_scale);
             string_col.insert_data(value.data(), value.size());
@@ -203,7 +203,7 @@ class TimeToStringConverter : public ColumnTypeConverter {
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
-        auto& string_col = static_cast<ColumnString&>(*to_col.get());
+        auto& string_col = assert_cast<ColumnString&>(*to_col.get());
         char buf[50];
         for (int i = 0; i < rows; ++i) {
             int len = (reinterpret_cast<const SrcCppType&>(src_data[i])).to_buffer(buf);
@@ -379,7 +379,7 @@ public:
         MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
 
         size_t rows = from_col->size();
-        auto& string_col = static_cast<ColumnString&>(*from_col->assume_mutable().get());
+        auto& string_col = assert_cast<ColumnString&>(*from_col->assume_mutable().get());
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
         auto& data = static_cast<DstColumnType*>(to_col.get())->get_data();

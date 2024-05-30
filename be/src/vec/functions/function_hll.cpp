@@ -55,7 +55,7 @@ struct HLLCardinality {
 
     static void vector(const std::vector<HyperLogLog>& data, MutableColumnPtr& col_res) {
         typename ColumnVector<Int64>::Container& res =
-                reinterpret_cast<ColumnVector<Int64>*>(col_res.get())->get_data();
+                assert_cast<ColumnVector<Int64>*>(col_res.get())->get_data();
 
         auto size = res.size();
         for (int i = 0; i < size; ++i) {
@@ -66,7 +66,7 @@ struct HLLCardinality {
     static void vector_nullable(const std::vector<HyperLogLog>& data, const NullMap& nullmap,
                                 MutableColumnPtr& col_res) {
         typename ColumnVector<Int64>::Container& res =
-                reinterpret_cast<ColumnVector<Int64>*>(col_res.get())->get_data();
+                assert_cast<ColumnVector<Int64>*>(col_res.get())->get_data();
 
         auto size = res.size();
         for (int i = 0; i < size; ++i) {
@@ -220,7 +220,7 @@ struct HLLHash {
         if constexpr (std::is_same_v<ColumnType, ColumnString>) {
             const ColumnString::Chars& data = col->get_chars();
             const ColumnString::Offsets& offsets = col->get_offsets();
-            auto* res_column = reinterpret_cast<ColumnHLL*>(col_res.get());
+            auto* res_column = assert_cast<ColumnHLL*>(col_res.get());
             auto& res_data = res_column->get_data();
             size_t size = offsets.size();
 
@@ -240,7 +240,7 @@ struct HLLHash {
         if constexpr (std::is_same_v<ColumnType, ColumnString>) {
             const ColumnString::Chars& data = col->get_chars();
             const ColumnString::Offsets& offsets = col->get_offsets();
-            auto* res_column = reinterpret_cast<ColumnHLL*>(col_res.get());
+            auto* res_column = assert_cast<ColumnHLL*>(col_res.get());
             auto& res_data = res_column->get_data();
             size_t size = offsets.size();
 

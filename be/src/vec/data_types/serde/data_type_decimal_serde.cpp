@@ -166,7 +166,7 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
     const auto* arrow_decimal_type =
             static_cast<const arrow::DecimalType*>(arrow_array->type().get());
     const auto arrow_scale = arrow_decimal_type->scale();
-    auto& column_data = static_cast<ColumnDecimal<T>&>(column).get_data();
+    auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
     // Decimal<Int128> for decimalv2
     // Decimal<Int128I> for deicmalv3
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {

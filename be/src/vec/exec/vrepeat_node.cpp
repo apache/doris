@@ -128,7 +128,7 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
 
         if (is_repeat_slot) {
             DCHECK(_output_slots[cur_col]->is_nullable());
-            auto* nullable_column = reinterpret_cast<ColumnNullable*>(columns[cur_col].get());
+            auto* nullable_column = assert_cast<ColumnNullable*>(columns[cur_col].get());
             auto& null_map = nullable_column->get_null_map_data();
             auto* column_ptr = columns[cur_col].get();
 

@@ -80,7 +80,7 @@ std::string DataTypeNumberBase<T>::to_string(const T& value) const {
 }
 template <typename T>
 Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnVector<T>*>(column);
+    auto* column_data = assert_cast<ColumnVector<T>*>(column);
     if constexpr (std::is_same<T, UInt128>::value) {
         // TODO: support for Uint128
         return Status::InvalidArgument("uint128 is not support");

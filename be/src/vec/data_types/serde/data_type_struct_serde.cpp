@@ -253,7 +253,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(
             from = i + 1;
         }
     }
-    auto& struct_column = static_cast<ColumnStruct&>(column);
+    auto& struct_column = assert_cast<ColumnStruct&>(column);
     for (size_t loc = 0; loc < struct_column.get_columns().size(); loc++) {
         Status st = elem_serdes_ptrs[loc]->deserialize_one_cell_from_hive_text(
                 struct_column.get_column(loc), slices[loc], options,
@@ -321,7 +321,7 @@ void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const Nul
 void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                  int start, int end,
                                                  const cctz::time_zone& ctz) const {
-    auto& struct_column = static_cast<ColumnStruct&>(column);
+    auto& struct_column = assert_cast<ColumnStruct&>(column);
     auto concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
     DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
     for (size_t i = 0; i < struct_column.tuple_size(); ++i) {

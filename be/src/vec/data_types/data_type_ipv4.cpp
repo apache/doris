@@ -52,7 +52,7 @@ void DataTypeIPv4::to_string(const IColumn& column, size_t row_num, BufferWritab
 }
 
 Status DataTypeIPv4::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnIPv4*>(column);
+    auto* column_data = assert_cast<ColumnIPv4*>(column);
     IPv4 val = 0;
     if (!read_ipv4_text_impl<IPv4>(val, rb)) {
         return Status::InvalidArgument("parse ipv4 fail, string: '{}'",

@@ -60,7 +60,7 @@ ColumnArrayMutableData create_mutable_data(const IColumn* nested_col, bool is_nu
     if (is_nullable) {
         dst.array_nested_col =
                 ColumnNullable::create(nested_col->clone_empty(), ColumnUInt8::create());
-        auto* nullable_col = reinterpret_cast<ColumnNullable*>(dst.array_nested_col.get());
+        auto* nullable_col = assert_cast<ColumnNullable*>(dst.array_nested_col.get());
         dst.nested_nullmap_data = &nullable_col->get_null_map_data();
         dst.nested_col = nullable_col->get_nested_column_ptr().get();
     } else {
@@ -69,7 +69,7 @@ ColumnArrayMutableData create_mutable_data(const IColumn* nested_col, bool is_nu
     }
     dst.offsets_col = ColumnArray::ColumnOffsets::create();
     dst.offsets_ptr =
-            &reinterpret_cast<ColumnArray::ColumnOffsets*>(dst.offsets_col.get())->get_data();
+            &assert_cast<ColumnArray::ColumnOffsets*>(dst.offsets_col.get())->get_data();
     return dst;
 }
 

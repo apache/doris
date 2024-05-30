@@ -107,7 +107,7 @@ public:
         } else {
             col = check_and_get_column<ColumnFloat64>(column.get());
         }
-        auto* res_column = reinterpret_cast<ColumnQuantileState*>(column_result.get());
+        auto* res_column = assert_cast<ColumnQuantileState*>(column_result.get());
         auto& res_data = res_column->get_data();
 
         size_t size = col->size();

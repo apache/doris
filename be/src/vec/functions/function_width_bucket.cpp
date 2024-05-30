@@ -91,7 +91,7 @@ private:
                 reinterpret_cast<const ColumnType&>(min_value_column);
         const ColumnType& max_value_column_concrete =
                 reinterpret_cast<const ColumnType&>(max_value_column);
-        ColumnInt64& nested_column_concrete = reinterpret_cast<ColumnInt64&>(nested_column);
+        ColumnInt64& nested_column_concrete = assert_cast<ColumnInt64&>(nested_column);
 
         size_t input_rows_count = expr_column.size();
 

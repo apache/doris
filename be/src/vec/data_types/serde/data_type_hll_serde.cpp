@@ -104,7 +104,7 @@ Status DataTypeHLLSerDe::write_column_to_pb(const IColumn& column, PValues& resu
     return Status::OK();
 }
 Status DataTypeHLLSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    auto& col = reinterpret_cast<ColumnHLL&>(column);
+    auto& col = assert_cast<ColumnHLL&>(column);
     for (int i = 0; i < arg.bytes_value_size(); ++i) {
         HyperLogLog value;
         value.deserialize(Slice(arg.bytes_value(i)));
@@ -126,7 +126,7 @@ void DataTypeHLLSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
     result.writeEndBinary();
 }
 void DataTypeHLLSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    auto& col = reinterpret_cast<ColumnHLL&>(column);
+    auto& col = assert_cast<ColumnHLL&>(column);
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     HyperLogLog hyper_log_log(Slice(blob->getBlob()));
     col.insert_value(hyper_log_log);

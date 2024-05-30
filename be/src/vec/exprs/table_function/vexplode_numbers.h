@@ -49,14 +49,14 @@ public:
         max_step = std::min(max_step, (int)(_cur_size - _cur_offset));
         if (_is_const) {
             if (_is_nullable) {
-                static_cast<ColumnInt32*>(
-                        static_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
+                assert_cast<ColumnInt32*>(
+                        assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
                         ->insert_range_from(*_elements_column, _cur_offset, max_step);
-                static_cast<ColumnUInt8*>(
-                        static_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+                assert_cast<ColumnUInt8*>(
+                        assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
                         ->insert_many_defaults(max_step);
             } else {
-                static_cast<ColumnInt32*>(column.get())
+                assert_cast<ColumnInt32*>(column.get())
                         ->insert_range_from(*_elements_column, _cur_offset, max_step);
             }
         } else {
