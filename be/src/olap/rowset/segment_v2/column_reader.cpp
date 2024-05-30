@@ -725,7 +725,8 @@ Status ColumnReader::new_agg_state_iterator(ColumnIterator** iterator) {
         return Status::OK();
     }
 
-    const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(_agg_state_ptr.get());
+    const auto* agg_state_type =
+            assert_cast<const vectorized::DataTypeAggState*>(_agg_state_ptr.get());
     auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
 
     if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
