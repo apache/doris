@@ -75,7 +75,7 @@ public class Log4jConfig extends XmlConfiguration {
     // Log patterns
     private static final String RUNTIME_LOG_PATTERN
             = RUNTIME_LOG_MARKER_PLACEHOLDER + "%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)"
-            + RUNTIME_LOG_FORMAT_PLACEHOLDER;
+            + RUNTIME_LOG_FORMAT_PLACEHOLDER + "%m%n";
     private static final String AUDIT_LOG_PATTERN
             = AUDIT_LOG_MARKER_PLACEHOLDER + "%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n";
 
