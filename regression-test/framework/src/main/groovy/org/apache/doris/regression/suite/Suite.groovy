@@ -769,9 +769,9 @@ class Suite implements GroovyInterceptable {
             cmd = "scp -o StrictHostKeyChecking=no -r ${files} ${username}@${host}:${filePath}"
         }
         staticLogger.info("Execute: ${cmd}".toString())
-        Process process = cmd.execute()
+        Process process = new ProcessBuilder("/bin/bash", "-c", cmd).redirectErrorStream(true).start()
         def code = process.waitFor()
-        staticLogger.info("execute result ${process.getText()}.")
+        staticLogger.info("execute output ${process.text}")
         Assert.assertEquals(0, code)
     }
 
@@ -809,12 +809,13 @@ class Suite implements GroovyInterceptable {
         def executeCommand = { String cmd, Boolean mustSuc ->
             try {
                 staticLogger.info("execute ${cmd}")
-                def proc = cmd.execute()
-                // if timeout, exception will be thrown
-                proc.waitForOrKill(900 * 1000)
-                staticLogger.info("execute result ${proc.getText()}.")
-                if (mustSuc == true) {
-                    Assert.assertEquals(0, proc.exitValue())
+                def proc = new ProcessBuilder("/bin/bash", "-c", cmd).redirectErrorStream(true).start()
+                int exitcode = proc.waitFor()
+                if (exitcode != 0) {
+                    staticLogger.info("exit code: ${exitcode}, output\n: ${proc.text}")
+                    if (mustSuc == true) {
+                       Assert.assertEquals(0, exitCode)
+                    }
                 }
             } catch (IOException e) {
                 Assert.assertTrue(false, "execute timeout")
