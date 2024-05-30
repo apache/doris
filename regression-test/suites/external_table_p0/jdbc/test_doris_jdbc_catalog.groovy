@@ -75,7 +75,7 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """ CREATE TABLE `bowen_hll_test` (
           `pin_id` bigint(20) NOT NULL COMMENT "",
           `pv_date` datev2 NOT NULL COMMENT "",
-          `user_log_acct` hll HLL_UNION NULL COMMENT ""
+          `user_log_acct` hll HLL_UNION  COMMENT ""
         ) ENGINE=OLAP
         AGGREGATE KEY(`pin_id`, `pv_date`)
         DISTRIBUTED BY HASH(`pin_id`) BUCKETS 16
