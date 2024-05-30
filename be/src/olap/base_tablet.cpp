@@ -54,7 +54,6 @@ bvar::LatencyRecorder g_tablet_update_delete_bitmap_latency("doris_pk", "update_
 
 static bvar::Adder<size_t> g_total_tablet_num("doris_total_tablet_num");
 
-
 // read columns by read plan
 // read_index: ori_pos-> block_idx
 Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
