@@ -480,11 +480,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
 
 size_t AggSinkLocalState::_get_hash_table_size() const {
     return std::visit(
-            vectorized::Overload {[&](std::monostate& arg) -> size_t {
-                                      throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                             "uninited hash table");
-                                      return 0;
-                                  },
+            vectorized::Overload {[&](std::monostate& arg) -> size_t { return 0; },
                                   [&](auto& agg_method) { return agg_method.hash_table->size(); }},
             _agg_data->method_variant);
 }
