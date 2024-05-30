@@ -75,6 +75,22 @@ void OlapBlockDataConvertor::add_column_data_convertor(const TabletColumn& colum
 }
 
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
+OlapBlockDataConvertor::create_map_convertor(const TabletColumn& column) {
+    const auto& key_column = column.get_sub_column(0);
+    const auto& value_column = column.get_sub_column(1);
+    return std::make_unique<OlapColumnDataConvertorMap>(
+            create_olap_column_data_convertor(key_column),
+            create_olap_column_data_convertor(value_column));
+}
+
+OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
+OlapBlockDataConvertor::create_array_convertor(const TabletColumn& column) {
+    const auto& sub_column = column.get_sub_column(0);
+    return std::make_unique<OlapColumnDataConvertorArray>(
+            create_olap_column_data_convertor(sub_column));
+}
+
+OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
 OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& column) {
     switch (column.type()) {
     case FieldType::OLAP_FIELD_TYPE_OBJECT: {
@@ -89,11 +105,19 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
             dataTypes.push_back(
                     DataTypeFactory::instance().create_data_type(column.get_sub_column(i)));
         }
+
         auto agg_state_type = std::make_shared<vectorized::DataTypeAggState>(
                 dataTypes, column.get_result_is_nullable(), column.get_aggregation_name());
-        if (agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type ==
-            TYPE_STRING) {
+        auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
+
+        if (type == PrimitiveType::TYPE_STRING) {
             return std::make_unique<OlapColumnDataConvertorVarChar>(false);
+        } else if (type == PrimitiveType::TYPE_OBJECT) {
+            return std::make_unique<OlapColumnDataConvertorBitMap>();
+        } else if (type == PrimitiveType::TYPE_ARRAY) {
+            return create_array_convertor(column);
+        } else if (type == PrimitiveType::TYPE_MAP) {
+            return create_map_convertor(column);
         }
         return std::make_unique<OlapColumnDataConvertorAggState>();
     }
@@ -181,16 +205,10 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorStruct>(sub_convertors);
     }
     case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-        const auto& sub_column = column.get_sub_column(0);
-        return std::make_unique<OlapColumnDataConvertorArray>(
-                create_olap_column_data_convertor(sub_column));
+        return create_array_convertor(column);
     }
     case FieldType::OLAP_FIELD_TYPE_MAP: {
-        const auto& key_column = column.get_sub_column(0);
-        const auto& value_column = column.get_sub_column(1);
-        return std::make_unique<OlapColumnDataConvertorMap>(
-                create_olap_column_data_convertor(key_column),
-                create_olap_column_data_convertor(value_column));
+        return create_map_convertor(column);
     }
     default: {
         DCHECK(false) << "Invalid type in olap data convertor:" << int(column.type());

@@ -92,6 +92,8 @@ private:
     using OlapColumnDataConvertorBaseSPtr = std::shared_ptr<OlapColumnDataConvertorBase>;
 
     OlapColumnDataConvertorBaseUPtr create_olap_column_data_convertor(const TabletColumn& column);
+    OlapColumnDataConvertorBaseUPtr create_map_convertor(const TabletColumn& column);
+    OlapColumnDataConvertorBaseUPtr create_array_convertor(const TabletColumn& column);
 
     // accessors for different data types;
     class OlapColumnDataConvertorBase : public IOlapColumnDataAccessor {
