@@ -678,8 +678,6 @@ Status InvertedIndexColumnWriter::create(const Field* field,
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL128I)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL256)
         M(FieldType::OLAP_FIELD_TYPE_BOOL)
-        M(FieldType::OLAP_FIELD_TYPE_DOUBLE)
-        M(FieldType::OLAP_FIELD_TYPE_FLOAT)
 #undef M
     default:
         return Status::NotSupported("unsupported type for inverted index: " +
