@@ -23,6 +23,7 @@
 
 #include "gutil/strings/substitute.h"
 #include "short_key_index.h"
+#include "util/bvar_helper.h"
 #include "util/coding.h"
 
 using strings::Substitute;
