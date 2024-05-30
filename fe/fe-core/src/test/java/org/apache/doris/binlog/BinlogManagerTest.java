@@ -276,14 +276,9 @@ public class BinlogManagerTest {
         for (Map.Entry<Long, List<Long>> dbEntry : frameWork.entrySet()) {
             long dbId = dbEntry.getKey();
             for (long tableId : dbEntry.getValue()) {
-                if ((tableId / tableBaseId) % 2 != 0) {
-                    addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow));
-                    addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow));
-                    ++commitSeq;
-                } else {
-                    addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, 0, 0));
-                    addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, 0, 0));
-                }
+                addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow));
+                addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow));
+                ++commitSeq;
             }
         }
 

@@ -15,10 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.binlog;
+suite("test_set_operation_adjust_nullable") {
 
-import org.apache.doris.thrift.TBinlog;
+    sql """
+        DROP TABLE IF EXISTS t1
+    """
+    sql """
+        DROP TABLE IF EXISTS t2
+    """
 
-public interface BinlogComparator {
-    boolean isExpired(TBinlog binlog);
+    sql """
+        CREATE TABLE t1(c1 varchar) DISTRIBUTED BY hash(c1) PROPERTIES ("replication_num" = "1");
+    """
+
+    sql """
+        CREATE TABLE t2(c2 date) DISTRIBUTED BY hash(c2) PROPERTIES ("replication_num" = "1");
+    """
+
+    sql """
+        insert into t1 values('+06-00');
+    """
+
+    sql """
+        insert into t2 values('1990-11-11');
+    """
+
+    sql """
+        SELECT c1, c1 FROM t1 EXCEPT SELECT c2, c2 FROM t2;
+    """
 }
