@@ -37,6 +37,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "util/timezone_utils.h"
 #include "vec/common/int_exp.h"
 
@@ -3312,6 +3313,7 @@ void DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz
     set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(), 0);
 }
 
+// This method has bug, it can not process round correctly, related sql function: convert_tz
 template <typename T>
 bool DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
                                    const std::string& timezone) {
@@ -3323,6 +3325,7 @@ bool DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
     return true;
 }
 
+// This method has bug, it can not process round correctly, related sql function: convert_tz
 template <typename T>
 void DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
                                    const cctz::time_zone& ctz) {
@@ -3354,16 +3357,27 @@ void DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(
                     std::chrono::system_clock::from_time_t(0));
-    cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
 
-    const auto tp = cctz::convert(t, ctz);
-
-    if (scale > 6) [[unlikely]] {
+    // Do rounding before looking up the time zone.
+    if (scale > 6) {
         scale = 6;
     }
 
-    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
-             nano_seconds / int_exp10(9 - scale) * int_exp10(6 - scale));
+    nano_seconds /= common::exp10_i32(9 - scale - 1);
+
+    if (nano_seconds % 10 >= 5) {
+        nano_seconds += 10;
+    }
+
+    if (nano_seconds >= common::exp10_i32(scale + 1)) {
+        timestamp += 1;
+        nano_seconds = 0;
+    }
+
+    int32_t millisecond = (nano_seconds /= 10) * common::exp10_i32(6 - scale);
+    cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
+    const auto tp = cctz::convert(t, ctz);
+    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(), millisecond);
 }
 
 template <typename T>

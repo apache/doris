@@ -993,12 +993,17 @@ public:
     //construct datetime_value from timestamp and timezone
     //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative avaliable.
     //we don't do any check in it because it's hot path. any usage want ensure the time legality should check itself.
-    bool from_unixtime(int64_t, const std::string& timezone);
-    void from_unixtime(int64_t, const cctz::time_zone& ctz);
+    bool from_unixtime(int64_t timestamp, const std::string& timezone);
+    void from_unixtime(int64_t timestamp, const cctz::time_zone& ctz);
     bool from_unixtime(std::pair<int64_t, int64_t>, const std::string& timezone);
     void from_unixtime(std::pair<int64_t, int64_t>, const cctz::time_zone& ctz);
-    bool from_unixtime(int64_t, int32_t, const std::string& timezone, int scale);
-    void from_unixtime(int64_t, int32_t, const cctz::time_zone& ctz, int scale);
+    // Caller must normalize the millisecond/microsecond to nanoseconds.
+    // If not, the round up logical need to be implemented before calling this method.
+    // We want to make sure round up is correctly implemented in this function instead of by others.
+    bool from_unixtime(int64_t timestamp, int32_t nano_seconds, const std::string& timezone,
+                       int scale);
+    void from_unixtime(int64_t timestamp, int32_t nano_seconds, const cctz::time_zone& ctz,
+                       int scale);
 
     bool operator==(const DateV2Value<T>& other) const {
         // NOTE: This is not same with MySQL.

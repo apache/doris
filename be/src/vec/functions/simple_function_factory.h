@@ -61,6 +61,7 @@ void register_function_string(SimpleFunctionFactory& factory);
 void register_function_running_difference(SimpleFunctionFactory& factory);
 void register_function_date_time_to_string(SimpleFunctionFactory& factory);
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory);
+void register_function_from_unixtime(SimpleFunctionFactory& factory);
 void register_function_in(SimpleFunctionFactory& factory);
 void register_function_collection_in(SimpleFunctionFactory& factory);
 void register_function_if(SimpleFunctionFactory& factory);
@@ -252,6 +253,7 @@ public:
             register_function_utility(instance);
             register_function_date_time_to_string(instance);
             register_function_date_time_string_to_string(instance);
+            register_function_from_unixtime(instance);
             register_function_json(instance);
             register_function_jsonb(instance);
             register_function_hash(instance);

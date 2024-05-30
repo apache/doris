@@ -44,4 +44,25 @@ suite("test_from_unixtime") {
     qt_sql9 "select from_unixtime(-7629445119491449, \"%Y-%m-%d\");"
     qt_sql10 "select from_unixtime(-7629445119491449);"
 
+    sql """
+        drop table if exists from_unixtime_table;
+    """
+    sql """
+        create table if not exists from_unixtime_table (rowid integer, db double)
+        distributed by hash(rowid) 
+        properties("replication_num"="1")
+    """
+    sql """
+        insert into from_unixtime_table values (1, 123456.123), (2, -123456.123), (3, 123456.1234567), (4, -123456.1234567);
+    """
+
+    qt_sql11 """select from_unixtime(cast("123456.123" as Decimal(9,3)));"""
+    qt_sql12 """select from_unixtime(cast("-123456.123" as Decimal(9,3)));"""
+    qt_sql13 """select from_unixtime(cast("123456.1234567" as Decimal(13,7)));"""
+    qt_sql14 """select from_unixtime(cast("123456.1234567" as Decimal(13,7)));"""
+    qt_sql15 """select from_unixtime(32536771199.999999);"""
+    qt_sql16 """select from_unixtime(cast("123456.1234567" as Decimal(13,7)), "%Y-%m-%d %H:%i:%s");"""
+    qt_sql17 """
+        select *, from_unixtime(cast(db as Decimal(14, 6))) from from_unixtime_table order by rowid
+    """
 }
