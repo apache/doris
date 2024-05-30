@@ -571,6 +571,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     clearDropPartitionFailedMsg(olapTable.getId());
                 } catch (Exception e) {
                     recordDropPartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
+                    LOG.warn("has error", e);
                     if (executeFirstTime) {
                         throw new DdlException(e.getMessage());
                     }
@@ -586,6 +587,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         clearCreatePartitionFailedMsg(olapTable.getId());
                     } catch (Exception e) {
                         recordCreatePartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
+                        LOG.warn("has error", e);
                         if (executeFirstTime) {
                             throw new DdlException(e.getMessage());
                         }
