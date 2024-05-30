@@ -86,6 +86,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     public void beginTransaction() {
+        if (isGroupCommitHttpStream()) {
+            LOG.info("skip begin transaction for group commit http stream");
+            return;
+        }
         try {
             if (ctx.isTxnModel()) {
                 TransactionEntry txnEntry = ctx.getTxnEntry();
@@ -155,13 +159,15 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
-        TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
-        if (state == null) {
-            throw new AnalysisException("txn does not exist: " + txnId);
-        }
-        state.addTableIndexes((OlapTable) table);
-        if (physicalOlapTableSink.isPartialUpdate()) {
-            state.setSchemaForPartialUpdate((OlapTable) table);
+        if (!isGroupCommitHttpStream()) {
+            TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
+            if (state == null) {
+                throw new AnalysisException("txn does not exist: " + txnId);
+            }
+            state.addTableIndexes((OlapTable) table);
+            if (physicalOlapTableSink.isPartialUpdate()) {
+                state.setSchemaForPartialUpdate((OlapTable) table);
+            }
         }
     }
 
@@ -278,5 +284,9 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 txnStatus, loadedRows, filteredRows);
         // update it, so that user can get loaded rows in fe.audit.log
         ctx.updateReturnRows((int) loadedRows);
+    }
+
+    private boolean isGroupCommitHttpStream() {
+        return ConnectContext.get() != null && ConnectContext.get().isGroupCommitStreamLoadSql();
     }
 }
