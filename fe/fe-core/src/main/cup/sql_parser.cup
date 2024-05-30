@@ -30,6 +30,7 @@ import java.util.Locale;
 import java.util.Map;
 
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
+import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.SetOperationStmt.Qualifier;
 import org.apache.doris.analysis.SetOperationStmt.Operation;
 import org.apache.doris.analysis.SetOperationStmt.SetOperand;
@@ -928,6 +929,9 @@ nonterminal Long opt_passwd_expire_policy, opt_password_lock_time, passwd_expire
 // Routine load
 nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
+
+nonterminal ColumnNullableType opt_nullable_type;
+
 
 // Boolean
 nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local;
@@ -3954,14 +3958,14 @@ opt_is_key ::=
     ;
 
 column_definition ::=
-    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
+    ident:columnName type_def:typeDef opt_is_key:isKey opt_nullable_type:nullable_type opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, autoIncInitValue, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, nullable_type, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_nullable_type:nullable_type opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, autoIncInitValue, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, nullable_type, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
     ;
@@ -3977,6 +3981,20 @@ build_index_definition ::=
     KW_INDEX ident:indexName opt_partition_names:partitionNames
     {:
         RESULT = new IndexDef(indexName, partitionNames, true);
+    :}
+    ;
+
+opt_nullable_type ::=
+    {:
+        RESULT = ColumnNullableType.DEFAULT;
+    :}
+    | KW_NULL
+    {:
+        RESULT = ColumnNullableType.NULLABLE;
+    :}
+    | KW_NOT KW_NULL
+    {:
+        RESULT = ColumnNullableType.NOT_NULLABLE;
     :}
     ;
 

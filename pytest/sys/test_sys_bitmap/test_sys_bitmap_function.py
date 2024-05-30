@@ -144,7 +144,7 @@ def init_for_intersect(db_name, table_name):
         CREATE TABLE `pv_bitmap` (
           `dt` int(11) NULL COMMENT "",
           `page` varchar(10) NULL COMMENT "",
-          `user_id_bitmap` bitmap BITMAP_UNION NULL COMMENT ""
+          `user_id_bitmap` bitmap BITMAP_UNION  COMMENT ""
         ) ENGINE=OLAP
         AGGREGATE KEY(`dt`, `page`)
         COMMENT "OLAP"

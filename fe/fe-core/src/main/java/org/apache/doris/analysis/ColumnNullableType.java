@@ -15,20 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("lateral_view", "arrow_flight_sql") {
-    sql """ DROP TABLE IF EXISTS `test_explode_bitmap` """
-	sql """
-		CREATE TABLE `test_explode_bitmap` (
-		  `dt` int(11) NULL COMMENT "",
-		  `page` varchar(10) NULL COMMENT "",
-		  `user_id` bitmap BITMAP_UNION  COMMENT ""
-		) ENGINE=OLAP
-		AGGREGATE KEY(`dt`, `page`)
-		DISTRIBUTED BY HASH(`dt`) BUCKETS 2 
-		properties("replication_num"="1");
-	"""
-	sql """ insert into test_explode_bitmap values(1, '11', bitmap_from_string("1,2,3"));"""
-	sql """ insert into test_explode_bitmap values(2, '22', bitmap_from_string("22,33,44"));"""
+package org.apache.doris.analysis;
 
-	qt_sql_explode_bitmap1 """ select dt, e1 from test_explode_bitmap lateral view explode_bitmap(user_id) tmp1 as e1 order by dt, e1;"""
+import org.apache.doris.catalog.PrimitiveType;
+
+public enum ColumnNullableType {
+    UNKNOWN,
+    DEFAULT,
+    NULLABLE {
+        @Override
+        public Boolean getNullable(PrimitiveType type) {
+            return true;
+        }
+    },
+    NOT_NULLABLE {
+        @Override
+        public Boolean getNullable(PrimitiveType type) {
+            return false;
+        }
+    };
+
+    public Boolean getNullable(PrimitiveType type) {
+        if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
+            return false;
+        }
+        return true;
+    }
 }

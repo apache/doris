@@ -22,8 +22,8 @@ suite("test_bitmap_filter_nereids") {
     
         CREATE TABLE bitmap_table_nereids (
         `k1` int(11) NULL,
-        `k2` bitmap BITMAP_UNION NULL,
-        `k3` bitmap BITMAP_UNION NULL
+        `k2` bitmap BITMAP_UNION ,
+        `k3` bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(`k1`)
         COMMENT 'OLAP'
