@@ -38,9 +38,14 @@ public class WorkloadConditionBeScanRows implements WorkloadCondition {
 
     public static WorkloadConditionBeScanRows createWorkloadCondition(WorkloadConditionOperator op, String value)
             throws UserException {
-        long longValue = Long.parseLong(value);
-        if (longValue < 0) {
-            throw new UserException("invalid scan rows value, " + longValue + ", it requires >= 0");
+        long longValue = -1;
+        try {
+            longValue = Long.parseLong(value);
+            if (longValue < 0) {
+                throw new NumberFormatException();
+            }
+        } catch (NumberFormatException e) {
+            throw new UserException("invalid scan rows value: " + value + ", it requires >= 0");
         }
         return new WorkloadConditionBeScanRows(op, longValue);
     }
