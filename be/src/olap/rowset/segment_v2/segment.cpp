@@ -96,6 +96,9 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
           _rowset_id(rowset_id),
           _tablet_schema(std::move(tablet_schema)) {
     g_total_segment_num << 1;
+    // Should set the meta memusage value to column * 1k, since all columns will be load
+    // when call load operator
+    _meta_mem_usage += _tablet_schema->num_columns() * config::estimated_mem_per_column_reader;
 }
 
 Segment::~Segment() {
