@@ -419,9 +419,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         LOG.info("before replay erase table[{}]", tableId);
         RecycleTableInfo tableInfo = idToTable.remove(tableId);
         idToRecycleTime.remove(tableId);
-        Table table = tableInfo.getTable();
-        if (table.getType() == TableType.OLAP) {
-            Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, true);
+        // NPE may occur in some special case so we will take some precautions here.
+        if (tableInfo != null) {
+            Table table = tableInfo.getTable();
+            if (table.getType() == TableType.OLAP && !Env.isCheckpointThread()) {
+                Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, true);
+            }
         }
         LOG.info("replay erase table[{}]", tableId);
     }
