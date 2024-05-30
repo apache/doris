@@ -177,9 +177,13 @@ if [[ ! -d "${LOG_DIR}" ]]; then
 fi
 
 STDOUT_LOGGER="${LOG_DIR}/fe.out"
-if [[ "${RUN_CONSOLE}" -eq 1 ]]; then
-    STDOUT_LOGGER="/dev/stdout"
-fi
+log() {
+    if [[ "${RUN_CONSOLE}" -eq 1 ]]; then
+        echo "$1"
+    else
+        echo "$1" >> "${STDOUT_LOGGER}"
+    fi
+}
 
 
 # check java version and choose correct JAVA_OPTS
@@ -189,16 +193,16 @@ java_version="$(
 )"
 if [[ "${java_version}" -eq 17 ]]; then
     if [[ -z "${JAVA_OPTS_FOR_JDK_17}" ]]; then
-        echo "JAVA_OPTS_FOR_JDK_17 is not set in fe.conf" >>"${STDOUT_LOGGER}"
+        log "JAVA_OPTS_FOR_JDK_17 is not set in fe.conf"
         exit 1
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
 else
-    echo "ERROR: The jdk_version is ${java_version}, must be 17." >>"${STDOUT_LOGGER}"
+    log "ERROR: The jdk_version is ${java_version}, must be 17."
     exit 1
 fi
-echo "Using Java version ${java_version}" >>"${STDOUT_LOGGER}"
-echo "${final_java_opt}" >>"${STDOUT_LOGGER}"
+log "Using Java version ${java_version}"
+log "${final_java_opt}"
 
 # add libs to CLASSPATH
 DORIS_FE_JAR=
@@ -245,7 +249,8 @@ if [[ -n "${JACOCO_COVERAGE_OPT}" ]]; then
     coverage_opt="${JACOCO_COVERAGE_OPT}"
 fi
 
-date >>"${STDOUT_LOGGER}"
+CUR_DATE=`date`
+log "start time: ${CUR_DATE}"
 
 if [[ "${HELPER}" != "" ]]; then
     # change it to '-helper' to be compatible with code in Frontend

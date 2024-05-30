@@ -80,8 +80,8 @@ public class Log4jConfig extends XmlConfiguration {
             = AUDIT_LOG_MARKER_PLACEHOLDER + "%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n";
 
     // Log markers
-    private static final String RUNTIME_LOG_MARKER = "RuntimeLogger";
-    private static final String AUDIT_LOG_MARKER = "AuditLogger";
+    private static final String RUNTIME_LOG_MARKER = "RuntimeLogger ";
+    private static final String AUDIT_LOG_MARKER = "AuditLogger ";
 
     // @formatter:off
     static {
