@@ -98,7 +98,7 @@ Status ShortKeyIndexDecoder::parse(const Slice& body, const segment_v2::ShortKey
 ShortKeyIndexDecoder::~ShortKeyIndexDecoder() {
     if (_parsed) {
         g_short_key_index_memory_bytes << -sizeof(_footer) - _key_data.size -
-                                                  _offsets.size() * sizeof(uint32_t) - 
+                                                  _offsets.size() * sizeof(uint32_t) -
                                                   sizeof(*this);
     }
 }
