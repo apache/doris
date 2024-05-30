@@ -52,6 +52,9 @@ bvar::PerSecond<bvar::Adder<uint64_t>> g_tablet_pk_not_found_per_second(
         "doris_pk", "lookup_not_found_per_second", &g_tablet_pk_not_found, 60);
 bvar::LatencyRecorder g_tablet_update_delete_bitmap_latency("doris_pk", "update_delete_bitmap");
 
+static bvar::Adder<size_t> g_total_tablet_num("doris_total_tablet_num");
+
+
 // read columns by read plan
 // read_index: ori_pos-> block_idx
 Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
@@ -158,10 +161,12 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
                 tablet_schema_with_merged_max_schema_version(_tablet_meta->all_rs_metas());
     }
     DCHECK(_max_version_schema);
+    g_total_tablet_num << 1;
 }
 
 BaseTablet::~BaseTablet() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
+    g_total_tablet_num << -1;
 }
 
 TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
