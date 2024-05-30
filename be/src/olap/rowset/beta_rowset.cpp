@@ -233,7 +233,7 @@ void BetaRowset::do_close() {
 
 Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                                  size_t new_rowset_start_seg_id,
-                                 std::set<int32_t>* without_index_uids) {
+                                 std::set<int64_t>* without_index_uids) {
     DCHECK(is_local());
     auto fs = _rowset_meta->fs();
     if (!fs) {

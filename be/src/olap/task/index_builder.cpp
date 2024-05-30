@@ -58,7 +58,7 @@ Status IndexBuilder::update_inverted_index_info() {
     LOG(INFO) << "begin to update_inverted_index_info, tablet=" << _tablet->tablet_id()
               << ", is_drop_op=" << _is_drop_op;
     // index ids that will not be linked
-    std::set<int32_t> without_index_uids;
+    std::set<int64_t> without_index_uids;
     for (auto i = 0; i < _input_rowsets.size(); ++i) {
         auto input_rowset = _input_rowsets[i];
         TabletSchemaSPtr output_rs_tablet_schema = std::make_shared<TabletSchema>();
