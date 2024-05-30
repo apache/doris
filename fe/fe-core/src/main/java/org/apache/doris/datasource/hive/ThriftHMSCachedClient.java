@@ -89,6 +89,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private static final short MAX_LIST_PARTITION_NUM = Config.max_hive_list_partition_num;
 
     private Queue<ThriftHMSClient> clientPool = new LinkedList<>();
+    private boolean isClosed = false;
     private final int poolSize;
     private final HiveConf hiveConf;
 
@@ -100,6 +101,21 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         }
         this.hiveConf = hiveConf;
         this.poolSize = poolSize;
+        this.isClosed = false;
+    }
+
+    @Override
+    public void close() {
+        synchronized (clientPool) {
+            this.isClosed = true;
+            while (!clientPool.isEmpty()) {
+                try {
+                    clientPool.poll().close();
+                } catch (Exception e) {
+                    LOG.warn("failed to close thrift client", e);
+                }
+            }
+        }
     }
 
     @Override
@@ -604,7 +620,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         @Override
         public void close() throws Exception {
             synchronized (clientPool) {
-                if (throwable != null || clientPool.size() > poolSize) {
+                if (isClosed || throwable != null || clientPool.size() > poolSize) {
                     client.close();
                 } else {
                     clientPool.offer(this);
