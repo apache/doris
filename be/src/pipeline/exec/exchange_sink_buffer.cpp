@@ -117,12 +117,6 @@ bool ExchangeSinkBuffer::can_write() const {
 }
 
 void ExchangeSinkBuffer::_set_ready_to_finish(bool all_done) {
-    if (all_done) {
-        auto weak_task_ctx = weak_task_exec_ctx();
-        if (auto pip_ctx = weak_task_ctx.lock()) {
-            _parent->set_reach_limit();
-        }
-    }
     if (_finish_dependency && _should_stop && all_done) {
         _finish_dependency->set_ready();
     }
@@ -420,7 +414,7 @@ void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
 void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     _instance_to_receiver_eof[id] = true;
-    _turn_off_channel(id);
+    _turn_off_channel(id, true);
     std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>> empty;
     swap(empty, _instance_to_broadcast_package_queue[id]);
 }
@@ -428,6 +422,20 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
 bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     return _instance_to_receiver_eof[id];
+}
+
+void ExchangeSinkBuffer::_turn_off_channel(InstanceLoId id, bool cleanup) {
+    if (!_rpc_channel_is_idle[id]) {
+        _rpc_channel_is_idle[id] = true;
+        auto all_done = _busy_channels.fetch_sub(1) == 1;
+        _set_ready_to_finish(all_done);
+        if (cleanup && all_done) {
+            auto weak_task_ctx = weak_task_exec_ctx();
+            if (auto pip_ctx = weak_task_ctx.lock()) {
+                _parent->set_reach_limit();
+            }
+        }
+    }
 }
 
 void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_time) {
