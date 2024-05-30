@@ -54,6 +54,12 @@ public class Log4jConfig extends XmlConfiguration {
         }
     }
 
+    private static final String LOG_PATTERN
+            = "<!--REPLACED BY MARKER-->%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n";
+    private static final String AUDIT_LOG_PATTERN
+            = "<!--REPLACED BY MARKER-->%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n";
+
+    // @formatter:off
     static {
         // CHECKSTYLE OFF
         xmlConfTemplateBuilder.append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n")
@@ -62,12 +68,12 @@ public class Log4jConfig extends XmlConfiguration {
             .append("  <Appenders>\n")
             .append("    <Console name=\"Console\" target=\"SYSTEM_OUT\">\n")
             .append("      <PatternLayout charset=\"UTF-8\">\n")
-            .append("        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n")
+            .append("        <Pattern>" + LOG_PATTERN + "</Pattern>\n")
             .append("      </PatternLayout>\n")
             .append("    </Console>\n")
             .append("    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i${sys_file_postfix}\" immediateFlush=\"${immediate_flush_flag}\">\n")
             .append("      <PatternLayout charset=\"UTF-8\">\n")
-            .append("        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n")
+            .append("        <Pattern>" + LOG_PATTERN + "</Pattern>\n")
             .append("      </PatternLayout>\n")
             .append("      <Policies>\n")
             .append("        <TimeBasedTriggeringPolicy/>\n")
@@ -85,7 +91,7 @@ public class Log4jConfig extends XmlConfiguration {
             .append("    </RollingFile>\n")
             .append("    <RollingFile name=\"SysWF\" fileName=\"${sys_log_dir}/fe.warn.log\" filePattern=\"${sys_log_dir}/fe.warn.log.${sys_file_pattern}-%i${sys_file_postfix}\" immediateFlush=\"${immediate_flush_flag}\">\n")
             .append("      <PatternLayout charset=\"UTF-8\">\n")
-            .append("        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n")
+            .append("        <Pattern>" + LOG_PATTERN + "</Pattern>\n")
             .append("      </PatternLayout>\n")
             .append("      <Policies>\n")
             .append("        <TimeBasedTriggeringPolicy/>\n")
@@ -103,7 +109,7 @@ public class Log4jConfig extends XmlConfiguration {
             .append("    </RollingFile>\n")
             .append("    <RollingFile name=\"Auditfile\" fileName=\"${audit_log_dir}/fe.audit.log\" filePattern=\"${audit_log_dir}/fe.audit.log.${audit_file_pattern}-%i${audit_file_postfix}\">\n")
             .append("      <PatternLayout charset=\"UTF-8\">\n")
-            .append("        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n</Pattern>\n")
+            .append("        <Pattern>" + AUDIT_LOG_PATTERN + "</Pattern>\n")
             .append("      </PatternLayout>\n")
             .append("      <Policies>\n")
             .append("        <TimeBasedTriggeringPolicy/>\n")
@@ -134,6 +140,7 @@ public class Log4jConfig extends XmlConfiguration {
             .append("</Configuration>");
         // CHECKSTYLE ON
     }
+    // @formatter:on
 
     private static StrSubstitutor strSub;
     private static String sysLogLevel;
