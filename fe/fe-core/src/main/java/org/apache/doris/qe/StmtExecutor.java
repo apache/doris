@@ -152,7 +152,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
-import org.apache.doris.nereids.trees.plans.commands.PreparedCommand;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -685,8 +685,8 @@ public class StmtExecutor {
             if (isForwardToMaster()) {
                 throw new UserException("Forward master command is not supported for prepare statement");
             }
-            logicalPlan = new PreparedCommand(String.valueOf(context.getStmtId()),
-                    logicalPlan, statementContext.getParams(), originStmt);
+            logicalPlan = new PrepareCommand(String.valueOf(context.getStmtId()),
+                    logicalPlan, statementContext.getPlaceholders(), originStmt);
 
         }
         // when we in transaction mode, we only support insert into command and transaction command

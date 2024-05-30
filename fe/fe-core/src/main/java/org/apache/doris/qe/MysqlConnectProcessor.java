@@ -33,10 +33,9 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.RelationId;
-import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
-import org.apache.doris.nereids.trees.plans.commands.PreparedCommand;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -149,9 +148,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
     }
 
-    private void handleExecute(Command preparedCommand, long stmtId, PreparedStatementContext prepCtx) {
-        PreparedCommand prepareStmt = (PreparedCommand) preparedCommand;
-        int paramCount = prepareStmt.getParamLen();
+    private void handleExecute(PrepareCommand prepareCommand, long stmtId, PreparedStatementContext prepCtx) {
+        int paramCount = prepareCommand.getParamLen();
         LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
         // null bitmap
         String stmtStr = "";
@@ -169,32 +167,32 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                         LOG.debug("code {}", typeCode);
                         // assign type to placeholders
                         typedPlaceholders.add(
-                                prepareStmt.params().get(i).withNewMysqlColType(MysqlColType.fromCode(typeCode)));
+                                prepareCommand.params().get(i).withNewMysqlColType(MysqlColType.fromCode(typeCode)));
                     }
                     // rewrite with new prepared statment with type info in placeholders
-                    prepCtx.command = prepareStmt.withNewPreparedCommand(typedPlaceholders);
-                    prepareStmt = (PreparedCommand) prepCtx.command;
+                    prepCtx.command = prepareCommand.withPlaceholders(typedPlaceholders);
+                    prepareCommand = (PrepareCommand) prepCtx.command;
                 }
                 // parse param data
                 for (int i = 0; i < paramCount; ++i) {
-                    RelationId exprId = prepareStmt.params().get(i).getExprId();
+                    PlaceholderId exprId = prepareCommand.params().get(i).getExprId();
                     if (isNull(nullbitmapData, i)) {
                         statementContext.getIdToPlaceholderRealExpr().put(exprId,
                                     new org.apache.doris.nereids.trees.expressions.literal.NullLiteral());
                         continue;
                     }
-                    MysqlColType type = prepareStmt.params().get(i).getMysqlColType();
+                    MysqlColType type = prepareCommand.params().get(i).getMysqlColType();
                     Literal l = Literal.getLiteralByMysqlType(type, packetBuf);
                     statementContext.getIdToPlaceholderRealExpr().put(exprId, l);
                 }
             }
-            ExecuteCommand executeStmt = new ExecuteCommand(String.valueOf(stmtId), prepareStmt, statementContext);
+            ExecuteCommand executeStmt = new ExecuteCommand(String.valueOf(stmtId), prepareCommand, statementContext);
             // TODO set real origin statement
             if (LOG.isDebugEnabled()) {
                 LOG.debug("executeStmt {}", executeStmt);
             }
             StatementBase stmt = new LogicalPlanAdapter(executeStmt, statementContext);
-            stmt.setOrigStmt(prepareStmt.getOriginalStmt());
+            stmt.setOrigStmt(prepareCommand.getOriginalStmt());
             executor = new StmtExecutor(ctx, stmt);
             ctx.setExecutor(executor);
             executor.execute();

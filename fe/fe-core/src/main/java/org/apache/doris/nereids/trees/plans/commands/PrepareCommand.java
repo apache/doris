@@ -36,13 +36,13 @@ import java.util.List;
 /**
  * Prepared Statement
  */
-public class PreparedCommand extends Command {
+public class PrepareCommand extends Command {
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
-    protected List<Placeholder> params = new ArrayList<>();
-    private final LogicalPlan inner;
+    private final List<Placeholder> placeholders = new ArrayList<>();
+    private final LogicalPlan logicalPlan;
 
-    private final String stmtName;
+    private final String name;
 
     private final OriginStatement originalStmt;
 
@@ -53,34 +53,29 @@ public class PreparedCommand extends Command {
      * @param placeholders the parameters for this prepared statement
      * @param originalStmt original statement from StmtExecutor
      */
-    public PreparedCommand(String name, LogicalPlan plan, List<Placeholder> placeholders,
+    public PrepareCommand(String name, LogicalPlan plan, List<Placeholder> placeholders,
                 OriginStatement originalStmt) {
-        super(PlanType.UNKNOWN);
-        this.inner = plan;
-        if (placeholders != null) {
-            this.params = placeholders;
-        }
-        this.stmtName = name;
+        super(PlanType.PREPARED_COMMAND);
+        this.logicalPlan = plan;
+        this.placeholders.addAll(placeholders);
+        this.name = name;
         this.originalStmt = originalStmt;
     }
 
     public String getName() {
-        return stmtName;
+        return name;
     }
 
     public List<Placeholder> params() {
-        return params;
+        return placeholders;
     }
 
     public int getParamLen() {
-        if (params == null) {
-            return 0;
-        }
-        return params.size();
+        return placeholders.size();
     }
 
     public LogicalPlan getInnerPlan() {
-        return inner;
+        return logicalPlan;
     }
 
     public OriginStatement getOriginalStmt() {
@@ -88,14 +83,11 @@ public class PreparedCommand extends Command {
     }
 
     /**
-     * return the labels of paramters
+     * return the labels of parameters
      */
     public List<String> getLabels() {
         List<String> labels = new ArrayList<>();
-        if (params == null) {
-            return labels;
-        }
-        for (Placeholder parameter : params) {
+        for (Placeholder parameter : placeholders) {
             labels.add("$" + parameter.getExprId().asInt());
         }
         return labels;
@@ -108,10 +100,10 @@ public class PreparedCommand extends Command {
         // register prepareStmt
         if (LOG.isDebugEnabled()) {
             LOG.debug("add prepared statement {}, isBinaryProtocol {}",
-                    stmtName, ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE);
+                    name, ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE);
         }
-        ctx.addPreparedStatementContext(stmtName,
-                new PreparedStatementContext(this, ctx, ctx.getStatementContext(), stmtName));
+        ctx.addPreparedStatementContext(name,
+                new PreparedStatementContext(this, ctx, ctx.getStatementContext(), name));
         if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             executor.sendStmtPrepareOK((int) ctx.getStmtId(), labels);
         }
@@ -122,7 +114,7 @@ public class PreparedCommand extends Command {
         return visitor.visit(this, context);
     }
 
-    public PreparedCommand withNewPreparedCommand(List<Placeholder> params) {
-        return new PreparedCommand(this.stmtName, this.inner, params, this.originalStmt);
+    public PrepareCommand withPlaceholders(List<Placeholder> placeholders) {
+        return new PrepareCommand(this.name, this.logicalPlan, placeholders, this.originalStmt);
     }
 }

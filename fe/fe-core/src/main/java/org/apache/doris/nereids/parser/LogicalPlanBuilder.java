@@ -497,7 +497,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     // Sort the parameters with token position to keep the order with original placeholders
     // in prepared statement.Otherwise, the order maybe broken
-    private Map<Token, Placeholder> tokenPosToParameters;
+    private final Map<Token, Placeholder> tokenPosToParameters = Maps.newTreeMap((pos1, pos2) -> {
+        int line = pos1.getLine() - pos2.getLine();
+        if (line != 0) {
+            return line;
+        }
+        return pos1.getCharPositionInLine() - pos2.getCharPositionInLine();
+    });
 
     public LogicalPlanBuilder() {
         forCreateView = false;
@@ -1015,11 +1021,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             logicalPlans.add(Pair.of(
                     ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext));
-            if (tokenPosToParameters != null) {
-                List<Placeholder> params = new ArrayList<>(tokenPosToParameters.values());
-                statementContext.setParams(params);
-                tokenPosToParameters.clear();
-            }
+            List<Placeholder> params = new ArrayList<>(tokenPosToParameters.values());
+            statementContext.setPlaceholders(params);
+            tokenPosToParameters.clear();
         }
         return logicalPlans;
     }
@@ -2334,15 +2338,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitPlaceholder(DorisParser.PlaceholderContext ctx) {
-        if (tokenPosToParameters == null) {
-            tokenPosToParameters = Maps.newTreeMap((pos1, pos2) -> {
-                int line = pos1.getLine() - pos2.getLine();
-                if (line != 0) {
-                    return line;
-                }
-                return pos1.getCharPositionInLine() - pos2.getCharPositionInLine();
-            });
-        }
         Placeholder parameter = new Placeholder(ConnectContext.get().getStatementContext().getNextPlaceholderId());
         tokenPosToParameters.put(ctx.start, parameter);
         return parameter;

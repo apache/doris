@@ -19,34 +19,38 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
+
+import java.util.Optional;
 
 /**
  * Placeholder for prepared statement
  */
-public class Placeholder extends Expression {
-    private final RelationId exprId;
-    private final MysqlColType mysqlColType;
+public class Placeholder extends Expression implements LeafExpression {
+    private final PlaceholderId exprId;
+    private final Optional<MysqlColType> mysqlColType;
 
-    public Placeholder(RelationId exprId) {
+    public Placeholder(PlaceholderId exprId) {
         this.exprId = exprId;
-        this.mysqlColType = null;
+        this.mysqlColType = Optional.empty();
     }
 
-    public Placeholder(RelationId exprId, MysqlColType mysqlColType) {
+    public Placeholder(PlaceholderId exprId, MysqlColType mysqlColType) {
         this.exprId = exprId;
-        this.mysqlColType = mysqlColType;
+        this.mysqlColType = Optional.of(mysqlColType);
     }
 
-    public RelationId getExprId() {
+    public PlaceholderId getExprId() {
         return exprId;
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitPlaceholderExpr(this, context);
+        return visitor.visitPlaceholder(this, context);
     }
 
     @Override
@@ -61,7 +65,7 @@ public class Placeholder extends Expression {
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return null;
+        return NullType.INSTANCE;
     }
 
     public Placeholder withNewMysqlColType(MysqlColType mysqlColType) {
@@ -69,6 +73,6 @@ public class Placeholder extends Expression {
     }
 
     public MysqlColType getMysqlColType() {
-        return mysqlColType;
+        return mysqlColType.get();
     }
 }

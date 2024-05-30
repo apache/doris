@@ -35,13 +35,13 @@ import java.util.stream.Collectors;
  */
 public class ExecuteCommand extends Command {
     private final String stmtName;
-    private final PreparedCommand preparedCommand;
+    private final PrepareCommand prepareCommand;
     private final StatementContext statementContext;
 
-    public ExecuteCommand(String stmtName, PreparedCommand preparedCommand, StatementContext statementContext) {
-        super(PlanType.UNKNOWN);
+    public ExecuteCommand(String stmtName, PrepareCommand prepareCommand, StatementContext statementContext) {
+        super(PlanType.EXECUTE_COMMAND);
         this.stmtName = stmtName;
-        this.preparedCommand = preparedCommand;
+        this.prepareCommand = prepareCommand;
         this.statementContext = statementContext;
     }
 
@@ -61,8 +61,8 @@ public class ExecuteCommand extends Command {
             throw new AnalysisException(
                     "prepare statement " + stmtName + " not found,  maybe expired");
         }
-        PreparedCommand preparedCommand = (PreparedCommand) preparedStmtCtx.command;
-        LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(preparedCommand.getInnerPlan(), executor.getContext()
+        PrepareCommand prepareCommand = (PrepareCommand) preparedStmtCtx.command;
+        LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(prepareCommand.getInnerPlan(), executor.getContext()
                 .getStatementContext());
         executor.setParsedStmt(planAdapter);
         // execute real statement
@@ -74,7 +74,7 @@ public class ExecuteCommand extends Command {
      */
     public String toSql() {
         // maybe slow
-        List<Expression> realValueExpr = preparedCommand.params().stream()
+        List<Expression> realValueExpr = prepareCommand.params().stream()
                 .map(placeholder -> statementContext.getIdToPlaceholderRealExpr().get(placeholder.getExprId()))
                 .collect(Collectors.toList());
         return "EXECUTE `" + stmtName + "`"

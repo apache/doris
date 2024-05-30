@@ -18,14 +18,10 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.trees.plans.commands.Command;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 
 public class PreparedStatementContext {
-    private static final Logger LOG = LogManager.getLogger(PrepareStmtContext.class);
-    public Command command;
+    public PrepareCommand command;
     public ConnectContext ctx;
     StatementContext statementContext;
     public String stmtString;
@@ -33,7 +29,7 @@ public class PreparedStatementContext {
     // Timestamp in millisecond last command starts at
     protected volatile long startTime;
 
-    public PreparedStatementContext(Command command,
+    public PreparedStatementContext(PrepareCommand command,
                 ConnectContext ctx, StatementContext statementContext, String stmtString) {
         this.command = command;
         this.ctx = ctx;
