@@ -935,8 +935,12 @@ public class AnalysisManager implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        writeJobInfo(out, analysisJobInfoMap);
-        writeJobInfo(out, analysisTaskInfoMap);
+        synchronized (analysisJobInfoMap) {
+            writeJobInfo(out, analysisJobInfoMap);
+        }
+        synchronized (analysisTaskInfoMap) {
+            writeJobInfo(out, analysisTaskInfoMap);
+        }
         writeTableStats(out);
     }
 
@@ -948,9 +952,11 @@ public class AnalysisManager implements Writable {
     }
 
     private void writeTableStats(DataOutput out) throws IOException {
-        out.writeInt(idToTblStats.size());
-        for (Entry<Long, TableStatsMeta> entry : idToTblStats.entrySet()) {
-            entry.getValue().write(out);
+        synchronized (idToTblStats) {
+            out.writeInt(idToTblStats.size());
+            for (Entry<Long, TableStatsMeta> entry : idToTblStats.entrySet()) {
+                entry.getValue().write(out);
+            }
         }
     }
 
@@ -997,7 +1003,9 @@ public class AnalysisManager implements Writable {
     }
 
     public void replayUpdateTableStatsStatus(TableStatsMeta tableStats) {
-        idToTblStats.put(tableStats.tblId, tableStats);
+        synchronized (idToTblStats) {
+            idToTblStats.put(tableStats.tblId, tableStats);
+        }
     }
 
     public void logCreateTableStats(TableStatsMeta tableStats) {
@@ -1042,7 +1050,9 @@ public class AnalysisManager implements Writable {
     }
 
     public void removeTableStats(long tableId) {
-        idToTblStats.remove(tableId);
+        synchronized (idToTblStats) {
+            idToTblStats.remove(tableId);
+        }
     }
 
     public ColStatsMeta findColStatsMeta(long tblId, String indexName, String colName) {
