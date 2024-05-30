@@ -1325,6 +1325,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (resultExpr.getSrcSlotRef() != null
                             && resultExpr.getSrcSlotRef().getTable() != null
                             && !resultExpr.getSrcSlotRef().getTable().isManagedTable()
+                            && createTableStmt.getPartitionDesc().getPartitionColNames() != null
                             && !createTableStmt.getPartitionDesc().getPartitionColNames().contains(
                                     resultExpr.getSrcSlotRef().getColumnName())) {
                         typeDef = new TypeDef(ScalarType.createStringType());

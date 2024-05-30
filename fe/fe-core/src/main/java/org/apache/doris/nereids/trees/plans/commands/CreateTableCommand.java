@@ -130,6 +130,7 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                 if (s.isColumnFromTable()) {
                     if ((!((SlotReference) s).getTable().isPresent()
                             || !((SlotReference) s).getTable().get().isManagedTable())
+                            && createTableInfo.getPartitionTableInfo().getPartitionColumns() != null
                             && !createTableInfo.getPartitionTableInfo().getPartitionColumns().contains(s.getName())) {
                         dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                                 CharacterType.class, StringType.INSTANCE);
