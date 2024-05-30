@@ -21,15 +21,18 @@ import org.apache.doris.httpv2.config.SpringLog4j2Config;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.config.ConfigurationSource;
 import org.apache.logging.log4j.core.config.xml.XmlConfiguration;
 import org.apache.logging.log4j.core.lookup.Interpolator;
 import org.apache.logging.log4j.core.lookup.StrSubstitutor;
+import org.apache.logging.log4j.io.IoBuilder;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
@@ -54,10 +57,31 @@ public class Log4jConfig extends XmlConfiguration {
         }
     }
 
-    private static final String LOG_PATTERN
-            = "<!--REPLACED BY MARKER-->%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n";
+    // Placeholders
+    private static final String RUNTIME_LOG_FORMAT_PLACEHOLDER = "<!--REPLACED BY LOG FORMAT-->";
+    private static final String VERBOSE_MODULE_PLACEHOLDER = "<!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->";
+    private static final String CONSOLE_LOGGER_PLACEHOLDER = "<!--REPLACED BY CONSOLE LOGGER-->";
+    private static final String AUDIT_CONSOLE_LOGGER_PLACEHOLDER = "<!--REPLACED BY AUDIT CONSOLE LOGGER-->";
+    private static final String RUNTIME_LOG_MARKER_PLACEHOLDER = "<!--REPLACED BY RUNTIME LOG MARKER-->";
+    private static final String AUDIT_LOG_MARKER_PLACEHOLDER = "<!--REPLACED BY AUDIT LOG MARKER-->";
+
+    // Appender names
+    private static final String RUNTIME_LOG_CONSOLE_APPENDER = "Console";
+    private static final String RUNTIME_LOG_FILE_APPENDER = "Sys";
+    private static final String RUNTIME_LOG_WARN_FILE_APPENDER = "SysWF";
+    private static final String AUDIT_LOG_CONSOLE_APPENDER = "AuditConsole";
+    private static final String AUDIT_LOG_FILE_APPENDER = "AuditFile";
+
+    // Log patterns
+    private static final String RUNTIME_LOG_PATTERN
+            = RUNTIME_LOG_MARKER_PLACEHOLDER + "%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)"
+            + RUNTIME_LOG_FORMAT_PLACEHOLDER;
     private static final String AUDIT_LOG_PATTERN
-            = "<!--REPLACED BY MARKER-->%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n";
+            = AUDIT_LOG_MARKER_PLACEHOLDER + "%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n";
+
+    // Log markers
+    private static final String RUNTIME_LOG_MARKER = "RuntimeLogger";
+    private static final String AUDIT_LOG_MARKER = "AuditLogger";
 
     // @formatter:off
     static {
@@ -66,14 +90,19 @@ public class Log4jConfig extends XmlConfiguration {
             .append("\n<!-- Auto Generated. DO NOT MODIFY IT! -->\n")
             .append("<Configuration status=\"info\" packages=\"org.apache.doris.common\">\n")
             .append("  <Appenders>\n")
-            .append("    <Console name=\"Console\" target=\"SYSTEM_OUT\">\n")
+            .append("    <Console name=\"" + RUNTIME_LOG_CONSOLE_APPENDER + "\" target=\"SYSTEM_OUT\">\n")
             .append("      <PatternLayout charset=\"UTF-8\">\n")
-            .append("        <Pattern>" + LOG_PATTERN + "</Pattern>\n")
+            .append("        <Pattern>" + RUNTIME_LOG_PATTERN + "</Pattern>\n")
             .append("      </PatternLayout>\n")
             .append("    </Console>\n")
-            .append("    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i${sys_file_postfix}\" immediateFlush=\"${immediate_flush_flag}\">\n")
+            .append("    <Console name=\"" + AUDIT_LOG_CONSOLE_APPENDER + "\" target=\"SYSTEM_OUT\">\n")
             .append("      <PatternLayout charset=\"UTF-8\">\n")
-            .append("        <Pattern>" + LOG_PATTERN + "</Pattern>\n")
+            .append("        <Pattern>" + AUDIT_LOG_PATTERN + "</Pattern>\n")
+            .append("      </PatternLayout>\n")
+            .append("    </Console>\n")
+            .append("    <RollingFile name=\"" + RUNTIME_LOG_FILE_APPENDER + "\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i${sys_file_postfix}\" immediateFlush=\"${immediate_flush_flag}\">\n")
+            .append("      <PatternLayout charset=\"UTF-8\">\n")
+            .append("        <Pattern>" + RUNTIME_LOG_PATTERN + "</Pattern>\n")
             .append("      </PatternLayout>\n")
             .append("      <Policies>\n")
             .append("        <TimeBasedTriggeringPolicy/>\n")
@@ -89,9 +118,9 @@ public class Log4jConfig extends XmlConfiguration {
             .append("        </Delete>\n")
             .append("      </DefaultRolloverStrategy>\n")
             .append("    </RollingFile>\n")
-            .append("    <RollingFile name=\"SysWF\" fileName=\"${sys_log_dir}/fe.warn.log\" filePattern=\"${sys_log_dir}/fe.warn.log.${sys_file_pattern}-%i${sys_file_postfix}\" immediateFlush=\"${immediate_flush_flag}\">\n")
+            .append("    <RollingFile name=\"" + RUNTIME_LOG_WARN_FILE_APPENDER + "\" fileName=\"${sys_log_dir}/fe.warn.log\" filePattern=\"${sys_log_dir}/fe.warn.log.${sys_file_pattern}-%i${sys_file_postfix}\" immediateFlush=\"${immediate_flush_flag}\">\n")
             .append("      <PatternLayout charset=\"UTF-8\">\n")
-            .append("        <Pattern>" + LOG_PATTERN + "</Pattern>\n")
+            .append("        <Pattern>" + RUNTIME_LOG_PATTERN + "</Pattern>\n")
             .append("      </PatternLayout>\n")
             .append("      <Policies>\n")
             .append("        <TimeBasedTriggeringPolicy/>\n")
@@ -107,7 +136,7 @@ public class Log4jConfig extends XmlConfiguration {
             .append("        </Delete>\n")
             .append("      </DefaultRolloverStrategy>\n")
             .append("    </RollingFile>\n")
-            .append("    <RollingFile name=\"Auditfile\" fileName=\"${audit_log_dir}/fe.audit.log\" filePattern=\"${audit_log_dir}/fe.audit.log.${audit_file_pattern}-%i${audit_file_postfix}\">\n")
+            .append("    <RollingFile name=\"" + AUDIT_LOG_FILE_APPENDER + "\" fileName=\"${audit_log_dir}/fe.audit.log\" filePattern=\"${audit_log_dir}/fe.audit.log.${audit_file_pattern}-%i${audit_file_postfix}\">\n")
             .append("      <PatternLayout charset=\"UTF-8\">\n")
             .append("        <Pattern>" + AUDIT_LOG_PATTERN + "</Pattern>\n")
             .append("      </PatternLayout>\n")
@@ -128,14 +157,15 @@ public class Log4jConfig extends XmlConfiguration {
             .append("  </Appenders>\n")
             .append("  <Loggers>\n")
             .append("    <Root level=\"${sys_log_level}\" includeLocation=\"${include_location_flag}\">\n")
-            .append("      <!--AppenderRef ref=\"Sys\"/-->\n")
-            .append("      <!--AppenderRef ref=\"SysWF\" level=\"WARN\"/-->\n")
-            .append("      <!--REPLACED BY Console Logger-->\n")
+            .append("      <AppenderRef ref=\"" + RUNTIME_LOG_FILE_APPENDER + "\"/>\n")
+            .append("      <AppenderRef ref=\"" + RUNTIME_LOG_WARN_FILE_APPENDER + "\" level=\"WARN\"/>\n")
+            .append("      " + CONSOLE_LOGGER_PLACEHOLDER + "\n")
             .append("    </Root>\n")
             .append("    <Logger name=\"audit\" level=\"ERROR\" additivity=\"false\">\n")
-            .append("      <AppenderRef ref=\"Auditfile\"/>\n")
+            .append("      <AppenderRef ref=\"" + AUDIT_LOG_FILE_APPENDER + "\"/>\n")
+            .append("      " + AUDIT_CONSOLE_LOGGER_PLACEHOLDER + "\n")
             .append("    </Logger>\n")
-            .append("    <!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->\n")
+            .append("    " + VERBOSE_MODULE_PLACEHOLDER + "\n")
             .append("  </Loggers>\n")
             .append("</Configuration>");
         // CHECKSTYLE ON
@@ -217,24 +247,24 @@ public class Log4jConfig extends XmlConfiguration {
         for (String s : auditModules) {
             sb.append("<Logger name='audit." + s + "' level='INFO'/>");
         }
-        newXmlConfTemplate = newXmlConfTemplate.replaceAll("<!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->",
-                sb.toString());
+        newXmlConfTemplate = newXmlConfTemplate.replaceAll(VERBOSE_MODULE_PLACEHOLDER, sb.toString());
 
         if (sysLogMode.equalsIgnoreCase("NORMAL")) {
-            newXmlConfTemplate = newXmlConfTemplate.replaceAll("<!--REPLACED BY LOG FORMAT-->",
-                    " [%C{1}.%M():%L] ");
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll(RUNTIME_LOG_FORMAT_PLACEHOLDER, " [%C{1}.%M():%L] ");
         } else {
-            newXmlConfTemplate = newXmlConfTemplate.replaceAll("<!--REPLACED BY LOG FORMAT-->", " ");
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll(RUNTIME_LOG_FORMAT_PLACEHOLDER, " ");
             if (sysLogMode.equalsIgnoreCase("ASYNC")) {
                 newXmlConfTemplate = newXmlConfTemplate.replaceAll("Root", "AsyncRoot");
             }
         }
 
         if (foreground) {
-            StringBuilder consoleLogger = new StringBuilder();
-            consoleLogger.append("<AppenderRef ref=\"Console\"/>\n");
-            newXmlConfTemplate = newXmlConfTemplate.replaceAll("<!--REPLACED BY Console Logger-->",
-                    consoleLogger.toString());
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll(RUNTIME_LOG_MARKER_PLACEHOLDER, RUNTIME_LOG_MARKER);
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll(AUDIT_LOG_MARKER_PLACEHOLDER, AUDIT_LOG_MARKER);
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll(CONSOLE_LOGGER_PLACEHOLDER,
+                    "<AppenderRef ref=\"" + RUNTIME_LOG_CONSOLE_APPENDER + "\"/>\n");
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll(AUDIT_CONSOLE_LOGGER_PLACEHOLDER,
+                    "<AppenderRef ref=\"" + AUDIT_LOG_CONSOLE_APPENDER + "\"/>\n");
         }
 
         Map<String, String> properties = Maps.newHashMap();
@@ -284,6 +314,17 @@ public class Log4jConfig extends XmlConfiguration {
         } catch (Exception e) {
             throw new IOException("Error occurred while configuring Log4j", e);
         }
+
+        redirectStd();
+    }
+
+    private static void redirectStd() {
+        PrintStream logPrintStream = IoBuilder.forLogger(LogManager.getLogger("system.out")).setLevel(Level.INFO)
+                .buildPrintStream();
+        System.setOut(logPrintStream);
+        PrintStream errorPrintStream = IoBuilder.forLogger(LogManager.getLogger("system.err")).setLevel(Level.ERROR)
+                .buildPrintStream();
+        System.setErr(errorPrintStream);
     }
 
     public static String getLogXmlConfTemplate() {
