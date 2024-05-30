@@ -369,7 +369,7 @@ LIBDIVIDE_SOURCE="libdivide-5.0"
 LIBDIVIDE_MD5SUM="7fd16b0bb4ab6812b2e2fdc7bfb81641"
 
 #pdqsort
-PDQSORT_DOWNLOAD="http://ftp.cise.ufl.edu/ubuntu/pool/universe/p/pdqsort/pdqsort_0.0.0+git20180419.orig.tar.gz"
+PDQSORT_DOWNLOAD="http://deb.debian.org/debian/pool/main/p/pdqsort/pdqsort_0.0.0+git20180419.orig.tar.gz"
 PDQSORT_NAME="pdqsort.tar.gz"
 PDQSORT_SOURCE="pdqsort-0.0.0+git20180419"
 PDQSORT_MD5SUM="39261c3e7b40aa7505662fac29f22d20"
