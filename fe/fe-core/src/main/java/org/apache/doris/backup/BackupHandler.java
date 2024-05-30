@@ -769,6 +769,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             // We use replayed job, not the existing job, to do the replayRun().
             // Because if we use the existing job to run again,
             // for example: In restore job, PENDING will transfer to SNAPSHOTING, not DOWNLOAD.
+            job.setEnv(env);
             job.replayRun();
         }
 
