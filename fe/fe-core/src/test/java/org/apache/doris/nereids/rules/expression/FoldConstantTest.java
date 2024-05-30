@@ -31,7 +31,13 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -170,17 +176,72 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testConvertFold() {
+    void testFoldString() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
         ));
-
-        // cast '1' as tinyint
         ConvertTz c = new ConvertTz(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 StringLiteral.of("Asia/Shanghai"), StringLiteral.of("GMT"));
         Expression rewritten = executor.rewrite(c, context);
-        String date = "0000-12-31 16:55:18";
-        Assertions.assertEquals(rewritten.toString(), date);
+        String res = "0000-12-31 16:55:18";
+        Assertions.assertEquals(rewritten.toString(), res);
+
+        DateFormat d = new DateFormat(DateTimeLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                StringLiteral.of("%y %m %d"));
+        rewritten = executor.rewrite(d, context);
+        res = "'01 01 01'";
+        Assertions.assertEquals(rewritten.toString(), res);
+        d = new DateFormat(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                StringLiteral.of("%y %m %d"));
+        rewritten = executor.rewrite(d, context);
+        Assertions.assertEquals(rewritten.toString(), res);
+        d = new DateFormat(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                StringLiteral.of("%y %m %d"));
+        rewritten = executor.rewrite(d, context);
+        Assertions.assertEquals(rewritten.toString(), res);
+        d = new DateFormat(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                StringLiteral.of("%y %m %d"));
+        rewritten = executor.rewrite(d, context);
+        Assertions.assertEquals(rewritten.toString(), res);
+
+        DateTrunc t = new DateTrunc(DateTimeLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                StringLiteral.of("week"));
+        rewritten = executor.rewrite(t, context);
+        res = "0001-01-01 00:00:00";
+        Assertions.assertEquals(rewritten.toString(), res);
+        t = new DateTrunc(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                StringLiteral.of("week"));
+        rewritten = executor.rewrite(t, context);
+        Assertions.assertEquals(rewritten.toString(), res);
+        t = new DateTrunc(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                StringLiteral.of("week"));
+        rewritten = executor.rewrite(t, context);
+        res = "0001-01-01";
+        Assertions.assertEquals(rewritten.toString(), res);
+        t = new DateTrunc(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                StringLiteral.of("week"));
+        rewritten = executor.rewrite(t, context);
+        Assertions.assertEquals(rewritten.toString(), res);
+
+        FromUnixtime f = new FromUnixtime(BigIntLiteral.of(123456789L), StringLiteral.of("%y %m %d"));
+        rewritten = executor.rewrite(f, context);
+        res = "'73 11 30'";
+        Assertions.assertEquals(rewritten.toString(), res);
+
+        UnixTimestamp ut = new UnixTimestamp(StringLiteral.of("2021-11-11"), StringLiteral.of("%Y-%m-%d"));
+        rewritten = executor.rewrite(ut, context);
+        res = "1636560000";
+        Assertions.assertEquals(rewritten.toString(), res);
+
+        StrToDate sd = new StrToDate(StringLiteral.of("2021-11-11"), StringLiteral.of("%Y-%m-%d"));
+        rewritten = executor.rewrite(sd, context);
+        res = "2021-11-11";
+        Assertions.assertEquals(rewritten.toString(), res);
+
+        AppendTrailingCharIfAbsent a = new AppendTrailingCharIfAbsent(StringLiteral.of("1"), StringLiteral.of("3"));
+        rewritten = executor.rewrite(a, context);
+        res = "'13'";
+        Assertions.assertEquals(rewritten.toString(), res);
     }
 
     @Test
