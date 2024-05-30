@@ -96,8 +96,10 @@ private:
     bool _init_complete = false;
 
 public:
-    JvmStats(JNIEnv* ENV);
+    //    JvmStats(JNIEnv* ENV);
+    void init(JNIEnv* ENV);
     bool init_complete() const { return _init_complete; }
+    void set_complete(bool val) { _init_complete = val; }
     void refresh(JvmMetrics* jvm_metrics);
     ~JvmStats();
 };
