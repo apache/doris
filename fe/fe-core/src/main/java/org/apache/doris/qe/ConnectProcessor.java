@@ -628,6 +628,9 @@ public class ConnectProcessor {
             ctx.initTracer("master trace");
         }
 
+        // set resource tag
+        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser));
+
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
         try {
