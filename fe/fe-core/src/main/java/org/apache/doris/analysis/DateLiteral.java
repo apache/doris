@@ -367,6 +367,12 @@ public class DateLiteral extends LiteralExpr {
         type = other.type;
     }
 
+    public DateLiteral(String s) throws AnalysisException {
+        super();
+        init(s, null);
+        analysisDone();
+    }
+
     public static DateLiteral createMinValue(Type type) throws AnalysisException {
         return new DateLiteral(type, false);
     }
@@ -718,6 +724,10 @@ public class DateLiteral extends LiteralExpr {
     @Override
     public double getDoubleValue() {
         return getLongValue();
+    }
+
+    public double getDoubleValueAsDateTime() {
+        return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
     }
 
     @Override
