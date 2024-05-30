@@ -33,10 +33,10 @@ struct IOContext;
 
 class S3FileReader final : public FileReader {
 public:
-    static Result<FileReaderSPtr> create(std::shared_ptr<const S3ClientHolder> client,
+    static Result<FileReaderSPtr> create(std::shared_ptr<const ObjClientHolder> client,
                                          std::string bucket, std::string key, int64_t file_size);
 
-    S3FileReader(std::shared_ptr<const S3ClientHolder> client, std::string bucket, std::string key,
+    S3FileReader(std::shared_ptr<const ObjClientHolder> client, std::string bucket, std::string key,
                  size_t file_size);
 
     ~S3FileReader() override;
@@ -59,7 +59,7 @@ private:
 
     std::string _bucket;
     std::string _key;
-    std::shared_ptr<const S3ClientHolder> _client;
+    std::shared_ptr<const ObjClientHolder> _client;
 
     std::atomic<bool> _closed = false;
 };
