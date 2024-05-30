@@ -604,6 +604,31 @@ public:
 
     void assign(const PODArray& from) { assign(from.begin(), from.end()); }
 
+    void erase(const_iterator first, const_iterator last)
+    {
+        auto first_no_const = const_cast<iterator>(first);
+        auto last_no_const = const_cast<iterator>(last);
+
+        size_t items_to_move = end() - last;
+
+        while (items_to_move != 0)
+        {
+            *first_no_const = *last_no_const;
+
+            ++first_no_const;
+            ++last_no_const;
+
+            --items_to_move;
+        }
+
+        this->c_end = reinterpret_cast<char *>(first_no_const);
+    }
+
+    void erase(const_iterator pos)
+    {
+        this->erase(pos, pos + 1);
+    }
+
     bool operator==(const PODArray& rhs) const {
         if (this->size() != rhs.size()) {
             return false;
