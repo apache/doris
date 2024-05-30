@@ -17,6 +17,8 @@
 
 #include "vec/functions/function_ip.h"
 
+#include "vec/functions/simple_function_factory.h"
+
 namespace doris::vectorized {
 
 void register_function_ip(SimpleFunctionFactory& factory) {
