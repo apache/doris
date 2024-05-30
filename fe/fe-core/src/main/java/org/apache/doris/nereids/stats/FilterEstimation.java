@@ -58,6 +58,7 @@ import com.google.common.collect.Sets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -200,12 +201,12 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 rightRange, context);
     }
 
-    private Statistics updateGreaterThanLiteral(Expression leftExpr, DataType dataTyp, ColumnStatistic statsForLeft,
+    private Statistics updateGreaterThanLiteral(Expression leftExpr, DataType dataType, ColumnStatistic statsForLeft,
             ColumnStatistic statsForRight, EstimationContext context) {
         StatisticRange rightRange = new StatisticRange(statsForRight.minValue, statsForRight.minExpr,
                 statsForLeft.maxValue, statsForLeft.maxExpr,
-                statsForLeft.ndv, dataTyp);
-        return estimateBinaryComparisonFilter(leftExpr, dataTyp, statsForLeft, rightRange, context);
+                statsForLeft.ndv, dataType);
+        return estimateBinaryComparisonFilter(leftExpr, dataType, statsForLeft, rightRange, context);
     }
 
     private Statistics calculateWhenLiteralRight(ComparisonPredicate cp,
@@ -220,21 +221,23 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             // literal Map used to covert dateLiteral back to stringLiteral
             Map<DateLiteral, StringLiteral> literalMap = new HashMap<>();
             DataType compareType = cp.left().getDataType();
-            ColumnStatistic statsForLeftMayConverted = tryConvertStringColStatsToDateColStats(statsForLeft, literalMap);
-            ColumnStatistic statsForRightMayConverted = null;
-            if (statsForLeftMayConverted != null) {
-                statsForRightMayConverted = tryConvertStringColStatsToDateColStats(statsForRight, literalMap);
-            }
+            Optional<ColumnStatistic> statsForLeftMayConvertedOpt =
+                    tryConvertStringColStatsToDateColStats(statsForLeft, literalMap);
+            Optional<ColumnStatistic> statsForRightMayConvertedOpt = (statsForLeftMayConvertedOpt.isPresent())
+                    ? tryConvertStringColStatsToDateColStats(statsForRight, literalMap)
+                    : Optional.empty();
+
             boolean converted = false;
-            if (statsForLeftMayConverted == null || statsForRightMayConverted == null
-                    || statsForRightMayConverted.minExpr.getType() != statsForLeftMayConverted.minExpr.getType()) {
-                // do not convert str -> date
-                statsForLeftMayConverted = statsForLeft;
-                statsForRightMayConverted = statsForRight;
-            } else {
-                // converted
+            ColumnStatistic statsForLeftMayConverted = statsForLeft;
+            ColumnStatistic statsForRightMayConverted = statsForRight;
+            if (statsForLeftMayConvertedOpt.isPresent() && statsForRightMayConvertedOpt.isPresent()
+                    && statsForRightMayConvertedOpt.get().minExpr.getType()
+                    == statsForLeftMayConvertedOpt.get().minExpr.getType()) {
+                // string type is converted to date type
                 converted = true;
                 compareType = DateTimeType.INSTANCE;
+                statsForLeftMayConverted = statsForLeftMayConvertedOpt.get();
+                statsForRightMayConverted = statsForRightMayConvertedOpt.get();
             }
             Statistics result = null;
             if (cp instanceof LessThan || cp instanceof LessThanEqual) {
@@ -274,42 +277,42 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 .build();
     }
 
-    private ColumnStatistic tryConvertStringColStatsToDateColStats(ColumnStatistic colStats,
+    private Optional<ColumnStatistic> tryConvertStringColStatsToDateColStats(ColumnStatistic colStats,
             Map<DateLiteral, StringLiteral> literalMap) {
         if (colStats.minExpr == null || colStats.maxExpr == null) {
-            return null;
+            return Optional.empty();
         }
         if (!(colStats.minExpr instanceof StringLiteral) || !(colStats.maxExpr instanceof StringLiteral)) {
-            return null;
+            return Optional.empty();
         }
-        DateLiteral newMinExpr = tryConvertStrLiteralToDateLiteral(colStats.minExpr);
-        if (newMinExpr == null) {
-            return null;
+        Optional<DateLiteral> newMinExpr = tryConvertStrLiteralToDateLiteral(colStats.minExpr);
+        if (newMinExpr.isEmpty()) {
+            return Optional.empty();
         }
-        DateLiteral newMaxExpr = tryConvertStrLiteralToDateLiteral(colStats.maxExpr);
-        if (newMaxExpr == null) {
-            return null;
+        Optional<DateLiteral> newMaxExpr = tryConvertStrLiteralToDateLiteral(colStats.maxExpr);
+        if (newMaxExpr.isEmpty()) {
+            return Optional.empty();
         }
-        if (newMaxExpr.getType() != newMinExpr.getType()) {
-            return null;
+        if (newMaxExpr.get().getType() != newMinExpr.get().getType()) {
+            return Optional.empty();
         }
-        literalMap.put(newMinExpr, (StringLiteral) colStats.minExpr);
-        literalMap.put(newMaxExpr, (StringLiteral) colStats.maxExpr);
+        literalMap.put(newMinExpr.get(), (StringLiteral) colStats.minExpr);
+        literalMap.put(newMaxExpr.get(), (StringLiteral) colStats.maxExpr);
 
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
-        return builder.setMinValue(newMinExpr.getDoubleValueAsDateTime())
-                .setMinExpr(newMinExpr)
-                .setMaxValue(newMaxExpr.getDoubleValueAsDateTime())
-                .setMaxExpr(newMaxExpr)
-                .build();
+        return Optional.of(builder.setMinValue(newMinExpr.get().getDoubleValueAsDateTime())
+                .setMinExpr(newMinExpr.get())
+                .setMaxValue(newMaxExpr.get().getDoubleValueAsDateTime())
+                .setMaxExpr(newMaxExpr.get())
+                .build());
     }
 
-    private DateLiteral tryConvertStrLiteralToDateLiteral(LiteralExpr literal) {
+    private Optional<DateLiteral> tryConvertStrLiteralToDateLiteral(LiteralExpr literal) {
         if (literal == null) {
-            return null;
+            return Optional.empty();
         }
         if (!(literal instanceof StringLiteral)) {
-            return null;
+            return Optional.empty();
         }
 
         DateLiteral dt = null;
@@ -319,7 +322,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         } catch (Exception e) {
             // ignore
         }
-        return dt;
+        return dt == null ? Optional.empty() : Optional.of(dt);
     }
 
     private Statistics estimateEqualTo(ComparisonPredicate cp, ColumnStatistic statsForLeft,
