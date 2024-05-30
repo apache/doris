@@ -641,6 +641,9 @@ public abstract class ConnectProcessor {
             ctx.setUserVars(userVariableFromThrift(request.getUserVariables()));
         }
 
+        // set resource tag
+        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser));
+
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
         try {
