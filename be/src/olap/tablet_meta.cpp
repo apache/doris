@@ -574,10 +574,17 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _rs_metas.push_back(std::move(rs_meta));
     }
 
+    int64_t expired_stale_rowset_ctime =
+            ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
+
     // init _stale_rs_metas
-    for (auto& it : tablet_meta_pb.stale_rs_metas()) {
+    for (const auto& stale_rs : tablet_meta_pb.stale_rs_metas()) {
+        if (stale_rs.creation_time() < expired_stale_rowset_ctime) {
+            continue;
+        }
+
         RowsetMetaSharedPtr rs_meta(new RowsetMeta());
-        rs_meta->init_from_pb(it);
+        rs_meta->init_from_pb(stale_rs);
         _stale_rs_metas.push_back(std::move(rs_meta));
     }
 
