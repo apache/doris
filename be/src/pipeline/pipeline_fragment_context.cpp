@@ -38,6 +38,7 @@
 #include "common/status.h"
 #include "exec/data_sink.h"
 #include "io/fs/stream_load_pipe.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
@@ -91,6 +92,7 @@
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
+#include "pipeline/local_exchange/local_exchanger.h"
 #include "pipeline/task_scheduler.h"
 #include "pipeline_task.h"
 #include "runtime/exec_env.h"
@@ -736,6 +738,13 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
         break;
     case ExchangeType::PASS_TO_ONE:
         shared_state->exchanger = BroadcastExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
+        break;
+    case ExchangeType::LOCAL_MERGE_SORT:
+        shared_state->exchanger = LocalMergeSortExchanger::create_unique(
                 cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? _runtime_state->query_options().local_exchange_free_blocks_limit

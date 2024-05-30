@@ -243,6 +243,38 @@ Status PassToOneExchanger::get_block(RuntimeState* state, vectorized::Block* blo
     return Status::OK();
 }
 
+Status LocalMergeSortExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
+                                     LocalExchangeSinkLocalState& local_state) {
+    vectorized::Block new_block(in_block->clone_empty());
+    new_block.swap(*in_block);
+    _data_queue[0].enqueue(std::move(new_block));
+    local_state._shared_state->set_ready_to_read(0);
+
+    return Status::OK();
+}
+
+Status LocalMergeSortExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
+                                          LocalExchangeSourceLocalState& local_state) {
+    if (local_state._channel_id != 0) {
+        *eos = true;
+        return Status::OK();
+    }
+    vectorized::Block next_block;
+    if (_running_sink_operators == 0) {
+        if (_data_queue[0].try_dequeue(next_block)) {
+            *block = std::move(next_block);
+        } else {
+            *eos = true;
+        }
+    } else if (_data_queue[0].try_dequeue(next_block)) {
+        *block = std::move(next_block);
+    } else {
+        COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
+        local_state._dependency->block();
+    }
+    return Status::OK();
+}
+
 Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                                 LocalExchangeSinkLocalState& local_state) {
     for (size_t i = 0; i < _num_partitions; i++) {

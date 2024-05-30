@@ -28,7 +28,8 @@ SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
 
 SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                          const DescriptorTbl& descs)
-        : OperatorX<SortLocalState>(pool, tnode, operator_id, descs) {}
+        : OperatorX<SortLocalState>(pool, tnode, operator_id, descs),
+          _merge_by_exchange(tnode.sort_node.merge_by_exchange) {}
 
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);

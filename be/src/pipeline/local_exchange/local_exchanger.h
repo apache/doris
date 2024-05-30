@@ -174,6 +174,25 @@ private:
     std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
 };
 
+class LocalMergeSortExchanger final : public Exchanger {
+public:
+    ENABLE_FACTORY_CREATOR(LocalMergeSortExchanger);
+    LocalMergeSortExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
+            : Exchanger(running_sink_operators, num_partitions, free_block_limit) {
+        _data_queue.resize(num_partitions);
+    }
+    ~LocalMergeSortExchanger() override = default;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
+                LocalExchangeSinkLocalState& local_state) override;
+
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
+                     LocalExchangeSourceLocalState& local_state) override;
+    ExchangeType get_type() const override { return ExchangeType::LOCAL_MERGE_SORT; }
+
+private:
+    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
+};
+
 class BroadcastExchanger final : public Exchanger {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastExchanger);

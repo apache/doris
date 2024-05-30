@@ -46,10 +46,12 @@ public:
 
     bool is_source() const override { return true; }
 
+    bool merge_by_exchange() const { return _merge_by_exchange; }
     const vectorized::SortDescription& get_sort_description(RuntimeState* state) const;
 
 private:
     friend class SortLocalState;
+    const bool _merge_by_exchange;
 };
 
 } // namespace pipeline

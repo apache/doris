@@ -26,7 +26,9 @@
 
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr.h"
@@ -662,6 +664,16 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
         _sink_buffer->close();
     }
     return Base::close(state, exec_status);
+}
+
+DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
+    if (_child_x) {
+        if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child_x);
+            sort_source && sort_source->merge_by_exchange()) {
+            return ExchangeType::LOCAL_MERGE_SORT;
+        }
+    }
+    return DataSinkOperatorX<ExchangeSinkLocalState>::required_data_distribution();
 }
 
 } // namespace doris::pipeline
