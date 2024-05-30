@@ -457,7 +457,8 @@ public class DateLiteral extends LiteralExpr {
                 if (timePart.length > 0 && type != null && (type.equals(Type.DATE) || type.equals(Type.DATEV2))) {
                     throw new AnalysisException("Invalid date value: " + s);
                 }
-                if (timePart.length == 0 && type != null && (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2))) {
+                if (timePart.length == 0 && type != null
+                    && (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2))) {
                     throw new AnalysisException("Invalid datetime value: " + s);
                 }
                 for (int i = 0; i < timePart.length; i++) {
