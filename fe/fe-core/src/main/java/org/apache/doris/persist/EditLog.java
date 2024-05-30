@@ -167,7 +167,7 @@ public class EditLog {
         short opCode = journal.getOpCode();
         if (opCode != OperationType.OP_SAVE_NEXTID && opCode != OperationType.OP_TIMESTAMP) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("replay journal op code: {}", opCode);
+                LOG.debug("replay journal op code: {}, log id: {}", opCode, logId);
             }
         }
         try {
@@ -1202,7 +1202,7 @@ public class EditLog {
                 }
                 default: {
                     IOException e = new IOException();
-                    LOG.error("UNKNOWN Operation Type {}", opCode, e);
+                    LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
                     throw e;
                 }
             }
@@ -1226,9 +1226,9 @@ public class EditLog {
              * log a warning here to debug when happens. This could happen to other meta
              * like DB.
              */
-            LOG.warn("[INCONSISTENT META] replay failed {}: {}", journal, e.getMessage(), e);
+            LOG.warn("[INCONSISTENT META] replay log {} failed, journal {}: {}", logId, journal, e.getMessage(), e);
         } catch (Exception e) {
-            LOG.error("Operation Type {}", opCode, e);
+            LOG.error("replay Operation Type {}, log id: {}", opCode, logId, e);
             System.exit(-1);
         }
     }
