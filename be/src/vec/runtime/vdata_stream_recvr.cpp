@@ -49,6 +49,7 @@ VDataStreamRecvr::SenderQueue::SenderQueue(VDataStreamRecvr* parent_recvr, int n
           _num_remaining_senders(num_senders),
           _received_first_batch(false) {
     _cancel_status = Status::OK();
+    _queue_mem_tracker = std::make_unique<MemTracker>("local data queue mem tracker");
 }
 
 VDataStreamRecvr::SenderQueue::~SenderQueue() {
@@ -361,6 +362,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
     }
     _sender_queues.reserve(num_queues);
     int num_sender_per_queue = is_merging ? 1 : num_senders;
+    _sender_queue_mem_limit = std::max(20480, config::exchg_node_buffer_size_bytes / num_queues);
     for (int i = 0; i < num_queues; ++i) {
         SenderQueue* queue = nullptr;
         if (_enable_pipeline) {
@@ -479,7 +481,8 @@ void VDataStreamRecvr::cancel_stream(Status exec_status) {
 void VDataStreamRecvr::SenderQueue::add_blocks_memory_usage(int64_t size) {
     DCHECK(size >= 0);
     _recvr->_mem_tracker->consume(size);
-    if (_local_channel_dependency && _recvr->exceeds_limit(0)) {
+    _queue_mem_tracker->consume(size);
+    if (_local_channel_dependency && exceeds_limit()) {
         _local_channel_dependency->block();
     }
 }
@@ -487,13 +490,23 @@ void VDataStreamRecvr::SenderQueue::add_blocks_memory_usage(int64_t size) {
 void VDataStreamRecvr::SenderQueue::sub_blocks_memory_usage(int64_t size) {
     DCHECK(size >= 0);
     _recvr->_mem_tracker->release(size);
-    if (_local_channel_dependency && (!_recvr->exceeds_limit(0))) {
+    _queue_mem_tracker->release(size);
+    if (_local_channel_dependency && (!exceeds_limit())) {
         _local_channel_dependency->set_ready();
     }
 }
 
+bool VDataStreamRecvr::SenderQueue::exceeds_limit() {
+    const size_t queue_byte_size = _queue_mem_tracker->consumption();
+    return _recvr->queue_exceeds_limit(queue_byte_size);
+}
+
 bool VDataStreamRecvr::exceeds_limit(size_t block_byte_size) {
     return _mem_tracker->consumption() + block_byte_size > config::exchg_node_buffer_size_bytes;
+}
+
+bool VDataStreamRecvr::queue_exceeds_limit(size_t queue_byte_size) const {
+    return queue_byte_size >= _sender_queue_mem_limit;
 }
 
 void VDataStreamRecvr::close() {
