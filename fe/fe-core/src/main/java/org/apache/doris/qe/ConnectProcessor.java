@@ -739,6 +739,9 @@ public class ConnectProcessor {
         if (Span.fromContext(extractedContext).getSpanContext().isValid()) {
             ctx.initTracer("master trace");
         }
+
+        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser));
+
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
         try {
