@@ -2520,3 +2520,10 @@ PARTITIONED BY (
   `varchar_col` varchar(50))
 stored as orc
 TBLPROPERTIES("orc.compress"="ZLIB");
+
+CREATE TABLE `tbl_with_tz` (
+    t timestamp,
+    tltz timestamp with local time zone
+)
+stored as orc;
+

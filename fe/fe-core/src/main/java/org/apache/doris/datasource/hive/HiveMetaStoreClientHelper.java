@@ -628,8 +628,6 @@ public class HiveMetaStoreClientHelper {
                 return Type.BIGINT;
             case "date":
                 return ScalarType.createDateV2Type();
-            case "timestamp":
-                return ScalarType.createDatetimeV2Type(timeScale);
             case "float":
                 return Type.FLOAT;
             case "double":
@@ -639,6 +637,14 @@ public class HiveMetaStoreClientHelper {
                 return ScalarType.createStringType();
             default:
                 break;
+        }
+        if (lowerCaseType.startsWith("timestamp")) {
+            // The timestamp in Hive may have:
+            // 1. timestamp
+            // 2. timestamp with local time zone (since Hive 3.1)
+            // But Doris do not support timestamp with tz,
+            // Simply map it to datetime type.
+            return ScalarType.createDatetimeV2Type(timeScale);
         }
         // resolve schema like array<int>
         if (lowerCaseType.startsWith("array")) {
