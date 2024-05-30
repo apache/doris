@@ -72,6 +72,7 @@ import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.PartitionColumnStatistic;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.TableStatsMeta;
@@ -185,9 +186,15 @@ public class StatisticsUtil {
         return ColumnStatistic.fromResultRow(resultBatches);
     }
 
-    public static List<Histogram> deserializeToHistogramStatistics(List<ResultRow> resultBatches)
-            throws Exception {
+    public static List<Histogram> deserializeToHistogramStatistics(List<ResultRow> resultBatches) {
         return resultBatches.stream().map(Histogram::fromResultRow).collect(Collectors.toList());
+    }
+
+    public static PartitionColumnStatistic deserializeToPartitionStatistics(List<ResultRow> resultBatches) {
+        if (CollectionUtils.isEmpty(resultBatches)) {
+            return null;
+        }
+        return PartitionColumnStatistic.fromResultRow(resultBatches);
     }
 
     public static AutoCloseConnectContext buildConnectContext() {

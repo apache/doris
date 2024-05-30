@@ -168,7 +168,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
         List<Boolean> inputNullable = null;
         if (!setOperation.children().isEmpty()) {
-            inputNullable = setOperation.child(0).getOutput().stream()
+            inputNullable = setOperation.getRegularChildOutput(0).stream()
                     .map(ExpressionTrait::nullable).collect(Collectors.toList());
             for (int i = 0; i < setOperation.arity(); i++) {
                 List<Slot> childOutput = setOperation.child(i).getOutput();

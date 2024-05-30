@@ -38,7 +38,7 @@ TEST(MemTrackerTest, SingleTrackerNoLimit) {
     t->release(5);
 }
 
-TEST(MemTestTest, SingleTrackerWithLimit) {
+TEST(MemTrackerTest, SingleTrackerWithLimit) {
     auto t = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "limit tracker",
                                                  11);
     EXPECT_TRUE(t->has_limit());

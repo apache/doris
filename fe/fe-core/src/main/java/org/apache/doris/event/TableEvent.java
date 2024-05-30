@@ -15,32 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-global_conf.enable_test="false"
-global_conf.url="jdbc:mysql://127.0.0.1:8030/hits?useSSL=false"
-global_conf.username="root"
-global_conf.password=""
-global_conf.enable_pipe="true"
-global_conf.enable_group="true"
+package org.apache.doris.event;
 
-/*
-about query directory
-1 All SQL can be placed in one file separated by ";"
-2 Placing SQL in multiple files, just like
-    q1.sql, q2.sql, q3.sql
-*/
+public abstract class TableEvent extends Event {
+    protected final long ctlId;
+    protected final long dbId;
+    protected final long tableId;
 
-ckbench_query.label="ckbench query"
-ckbench_query.dir="../query/ckbench_query/"
-ckbench_query.c="1"
-ckbench_query.i="1"
-ckbench_query.group="normal"
-ckbench_query.db="hits"
+    public TableEvent(EventType eventType, long ctlId, long dbId, long tableId) {
+        super(eventType);
+        this.ctlId = ctlId;
+        this.dbId = dbId;
+        this.tableId = tableId;
+    }
 
-tpch_query.label="tpch query"
-tpch_query.dir="../query/tpch_query/"
-tpch_query.c="1"
-tpch_query.i="1"
-tpch_query.group="test"
-tpch_query.db="tpch100"
+    public long getCtlId() {
+        return ctlId;
+    }
 
+    public long getDbId() {
+        return dbId;
+    }
 
+    public long getTableId() {
+        return tableId;
+    }
+
+    @Override
+    public String toString() {
+        return "TableEvent{"
+                + "ctlId=" + ctlId
+                + ", dbId=" + dbId
+                + ", tableId=" + tableId
+                + "} " + super.toString();
+    }
+}

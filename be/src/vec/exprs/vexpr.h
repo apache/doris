@@ -231,6 +231,13 @@ public:
         return nullptr;
     }
 
+    // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
+    bool fast_execute(Block& block, const ColumnNumbers& arguments, size_t result,
+                      size_t input_rows_count, const std::string& function_name);
+
+    std::string gen_predicate_result_sign(Block& block, const ColumnNumbers& arguments,
+                                          const std::string& function_name);
+
 protected:
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {

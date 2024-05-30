@@ -125,6 +125,9 @@ public:
                 fmt::to_string(consumer_tracker_buf));
     }
 
+    int64_t untracked_mem() const { return _untracked_mem; }
+    int64_t reserved_mem() const { return _reserved_mem; }
+
 private:
     // is false: ExecEnv::ready() = false when thread local is initialized
     bool _init = false;
@@ -190,7 +193,7 @@ inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
 
 inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_check) {
     if (_reserved_mem != 0) {
-        if (_reserved_mem >= size) {
+        if (_reserved_mem > size) {
             // only need to subtract _reserved_mem, no need to consume MemTracker,
             // every time _reserved_mem is minus the sum of size >= SYNC_PROC_RESERVED_INTERVAL_BYTES,
             // subtract size from process global reserved memory,
@@ -208,7 +211,8 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
             }
             return;
         } else {
-            // reserved memory is insufficient, the remaining _reserved_mem is subtracted from this memory consumed,
+            // _reserved_mem <= size, reserved memory used done,
+            // the remaining _reserved_mem is subtracted from this memory consumed,
             // and reset _reserved_mem to 0, and subtract the remaining _reserved_mem from
             // process global reserved memory, this means that all reserved memory has been used by BE process.
             size -= _reserved_mem;
