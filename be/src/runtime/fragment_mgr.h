@@ -146,6 +146,7 @@ public:
     }
 
     std::string dump_pipeline_tasks(int64_t duration = 0);
+    std::string dump_pipeline_tasks(TUniqueId& query_id);
 
     void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
 

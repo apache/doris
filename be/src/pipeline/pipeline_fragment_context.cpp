@@ -55,6 +55,7 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/hive_table_sink_operator.h"
+#include "pipeline/exec/iceberg_table_sink_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
@@ -610,8 +611,6 @@ Status PipelineFragmentContext::_build_pipelines(ObjectPool* pool,
 
     int node_idx = 0;
 
-    cur_pipe->_name.append(std::to_string(cur_pipe->id()));
-
     RETURN_IF_ERROR(_create_tree_helper(pool, request.fragment.plan.nodes, request, descs, nullptr,
                                         &node_idx, root, cur_pipe, 0));
 
@@ -650,10 +649,6 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
     } else {
         *root = op;
     }
-
-    cur_pipe->_name.push_back('-');
-    cur_pipe->_name.append(std::to_string(op->node_id()));
-    cur_pipe->_name.append(op->get_name());
 
     // rely on that tnodes is preorder of the plan
     for (int i = 0; i < num_children; i++) {
@@ -978,6 +973,14 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         }
         _sink.reset(
                 new HiveTableSinkOperatorX(pool, next_sink_operator_id(), row_desc, output_exprs));
+        break;
+    }
+    case TDataSinkType::ICEBERG_TABLE_SINK: {
+        if (!thrift_sink.__isset.iceberg_table_sink) {
+            return Status::InternalError("Missing hive table sink.");
+        }
+        _sink.reset(new IcebergTableSinkOperatorX(pool, next_sink_operator_id(), row_desc,
+                                                  output_exprs));
         break;
     }
     case TDataSinkType::JDBC_TABLE_SINK: {

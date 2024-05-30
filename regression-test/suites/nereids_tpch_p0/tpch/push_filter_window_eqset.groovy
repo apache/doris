@@ -37,7 +37,7 @@ suite("push_filter_window_eqset") {
     **/
     qt_eqset """
         explain shape plan
-        select y 
+        select y, rn
         from (
             select r_regionkey as x, r_regionkey as y, row_number() over(partition by r_regionkey) as rn from region 
         ) T

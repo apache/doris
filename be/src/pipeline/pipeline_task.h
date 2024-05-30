@@ -141,7 +141,7 @@ public:
 
     void clear_blocking_state() {
         // We use a lock to assure all dependencies are not deconstructed here.
-        std::unique_lock<std::mutex> lc(_release_lock);
+        std::unique_lock<std::mutex> lc(_dependency_lock);
         if (!_finished) {
             _execution_dep->set_always_ready();
             for (auto* dep : _filter_dependencies) {
@@ -298,7 +298,7 @@ private:
     Dependency* _execution_dep = nullptr;
 
     std::atomic<bool> _finished {false};
-    std::mutex _release_lock;
+    std::mutex _dependency_lock;
 
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};

@@ -50,6 +50,7 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
@@ -1145,6 +1146,17 @@ public class DatabaseTransactionMgr {
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of transaction
+        try {
+            produceEvent(transactionState, db);
+        } catch (Throwable t) {
+            // According to normal logic, no exceptions will be thrown,
+            // but in order to avoid bugs affecting the original logic, all exceptions are caught
+            LOG.warn("produceEvent failed: ", t);
+        }
+
         // The visible latch should only be counted down after all things are done
         // (finish transaction, write edit log, etc).
         // Otherwise, there is no way for stream load to query the result right after loading finished,
@@ -1171,6 +1183,26 @@ public class DatabaseTransactionMgr {
             }
             tableCommitInfo.setVersion(table.getNextVersion());
             tableCommitInfo.setVersionTime(System.currentTimeMillis());
+        }
+    }
+
+    private void produceEvent(TransactionState transactionState, Database db) {
+        Collection<TableCommitInfo> tableCommitInfos;
+        if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
+            tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
+        } else {
+            tableCommitInfos = transactionState.getIdToTableCommitInfos().values();
+        }
+        for (TableCommitInfo tableCommitInfo : tableCommitInfos) {
+            long tableId = tableCommitInfo.getTableId();
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            if (table == null) {
+                LOG.warn("table {} does not exist when produceEvent. transaction: {}, db: {}",
+                        tableId, transactionState.getTransactionId(), db.getId());
+                continue;
+            }
+            Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new DataChangeEvent(db.getCatalog().getId(), db.getId(), tableId));
         }
     }
 
@@ -1340,12 +1372,18 @@ public class DatabaseTransactionMgr {
                     tabletWriteFailedReplicas.clear();
                     tabletVersionFailedReplicas.clear();
                     for (Replica replica : tablet.getReplicas()) {
-                        for (PublishVersionTask publishVersionTask : publishTasks.get(replica.getBackendId())) {
-                            checkReplicaContinuousVersionSucc(tablet.getId(), replica, alterReplicaLoadedTxn,
-                                    newVersion, publishVersionTask,
-                                    errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
-                                    tabletVersionFailedReplicas);
+                        List<PublishVersionTask> publishVersionTasks = publishTasks.get(replica.getBackendId());
+                        Preconditions.checkState(publishVersionTasks == null || publishVersionTasks.size() == 1,
+                                "publish tasks: " + publishVersionTasks);
+                        PublishVersionTask publishVersionTask = null;
+                        if (publishVersionTasks != null) {
+                            publishVersionTask = publishVersionTasks.get(0);
                         }
+                        checkReplicaContinuousVersionSucc(tablet.getId(), replica, alterReplicaLoadedTxn,
+                                newVersion, publishVersionTask,
+                                errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
+                                tabletVersionFailedReplicas);
+
                     }
 
                     publishResult = checkQuorumReplicas(transactionState, tableId, partition, tablet,
@@ -2627,25 +2665,31 @@ public class DatabaseTransactionMgr {
                         // TODO always use the visible version because the replica version is not changed
                         long newVersion = partition.getVisibleVersion() + 1;
                         for (Replica replica : tablet.getReplicas()) {
-                            for (PublishVersionTask publishVersionTask : publishTasks.get(replica.getBackendId())) {
-                                boolean needCheck = publishVersionTask.getTransactionId()
-                                        == subTransactionState.getSubTransactionId()
-                                        && publishVersionTask.getPartitionVersionInfos().stream()
-                                        .anyMatch(s -> s.getPartitionId() == partitionId);
-                                if (needCheck) {
-                                    checkReplicaContinuousVersionSucc(tablet.getId(), replica, alterReplicaLoadedTxn,
-                                            newVersion, publishVersionTask,
-                                            errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
-                                            tabletVersionFailedReplicas);
-                                    LOG.debug("after checkReplicaContinuousVersion for txn_id={}, sub_txn_id={}, "
-                                                    + "tablet_id={}, new_version={}, success_replicas={}, "
-                                                    + "error_replicas={}, write_failed_replicas={}, "
-                                                    + "version_failed_replicas={}", transactionState.getTransactionId(),
-                                            subTransactionState.getSubTransactionId(), tablet.getId(), newVersion,
-                                            tabletSuccReplicas, errorReplicaIds, tabletWriteFailedReplicas,
-                                            tabletVersionFailedReplicas);
+                            List<PublishVersionTask> publishVersionTasks = publishTasks.get(replica.getBackendId());
+                            PublishVersionTask publishVersionTask = null;
+                            if (publishVersionTasks != null) {
+                                List<PublishVersionTask> matchedTasks = publishVersionTasks.stream()
+                                        .filter(t -> t.getTransactionId() == subTransactionState.getSubTransactionId()
+                                                && t.getPartitionVersionInfos().stream()
+                                                .anyMatch(s -> s.getPartitionId() == partitionId))
+                                        .collect(Collectors.toList());
+                                Preconditions.checkState(matchedTasks.size() <= 1,
+                                        "matched publish tasks: " + matchedTasks);
+                                if (matchedTasks.size() == 1) {
+                                    publishVersionTask = matchedTasks.get(0);
                                 }
                             }
+                            checkReplicaContinuousVersionSucc(tablet.getId(), replica, alterReplicaLoadedTxn,
+                                    newVersion, publishVersionTask,
+                                    errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
+                                    tabletVersionFailedReplicas);
+                            LOG.debug("after checkReplicaContinuousVersion for txn_id={}, sub_txn_id={}, "
+                                            + "tablet_id={}, new_version={}, success_replicas={}, "
+                                            + "error_replicas={}, write_failed_replicas={}, "
+                                            + "version_failed_replicas={}", transactionState.getTransactionId(),
+                                    subTransactionState.getSubTransactionId(), tablet.getId(), newVersion,
+                                    tabletSuccReplicas, errorReplicaIds, tabletWriteFailedReplicas,
+                                    tabletVersionFailedReplicas);
                         }
 
                         publishResult = checkQuorumReplicas(transactionState, tableId, partition, tablet,

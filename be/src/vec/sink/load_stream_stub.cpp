@@ -127,11 +127,12 @@ inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamReplyHandler
 
 LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id,
                                std::shared_ptr<IndexToTabletSchema> schema_map,
-                               std::shared_ptr<IndexToEnableMoW> mow_map)
+                               std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental)
         : _load_id(load_id),
           _src_id(src_id),
           _tablet_schema_for_index(schema_map),
-          _enable_unique_mow_for_index(mow_map) {};
+          _enable_unique_mow_for_index(mow_map),
+          _is_incremental(incremental) {};
 
 LoadStreamStub::~LoadStreamStub() {
     if (_is_init.load() && !_is_closed.load()) {
@@ -168,7 +169,13 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     request.set_src_id(_src_id);
     request.set_txn_id(txn_id);
     request.set_enable_profile(enable_profile);
-    request.set_total_streams(total_streams);
+    if (_is_incremental) {
+        request.set_total_streams(0);
+    } else if (total_streams > 0) {
+        request.set_total_streams(total_streams);
+    } else {
+        return Status::InternalError("total_streams should be greator than 0");
+    }
     request.set_idle_timeout_ms(idle_timeout_ms);
     schema.to_protobuf(request.mutable_schema());
     for (auto& tablet : tablets_for_schema) {

@@ -388,7 +388,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
         for (TableRef tblRef : tblRefs) {
             String tblName = tblRef.getName().getTbl();
             Table tbl = db.getTableOrDdlException(tblName);
-            if (tbl.getType() == TableType.VIEW || tbl.getType() == TableType.ODBC) {
+            if (tbl.getType() == TableType.VIEW || tbl.getType() == TableType.ODBC
+                    || tbl.getType() == TableType.MATERIALIZED_VIEW) {
                 continue;
             }
             if (tbl.getType() != TableType.OLAP) {
@@ -769,6 +770,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             // We use replayed job, not the existing job, to do the replayRun().
             // Because if we use the existing job to run again,
             // for example: In restore job, PENDING will transfer to SNAPSHOTING, not DOWNLOAD.
+            job.setEnv(env);
             job.replayRun();
         }
 

@@ -413,6 +413,23 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
         }
 
+        if (!req.runtime_state->iceberg_commit_datas().empty()) {
+            params.__isset.iceberg_commit_datas = true;
+            params.iceberg_commit_datas.reserve(req.runtime_state->iceberg_commit_datas().size());
+            for (auto& iceberg_commit_data : req.runtime_state->iceberg_commit_datas()) {
+                params.iceberg_commit_datas.push_back(iceberg_commit_data);
+            }
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->iceberg_commit_datas().empty()) {
+                    params.__isset.iceberg_commit_datas = true;
+                    params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(),
+                                                       rs->iceberg_commit_datas().begin(),
+                                                       rs->iceberg_commit_datas().end());
+                }
+            }
+        }
+
         // Send new errors to coordinator
         req.runtime_state->get_unreported_errors(&(params.error_log));
         params.__isset.error_log = (params.error_log.size() > 0);
@@ -829,6 +846,14 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
         }
     }
     return fmt::to_string(debug_string_buffer);
+}
+
+std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
+    if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
+        return q_ctx->print_all_pipeline_context();
+    } else {
+        return fmt::format("Query context (query id = {}) not found. \n", print_id(query_id));
+    }
 }
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,

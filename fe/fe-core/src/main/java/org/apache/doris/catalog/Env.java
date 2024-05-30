@@ -141,6 +141,8 @@ import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
+import org.apache.doris.event.EventProcessor;
+import org.apache.doris.event.ReplacePartitionEvent;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
@@ -189,6 +191,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -537,6 +540,7 @@ public class Env {
     private TopicPublisherThread topicPublisherThread;
 
     private MTMVService mtmvService;
+    private EventProcessor eventProcessor;
 
     private InsertOverwriteManager insertOverwriteManager;
 
@@ -782,6 +786,7 @@ public class Env {
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
+        this.eventProcessor = new EventProcessor(mtmvService);
         this.insertOverwriteManager = new InsertOverwriteManager();
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
@@ -851,6 +856,10 @@ public class Env {
 
     public MTMVService getMtmvService() {
         return mtmvService;
+    }
+
+    public EventProcessor getEventProcessor() {
+        return eventProcessor;
     }
 
     public InsertOverwriteManager getInsertOverwriteManager() {
@@ -3123,6 +3132,10 @@ public class Env {
 
     public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
         getInternalCatalog().recoverPartition(recoverStmt);
+    }
+
+    public void dropCatalogRecycleBin(IdType idType, long id) throws DdlException {
+        getInternalCatalog().dropCatalogRecycleBin(idType, id);
     }
 
     public void replayEraseDatabase(long dbId) throws DdlException {
@@ -5678,6 +5691,18 @@ public class Env {
             olapTable.updateVisibleVersionAndTime(version, versionTime);
         } else {
             version = olapTable.getVisibleVersion();
+        }
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of replace the partition
+        try {
+            Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new ReplacePartitionEvent(db.getCatalog().getId(), db.getId(),
+                            olapTable.getId()));
+        } catch (Throwable t) {
+            // According to normal logic, no exceptions will be thrown,
+            // but in order to avoid bugs affecting the original logic, all exceptions are caught
+            LOG.warn("produceEvent failed: ", t);
         }
         // write log
         ReplacePartitionOperationLog info =

@@ -163,6 +163,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void onRefresh(boolean invalidCache) {
+        super.onRefresh(invalidCache);
+        if (metadataOps != null) {
+            metadataOps.close();
+        }
+    }
+
+    @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
         return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));

@@ -55,10 +55,17 @@ import java.util.Set;
 public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
 
     public static final Set<String> BACKEND_TABLE = new HashSet<>();
+    // NOTE: when add a new schema table for BackendPartitionedSchemaScanNode,
+    // you need to the table's backend column id name to BACKEND_ID_COLUMN_SET
+    // it's used to backend pruner, see computePartitionInfo;
+    public static final Set<String> BEACKEND_ID_COLUMN_SET = new HashSet<>();
 
     static {
         BACKEND_TABLE.add("rowsets");
+        BEACKEND_ID_COLUMN_SET.add("backend_id");
+
         BACKEND_TABLE.add("backend_active_tasks");
+        BEACKEND_ID_COLUMN_SET.add("be_id");
     }
 
     public static boolean isBackendPartitionedSchemaTable(String tableName) {
@@ -130,7 +137,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     private void computePartitionInfo() throws AnalysisException {
         List<Column> partitionColumns = new ArrayList<>();
         for (SlotDescriptor slotDesc : desc.getSlots()) {
-            if ("BACKEND_ID".equalsIgnoreCase(slotDesc.getColumn().getName())) {
+            if (BEACKEND_ID_COLUMN_SET.contains(slotDesc.getColumn().getName().toLowerCase())) {
                 partitionColumns.add(slotDesc.getColumn());
                 break;
             }
