@@ -305,7 +305,14 @@ public class PublishVersionDaemon extends MasterDaemon {
     private List<TPartitionVersionInfo> generatePartitionVersionInfos(TableCommitInfo tableCommitInfo,
             TransactionState transactionState, Map<Long, Set<Long>> beIdToBaseTabletIds) {
         try {
-            beIdToBaseTabletIds.putAll(getBaseTabletIdsForEachBe(transactionState, tableCommitInfo));
+            Map<Long, Set<Long>> map = getBaseTabletIdsForEachBe(transactionState, tableCommitInfo);
+            map.forEach((beId, newSet) -> {
+                beIdToBaseTabletIds.computeIfPresent(beId, (id, orgSet) -> {
+                    orgSet.addAll(newSet);
+                    return orgSet;
+                });
+                beIdToBaseTabletIds.putIfAbsent(beId, newSet);
+            });
         } catch (MetaNotFoundException e) {
             LOG.warn("exception occur when trying to get rollup tablets info", e);
         }

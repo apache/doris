@@ -81,8 +81,8 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         return catalog;
     }
 
-    public static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
-                                                     JdbcClientConfig jdbcClientConfig) {
+    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
+            JdbcClientConfig jdbcClientConfig) {
         if (hiveConf != null) {
             return new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
         }
@@ -264,6 +264,11 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean databaseExist(String dbName) {
         return listDatabaseNames().contains(dbName);
+    }
+
+    @Override
+    public void close() {
+        client.close();
     }
 
     public List<String> listDatabaseNames() {

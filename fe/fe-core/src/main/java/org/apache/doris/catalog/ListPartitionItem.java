@@ -35,7 +35,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class ListPartitionItem extends PartitionItem {
-    public static ListPartitionItem DUMMY_ITEM = new ListPartitionItem(Lists.newArrayList());
+    public static final ListPartitionItem DUMMY_ITEM = new ListPartitionItem(Lists.newArrayList());
 
     private final List<PartitionKey> partitionKeys;
     private boolean isDefaultPartition = false;

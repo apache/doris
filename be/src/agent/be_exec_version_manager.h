@@ -78,6 +78,7 @@ private:
  * 5: start from doris 3.0.0
  *    a. change the impl of percentile (need fix)
  *    b. clear old version of version 3->4
+ *    c. change FunctionIsIPAddressInRange from AlwaysNotNullable to DependOnArguments
  */
 constexpr inline int BeExecVersionManager::max_be_exec_version = 5;
 constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
