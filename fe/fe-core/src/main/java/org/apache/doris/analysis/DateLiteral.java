@@ -458,22 +458,25 @@ public class DateLiteral extends LiteralExpr {
                     throw new AnalysisException("Invalid date value: " + s);
                 }
                 if (timePart.length == 0 && type != null
-                    && (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2))) {
+                        && (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2))) {
                     throw new AnalysisException("Invalid datetime value: " + s);
                 }
                 for (int i = 0; i < timePart.length; i++) {
                     switch (i) {
                         case 0:
-                            builder.appendPattern(String.join("", Collections.nCopies(timePart[i].length(), "H")));
+                            builder.appendPattern(String.join("",
+                                    Collections.nCopies(timePart[i].length(), "H")));
                             break;
                         case 1:
-                            builder.appendPattern(String.join("", Collections.nCopies(timePart[i].length(), "m")));
+                            builder.appendPattern(String.join("",
+                                    Collections.nCopies(timePart[i].length(), "m")));
                             break;
                         case 2:
                             builder.appendPattern(String.join("", Collections.nCopies(timePart[i].contains(".")
                                     ? timePart[i].split("\\.")[0].length() : timePart[i].length(), "s")));
                             if (timePart[i].contains(".")) {
-                                builder.appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true);
+                                builder.appendFraction(ChronoField.MICRO_OF_SECOND,
+                                        0, 6, true);
                             }
                             break;
                         default:
