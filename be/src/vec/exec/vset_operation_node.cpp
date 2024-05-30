@@ -502,8 +502,8 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
                                                          int& block_size) {
     auto it = value.begin();
     for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
-        auto& column = *_build_blocks[it->block_offset].get_by_position(idx->first).column;
-        _mutable_cols[idx->second]->insert_from(column, it->row_num);
+        const auto& column = *_build_blocks[it->block_offset].get_by_position(idx->second).column;
+        _mutable_cols[idx->first]->insert_from(column, it->row_num);
     }
     block_size++;
 }
@@ -590,7 +590,7 @@ Status VSetOperationNode<is_intersect>::extract_build_column(Block& block,
         }
         raw_ptrs[i] = block.get_by_position(result_col_id).column.get();
         DCHECK_GE(result_col_id, 0);
-        _build_col_idx.insert({result_col_id, i});
+        _build_col_idx.insert({i, result_col_id});
     }
     return Status::OK();
 }
