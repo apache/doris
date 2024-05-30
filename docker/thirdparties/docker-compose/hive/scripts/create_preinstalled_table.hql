@@ -1,5 +1,11 @@
 use default;
 
+CREATE TABLE `tbl_with_tz` (
+    t timestamp,
+    tltz timestamp with local time zone
+)
+stored as orc;
+
 CREATE TABLE `partition_table`(
   `l_orderkey` int,
   `l_partkey` int,
@@ -2520,10 +2526,4 @@ PARTITIONED BY (
   `varchar_col` varchar(50))
 stored as orc
 TBLPROPERTIES("orc.compress"="ZLIB");
-
-CREATE TABLE `tbl_with_tz` (
-    t timestamp,
-    tltz timestamp with local time zone
-)
-stored as orc;
 
