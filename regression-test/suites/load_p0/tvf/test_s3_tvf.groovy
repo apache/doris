@@ -62,6 +62,10 @@ suite("test_s3_tvf", "load_p0") {
                  .addProperty("column_separator", "|")
                  .addProperty("use_path_style", "true")
                  .addProperty("path_partition_keys", "kd16"))
+      def value = attributeList.get(attributeList.size() - 1).get("uri")
+      logger.info("get uri: $value")
+      value = attributeList.get(attributeList.size() - 1).get("format")
+      logger.info("get format: $value")
    }
 
    attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21, kd16",
@@ -839,7 +843,7 @@ suite("test_s3_tvf", "load_p0") {
             .addProperty("force_parsing_by_standard_uri", "true"))
 
     for(String table : arrayTables) {
-        attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17"], "", "").addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.csv")
+        attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17"], "", "")
                 .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data_by_tab_line_delimiter.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
@@ -858,10 +862,57 @@ suite("test_s3_tvf", "load_p0") {
     }
 
     // do_load_job = {label, path, table, columns, column_in_path, preceding_filter}
+    def do_load_job = {uuid, path, table, columns, column_separator, line_separator, format_str, 
+                        compress_type, where_clause, prop -> 
+        if (column_separator == null) {
+            column_separator = ""
+        }
+        if (line_separator == null) {
+            line_separator = ""
+        }
+        if (compress_type == null) {
+            compress_type = ""
+        }
+        column_separator = ("$column_separator" != "") ? ("columns terminated by '$column_separator'") : "columns terminated by '|'"
+        line_separator = ("$line_separator" != "")  ? ("lines terminated by '$line_separator'") : "lines terminated by '\n'"
+        compress_type = ("$compress_type" != "") ? ("compress_type as '$compress_type") : "" 
+        logger.info("$column_separator", "$line_separator", "$compress_type")
+        columns = ("$columns" != "") ? "($columns)" : ""
+        def sqlStr = 
+        """
+            LOAD LABEL $uuid (
+                DATA INFILE("$path")
+                INTO TABLE $table
 
+                $column_separator
+                $line_separator
+                FORMAT AS $format_str
+                $compress_type
+                "$columns"
+                $where_clause
+                PROPERTIES(
+                        ${prop}
+                )
+            )
+            WITH S3 (
+                "AWS_ACCESS_KEY" = "$ak",
+                "AWS_SECRET_KEY" = "$sk",
+                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
+                "AWS_REGION" = "ap-beijing"
+            )
+        """
+        def result = sql """${sqlStr}"""
+        logger.info("\n load result : $result\n")
+        logger.info("Submit load with lable: $label, table: $table, path: $path")
+    
+    }
     def i = 0
+    def uuids = []
+    def counts = []
+    try {
     for (TvfAttribute attribute : attributeList) {
 
+        attribute.properties.forEach (k, v) -> { logger.info("key: $k, value: $v") }
         def prop = attribute.getPropertiesStr()
         def insertList = attribute.getInsertList()
         def selectList = attribute.getSelectList()
@@ -886,10 +937,62 @@ suite("test_s3_tvf", "load_p0") {
             assertTrue(attribute.expectFiled)
         }
 
-        def ret = sql """select * from ${attribute.tableName} limit 10"""
+        def ret = sql """select count(*) from ${attribute.tableName}"""
+        counts.add(ret)
         logger.info("ret: ${ret}")
         qt_select """ select count(*) from $attribute.tableName """
         ++i
+        logger.info("properties: ${attribute.properties.get("uri")}")
+        def uuid = UUID.randomUUID().toString().replace("-", "0")
+        def table = attribute.tableName
+        def path = attribute.get("uri")
+        def columns = insertList
+        def column_separator = attribute.get("column_separator")
+        def line_separator = attribute.get("line_delimiter")
+        def format_str = attribute.get("format")
+        def compress_type = attribute.get("compress_type")
+        def where_clause = attribute.whereClause
+        do_load_job(uuid, path, table, columns, column_separator, line_separator, format_str, compress_type, where_clause, prop)
+        uuids.add(uuid)
+    }
+
+    i = 0
+    for (String label in uuids) {
+        def max_try_milli_secs = 60000
+        while (max_try_milli_secs > 0) {
+            def String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
+            logger.info("Load status: " + result[0][2] + ", label: $label")
+            if (result[0][2].equals("FINISHED")) {
+                logger.info("Load FINISHED " + label)
+                // assertTrue(result[0][6].contains(task_info[i]))
+                // assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5] + ", label: $label")
+                break;
+            }
+            if (result[0][2].equals("CANCELLED")) {
+                logger.info("Load CANCELLED " + label)
+                // assertTrue(result[0][6].contains(task_info[i]))
+                // assertTrue(result[0][7].contains(error_msg[i]))
+                break;
+            }
+            Thread.sleep(1000)
+            max_try_milli_secs -= 1000
+            if(max_try_milli_secs <= 0) {
+                assertTrue(1 == 2, "load Timeout: $label")
+            }
+        }
+        i++
+    }
+    i = 0
+    for (TvfAttribute attribute : attributeList) {
+        def ret = sql """select count(*) from ${attribute.tableName}"""
+        assertEquals(counts[i] * 2, ret)
+    }
+
+    } finally {
+        for (TvfAttribute attribute : attributeList) {
+            def table = attribute.tableName
+            sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
+        }
     }
 
 
@@ -964,6 +1067,10 @@ class TvfAttribute {
         }
         prop = prop.substring(0, prop.size() - 1)
         return prop
+    }
+
+    String get(String k) {
+        return properties.get(k)
     }
 
     TvfAttribute addProperty(String k, String v) {
