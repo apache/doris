@@ -72,7 +72,7 @@ public:
         _meta_pb.reset(new OrdinalIndexPB(meta_pb));
     }
 
-    ~OrdinalIndexReader();
+    virtual ~OrdinalIndexReader();
 
     // load and parse the index page into memory
     Status load(bool use_page_cache, bool kept_in_memory);
