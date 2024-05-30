@@ -925,6 +925,8 @@ Versions Tablet::calc_missed_versions(int64_t spec_version, Versions existing_ve
     for (const Version& version : existing_versions) {
         if (version.first > last_version + 1) {
             for (int64_t i = last_version + 1; i < version.first && i <= spec_version; ++i) {
+                // Don't merge missed_versions because clone & snapshot use single version.
+                // For example, if miss 4 ~ 6, clone need [4, 4], [5, 5], [6, 6], but not [4, 6].
                 missed_versions.emplace_back(i, i);
             }
         }
