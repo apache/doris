@@ -1289,7 +1289,6 @@ DEFINE_Int64(s3_file_system_local_upload_buffer_size, "5242880");
 //JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues. The default setting is off.
 DEFINE_Bool(enable_jvm_monitor, "false");
 
-
 // clang-format off
 #ifdef BE_TEST
 // test s3
