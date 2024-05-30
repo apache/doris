@@ -100,8 +100,9 @@ ObjectStorageUploadResponse S3ObjStorageClient::create_multipart_upload(
     }
 
     return ObjectStorageUploadResponse {
-        .resp = s3fs_error(outcome.GetError(), fmt::format("failed to create multipart upload {} ",
-                                                           opts.path.native())),
+            .resp = s3fs_error(
+                    outcome.GetError(),
+                    fmt::format("failed to create multipart upload {} ", opts.path.native())),
     };
 }
 
@@ -209,7 +210,7 @@ ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePat
         return {.resp = Status::NotFound("")};
     } else {
         return {.resp = s3fs_error(outcome.GetError(),
-                                     fmt::format("failed to check exists {}", opts.key))};
+                                   fmt::format("failed to check exists {}", opts.key))};
     }
     return {};
 }
