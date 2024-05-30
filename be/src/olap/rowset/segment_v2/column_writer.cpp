@@ -47,11 +47,11 @@
 #include "util/faststring.h"
 #include "util/rle_encoding.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_agg_state.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 namespace segment_v2 {
-
-using strings::Substitute;
 
 class NullBitmapBuilder {
 public:
@@ -88,267 +88,305 @@ private:
     RleEncoder<bool> _rle_encoder;
 };
 
+Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
+                                          const TabletColumn* column, io::FileWriter* file_writer,
+                                          std::unique_ptr<ColumnWriter>* writer) {
+    // not support empty struct
+    DCHECK(column->get_subtype_count() >= 1);
+    std::vector<std::unique_ptr<ColumnWriter>> sub_column_writers;
+    sub_column_writers.reserve(column->get_subtype_count());
+    for (uint32_t i = 0; i < column->get_subtype_count(); i++) {
+        const TabletColumn& sub_column = column->get_sub_column(i);
+
+        // create sub writer
+        ColumnWriterOptions column_options;
+        column_options.meta = opts.meta->mutable_children_columns(i);
+        column_options.need_zone_map = false;
+        column_options.need_bloom_filter = sub_column.is_bf_column();
+        column_options.need_bitmap_index = sub_column.has_bitmap_index();
+        if (sub_column.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            if (column_options.need_bloom_filter) {
+                return Status::NotSupported("Do not support bloom filter for struct type");
+            }
+            if (column_options.need_bitmap_index) {
+                return Status::NotSupported("Do not support bitmap index for struct type");
+            }
+        }
+        if (sub_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            if (column_options.need_bloom_filter) {
+                return Status::NotSupported("Do not support bloom filter for array type");
+            }
+            if (column_options.need_bitmap_index) {
+                return Status::NotSupported("Do not support bitmap index for array type");
+            }
+        }
+        std::unique_ptr<ColumnWriter> sub_column_writer;
+        RETURN_IF_ERROR(
+                ColumnWriter::create(column_options, &sub_column, file_writer, &sub_column_writer));
+        sub_column_writers.push_back(std::move(sub_column_writer));
+    }
+
+    // if nullable, create null writer
+    ScalarColumnWriter* null_writer = nullptr;
+    if (opts.meta->is_nullable()) {
+        FieldType null_type = FieldType::OLAP_FIELD_TYPE_TINYINT;
+        ColumnWriterOptions null_options;
+        null_options.meta = opts.meta->add_children_columns();
+        null_options.meta->set_column_id(column->get_subtype_count() + 1);
+        null_options.meta->set_unique_id(column->get_subtype_count() + 1);
+        null_options.meta->set_type(int(null_type));
+        null_options.meta->set_is_nullable(false);
+        null_options.meta->set_length(
+                get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size());
+        null_options.meta->set_encoding(DEFAULT_ENCODING);
+        null_options.meta->set_compression(opts.meta->compression());
+
+        null_options.need_zone_map = false;
+        null_options.need_bloom_filter = false;
+        null_options.need_bitmap_index = false;
+
+        TabletColumn null_column =
+                TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type,
+                             null_options.meta->is_nullable(), null_options.meta->unique_id(),
+                             null_options.meta->length());
+        null_column.set_name("nullable");
+        null_column.set_index_length(-1); // no short key index
+        std::unique_ptr<Field> null_field(FieldFactory::create(null_column));
+        null_writer = new ScalarColumnWriter(null_options, std::move(null_field), file_writer);
+    }
+
+    *writer = std::unique_ptr<ColumnWriter>(
+            new StructColumnWriter(opts, std::unique_ptr<Field>(FieldFactory::create(*column)),
+                                   null_writer, sub_column_writers));
+    return Status::OK();
+}
+
+Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
+                                         const TabletColumn* column, io::FileWriter* file_writer,
+                                         std::unique_ptr<ColumnWriter>* writer) {
+    DCHECK(column->get_subtype_count() == 1);
+    const TabletColumn& item_column = column->get_sub_column(0);
+
+    // create item writer
+    ColumnWriterOptions item_options;
+    item_options.meta = opts.meta->mutable_children_columns(0);
+    item_options.need_zone_map = false;
+    item_options.need_bloom_filter = item_column.is_bf_column();
+    item_options.need_bitmap_index = item_column.has_bitmap_index();
+    if (item_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        if (item_options.need_bloom_filter) {
+            return Status::NotSupported("Do not support bloom filter for array type");
+        }
+        if (item_options.need_bitmap_index) {
+            return Status::NotSupported("Do not support bitmap index for array type");
+        }
+    }
+    std::unique_ptr<ColumnWriter> item_writer;
+    RETURN_IF_ERROR(ColumnWriter::create(item_options, &item_column, file_writer, &item_writer));
+
+    // create length writer
+    FieldType length_type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
+
+    ColumnWriterOptions length_options;
+    length_options.meta = opts.meta->add_children_columns();
+    length_options.meta->set_column_id(2);
+    length_options.meta->set_unique_id(2);
+    length_options.meta->set_type(int(length_type));
+    length_options.meta->set_is_nullable(false);
+    length_options.meta->set_length(
+            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size());
+    length_options.meta->set_encoding(DEFAULT_ENCODING);
+    length_options.meta->set_compression(opts.meta->compression());
+
+    length_options.need_zone_map = false;
+    length_options.need_bloom_filter = false;
+    length_options.need_bitmap_index = false;
+
+    TabletColumn length_column =
+            TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
+                         length_options.meta->is_nullable(), length_options.meta->unique_id(),
+                         length_options.meta->length());
+    length_column.set_name("length");
+    length_column.set_index_length(-1); // no short key index
+    std::unique_ptr<Field> bigint_field(FieldFactory::create(length_column));
+    auto* length_writer =
+            new OffsetColumnWriter(length_options, std::move(bigint_field), file_writer);
+
+    // if nullable, create null writer
+    ScalarColumnWriter* null_writer = nullptr;
+    if (opts.meta->is_nullable()) {
+        FieldType null_type = FieldType::OLAP_FIELD_TYPE_TINYINT;
+        ColumnWriterOptions null_options;
+        null_options.meta = opts.meta->add_children_columns();
+        null_options.meta->set_column_id(3);
+        null_options.meta->set_unique_id(3);
+        null_options.meta->set_type(int(null_type));
+        null_options.meta->set_is_nullable(false);
+        null_options.meta->set_length(
+                get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size());
+        null_options.meta->set_encoding(DEFAULT_ENCODING);
+        null_options.meta->set_compression(opts.meta->compression());
+
+        null_options.need_zone_map = false;
+        null_options.need_bloom_filter = false;
+        null_options.need_bitmap_index = false;
+
+        TabletColumn null_column =
+                TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type,
+                             length_options.meta->is_nullable(), null_options.meta->unique_id(),
+                             null_options.meta->length());
+        null_column.set_name("nullable");
+        null_column.set_index_length(-1); // no short key index
+        std::unique_ptr<Field> null_field(FieldFactory::create(null_column));
+        null_writer = new ScalarColumnWriter(null_options, std::move(null_field), file_writer);
+    }
+
+    *writer = std::unique_ptr<ColumnWriter>(
+            new ArrayColumnWriter(opts, std::unique_ptr<Field>(FieldFactory::create(*column)),
+                                  length_writer, null_writer, std::move(item_writer)));
+    return Status::OK();
+}
+
+Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                       io::FileWriter* file_writer,
+                                       std::unique_ptr<ColumnWriter>* writer) {
+    DCHECK(column->get_subtype_count() == 2);
+    // create key & value writer
+    std::vector<std::unique_ptr<ColumnWriter>> inner_writer_list;
+    for (int i = 0; i < 2; ++i) {
+        const TabletColumn& item_column = column->get_sub_column(i);
+        // create item writer
+        ColumnWriterOptions item_options;
+        item_options.meta = opts.meta->mutable_children_columns(i);
+        item_options.need_zone_map = false;
+        item_options.need_bloom_filter = item_column.is_bf_column();
+        item_options.need_bitmap_index = item_column.has_bitmap_index();
+        if (item_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            if (item_options.need_bloom_filter) {
+                return Status::NotSupported("Do not support bloom filter for map type");
+            }
+            if (item_options.need_bitmap_index) {
+                return Status::NotSupported("Do not support bitmap index for map type");
+            }
+        }
+        std::unique_ptr<ColumnWriter> item_writer;
+        RETURN_IF_ERROR(
+                ColumnWriter::create(item_options, &item_column, file_writer, &item_writer));
+        inner_writer_list.push_back(std::move(item_writer));
+    }
+
+    ScalarColumnWriter* null_writer = nullptr;
+    // create offset writer
+    FieldType length_type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
+
+    // Be Cautious: column unique id is used for column reader creation
+    ColumnWriterOptions length_options;
+    length_options.meta = opts.meta->add_children_columns();
+    length_options.meta->set_column_id(column->get_subtype_count() + 1);
+    length_options.meta->set_unique_id(column->get_subtype_count() + 1);
+    length_options.meta->set_type(int(length_type));
+    length_options.meta->set_is_nullable(false);
+    length_options.meta->set_length(
+            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size());
+    length_options.meta->set_encoding(DEFAULT_ENCODING);
+    length_options.meta->set_compression(opts.meta->compression());
+
+    length_options.need_zone_map = false;
+    length_options.need_bloom_filter = false;
+    length_options.need_bitmap_index = false;
+
+    TabletColumn length_column =
+            TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
+                         length_options.meta->is_nullable(), length_options.meta->unique_id(),
+                         length_options.meta->length());
+    length_column.set_name("length");
+    length_column.set_index_length(-1); // no short key index
+    std::unique_ptr<Field> bigint_field(FieldFactory::create(length_column));
+    auto* length_writer =
+            new OffsetColumnWriter(length_options, std::move(bigint_field), file_writer);
+
+    // create null writer
+    if (opts.meta->is_nullable()) {
+        FieldType null_type = FieldType::OLAP_FIELD_TYPE_TINYINT;
+        ColumnWriterOptions null_options;
+        null_options.meta = opts.meta->add_children_columns();
+        null_options.meta->set_column_id(column->get_subtype_count() + 2);
+        null_options.meta->set_unique_id(column->get_subtype_count() + 2);
+        null_options.meta->set_type(int(null_type));
+        null_options.meta->set_is_nullable(false);
+        null_options.meta->set_length(
+                get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size());
+        null_options.meta->set_encoding(DEFAULT_ENCODING);
+        null_options.meta->set_compression(opts.meta->compression());
+
+        null_options.need_zone_map = false;
+        null_options.need_bloom_filter = false;
+        null_options.need_bitmap_index = false;
+
+        TabletColumn null_column =
+                TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type, false,
+                             null_options.meta->unique_id(), null_options.meta->length());
+        null_column.set_name("nullable");
+        null_column.set_index_length(-1); // no short key index
+        std::unique_ptr<Field> null_field(FieldFactory::create(null_column));
+        null_writer = new ScalarColumnWriter(null_options, std::move(null_field), file_writer);
+    }
+
+    *writer = std::unique_ptr<ColumnWriter>(
+            new MapColumnWriter(opts, std::unique_ptr<Field>(FieldFactory::create(*column)),
+                                null_writer, length_writer, inner_writer_list));
+
+    return Status::OK();
+}
+
+Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
+                                             const TabletColumn* column,
+                                             io::FileWriter* file_writer,
+                                             std::unique_ptr<ColumnWriter>* writer) {
+    auto data_type = vectorized::DataTypeFactory::instance().create_data_type(*column);
+    const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
+    auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
+    if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
+        type == PrimitiveType::TYPE_OBJECT) {
+        *writer = std::unique_ptr<ColumnWriter>(new ScalarColumnWriter(
+                opts, std::unique_ptr<Field>(FieldFactory::create(*column)), file_writer));
+    } else if (type == PrimitiveType::TYPE_ARRAY) {
+        RETURN_IF_ERROR(create_array_writer(opts, column, file_writer, writer));
+    } else if (type == PrimitiveType::TYPE_MAP) {
+        RETURN_IF_ERROR(create_map_writer(opts, column, file_writer, writer));
+    } else {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "OLAP_FIELD_TYPE_AGG_STATE meet unsupported type: {}",
+                        agg_state_type->get_name());
+    }
+    return Status::OK();
+}
+
 //Todo(Amory): here should according nullable and offset and need sub to simply this function
 Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn* column,
                             io::FileWriter* file_writer, std::unique_ptr<ColumnWriter>* writer) {
     std::unique_ptr<Field> field(FieldFactory::create(*column));
     DCHECK(field.get() != nullptr);
     if (is_scalar_type(column->type())) {
-        std::unique_ptr<ColumnWriter> writer_local = std::unique_ptr<ColumnWriter>(
+        *writer = std::unique_ptr<ColumnWriter>(
                 new ScalarColumnWriter(opts, std::move(field), file_writer));
-        *writer = std::move(writer_local);
         return Status::OK();
     } else {
         switch (column->type()) {
+        case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
+            RETURN_IF_ERROR(create_agg_state_writer(opts, column, file_writer, writer));
+            return Status::OK();
+        }
         case FieldType::OLAP_FIELD_TYPE_STRUCT: {
-            // not support empty struct
-            DCHECK(column->get_subtype_count() >= 1);
-            std::vector<std::unique_ptr<ColumnWriter>> sub_column_writers;
-            sub_column_writers.reserve(column->get_subtype_count());
-            for (uint32_t i = 0; i < column->get_subtype_count(); i++) {
-                const TabletColumn& sub_column = column->get_sub_column(i);
-
-                // create sub writer
-                ColumnWriterOptions column_options;
-                column_options.meta = opts.meta->mutable_children_columns(i);
-                column_options.need_zone_map = false;
-                column_options.need_bloom_filter = sub_column.is_bf_column();
-                column_options.need_bitmap_index = sub_column.has_bitmap_index();
-                if (sub_column.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
-                    if (column_options.need_bloom_filter) {
-                        return Status::NotSupported("Do not support bloom filter for struct type");
-                    }
-                    if (column_options.need_bitmap_index) {
-                        return Status::NotSupported("Do not support bitmap index for struct type");
-                    }
-                }
-                if (sub_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-                    if (column_options.need_bloom_filter) {
-                        return Status::NotSupported("Do not support bloom filter for array type");
-                    }
-                    if (column_options.need_bitmap_index) {
-                        return Status::NotSupported("Do not support bitmap index for array type");
-                    }
-                }
-                std::unique_ptr<ColumnWriter> sub_column_writer;
-                RETURN_IF_ERROR(ColumnWriter::create(column_options, &sub_column, file_writer,
-                                                     &sub_column_writer));
-                sub_column_writers.push_back(std::move(sub_column_writer));
-            }
-
-            // if nullable, create null writer
-            ScalarColumnWriter* null_writer = nullptr;
-            if (opts.meta->is_nullable()) {
-                FieldType null_type = FieldType::OLAP_FIELD_TYPE_TINYINT;
-                ColumnWriterOptions null_options;
-                null_options.meta = opts.meta->add_children_columns();
-                null_options.meta->set_column_id(column->get_subtype_count() + 1);
-                null_options.meta->set_unique_id(column->get_subtype_count() + 1);
-                null_options.meta->set_type(int(null_type));
-                null_options.meta->set_is_nullable(false);
-                null_options.meta->set_length(
-                        get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size());
-                null_options.meta->set_encoding(DEFAULT_ENCODING);
-                null_options.meta->set_compression(opts.meta->compression());
-
-                null_options.need_zone_map = false;
-                null_options.need_bloom_filter = false;
-                null_options.need_bitmap_index = false;
-
-                TabletColumn null_column =
-                        TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type,
-                                     null_options.meta->is_nullable(),
-                                     null_options.meta->unique_id(), null_options.meta->length());
-                null_column.set_name("nullable");
-                null_column.set_index_length(-1); // no short key index
-                std::unique_ptr<Field> null_field(FieldFactory::create(null_column));
-                null_writer =
-                        new ScalarColumnWriter(null_options, std::move(null_field), file_writer);
-            }
-
-            std::unique_ptr<ColumnWriter> writer_local =
-                    std::unique_ptr<ColumnWriter>(new StructColumnWriter(
-                            opts, std::move(field), null_writer, sub_column_writers));
-            *writer = std::move(writer_local);
+            RETURN_IF_ERROR(create_struct_writer(opts, column, file_writer, writer));
             return Status::OK();
         }
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-            DCHECK(column->get_subtype_count() == 1);
-            const TabletColumn& item_column = column->get_sub_column(0);
-
-            // create item writer
-            ColumnWriterOptions item_options;
-            item_options.meta = opts.meta->mutable_children_columns(0);
-            item_options.need_zone_map = false;
-            item_options.need_bloom_filter = item_column.is_bf_column();
-            item_options.need_bitmap_index = item_column.has_bitmap_index();
-            if (item_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-                if (item_options.need_bloom_filter) {
-                    return Status::NotSupported("Do not support bloom filter for array type");
-                }
-                if (item_options.need_bitmap_index) {
-                    return Status::NotSupported("Do not support bitmap index for array type");
-                }
-            }
-            std::unique_ptr<ColumnWriter> item_writer;
-            RETURN_IF_ERROR(
-                    ColumnWriter::create(item_options, &item_column, file_writer, &item_writer));
-
-            // create length writer
-            FieldType length_type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
-
-            ColumnWriterOptions length_options;
-            length_options.meta = opts.meta->add_children_columns();
-            length_options.meta->set_column_id(2);
-            length_options.meta->set_unique_id(2);
-            length_options.meta->set_type(int(length_type));
-            length_options.meta->set_is_nullable(false);
-            length_options.meta->set_length(
-                    get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size());
-            length_options.meta->set_encoding(DEFAULT_ENCODING);
-            length_options.meta->set_compression(opts.meta->compression());
-
-            length_options.need_zone_map = false;
-            length_options.need_bloom_filter = false;
-            length_options.need_bitmap_index = false;
-
-            TabletColumn length_column =
-                    TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
-                                 length_options.meta->is_nullable(),
-                                 length_options.meta->unique_id(), length_options.meta->length());
-            length_column.set_name("length");
-            length_column.set_index_length(-1); // no short key index
-            std::unique_ptr<Field> bigint_field(FieldFactory::create(length_column));
-            auto* length_writer =
-                    new OffsetColumnWriter(length_options, std::move(bigint_field), file_writer);
-
-            // if nullable, create null writer
-            ScalarColumnWriter* null_writer = nullptr;
-            if (opts.meta->is_nullable()) {
-                FieldType null_type = FieldType::OLAP_FIELD_TYPE_TINYINT;
-                ColumnWriterOptions null_options;
-                null_options.meta = opts.meta->add_children_columns();
-                null_options.meta->set_column_id(3);
-                null_options.meta->set_unique_id(3);
-                null_options.meta->set_type(int(null_type));
-                null_options.meta->set_is_nullable(false);
-                null_options.meta->set_length(
-                        get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size());
-                null_options.meta->set_encoding(DEFAULT_ENCODING);
-                null_options.meta->set_compression(opts.meta->compression());
-
-                null_options.need_zone_map = false;
-                null_options.need_bloom_filter = false;
-                null_options.need_bitmap_index = false;
-
-                TabletColumn null_column =
-                        TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type,
-                                     length_options.meta->is_nullable(),
-                                     null_options.meta->unique_id(), null_options.meta->length());
-                null_column.set_name("nullable");
-                null_column.set_index_length(-1); // no short key index
-                std::unique_ptr<Field> null_field(FieldFactory::create(null_column));
-                null_writer =
-                        new ScalarColumnWriter(null_options, std::move(null_field), file_writer);
-            }
-
-            std::unique_ptr<ColumnWriter> writer_local = std::unique_ptr<ColumnWriter>(
-                    new ArrayColumnWriter(opts, std::move(field), length_writer, null_writer,
-                                          std::move(item_writer)));
-            *writer = std::move(writer_local);
+            RETURN_IF_ERROR(create_array_writer(opts, column, file_writer, writer));
             return Status::OK();
         }
         case FieldType::OLAP_FIELD_TYPE_MAP: {
-            DCHECK(column->get_subtype_count() == 2);
-            // create key & value writer
-            std::vector<std::unique_ptr<ColumnWriter>> inner_writer_list;
-            for (int i = 0; i < 2; ++i) {
-                const TabletColumn& item_column = column->get_sub_column(i);
-                // create item writer
-                ColumnWriterOptions item_options;
-                item_options.meta = opts.meta->mutable_children_columns(i);
-                item_options.need_zone_map = false;
-                item_options.need_bloom_filter = item_column.is_bf_column();
-                item_options.need_bitmap_index = item_column.has_bitmap_index();
-                if (item_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-                    if (item_options.need_bloom_filter) {
-                        return Status::NotSupported("Do not support bloom filter for map type");
-                    }
-                    if (item_options.need_bitmap_index) {
-                        return Status::NotSupported("Do not support bitmap index for map type");
-                    }
-                }
-                std::unique_ptr<ColumnWriter> item_writer;
-                RETURN_IF_ERROR(ColumnWriter::create(item_options, &item_column, file_writer,
-                                                     &item_writer));
-                inner_writer_list.push_back(std::move(item_writer));
-            }
-
-            ScalarColumnWriter* null_writer = nullptr;
-            // create offset writer
-            FieldType length_type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
-
-            // Be Cautious: column unique id is used for column reader creation
-            ColumnWriterOptions length_options;
-            length_options.meta = opts.meta->add_children_columns();
-            length_options.meta->set_column_id(column->get_subtype_count() + 1);
-            length_options.meta->set_unique_id(column->get_subtype_count() + 1);
-            length_options.meta->set_type(int(length_type));
-            length_options.meta->set_is_nullable(false);
-            length_options.meta->set_length(
-                    get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size());
-            length_options.meta->set_encoding(DEFAULT_ENCODING);
-            length_options.meta->set_compression(opts.meta->compression());
-
-            length_options.need_zone_map = false;
-            length_options.need_bloom_filter = false;
-            length_options.need_bitmap_index = false;
-
-            TabletColumn length_column =
-                    TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
-                                 length_options.meta->is_nullable(),
-                                 length_options.meta->unique_id(), length_options.meta->length());
-            length_column.set_name("length");
-            length_column.set_index_length(-1); // no short key index
-            std::unique_ptr<Field> bigint_field(FieldFactory::create(length_column));
-            auto* length_writer =
-                    new OffsetColumnWriter(length_options, std::move(bigint_field), file_writer);
-
-            // create null writer
-            if (opts.meta->is_nullable()) {
-                FieldType null_type = FieldType::OLAP_FIELD_TYPE_TINYINT;
-                ColumnWriterOptions null_options;
-                null_options.meta = opts.meta->add_children_columns();
-                null_options.meta->set_column_id(column->get_subtype_count() + 2);
-                null_options.meta->set_unique_id(column->get_subtype_count() + 2);
-                null_options.meta->set_type(int(null_type));
-                null_options.meta->set_is_nullable(false);
-                null_options.meta->set_length(
-                        get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size());
-                null_options.meta->set_encoding(DEFAULT_ENCODING);
-                null_options.meta->set_compression(opts.meta->compression());
-
-                null_options.need_zone_map = false;
-                null_options.need_bloom_filter = false;
-                null_options.need_bitmap_index = false;
-
-                TabletColumn null_column = TabletColumn(
-                        FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type, false,
-                        null_options.meta->unique_id(), null_options.meta->length());
-                null_column.set_name("nullable");
-                null_column.set_index_length(-1); // no short key index
-                std::unique_ptr<Field> null_field(FieldFactory::create(null_column));
-                null_writer =
-                        new ScalarColumnWriter(null_options, std::move(null_field), file_writer);
-            }
-
-            // create map writer
-            std::unique_ptr<ColumnWriter> sub_column_writer;
-            std::unique_ptr<ColumnWriter> writer_local =
-                    std::unique_ptr<ColumnWriter>(new MapColumnWriter(
-                            opts, std::move(field), null_writer, length_writer, inner_writer_list));
-
-            *writer = std::move(writer_local);
+            RETURN_IF_ERROR(create_map_writer(opts, column, file_writer, writer));
             return Status::OK();
         }
         case FieldType::OLAP_FIELD_TYPE_VARIANT: {
