@@ -408,6 +408,7 @@ public:
     OpentelemetryTracer get_tracer() { return _tracer; }
 
     void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
+    void set_query_options(const TQueryOptions& query_options) { _query_options = query_options; }
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
