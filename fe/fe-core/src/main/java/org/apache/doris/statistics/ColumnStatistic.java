@@ -199,7 +199,10 @@ public class ColumnStatistic {
             columnStatisticBuilder.setUpdatedTime(row.get(13));
             return columnStatisticBuilder.build();
         } catch (Exception e) {
-            LOG.warn("Failed to deserialize column statistics.", e);
+            LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), row);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(e);
+            }
             return ColumnStatistic.UNKNOWN;
         }
     }
