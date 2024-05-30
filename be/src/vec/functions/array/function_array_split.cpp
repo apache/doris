@@ -73,7 +73,12 @@ public:
         const auto& src_offsets = assert_cast<const ColumnArray&>(*src_column).get_offsets();
 
         auto split_col = assert_cast<const ColumnArray*>(spliter_column.get())->get_data_ptr();
+        const NullMap* null_map = nullptr;
         if (split_col->is_nullable()) {
+            if (split_col->has_null()) {
+                null_map =
+                        &assert_cast<const ColumnNullable*>(split_col.get())->get_null_map_data();
+            }
             split_col =
                     assert_cast<const ColumnNullable*>(split_col.get())->get_nested_column_ptr();
         }
@@ -86,22 +91,10 @@ public:
         offsets_inner.reserve(src_offsets.size()); // assume the actual size to be equal or larger
         offsets_outer.reserve(src_offsets.size());
 
-        size_t pos = 0;
-        for (auto in_offset : src_offsets) { // per cells
-            // [1,2,3,4,5]
-            if (pos < in_offset) { // values in a cell
-                pos += !reverse;
-                for (; pos < in_offset - reverse; ++pos) {
-                    if (cut[pos]) {
-                        offsets_inner.push_back(pos + reverse); // cut a array [1,2,3...]
-                    }
-                }
-                pos += reverse;
-                // put the tail offset, always last.
-                offsets_inner.push_back(pos); // put [...4,5]
-            }
-
-            offsets_outer.push_back(offsets_inner.size());
+        if (null_map != nullptr) {
+            do_loop<true>(src_offsets, cut, null_map, offsets_inner, offsets_outer);
+        } else {
+            do_loop<false>(src_offsets, cut, null_map, offsets_inner, offsets_outer);
         }
 
         auto inner_result = ColumnArray::create(src_data, std::move(col_offsets_inner));
@@ -110,6 +103,35 @@ public:
                 std::move(col_offsets_outer));
         block.replace_by_position(result, outer_result);
         return Status::OK();
+    }
+
+    template <bool CONSIDER_NULL>
+    static void do_loop(const IColumn::Offsets64& src_offsets, const IColumn::Filter& cut,
+                        const NullMap* null_map, PaddedPODArray<IColumn::Offset64>& offsets_inner,
+                        PaddedPODArray<IColumn::Offset64>& offsets_outer) {
+        size_t pos = 0;
+        for (auto in_offset : src_offsets) { // per cells
+            // [1,2,3,4,5]
+            if (pos < in_offset) { // values in a cell
+                pos += !reverse;
+                for (; pos < in_offset - reverse; ++pos) {
+                    if constexpr (CONSIDER_NULL) {
+                        if (cut[pos] && !(*null_map)[pos]) {
+                            offsets_inner.push_back(pos + reverse); // cut a array [1,2,3]
+                        }
+                    } else {
+                        if (cut[pos]) {
+                            offsets_inner.push_back(pos + reverse); // cut a array [1,2,3]
+                        }
+                    }
+                }
+                pos += reverse;
+                // put the tail offset, always last.
+                offsets_inner.push_back(pos); // put [4,5]
+            }
+
+            offsets_outer.push_back(offsets_inner.size());
+        }
     }
 };
 

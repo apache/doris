@@ -28,6 +28,8 @@ suite("test_array_split") {
     qt_lambda1 " select array_split((x,y)->y, [1,2,3,4,5], [1,0,0,0,0]); "
     qt_lambda2 " select array_reverse_split((x,y)->(y+1), ['a', 'b', 'c', 'd'], [-1, -1, 0, -1]); "
     qt_lambda3 " select array_reverse_split(x->(x>'a'), ['a', 'b', 'c', 'd']); "
+    qt_null1 " select array_split([1,2,3,4,5], [null,null,1,0,0]); "
+    qt_null2 " select array_reverse_split([1,null,null,4,5], [null,null,1,0,0]); "
 
     sql " drop table if exists arr_int; "
     sql """
@@ -66,4 +68,5 @@ suite("test_array_split") {
 
     qt_dt1 """ select x, array_split(x->(year(x)>2013), k0), array_reverse_split(x->(year(x)>2013), k0)
             from dt order by x; """
+    qt_dt_null """ select x, array_reverse_split(x->(null_or_empty(x)), k0) from dt order by x; """
 }
