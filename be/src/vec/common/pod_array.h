@@ -125,7 +125,19 @@ protected:
     char* c_end_of_storage = null; /// Does not include pad_right.
 
     /// The amount of memory occupied by the num_elements of the elements.
-    static size_t byte_size(size_t num_elements) { return num_elements * ELEMENT_SIZE; }
+    static size_t byte_size(size_t num_elements) {
+#ifndef NDEBUG
+        size_t amount;
+        if (__builtin_mul_overflow(num_elements, ELEMENT_SIZE, &amount)) {
+            DCHECK(false)
+                    << "Amount of memory requested to allocate is more than allowed, num_elements "
+                    << num_elements << ", ELEMENT_SIZE " << ELEMENT_SIZE;
+        }
+        return amount;
+#else
+        return num_elements * ELEMENT_SIZE;
+#endif
+    }
 
     /// Minimum amount of memory to allocate for num_elements, including padding.
     static size_t minimum_memory_for_elements(size_t num_elements) {
@@ -275,6 +287,19 @@ public:
 #endif
     }
 
+    template <typename It1, typename It2>
+    void assert_not_intersects(It1 from_begin [[maybe_unused]], It2 from_end [[maybe_unused]]) {
+#ifndef NDEBUG
+        const char* ptr_begin = reinterpret_cast<const char*>(&*from_begin);
+        const char* ptr_end = reinterpret_cast<const char*>(&*from_end);
+
+        /// Also it's safe if the range is empty.
+        assert(!((ptr_begin >= c_start && ptr_begin < c_end) ||
+                 (ptr_end > c_start && ptr_end <= c_end)) ||
+               (ptr_begin == ptr_end));
+#endif
+    }
+
     ~PODArrayBase() { dealloc(); }
 };
 
@@ -296,8 +321,8 @@ public:
     /// We cannot use boost::iterator_adaptor, because it defeats loop vectorization,
     ///  see https://github.com/ClickHouse/ClickHouse/pull/9442
 
-    using iterator = T *;
-    using const_iterator = const T *;
+    using iterator = T*;
+    using const_iterator = const T*;
 
     PODArray() = default;
 
@@ -433,6 +458,7 @@ public:
     /// Do not insert into the array a piece of itself. Because with the resize, the iterators on themselves can be invalidated.
     template <typename It1, typename It2, typename... TAllocatorParams>
     void insert_prepare(It1 from_begin, It2 from_end, TAllocatorParams&&... allocator_params) {
+        this->assert_not_intersects(from_begin, from_end);
         size_t required_capacity = this->size() + (from_end - from_begin);
         if (required_capacity > this->capacity())
             this->reserve(round_up_to_power_of_two_or_zero(required_capacity),
@@ -461,14 +487,17 @@ public:
 
     template <typename It1, typename It2>
     void insert(iterator it, It1 from_begin, It2 from_end) {
+        size_t bytes_to_copy = this->byte_size(from_end - from_begin);
+        if (!bytes_to_copy) {
+            return;
+        }
+        size_t bytes_to_move = this->byte_size(end() - it);
         insert_prepare(from_begin, from_end);
 
-        size_t bytes_to_copy = this->byte_size(from_end - from_begin);
-        size_t bytes_to_move = (end() - it) * sizeof(T);
-
-        if (UNLIKELY(bytes_to_move))
-            memcpy(this->c_end + bytes_to_copy - bytes_to_move, this->c_end - bytes_to_move,
-                   bytes_to_move);
+        if (UNLIKELY(bytes_to_move)) {
+            memmove(this->c_end + bytes_to_copy - bytes_to_move, this->c_end - bytes_to_move,
+                    bytes_to_move);
+        }
 
         memcpy(this->c_end - bytes_to_move, reinterpret_cast<const void*>(&*from_begin),
                bytes_to_copy);
@@ -477,6 +506,7 @@ public:
 
     template <typename It1, typename It2>
     void insert_assume_reserved(It1 from_begin, It2 from_end) {
+        this->assert_not_intersects(from_begin, from_end);
         size_t bytes_to_copy = this->byte_size(from_end - from_begin);
         memcpy(this->c_end, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
         this->c_end += bytes_to_copy;
@@ -593,6 +623,7 @@ public:
 
     template <typename It1, typename It2>
     void assign(It1 from_begin, It2 from_end) {
+        this->assert_not_intersects(from_begin, from_end);
         size_t required_capacity = from_end - from_begin;
         if (required_capacity > this->capacity())
             this->reserve(round_up_to_power_of_two_or_zero(required_capacity));
@@ -604,15 +635,13 @@ public:
 
     void assign(const PODArray& from) { assign(from.begin(), from.end()); }
 
-    void erase(const_iterator first, const_iterator last)
-    {
+    void erase(const_iterator first, const_iterator last) {
         auto first_no_const = const_cast<iterator>(first);
         auto last_no_const = const_cast<iterator>(last);
 
         size_t items_to_move = end() - last;
 
-        while (items_to_move != 0)
-        {
+        while (items_to_move != 0) {
             *first_no_const = *last_no_const;
 
             ++first_no_const;
@@ -621,13 +650,10 @@ public:
             --items_to_move;
         }
 
-        this->c_end = reinterpret_cast<char *>(first_no_const);
+        this->c_end = reinterpret_cast<char*>(first_no_const);
     }
 
-    void erase(const_iterator pos)
-    {
-        this->erase(pos, pos + 1);
-    }
+    void erase(const_iterator pos) { this->erase(pos, pos + 1); }
 
     bool operator==(const PODArray& rhs) const {
         if (this->size() != rhs.size()) {
