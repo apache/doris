@@ -69,6 +69,7 @@ suite("test_backup_restore_mtmv", "backup_restore") {
     assertTrue(snapshot != null)
 
     sql "TRUNCATE TABLE ${dbName}.${tableName}"
+    sql """drop materialized view if exists ${mvName};"""
 
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
@@ -84,6 +85,10 @@ suite("test_backup_restore_mtmv", "backup_restore") {
 
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());
+
+    result = sql "show tables FROM ${dbName}"
+    // now should not contain mtmv
+    assertFalse(result.toString().contains("${mvName}"));
 
     sql """drop materialized view if exists ${mvName};"""
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
