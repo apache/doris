@@ -181,10 +181,9 @@ log() {
     if [[ "${RUN_CONSOLE}" -eq 1 ]]; then
         echo "$1"
     else
-        echo "$1" >> "${STDOUT_LOGGER}"
+        echo "$1" >>"${STDOUT_LOGGER}"
     fi
 }
-
 
 # check java version and choose correct JAVA_OPTS
 java_version="$(
@@ -249,7 +248,7 @@ if [[ -n "${JACOCO_COVERAGE_OPT}" ]]; then
     coverage_opt="${JACOCO_COVERAGE_OPT}"
 fi
 
-CUR_DATE=`date`
+CUR_DATE=$(date)
 log "start time: ${CUR_DATE}"
 
 if [[ "${HELPER}" != "" ]]; then
