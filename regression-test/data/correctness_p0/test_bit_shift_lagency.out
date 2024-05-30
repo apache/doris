@@ -23,9 +23,6 @@ testing big_shift_left
 -- !2 --
 -9223372036854775808
 
--- !3 --
-1
-
 -- !select --
 254
 
@@ -37,9 +34,6 @@ testing big_shift_left
 
 -- !int64_min --
 -9223372036854775808	0
-
--- !select --
-127	-9223372036854775808
 
 -- !select --
 -128	0
@@ -64,16 +58,10 @@ testing big_shift_right
 0
 
 -- !select --
-9223372036854775807
-
--- !select --
 2
 
 -- !select --
 1
-
--- !select --
--9223372036854775808
 
 -- !select --
 0

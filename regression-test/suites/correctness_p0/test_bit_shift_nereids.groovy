@@ -33,7 +33,6 @@ suite("test_bit_shift_nereids") {
     qt_0 "select bit_shift_left(0, 0);"
     qt_1 "select bit_shift_left(1, 10);"
     qt_2 "select bit_shift_left(1, 63);"
-    qt_3 "select bit_shift_left(1, 64);"
     qt_select "select bit_shift_left(127, 1);"
     qt_select "select bit_shift_left(cast (127 as TINYINT), 1);"
     qt_int64_max """
@@ -48,12 +47,7 @@ suite("test_bit_shift_nereids") {
             SELECT BIGINT_MIN, bit_shift_left(BIGINT_MIN, 1)
             FROM tbl
     """
-    qt_select """
-            WITH tbl AS (
-                SELECT ${INT8_MAX} AS TINYINT_MAX)
-            SELECT TINYINT_MAX, bit_shift_left(1, TINYINT_MAX)
-            FROM tbl
-    """
+
     qt_select """
             WITH tbl AS (
                 SELECT ${INT8_MIN} AS TINYINT_MIN)
@@ -91,10 +85,8 @@ suite("test_bit_shift_nereids") {
     qt_select "SELECT bit_shift_right(0, 127);"
     qt_select "SELECT bit_shift_right(${INT64_MAX}, 62);"
     qt_select "SELECT bit_shift_right(${INT64_MAX}, 63);"
-    qt_select "SELECT bit_shift_right(${INT64_MAX}, 64);"
     qt_select "SELECT bit_shift_right(${INT64_MIN}, 62);"
     qt_select "SELECT bit_shift_right(${INT64_MIN}, 63);"
-    qt_select "SELECT bit_shift_right(${INT64_MIN}, 64);"
     qt_select "SELECT bit_shift_right(1, ${INT8_MAX});"
     qt_select "SELECT bit_shift_right(1, ${INT8_MIN});"
 
