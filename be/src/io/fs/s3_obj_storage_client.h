@@ -39,10 +39,10 @@ class S3ObjStorageClient final : public ObjStorageClient {
 public:
     S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client) : _client(std::move(client)) {}
     ~S3ObjStorageClient() override = default;
-    ObjectStorageResponse create_multipart_upload(const ObjectStoragePathOptions& opts) override;
+    ObjectStorageUploadResponse create_multipart_upload(const ObjectStoragePathOptions& opts) override;
     ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
                                      std::string_view stream) override;
-    ObjectStorageResponse upload_part(const ObjectStoragePathOptions& opts, std::string_view,
+    ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts, std::string_view,
                                       int partNum) override;
     ObjectStorageResponse complete_multipart_upload(
             const ObjectStoragePathOptions& opts,

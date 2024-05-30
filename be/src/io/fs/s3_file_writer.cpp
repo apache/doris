@@ -98,10 +98,10 @@ Status S3FileWriter::_create_multi_upload_request() {
         return Status::InternalError<false>("invalid obj storage client");
     }
     auto resp = client->create_multipart_upload(_obj_storage_path_opts);
-    if (resp.status.ok()) {
+    if (resp.resp.code == ErrorCode::OK) {
         _obj_storage_path_opts.upload_id = resp.upload_id;
     }
-    return resp.status;
+    return {resp.resp.code, std::move(resp.resp.err_msg)};
 }
 
 void S3FileWriter::_wait_until_finish(std::string_view task_name) {
@@ -304,8 +304,8 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
         return;
     }
     auto resp = client->upload_part(_obj_storage_path_opts, buf.get_string_view_data(), part_num);
-    if (!resp.status.ok()) {
-        buf.set_status(std::move(resp.status));
+    if (resp.resp.code != ErrorCode::OK) {
+        buf.set_status(Status(resp.resp.code, std::move(resp.resp.err_msg)));
         return;
     }
     s3_bytes_written_total << buf.get_size();
@@ -353,8 +353,8 @@ Status S3FileWriter::_complete() {
         TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:2", &_completed_parts);
         auto resp = client->complete_multipart_upload(
                 _obj_storage_path_opts, S3CompleteMultiParts {.parts = _completed_parts});
-        if (!resp.status.ok()) {
-            return resp.status;
+        if (resp.code != ErrorCode::OK) {
+            return {resp.code, std::move(resp.err_msg)};
         }
     }
     s3_file_created_total << 1;
@@ -388,8 +388,8 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
     }
     TEST_SYNC_POINT_RETURN_WITH_VOID("S3FileWriter::_put_object", this, &buf);
     auto resp = client->put_object(_obj_storage_path_opts, buf.get_string_view_data());
-    if (!resp.status.ok()) {
-        buf.set_status(std::move(resp.status));
+    if (resp.code != ErrorCode::OK) {
+        buf.set_status({resp.code, std::move(resp.err_msg)});
         return;
     }
     s3_file_created_total << 1;
