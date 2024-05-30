@@ -143,6 +143,7 @@ import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -706,6 +707,26 @@ public class InternalCatalog implements CatalogIf<Database> {
                     recoverStmt.getPartitionId(), newPartitionName);
         } finally {
             olapTable.writeUnlock();
+        }
+    }
+
+    public void dropCatalogRecycleBin(IdType idType, long id) throws DdlException {
+        switch (idType) {
+            case DATABASE_ID:
+                Env.getCurrentRecycleBin().eraseDatabaseInstantly(id);
+                LOG.info("drop database[{}] in catalog recycle bin", id);
+                break;
+            case TABLE_ID:
+                Env.getCurrentRecycleBin().eraseTableInstantly(id);
+                LOG.info("drop table[{}] in catalog recycle bin", id);
+                break;
+            case PARTITION_ID:
+                Env.getCurrentRecycleBin().erasePartitionInstantly(id);
+                LOG.info("drop partition[{}] in catalog recycle bin", id);
+                break;
+            default:
+                String message = "DROP CATALOG RECYCLE BIN: idType should be 'DbId', 'TableId' or 'PartitionId'.";
+                throw new DdlException(message);
         }
     }
 
