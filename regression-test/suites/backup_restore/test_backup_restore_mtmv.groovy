@@ -48,9 +48,9 @@ suite("test_backup_restore_mtmv", "backup_restore") {
     def result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());
 
-    sql """drop materialized view if exists ${mvName};"""
+    sql """drop materialized view if exists ${dbName}.${mvName};"""
     sql """
-        CREATE MATERIALIZED VIEW ${mvName}
+        CREATE MATERIALIZED VIEW ${dbName}.${mvName}
         BUILD DEFERRED REFRESH COMPLETE ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
@@ -69,7 +69,7 @@ suite("test_backup_restore_mtmv", "backup_restore") {
     assertTrue(snapshot != null)
 
     sql "TRUNCATE TABLE ${dbName}.${tableName}"
-    sql """drop materialized view if exists ${mvName};"""
+    sql """drop materialized view if exists ${dbName}.${mvName};"""
 
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
@@ -88,9 +88,10 @@ suite("test_backup_restore_mtmv", "backup_restore") {
 
     result = sql "show tables FROM ${dbName}"
     // now should not contain mtmv
+    logger.info("result: " + result.toString())
     assertFalse(result.toString().contains("${mvName}"));
 
-    sql """drop materialized view if exists ${mvName};"""
+    sql """drop materialized view if exists ${dbName}.${mvName};"""
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
     sql "DROP REPOSITORY `${repoName}`"
