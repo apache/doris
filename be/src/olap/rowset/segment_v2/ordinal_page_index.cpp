@@ -160,6 +160,5 @@ OrdinalIndexReader::~OrdinalIndexReader() {
                                             sizeof(OrdinalIndexReader);
 }
 
-
 } // namespace segment_v2
 } // namespace doris
