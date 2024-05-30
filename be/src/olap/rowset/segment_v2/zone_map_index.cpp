@@ -177,7 +177,7 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     }
 
     g_zone_map_memory_bytes << sizeof(*this) + sizeof(ZoneMapPB) * _page_zone_maps.size() +
-        sizeof(IndexedColumnMetaPB);
+                                       sizeof(IndexedColumnMetaPB);
 
     return Status::OK();
 }
@@ -185,7 +185,7 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
 ZoneMapIndexReader::~ZoneMapIndexReader() {
     // Maybe wrong due to load failures.
     g_zone_map_memory_bytes << -sizeof(*this) - sizeof(ZoneMapPB) * _page_zone_maps.size() -
-            sizeof(IndexedColumnMetaPB);
+                                       sizeof(IndexedColumnMetaPB);
 }
 #define APPLY_FOR_PRIMITITYPE(M) \
     M(TYPE_TINYINT)              \

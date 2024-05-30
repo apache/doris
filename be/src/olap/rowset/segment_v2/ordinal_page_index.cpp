@@ -128,7 +128,8 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     _ordinals[_num_pages] = _num_values;
 
     g_ordinal_index_memory_bytes << sizeof(*this) + _ordinals.size() * sizeof(ordinal_t) +
-                                    _pages.size() * sizeof(PagePointer) + sizeof(OrdinalIndexReader);
+                                            _pages.size() * sizeof(PagePointer) +
+                                            sizeof(OrdinalIndexReader);
     return Status::OK();
 }
 
@@ -155,7 +156,8 @@ OrdinalPageIndexIterator OrdinalIndexReader::seek_at_or_before(ordinal_t ordinal
 
 OrdinalIndexReader::~OrdinalIndexReader() {
    g_ordinal_index_memory_bytes << -sizeof(*this) - _ordinals.size() * sizeof(ordinal_t) -
-                                    _pages.size() * sizeof(PagePointer) - sizeof(OrdinalIndexReader);
+                                            _pages.size() * sizeof(PagePointer) -
+                                            sizeof(OrdinalIndexReader);
 }
 
 
