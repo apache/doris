@@ -81,7 +81,7 @@ public class DynamicPartitionTableTest {
 
     @AfterClass
     public static void tearDown() {
-        //UtFrameUtils.cleanDorisFeDir(runningDir);
+        UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 
     private static void changeBeDisk(TStorageMedium storageMedium) {
@@ -739,6 +739,7 @@ public class DynamicPartitionTableTest {
         Assert.assertEquals(9, tbl4.getPartitionNames().size());
 
         String alter5 = "alter table test.dynamic_partition4 set ('dynamic_partition.history_partition_num' = '3')";
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alter5));
         Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartitionFirstTime(db.getId(), tbl4.getId());
         Assert.assertEquals(7, tbl4.getPartitionNames().size());
     }
