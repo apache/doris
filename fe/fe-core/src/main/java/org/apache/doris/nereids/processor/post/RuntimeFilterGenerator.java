@@ -250,6 +250,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
 
     @Override
     public PhysicalRelation visitPhysicalRelation(PhysicalRelation relation, CascadesContext context) {
+        if (relation instanceof PhysicalSchemaScan) {
+            return relation;
+        }
         // add all the slots in map.
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         relation.getOutput().forEach(slot -> ctx.getAliasTransferMap().put(slot, Pair.of(relation, slot)));
