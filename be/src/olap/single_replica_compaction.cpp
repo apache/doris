@@ -17,6 +17,8 @@
 
 #include "olap/single_replica_compaction.h"
 
+#include <boost/algorithm/string/replace.hpp>
+
 #include "common/logging.h"
 #include "gen_cpp/Types_constants.h"
 #include "gen_cpp/internal_service.pb.h"
@@ -398,7 +400,16 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
     watch.start();
     for (auto& file_name : file_name_list) {
         auto remote_file_url = remote_url_prefix + file_name;
-
+        // The file name of the variant column with the inverted index contains %
+        // such as: 020000000000003f624c4c322c568271060f9b5b274a4a95_0_10133@properties%2Emessage.idx
+        //  {rowset_id}_{seg_num}_{index_id}_{variant_column_name}{%2E}{extracted_column_name}.idx
+        // We need to handle %, otherwise it will cause an HTTP 404 error.
+        // Because the percent ("%") character serves as the indicator for percent-encoded octets,
+        // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
+        // https://datatracker.ietf.org/doc/html/rfc3986
+        if (file_name.find('%') != std::string::npos) {
+            boost::replace_all(remote_file_url, "%", "%25");
+        }
         // get file length
         uint64_t file_size = 0;
         auto get_file_size_cb = [&remote_file_url, &file_size](HttpClient* client) {
@@ -408,6 +419,9 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
             RETURN_IF_ERROR(client->get_content_length(&file_size));
             return Status::OK();
         };
+
+        VLOG_NOTICE << "single compaction get file size, remote file url is: " << remote_file_url;
+
         RETURN_IF_ERROR(
                 HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, get_file_size_cb));
         // check disk capacity
