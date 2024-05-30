@@ -868,7 +868,8 @@ public:
             return false;
         }
         if (only_time_part) {
-            unchecked_set_time(0, 0, 0, hour, minute, second, microsecond);
+            // not change date part
+            unchecked_set_time(hour, minute, second, microsecond);
         } else {
             unchecked_set_time(year, month, day, hour, minute, second, microsecond);
         }

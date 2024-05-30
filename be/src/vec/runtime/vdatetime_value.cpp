@@ -3060,7 +3060,7 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
         if constexpr (is_datetime) {
             PROPAGATE_FALSE(this->check_range_and_set_time(0, 0, 0, seconds / 3600,
                                                            (seconds / 60) % 60, seconds % 60,
-                                                           microseconds, false));
+                                                           microseconds, true));
         }
     } else if constexpr (unit == YEAR) {
         // This only change year information
@@ -3110,7 +3110,7 @@ bool DateV2Value<T>::date_set_interval(const TimeInterval& interval) {
         }
         if constexpr (is_datetime) {
             PROPAGATE_FALSE(this->check_range_and_set_time(
-                    0, 0, 0, seconds / 3600, (seconds / 60) % 60, seconds % 60, 0, false));
+                    0, 0, 0, seconds / 3600, (seconds / 60) % 60, seconds % 60, 0, true));
         }
     } else if constexpr (unit == YEAR) {
         this->unchecked_set_time(0, 1, 1, 0, 0, 0, 0);
