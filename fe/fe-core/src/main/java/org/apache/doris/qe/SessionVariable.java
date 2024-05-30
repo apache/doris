@@ -856,7 +856,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableInsertStrict = true;
 
     @VariableMgr.VarAttr(name = INSERT_MAX_FILTER_RATIO, needForward = true)
-    public float insertMaxFilterRatio = 1;
+    public double insertMaxFilterRatio = 1.0;
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
@@ -2527,11 +2527,11 @@ public class SessionVariable implements Serializable, Writable {
         this.enableInsertStrict = enableInsertStrict;
     }
 
-    public float getInsertMaxFilterRatio() {
+    public double getInsertMaxFilterRatio() {
         return insertMaxFilterRatio;
     }
 
-    public void setInsertMaxFilterRatio(float maxFilterRatio) {
+    public void setInsertMaxFilterRatio(double maxFilterRatio) {
         this.insertMaxFilterRatio = maxFilterRatio;
     }
 
