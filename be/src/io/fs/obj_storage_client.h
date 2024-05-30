@@ -38,18 +38,18 @@ enum class ObjStorageType : uint8_t {
 
 struct ObjectStoragePathOptions {
     Path path;
-    std::string bucket;                   // blob container in azure
-    std::string key;                      // blob name
-    std::string prefix;                   // for batch delete and recursive delete
-    std::optional<std::string> upload_id; // only used for S3 upload
+    std::string bucket;                                  // blob container in azure
+    std::string key;                                     // blob name in azure
+    std::string prefix;                                  // for batch delete and recursive delete
+    std::optional<std::string> upload_id = std::nullopt; // only used for S3 upload
 };
 
 struct ObjectCompleteMultiParts {};
 
 struct ObjectStorageResponse {
     Status status;
-    std::optional<std::string> upload_id;
-    std::optional<std::string> etag;
+    std::optional<std::string> upload_id = std::nullopt;
+    std::optional<std::string> etag = std::nullopt;
 };
 
 struct ObjectStorageHeadResponse {
