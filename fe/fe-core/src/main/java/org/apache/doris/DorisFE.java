@@ -481,9 +481,7 @@ public class DorisFE {
                 + "same time");
     }
 
-
     private static void releaseFileLockAndCloseFileChannel() {
-
         if (processFileLock != null && processFileLock.isValid()) {
             try {
                 processFileLock.release();
@@ -498,7 +496,6 @@ public class DorisFE {
                 LOG.warn("release process lock file failed", ignored);
             }
         }
-
     }
 
     public static void overwriteConfigs() {

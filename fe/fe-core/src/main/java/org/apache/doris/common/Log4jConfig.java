@@ -60,8 +60,11 @@ public class Log4jConfig extends XmlConfiguration {
     // Placeholders
     private static final String RUNTIME_LOG_FORMAT_PLACEHOLDER = "<!--REPLACED BY LOG FORMAT-->";
     private static final String VERBOSE_MODULE_PLACEHOLDER = "<!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->";
-    private static final String CONSOLE_LOGGER_PLACEHOLDER = "<!--REPLACED BY CONSOLE LOGGER-->";
+    private static final String CONSOLE_APPENDER_PLACEHOLDER = "<!--REPLACED BY CONSOLE APPENDER-->";
+    private static final String RUNTIME_LOG_FILE_APPENDER_PLACEHOLDER = "<!--REPLACED BY LOG APPENDER-->";
+    private static final String RUNTIME_LOG_WARN_FILE_APPENDER_PLACEHOLDER = "<!--REPLACED BY WARN_LOG_APPENDER-->";
     private static final String AUDIT_CONSOLE_LOGGER_PLACEHOLDER = "<!--REPLACED BY AUDIT CONSOLE LOGGER-->";
+    private static final String AUDIT_FILE_LOGGER_PLACEHOLDER = "<!--REPLACED BY AUDIT FILE LOGGER-->";
     private static final String RUNTIME_LOG_MARKER_PLACEHOLDER = "<!--REPLACED BY RUNTIME LOG MARKER-->";
     private static final String AUDIT_LOG_MARKER_PLACEHOLDER = "<!--REPLACED BY AUDIT LOG MARKER-->";
 
@@ -157,12 +160,12 @@ public class Log4jConfig extends XmlConfiguration {
             .append("  </Appenders>\n")
             .append("  <Loggers>\n")
             .append("    <Root level=\"${sys_log_level}\" includeLocation=\"${include_location_flag}\">\n")
-            .append("      <AppenderRef ref=\"" + RUNTIME_LOG_FILE_APPENDER + "\"/>\n")
-            .append("      <AppenderRef ref=\"" + RUNTIME_LOG_WARN_FILE_APPENDER + "\" level=\"WARN\"/>\n")
-            .append("      " + CONSOLE_LOGGER_PLACEHOLDER + "\n")
+            .append("      " + RUNTIME_LOG_FILE_APPENDER_PLACEHOLDER + "\n")
+            .append("      " + RUNTIME_LOG_WARN_FILE_APPENDER_PLACEHOLDER + "\n")
+            .append("      " + CONSOLE_APPENDER_PLACEHOLDER + "\n")
             .append("    </Root>\n")
             .append("    <Logger name=\"audit\" level=\"ERROR\" additivity=\"false\">\n")
-            .append("      <AppenderRef ref=\"" + AUDIT_LOG_FILE_APPENDER + "\"/>\n")
+            .append("      " + AUDIT_FILE_LOGGER_PLACEHOLDER + "\n")
             .append("      " + AUDIT_CONSOLE_LOGGER_PLACEHOLDER + "\n")
             .append("    </Logger>\n")
             .append("    " + VERBOSE_MODULE_PLACEHOLDER + "\n")
@@ -258,10 +261,19 @@ public class Log4jConfig extends XmlConfiguration {
             }
         }
 
+        if (Config.enable_file_logger) {
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll(RUNTIME_LOG_FILE_APPENDER_PLACEHOLDER,
+                    "<AppenderRef ref=\"" + RUNTIME_LOG_FILE_APPENDER + "\"/>\n");
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll(RUNTIME_LOG_WARN_FILE_APPENDER_PLACEHOLDER,
+                    "<AppenderRef ref=\"" + RUNTIME_LOG_WARN_FILE_APPENDER + "\" level=\"WARN\"/>\n");
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll(AUDIT_FILE_LOGGER_PLACEHOLDER,
+                    "<AppenderRef ref=\"" + AUDIT_LOG_FILE_APPENDER + "\"/>\n");
+        }
+
         if (foreground) {
             newXmlConfTemplate = newXmlConfTemplate.replaceAll(RUNTIME_LOG_MARKER_PLACEHOLDER, RUNTIME_LOG_MARKER);
             newXmlConfTemplate = newXmlConfTemplate.replaceAll(AUDIT_LOG_MARKER_PLACEHOLDER, AUDIT_LOG_MARKER);
-            newXmlConfTemplate = newXmlConfTemplate.replaceAll(CONSOLE_LOGGER_PLACEHOLDER,
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll(CONSOLE_APPENDER_PLACEHOLDER,
                     "<AppenderRef ref=\"" + RUNTIME_LOG_CONSOLE_APPENDER + "\"/>\n");
             newXmlConfTemplate = newXmlConfTemplate.replaceAll(AUDIT_CONSOLE_LOGGER_PLACEHOLDER,
                     "<AppenderRef ref=\"" + AUDIT_LOG_CONSOLE_APPENDER + "\"/>\n");
