@@ -129,13 +129,32 @@ public:
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, param_value is nullptr or value is null");
         }
+        if (iter->get_inverted_index_reader_type() ==
+            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+            // parser is not none we can not make sure the result is correct in expr combination
+            // for example, filter: !array_index(array, 'tall:120cm, weight: 35kg')
+            // here we have rows [tall:120cm, weight: 35kg, hobbies: reading book] which be tokenized
+            // but query is also tokenized, and FULLTEXT reader will catch this row as matched,
+            // so array_index(array, 'tall:120cm, weight: 35kg') return this rowid,
+            // but we expect it to be filtered, because we want row is equal to 'tall:120cm, weight: 35kg'
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, FULLTEXT reader can not support array_index");
+        }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                 param_value->type, &param_value->value, query_param));
         if (is_string_type(param_value->type)) {
-            RETURN_IF_ERROR(iter->read_from_inverted_index(
+            Status st = iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
+                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring);
+            if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
+                // if analyzed param with no term, we do not filter any rows
+                // return all rows with OK status
+                bitmap->addRange(0, num_rows);
+                return Status::OK();
+            } else if (st != Status::OK()) {
+                return st;
+            }
         } else {
             RETURN_IF_ERROR(iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),
