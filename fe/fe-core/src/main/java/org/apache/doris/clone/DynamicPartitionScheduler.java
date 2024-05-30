@@ -556,7 +556,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             } catch (Exception e) {
                 LOG.warn("has error", e);
                 if (executeFirstTime) {
-                    throw new DdlException(Throwables.getStackTraceAsString(e));
+                    throw new DdlException(e.getMessage());
                 }
             } finally {
                 olapTable.readUnlock();
@@ -572,7 +572,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 } catch (Exception e) {
                     recordDropPartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
                     if (executeFirstTime) {
-                        throw new DdlException(Throwables.getStackTraceAsString(e));
+                        throw new DdlException(e.getMessage());
                     }
                 } finally {
                     olapTable.writeUnlock();
@@ -587,7 +587,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     } catch (Exception e) {
                         recordCreatePartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
                         if (executeFirstTime) {
-                            throw new DdlException(Throwables.getStackTraceAsString(e));
+                            throw new DdlException(e.getMessage());
                         }
                     }
                 }
