@@ -24,8 +24,8 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -35,8 +35,10 @@ import java.util.List;
  * ScalarFunction 'array_split'.
  */
 public class ArraySplit extends ScalarFunction implements PropagateNullable, HighOrderFunction {
+    // arg0 = Array<T>, return_value = Array<Array<T>>
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.retArgType(0).args(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX),
+            FunctionSignature.ret(ArrayType.of(new FollowToArgumentType(0))).args(
+                    ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX),
                     ArrayType.of(BooleanType.INSTANCE)));
 
     private ArraySplit(List<Expression> expressions) {
@@ -70,13 +72,6 @@ public class ArraySplit extends ScalarFunction implements PropagateNullable, Hig
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitArraySplit(this, context);
-    }
-
-    @Override
-    public FunctionSignature computeSignature(FunctionSignature signature) {
-        FunctionSignature functionSignature = super.computeSignature(signature);
-        DataType argType0 = functionSignature.getArgType(0);
-        return signature.withReturnType(ArrayType.of(argType0));
     }
 
     @Override

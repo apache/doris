@@ -69,4 +69,13 @@ suite("test_array_split") {
     qt_dt1 """ select x, array_split(x->(year(x)>2013), k0), array_reverse_split(x->(year(x)>2013), k0)
             from dt order by x; """
     qt_dt_null """ select x, array_reverse_split(x->(null_or_empty(x)), k0) from dt order by x; """
+
+    test {
+        sql " select array_split([1,2,3,4,5], [1,1,1]); "
+        exception "function array_split has uneven arguments on row 0"
+    }
+    test {
+        sql " select array_reverse_split((x,y)->(y), [1,2,3,4,5], [1,1,1]); "
+        exception "in array map function, the input column size are not equal completely"
+    }
 }

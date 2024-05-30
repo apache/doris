@@ -73,6 +73,9 @@ public:
         const auto& src_offsets = assert_cast<const ColumnArray&>(*src_column).get_offsets();
 
         auto split_col = assert_cast<const ColumnArray*>(spliter_column.get())->get_data_ptr();
+        const auto& split_offsets = assert_cast<const ColumnArray&>(*spliter_column)
+                                            .get_offsets(); // for check uneven array
+
         const NullMap* null_map = nullptr;
         if (split_col->is_nullable()) {
             if (split_col->has_null()) {
@@ -82,6 +85,7 @@ public:
             split_col =
                     assert_cast<const ColumnNullable*>(split_col.get())->get_nested_column_ptr();
         }
+
         const IColumn::Filter& cut = assert_cast<const ColumnBool*>(split_col.get())->get_data();
 
         auto col_offsets_inner = ColumnArray::ColumnOffsets::create();
@@ -92,9 +96,11 @@ public:
         offsets_outer.reserve(src_offsets.size());
 
         if (null_map != nullptr) {
-            do_loop<true>(src_offsets, cut, null_map, offsets_inner, offsets_outer);
+            RETURN_IF_ERROR(do_loop<true>(src_offsets, split_offsets, cut, null_map, offsets_inner,
+                                          offsets_outer));
         } else {
-            do_loop<false>(src_offsets, cut, null_map, offsets_inner, offsets_outer);
+            RETURN_IF_ERROR(do_loop<false>(src_offsets, split_offsets, cut, null_map, offsets_inner,
+                                           offsets_outer));
         }
 
         auto inner_result = ColumnArray::create(src_data, std::move(col_offsets_inner));
@@ -106,11 +112,19 @@ public:
     }
 
     template <bool CONSIDER_NULL>
-    static void do_loop(const IColumn::Offsets64& src_offsets, const IColumn::Filter& cut,
-                        const NullMap* null_map, PaddedPODArray<IColumn::Offset64>& offsets_inner,
-                        PaddedPODArray<IColumn::Offset64>& offsets_outer) {
+    static Status do_loop(const IColumn::Offsets64& src_offsets,
+                          const IColumn::Offsets64& split_offsets, const IColumn::Filter& cut,
+                          const NullMap* null_map, PaddedPODArray<IColumn::Offset64>& offsets_inner,
+                          PaddedPODArray<IColumn::Offset64>& offsets_outer) {
         size_t pos = 0;
-        for (auto in_offset : src_offsets) { // per cells
+        for (auto i = 0; i < src_offsets.size(); i++) { // per cells
+            auto in_offset = src_offsets[i];
+            auto sp_offset = split_offsets[i];
+            if (in_offset != sp_offset) [[unlikely]] {
+                return Status::InvalidArgument("function {} has uneven arguments on row {}", name,
+                                               i);
+            }
+
             // [1,2,3,4,5]
             if (pos < in_offset) { // values in a cell
                 pos += !reverse;
@@ -132,6 +146,7 @@ public:
 
             offsets_outer.push_back(offsets_inner.size());
         }
+        return Status::OK();
     }
 };
 
