@@ -68,12 +68,7 @@ statementBase
     | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
       LIKE existedTable=multipartIdentifier
       (WITH ROLLUP (rollupNames=identifierList)?)?           #createTableLike
-    | explain? INSERT (INTO | OVERWRITE TABLE)
-        (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
-        partitionSpec?  // partition define
-        (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
-        (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
-        query                                                          #insertTable
+    | insertIntoStatement                                          #insertTable
     | explain? cte? UPDATE tableName=multipartIdentifier tableAlias
         SET updateAssignmentSeq
         fromClause?
@@ -119,6 +114,11 @@ statementBase
     | ALTER TABLE table=multipartIdentifier
         DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
     | SHOW CONSTRAINTS FROM table=multipartIdentifier                     #showConstraint
+    | BATCH ON COLUMN key=multipartIdentifier 
+              STARTS starts=INTEGER_VALUE  ENDS ends=INTEGER_VALUE
+              LIMIT limitNum=INTEGER_VALUE
+              USING insertIntoStatement
+                                                                          #createBatchInsertJob
     | unsupportedStatement                                                #unsupported
     ;
 
@@ -328,6 +328,7 @@ mysqlDataDesc
     ;
 
 skipLines : IGNORE lines=INTEGER_VALUE LINES | IGNORE lines=INTEGER_VALUE ROWS ;
+
 
 //  -----------------Query-----------------
 // add queryOrganization for parse (q1) union (q2) union (q3) order by keys, otherwise 'order' will be recognized to be
@@ -1008,7 +1009,14 @@ number
     : SUBTRACT? INTEGER_VALUE                    #integerLiteral
     | SUBTRACT? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
-
+insertIntoStatement
+    : explain? INSERT INTO
+              (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
+              partitionSpec?  // partition define
+              (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
+              (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
+              query
+    ;
 // there are 1 kinds of keywords in Doris.
 // - Non-reserved keywords:
 //     normal version of non-reserved keywords.
@@ -1029,6 +1037,7 @@ nonReserved
     | AUTO_INCREMENT
     | BACKENDS
     | BACKUP
+    | BATCH
     | BEGIN
     | BELONG
     | BIN

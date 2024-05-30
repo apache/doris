@@ -3007,10 +3007,12 @@ public class SessionVariable implements Serializable, Writable {
     public Set<String> getDisableNereidsRuleNames() {
         String checkPrivilege = RuleType.CHECK_PRIVILEGES.name();
         String checkRowPolicy = RuleType.CHECK_ROW_POLICY.name();
+        String bindDynamicSplit = RuleType.BIND_DYNAMIC_SPLIT.name();
         return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
                 .map(rule -> rule.toUpperCase(Locale.ROOT))
                 .filter(rule -> !StringUtils.equalsIgnoreCase(rule, checkPrivilege)
-                        && !StringUtils.equalsIgnoreCase(rule, checkRowPolicy))
+                        && !StringUtils.equalsIgnoreCase(rule, checkRowPolicy)
+                        && !StringUtils.equalsIgnoreCase(rule, bindDynamicSplit))
                 .collect(ImmutableSet.toImmutableSet());
     }
 
@@ -3022,7 +3024,8 @@ public class SessionVariable implements Serializable, Writable {
             }
             ruleName = ruleName.toUpperCase(Locale.ROOT);
             RuleType ruleType = RuleType.valueOf(ruleName);
-            if (ruleType == RuleType.CHECK_PRIVILEGES || ruleType == RuleType.CHECK_ROW_POLICY) {
+            if (ruleType == RuleType.CHECK_PRIVILEGES || ruleType == RuleType.CHECK_ROW_POLICY
+                    || ruleType == RuleType.BIND_DYNAMIC_SPLIT) {
                 continue;
             }
             bitSet.set(ruleType.type());

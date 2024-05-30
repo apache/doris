@@ -20,10 +20,8 @@ package org.apache.doris.job.extensions.insert;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -58,14 +56,12 @@ import org.apache.doris.transaction.ErrorTabletInfo;
 import org.apache.doris.transaction.TabletCommitInfo;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
-import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -74,128 +70,41 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 @EqualsAndHashCode(callSuper = true)
-@Data
 @Log4j2
-public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> implements GsonPostProcessable {
+public class InsertJob extends AbstractInsertJob<InsertTask> implements GsonPostProcessable {
 
-    public static final ImmutableList<Column> SCHEMA = ImmutableList.<Column>builder()
-            .add(new Column("Id", ScalarType.createStringType()))
-            .add(new Column("Name", ScalarType.createStringType()))
-            .add(new Column("Definer", ScalarType.createStringType()))
-            .add(new Column("ExecuteType", ScalarType.createStringType()))
-            .add(new Column("RecurringStrategy", ScalarType.createStringType()))
-            .add(new Column("Status", ScalarType.createStringType()))
-            .add(new Column("ExecuteSql", ScalarType.createStringType()))
-            .add(new Column("CreateTime", ScalarType.createStringType()))
-            .addAll(COMMON_SCHEMA)
-            .add(new Column("Comment", ScalarType.createStringType()))
-            .build();
+    @Getter
+    private Map<String, String> properties = new HashMap<>();
+    @Getter
+    private Set<String> tableNames;
+    private AuthorizationInfo authorizationInfo;
 
-    private static final ShowResultSetMetaData TASK_META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("TaskId", ScalarType.createVarchar(80)))
-                    .addColumn(new Column("Label", ScalarType.createVarchar(80)))
-                    .addColumn(new Column("Status", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("EtlInfo", ScalarType.createVarchar(100)))
-                    .addColumn(new Column("TaskInfo", ScalarType.createVarchar(100)))
-                    .addColumn(new Column("ErrorMsg", ScalarType.createVarchar(100)))
-
-                    .addColumn(new Column("CreateTimeMs", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("FinishTimeMs", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("TrackingUrl", ScalarType.createVarchar(200)))
-                    .addColumn(new Column("LoadStatistic", ScalarType.createVarchar(200)))
-                    .addColumn(new Column("User", ScalarType.createVarchar(50)))
-                    .build();
-
-    public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
-
-    static {
-        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<>();
-        for (int i = 0; i < SCHEMA.size(); i++) {
-            builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
-        }
-        COLUMN_TO_INDEX = builder.build();
-    }
-
+    private List<ErrorTabletInfo> errorTabletInfos = new ArrayList<>();
+    private List<TabletCommitInfo> commitInfos = new ArrayList<>();
     //we used insertTaskQueue to store the task info, and we will query the task info from it
     @Deprecated
     @SerializedName("tis")
     ConcurrentLinkedQueue<Long> historyTaskIdList = new ConcurrentLinkedQueue<>();
-    @SerializedName("did")
-    private final long dbId;
-    @SerializedName("ln")
-    private String labelName;
+    protected InsertTask.TaskType taskType = InsertTask.TaskType.PENDING;
+    protected InsertTask.MergeType mergeType = InsertTask.MergeType.APPEND;
     @SerializedName("lt")
-    private InsertJob.LoadType loadType;
+    protected InsertJob.LoadType loadType;
+    @SerializedName("plans")
+    protected List<InsertIntoTableCommand> plans = new ArrayList<>();
+    protected LoadStatistic loadStatistic = new LoadStatistic();
     // 0: the job status is pending
     // n/100: n is the number of task which has been finished
     // 99: all tasks have been finished
     // 100: txn status is visible and load has been finished
     @SerializedName("pg")
-    private int progress;
-    @SerializedName("fm")
-    private FailMsg failMsg;
-    @SerializedName("plans")
-    private List<InsertIntoTableCommand> plans = new ArrayList<>();
-    private LoadStatistic loadStatistic = new LoadStatistic();
-    private Set<Long> finishedTaskIds = new HashSet<>();
-
-    @SerializedName("tas")
-    private ConcurrentLinkedQueue<InsertTask> insertTaskQueue = new ConcurrentLinkedQueue<>();
-    private Map<String, String> properties = new HashMap<>();
-    private Set<String> tableNames;
-    private AuthorizationInfo authorizationInfo;
-
-    private ConnectContext ctx;
-    private StmtExecutor stmtExecutor;
-    private List<ErrorTabletInfo> errorTabletInfos = new ArrayList<>();
-    private List<TabletCommitInfo> commitInfos = new ArrayList<>();
-
-    // max save task num, do we need to config it?
-    private static final int MAX_SAVE_TASK_NUM = 100;
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        if (null == plans) {
-            plans = new ArrayList<>();
-        }
-        if (null == insertTaskQueue) {
-            insertTaskQueue = new ConcurrentLinkedQueue<>();
-        }
-        if (null == loadStatistic) {
-            loadStatistic = new LoadStatistic();
-        }
-        if (null == finishedTaskIds) {
-            finishedTaskIds = new HashSet<>();
-        }
-        if (null == errorTabletInfos) {
-            errorTabletInfos = new ArrayList<>();
-        }
-        if (null == commitInfos) {
-            commitInfos = new ArrayList<>();
-        }
-        if (null == historyTaskIdList) {
-            historyTaskIdList = new ConcurrentLinkedQueue<>();
-        }
-        if (null == getSucceedTaskCount()) {
-            setSucceedTaskCount(new AtomicLong(0));
-        }
-        if (null == getFailedTaskCount()) {
-            setFailedTaskCount(new AtomicLong(0));
-        }
-        if (null == getCanceledTaskCount()) {
-            setCanceledTaskCount(new AtomicLong(0));
-        }
-    }
+    protected int progress;
 
     /**
      * load job type
@@ -232,7 +141,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
                      JobExecutionConfiguration jobConfig,
                      Long createTimeMs,
                      String executeSql) {
-        super(getNextJobId(), jobName, jobStatus, dbName, comment, createUser,
+        super(getNextId(), jobName, jobStatus, dbName, comment, createUser,
                 jobConfig, createTimeMs, executeSql);
         this.dbId = ConnectContext.get().getCurrentDbId();
     }
@@ -245,7 +154,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
                      Map<String, String> properties,
                      String comment,
                      JobExecutionConfiguration jobConfig) {
-        super(getNextJobId(), labelName, JobStatus.RUNNING, null,
+        super(getNextId(), labelName, JobStatus.RUNNING, null,
                 comment, ctx.getCurrentUserIdentity(), jobConfig);
         this.ctx = ctx;
         this.plans = plans;
@@ -259,62 +168,25 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     }
 
     @Override
-    public List<InsertTask> createTasks(TaskType taskType, Map<Object, Object> taskContext) {
-        List<InsertTask> newTasks = new ArrayList<>();
-        if (plans.isEmpty()) {
-            InsertTask task = new InsertTask(labelName, getCurrentDbName(), getExecuteSql(), getCreateUser());
-            newTasks.add(task);
-        } else {
-            // use for load stmt
-            for (InsertIntoTableCommand logicalPlan : plans) {
-                if (!logicalPlan.getLabelName().isPresent()) {
-                    throw new IllegalArgumentException("Load plan need label name.");
-                }
-                InsertTask task = new InsertTask(logicalPlan, ctx, stmtExecutor, loadStatistic);
-                newTasks.add(task);
-            }
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        if (null == plans) {
+            plans = new ArrayList<>();
         }
-        initTasks(newTasks, taskType);
-        recordTasks(newTasks);
-        return new ArrayList<>(newTasks);
-    }
-
-    public void recordTasks(List<InsertTask> tasks) {
-        if (Config.max_persistence_task_count < 1) {
-            return;
+        if (null == commitInfos) {
+            commitInfos = new ArrayList<>();
         }
-        insertTaskQueue.addAll(tasks);
-
-        while (insertTaskQueue.size() > Config.max_persistence_task_count) {
-            insertTaskQueue.poll();
-            //since we have insertTaskQueue, we do not need to store the task id in historyTaskIdList, so we clear it
-            historyTaskIdList.clear();
+        if (null == loadStatistic) {
+            loadStatistic = new LoadStatistic();
         }
-        Env.getCurrentEnv().getEditLog().logUpdateJob(this);
-    }
-
-    @Override
-    public void cancelTaskById(long taskId) throws JobException {
-        super.cancelTaskById(taskId);
-    }
-
-    @Override
-    public void cancelAllTasks() throws JobException {
-        try {
-            checkAuth("CANCEL LOAD");
-            super.cancelAllTasks();
-            this.failMsg = new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel");
-        } catch (DdlException e) {
-            throw new JobException(e);
+        if (null == historyTaskIdList) {
+            historyTaskIdList = new ConcurrentLinkedQueue<>();
+        }
+        if (null == historyTaskIdList) {
+            historyTaskIdList = new ConcurrentLinkedQueue<>();
         }
     }
 
-    @Override
-    public boolean isReadyForScheduling(Map<Object, Object> taskContext) {
-        return CollectionUtils.isEmpty(getRunningTasks());
-    }
-
-    @Override
     protected void checkJobParamsInternal() {
         if (plans.isEmpty() && StringUtils.isBlank(getExecuteSql())) {
             throw new IllegalArgumentException("command or sql is null,must be set");
@@ -396,6 +268,28 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     }
 
     @Override
+    public List<InsertTask> createTasks(TaskType taskType, Map<Object, Object> taskContext, Long groupId) {
+        List<InsertTask> newTasks = new ArrayList<>();
+        if (plans.isEmpty()) {
+            InsertTask task = new InsertTask(labelName, getCurrentDbName(), getExecuteSql(), getCreateUser());
+            newTasks.add(task);
+        } else {
+            // use for load stmt
+            for (InsertIntoTableCommand logicalPlan : plans) {
+                if (!logicalPlan.getLabelName().isPresent()) {
+                    throw new IllegalArgumentException("Load plan need label name.");
+                }
+                InsertTask task = new InsertTask(logicalPlan, ctx, stmtExecutor, loadStatistic);
+                newTasks.add(task);
+            }
+        }
+        initTasks(newTasks, taskType, groupId);
+        recordTasks(newTasks);
+        return new ArrayList<>(newTasks);
+    }
+
+
+    @Override
     public ShowResultSetMetaData getJobMetaData() {
         return super.getJobMetaData();
     }
@@ -414,11 +308,6 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     }
 
     @Override
-    public void onTaskSuccess(InsertTask task) throws JobException {
-        super.onTaskSuccess(task);
-    }
-
-    @Override
     public List<String> getShowInfo() {
         try {
             // check auth
@@ -427,10 +316,10 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             // jobId
             jobInfo.add(getJobId().toString());
             // label
-            if (StringUtils.isEmpty(getLabelName())) {
+            if (StringUtils.isEmpty(labelName)) {
                 jobInfo.add(FeConstants.null_string);
             } else {
-                jobInfo.add(getLabelName());
+                jobInfo.add(labelName);
             }
             // state
             if (getJobStatus() == JobStatus.STOPPED) {
@@ -608,7 +497,18 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         progress = replayLog.getProgress();
         setStartTimeMs(replayLog.getStartTimeMs());
         setFinishTimeMs(replayLog.getFinishTimeMs());
-        failMsg = replayLog.getFailMsg();
+        failMsg = replayLog.failMsg;
+    }
+
+    @Override
+    public void onReplayEnd(AbstractJob replayJob) throws JobException {
+        if (!(replayJob instanceof InsertJob)) {
+            return;
+        }
+        AbstractJob insertJob = replayJob;
+        unprotectReadEndOperation((InsertJob) insertJob);
+        log.info(new LogBuilder(LogKey.LOAD_JOB,
+                insertJob.getJobId()).add("operation", insertJob).add("msg", "replay end load job").build());
     }
 
     public String getResourceName() {
@@ -645,25 +545,29 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         // Env.getCurrentEnv().getLabelProcessor().removeJob(getDbId(), getLabelName());
     }
 
-    @Override
-    public void onReplayCreate() throws JobException {
-        JobExecutionConfiguration jobConfig = new JobExecutionConfiguration();
-        jobConfig.setExecuteType(JobExecuteType.INSTANT);
-        setJobConfig(jobConfig);
-        onRegister();
-        checkJobParams();
-        log.info(new LogBuilder(LogKey.LOAD_JOB, getJobId()).add("msg", "replay create load job").build());
+    public void recordTasks(List<InsertTask> tasks) {
+        if (Config.max_persistence_task_count < 1) {
+            return;
+        }
+        insertTaskQueue.addAll(tasks);
+
+        while (insertTaskQueue.size() > Config.max_persistence_task_count) {
+            insertTaskQueue.poll();
+            //since we have insertTaskQueue, we do not need to store the task id in historyTaskIdList, so we clear it
+            historyTaskIdList.clear();
+        }
+        Env.getCurrentEnv().getEditLog().logUpdateJob(this);
     }
 
     @Override
-    public void onReplayEnd(AbstractJob<?, Map<Object, Object>> replayJob) throws JobException {
-        if (!(replayJob instanceof InsertJob)) {
-            return;
+    public void cancelAllTasks() throws JobException {
+        try {
+            checkAuth("CANCEL LOAD");
+            super.cancelAllTasks();
+            this.failMsg = new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel");
+        } catch (DdlException e) {
+            throw new JobException(e);
         }
-        InsertJob insertJob = (InsertJob) replayJob;
-        unprotectReadEndOperation(insertJob);
-        log.info(new LogBuilder(LogKey.LOAD_JOB,
-                insertJob.getJobId()).add("operation", insertJob).add("msg", "replay end load job").build());
     }
 
     public int getProgress() {

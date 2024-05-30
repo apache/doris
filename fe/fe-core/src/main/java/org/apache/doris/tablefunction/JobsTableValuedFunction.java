@@ -20,6 +20,7 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.extensions.insert.BatchInsertJob;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -85,11 +86,15 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
         }
         if (JobType.MV == jobType) {
             return MTMVJob.COLUMN_TO_INDEX.get(columnName.toLowerCase());
-        } else if (JobType.INSERT == jobType) {
-            return InsertJob.COLUMN_TO_INDEX.get(columnName.toLowerCase());
-        } else {
-            throw new AnalysisException("Invalid job type: " + jobType.toString());
         }
+        if (JobType.INSERT == jobType) {
+            return InsertJob.COLUMN_TO_INDEX.get(columnName.toLowerCase());
+        }
+        if (JobType.BATCH_INSERT == jobType) {
+            return BatchInsertJob.COLUMN_TO_INDEX.get(columnName.toLowerCase());
+        }
+        throw new AnalysisException("Invalid job type: " + jobType.toString());
+
     }
 
     @Override
@@ -119,8 +124,11 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
             return MTMVJob.SCHEMA;
         } else if (JobType.INSERT == jobType) {
             return InsertJob.SCHEMA;
-        } else {
-            throw new AnalysisException("Invalid job type: " + jobType.toString());
         }
+        if (JobType.BATCH_INSERT == jobType) {
+            return BatchInsertJob.SCHEMA;
+        }
+        throw new AnalysisException("Invalid job type: " + jobType.toString());
+
     }
 }

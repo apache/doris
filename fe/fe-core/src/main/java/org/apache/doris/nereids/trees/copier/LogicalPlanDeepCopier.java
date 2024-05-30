@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDynamicSplit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRelation;
@@ -172,6 +173,12 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .map(p -> ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
                 .collect(ImmutableSet.toImmutableSet());
         return new LogicalFilter<>(conjuncts, child);
+    }
+
+    @Override
+    public Plan visitLogicalDynamicSplit(LogicalDynamicSplit<? extends Plan> filter, DeepCopierContext context) {
+        Plan child = filter.child().accept(this, context);
+        return new LogicalDynamicSplit<>(filter.getSplitColumnInfo(), filter.getRange(), child);
     }
 
     @Override

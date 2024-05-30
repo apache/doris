@@ -50,6 +50,9 @@ public abstract class AbstractTask implements Task {
     @SerializedName(value = "tt")
     private TaskType taskType;
 
+    @SerializedName(value = "tgid")
+    private Long taskGroupId;
+
     @SerializedName(value = "emg")
     private String errMsg;
 
@@ -168,7 +171,7 @@ public abstract class AbstractTask implements Task {
             onSuccess();
         } catch (Exception e) {
             this.errMsg = e.getMessage();
-            onFail();
+            onFail(errMsg);
             log.warn("execute task error, job id is {}, task id is {}", jobId, taskId, e);
         } finally {
             closeOrReleaseResources();

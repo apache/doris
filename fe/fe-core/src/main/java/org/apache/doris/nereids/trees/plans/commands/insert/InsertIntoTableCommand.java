@@ -28,6 +28,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -36,6 +37,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.info.SplitColumnInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDynamicSplit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
@@ -49,6 +52,7 @@ import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
+import org.apache.commons.lang3.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -75,6 +79,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      */
     private long jobId;
     private Optional<InsertCommandContext> insertCtx;
+
+    private Range<Integer> splitRange;
+
+    private SplitColumnInfo splitColumnInfo;
 
     /**
      * constructor
@@ -110,6 +118,27 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         runInternal(ctx, executor);
     }
 
+    public void initSplitRange(SplitColumnInfo splitColumnInfo, Range range) {
+        this.splitColumnInfo = splitColumnInfo;
+        this.splitRange = range;
+    }
+
+    public TableIf getTargetTable(ConnectContext ctx) throws AnalysisException {
+        return InsertUtils.getTargetTable(logicalQuery, ctx);
+    }
+
+    private void rewriteLogicalPlanIfNecessary(LogicalPlan logicalQuery) {
+        if (this.splitRange != null && this.splitColumnInfo != null) {
+            this.logicalQuery = (LogicalPlan) logicalQuery.rewriteUp(child -> {
+                if (child instanceof UnboundRelation) {
+                    return new LogicalDynamicSplit<>(this.splitColumnInfo, this.splitRange, child);
+                } else {
+                    return child;
+                }
+            });
+        }
+    }
+
     /**
      * This function is used to generate the plan for Nereids.
      * There are some load functions that only need to the plan, such as stream_load.
@@ -135,14 +164,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
         }
-
         AbstractInsertExecutor insertExecutor = null;
         // should lock target table until we begin transaction.
         targetTableIf.readLock();
         try {
+            // rewrite the logical plan if necessary
+            rewriteLogicalPlanIfNecessary(logicalQuery);
             // 1. process inline table (default values, empty values)
             this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
-
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());

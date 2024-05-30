@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreateBatchInsertJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
@@ -99,6 +100,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateTableCommand(CreateTableCommand createTableCommand, C context) {
         return visitCommand(createTableCommand, context);
+    }
+
+    default R visitCreateBatchInsertJobCommand(CreateBatchInsertJobCommand createBatchInsertJobCommand, C context) {
+        return visitCommand(createBatchInsertJobCommand, context);
     }
 
     default R visitCreateMTMVCommand(CreateMTMVCommand createMTMVCommand, C context) {

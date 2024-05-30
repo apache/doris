@@ -1689,7 +1689,7 @@ public class Config extends ConfigBase {
      * If set to true, we will allow the interval unit to be set to second, when creating a recurring job.
      */
     @ConfField
-    public static boolean enable_job_schedule_second_for_test = false;
+    public static boolean enable_job_schedule_second_for_test = true;
 
     /*---------------------- JOB CONFIG END------------------------*/
     /**
