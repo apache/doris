@@ -148,7 +148,7 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
         const auto* column = block.get_by_position(result_col_id).column.get();
         raw_ptrs[i] = column;
         DCHECK_GE(result_col_id, 0);
-        local_state._shared_state->build_col_idx.insert({result_col_id, i});
+        local_state._shared_state->build_col_idx.insert({i, result_col_id});
     }
     return Status::OK();
 }

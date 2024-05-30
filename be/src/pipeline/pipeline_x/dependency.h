@@ -634,8 +634,8 @@ public:
     vectorized::Block build_block; // build to source
     //record element size in hashtable
     int64_t valid_element_in_hash_tbl = 0;
-    //first:column_id, could point to origin column or cast column
-    //second:idx mapped to column types
+    //first: idx mapped to column types
+    //second: column_id, could point to origin column or cast column
     std::unordered_map<int, int> build_col_idx;
 
     //// shared static states (shared, decided in prepare/open...)

@@ -112,8 +112,8 @@ private:
     std::vector<VExprContextSPtrs> _child_expr_lists;
     //record build column type
     DataTypes _left_table_data_types;
-    //first:column_id, could point to origin column or cast column
-    //second:idx mapped to column types
+    //first: idx mapped to column types
+    //second: column_id, could point to origin column or cast column
     std::unordered_map<int, int> _build_col_idx;
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
