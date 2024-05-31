@@ -90,7 +90,7 @@ public:
         return DataSinkOperatorX<AnalyticSinkLocalState>::required_data_distribution();
     }
 
-    bool require_data_distribution() const override { return _is_colocate; }
+    bool require_data_distribution() const override { return true; }
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
