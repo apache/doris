@@ -222,8 +222,8 @@ public:
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
-    void stop_if_eos() {
-        if (_sink->eos(_state)) {
+    void stop_if_finished() {
+        if (_sink->is_finished(_state)) {
             clear_blocking_state();
         }
     }

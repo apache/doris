@@ -134,7 +134,7 @@ public:
     void clear_finished_tasks() {
         for (size_t j = 0; j < _tasks.size(); j++) {
             for (size_t i = 0; i < _tasks[j].size(); i++) {
-                _tasks[j][i]->stop_if_eos();
+                _tasks[j][i]->stop_if_finished();
             }
         }
     };
