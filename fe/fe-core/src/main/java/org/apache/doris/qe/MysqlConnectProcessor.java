@@ -149,7 +149,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
     }
 
     private void handleExecute(PrepareCommand prepareCommand, long stmtId, PreparedStatementContext prepCtx) {
-        int paramCount = prepareCommand.getParamLen();
+        int paramCount = prepareCommand.placeholderCount();
         LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
         // null bitmap
         String stmtStr = "";
@@ -167,7 +167,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                         LOG.debug("code {}", typeCode);
                         // assign type to placeholders
                         typedPlaceholders.add(
-                                prepareCommand.params().get(i).withNewMysqlColType(MysqlColType.fromCode(typeCode)));
+                                prepareCommand.getPlaceholders().get(i)
+                                        .withNewMysqlColType(MysqlColType.fromCode(typeCode)));
                     }
                     // rewrite with new prepared statment with type info in placeholders
                     prepCtx.command = prepareCommand.withPlaceholders(typedPlaceholders);
@@ -175,13 +176,13 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 }
                 // parse param data
                 for (int i = 0; i < paramCount; ++i) {
-                    PlaceholderId exprId = prepareCommand.params().get(i).getExprId();
+                    PlaceholderId exprId = prepareCommand.getPlaceholders().get(i).getPlaceholderId();
                     if (isNull(nullbitmapData, i)) {
                         statementContext.getIdToPlaceholderRealExpr().put(exprId,
                                     new org.apache.doris.nereids.trees.expressions.literal.NullLiteral());
                         continue;
                     }
-                    MysqlColType type = prepareCommand.params().get(i).getMysqlColType();
+                    MysqlColType type = prepareCommand.getPlaceholders().get(i).getMysqlColType();
                     Literal l = Literal.getLiteralByMysqlType(type, packetBuf);
                     statementContext.getIdToPlaceholderRealExpr().put(exprId, l);
                 }

@@ -506,8 +506,8 @@ public abstract class ExpressionVisitor<R, C>
         return visitMatch(matchPhraseEdge, context);
     }
 
-    public R visitPlaceholder(Placeholder placeholderExpr, C context) {
-        return visit(placeholderExpr, context);
+    public R visitPlaceholder(Placeholder placeholder, C context) {
+        return visit(placeholder, context);
     }
 
     public R visitAny(Any any, C context) {

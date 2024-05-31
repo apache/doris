@@ -543,9 +543,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     }
 
     @Override
-    public Expression visitPlaceholder(Placeholder placeholderExpr, ExpressionRewriteContext context) {
+    public Expression visitPlaceholder(Placeholder placeholder, ExpressionRewriteContext context) {
         Expression realExpr = context.cascadesContext.getStatementContext()
-                    .getIdToPlaceholderRealExpr().get(placeholderExpr.getExprId());
+                    .getIdToPlaceholderRealExpr().get(placeholder.getPlaceholderId());
         return visit(realExpr, context);
     }
 

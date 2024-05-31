@@ -62,7 +62,7 @@ public class ExecuteCommand extends Command {
                     "prepare statement " + stmtName + " not found,  maybe expired");
         }
         PrepareCommand prepareCommand = (PrepareCommand) preparedStmtCtx.command;
-        LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(prepareCommand.getInnerPlan(), executor.getContext()
+        LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(prepareCommand.getLogicalPlan(), executor.getContext()
                 .getStatementContext());
         executor.setParsedStmt(planAdapter);
         // execute real statement
@@ -74,8 +74,8 @@ public class ExecuteCommand extends Command {
      */
     public String toSql() {
         // maybe slow
-        List<Expression> realValueExpr = prepareCommand.params().stream()
-                .map(placeholder -> statementContext.getIdToPlaceholderRealExpr().get(placeholder.getExprId()))
+        List<Expression> realValueExpr = prepareCommand.getPlaceholders().stream()
+                .map(placeholder -> statementContext.getIdToPlaceholderRealExpr().get(placeholder.getPlaceholderId()))
                 .collect(Collectors.toList());
         return "EXECUTE `" + stmtName + "`"
                 + realValueExpr.stream().map(Expression::toSql).collect(Collectors.joining(", ", " USING ", ""));

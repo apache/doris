@@ -31,21 +31,21 @@ import java.util.Optional;
  * Placeholder for prepared statement
  */
 public class Placeholder extends Expression implements LeafExpression {
-    private final PlaceholderId exprId;
+    private final PlaceholderId placeholderId;
     private final Optional<MysqlColType> mysqlColType;
 
-    public Placeholder(PlaceholderId exprId) {
-        this.exprId = exprId;
+    public Placeholder(PlaceholderId placeholderId) {
+        this.placeholderId = placeholderId;
         this.mysqlColType = Optional.empty();
     }
 
-    public Placeholder(PlaceholderId exprId, MysqlColType mysqlColType) {
-        this.exprId = exprId;
+    public Placeholder(PlaceholderId placeholderId, MysqlColType mysqlColType) {
+        this.placeholderId = placeholderId;
         this.mysqlColType = Optional.of(mysqlColType);
     }
 
-    public PlaceholderId getExprId() {
-        return exprId;
+    public PlaceholderId getPlaceholderId() {
+        return placeholderId;
     }
 
     @Override
@@ -69,7 +69,7 @@ public class Placeholder extends Expression implements LeafExpression {
     }
 
     public Placeholder withNewMysqlColType(MysqlColType mysqlColType) {
-        return new Placeholder(getExprId(), mysqlColType);
+        return new Placeholder(getPlaceholderId(), mysqlColType);
     }
 
     public MysqlColType getMysqlColType() {

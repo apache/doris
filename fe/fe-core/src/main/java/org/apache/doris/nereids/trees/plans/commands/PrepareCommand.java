@@ -66,15 +66,15 @@ public class PrepareCommand extends Command {
         return name;
     }
 
-    public List<Placeholder> params() {
+    public List<Placeholder> getPlaceholders() {
         return placeholders;
     }
 
-    public int getParamLen() {
+    public int placeholderCount() {
         return placeholders.size();
     }
 
-    public LogicalPlan getInnerPlan() {
+    public LogicalPlan getLogicalPlan() {
         return logicalPlan;
     }
 
@@ -88,7 +88,7 @@ public class PrepareCommand extends Command {
     public List<String> getLabels() {
         List<String> labels = new ArrayList<>();
         for (Placeholder parameter : placeholders) {
-            labels.add("$" + parameter.getExprId().asInt());
+            labels.add("$" + parameter.getPlaceholderId().asInt());
         }
         return labels;
     }
