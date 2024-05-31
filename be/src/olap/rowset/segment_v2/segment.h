@@ -256,6 +256,7 @@ private:
     // used to hold short key index page in memory
     PageHandle _sk_index_handle;
     // short key index decoder
+    // all content is in memory
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
     // primary key index reader
     std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;

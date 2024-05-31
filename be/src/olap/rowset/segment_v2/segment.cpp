@@ -113,6 +113,17 @@ Status Segment::_open() {
     // DCHECK(footer.has_short_key_index_page());
     _sk_index_page = _footer_pb->short_key_index_page();
     _num_rows = _footer_pb->num_rows();
+
+    // An estimated memory usage of a segment
+    _meta_mem_usage += _footer_pb->ByteSizeLong();
+    _meta_mem_usage += sizeof(*this);
+    _meta_mem_usage += _tablet_schema->num_columns() * config::estimated_mem_per_column_reader;
+
+    // 1024 comes from SegmentWriterOptions
+    _meta_mem_usage += (_num_rows + 1023) / 1024 * (36 + 4);
+    // 0.01 comes from PrimaryKeyIndexBuilder::init
+    _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;
+
     return Status::OK();
 }
 
@@ -301,7 +312,7 @@ Status Segment::_load_pk_bloom_filter() {
     auto status = [this]() {
         return _load_pk_bf_once.call([this] {
             RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, *_pk_index_meta));
-            _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
+            // _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
             return Status::OK();
         });
     }();
@@ -338,7 +349,7 @@ Status Segment::_load_index_impl() {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
             _pk_index_reader.reset(new PrimaryKeyIndexReader());
             RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta));
-            _meta_mem_usage += _pk_index_reader->get_memory_size();
+            // _meta_mem_usage += _pk_index_reader->get_memory_size();
             return Status::OK();
         } else {
             // read and parse short key index page
@@ -360,7 +371,7 @@ Status Segment::_load_index_impl() {
             DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
             DCHECK(footer.has_short_key_page_footer());
 
-            _meta_mem_usage += body.get_size();
+            // _meta_mem_usage += body.get_size();
             _sk_index_decoder.reset(new ShortKeyIndexDecoder);
             return _sk_index_decoder->parse(body, footer.short_key_page_footer());
         }
@@ -430,7 +441,6 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second), footer.num_rows(),
                                              _file_reader, &reader));
         _column_readers.emplace(column.unique_id(), std::move(reader));
-        _meta_mem_usage += config::estimated_mem_per_column_reader;
     }
 
     // init by column path

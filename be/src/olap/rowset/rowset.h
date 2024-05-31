@@ -118,7 +118,7 @@ private:
 
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
-    virtual ~Rowset() = default;
+    virtual ~Rowset();
 
     // Open all segment files in this rowset and load necessary metadata.
     // - `use_cache` : whether to use fd cache, only applicable to alpha rowset now
