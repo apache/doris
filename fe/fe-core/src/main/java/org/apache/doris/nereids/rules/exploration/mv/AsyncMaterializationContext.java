@@ -55,8 +55,9 @@ public class AsyncMaterializationContext extends MaterializationContext {
      * MaterializationContext, this contains necessary info for query rewriting by mv
      */
     public AsyncMaterializationContext(MTMV mtmv, Plan mvPlan, Plan mvOriginalPlan, List<Table> baseTables,
-            List<Table> baseViews, CascadesContext cascadesContext) {
-        super(mvPlan, mvOriginalPlan, MaterializedViewUtils.generateMvScanPlan(mtmv, cascadesContext), cascadesContext);
+            List<Table> baseViews, CascadesContext cascadesContext, StructInfo structInfo) {
+        super(mvPlan, mvOriginalPlan, MaterializedViewUtils.generateMvScanPlan(mtmv, cascadesContext),
+                cascadesContext, structInfo);
         this.mtmv = mtmv;
     }
 

@@ -21,7 +21,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
@@ -653,21 +653,23 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * @see MatchMode
      */
     private MatchMode decideMatchMode(List<CatalogRelation> queryRelations, List<CatalogRelation> viewRelations) {
-        List<TableIf> queryTableRefs = queryRelations.stream().map(CatalogRelation::getTable)
-                .collect(Collectors.toList());
-        List<TableIf> viewTableRefs = viewRelations.stream().map(CatalogRelation::getTable)
-                .collect(Collectors.toList());
-        boolean sizeSame = viewTableRefs.size() == queryTableRefs.size();
-        boolean queryPartial = viewTableRefs.containsAll(queryTableRefs);
-        if (!sizeSame && queryPartial) {
-            return MatchMode.QUERY_PARTIAL;
+
+        Set<TableIdentifier> queryTables = new HashSet<>();
+        for (CatalogRelation catalogRelation : queryRelations) {
+            queryTables.add(new TableIdentifier(catalogRelation.getTable()));
         }
-        boolean viewPartial = queryTableRefs.containsAll(viewTableRefs);
-        if (!sizeSame && viewPartial) {
+        Set<TableIdentifier> viewTables = new HashSet<>();
+        for (CatalogRelation catalogRelation : viewRelations) {
+            viewTables.add(new TableIdentifier(catalogRelation.getTable()));
+        }
+        if (queryTables.equals(viewTables)) {
+            return MatchMode.COMPLETE;
+        }
+        if (queryTables.containsAll(viewTables)) {
             return MatchMode.VIEW_PARTIAL;
         }
-        if (sizeSame && queryPartial && viewPartial) {
-            return MatchMode.COMPLETE;
+        if (viewTables.containsAll(queryTables)) {
+            return MatchMode.QUERY_PARTIAL;
         }
         return MatchMode.NOT_MATCH;
     }
