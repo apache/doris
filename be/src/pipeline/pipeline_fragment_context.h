@@ -110,6 +110,8 @@ public:
 
     void close_a_pipeline();
 
+    virtual void clear_finished_tasks() {}
+
     virtual void add_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {}
 

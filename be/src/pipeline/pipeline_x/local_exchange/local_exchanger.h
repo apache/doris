@@ -45,6 +45,7 @@ public:
     virtual Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                         LocalExchangeSinkLocalState& local_state) = 0;
     virtual ExchangeType get_type() const = 0;
+    virtual void close(LocalExchangeSourceLocalState& local_state) {}
 
 protected:
     friend struct LocalExchangeSharedState;
@@ -95,6 +96,7 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
+    void close(LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::HASH_SHUFFLE; }
 
 protected:
@@ -137,6 +139,7 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::PASSTHROUGH; }
+    void close(LocalExchangeSourceLocalState& local_state) override;
 
 private:
     std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
@@ -175,6 +178,7 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::BROADCAST; }
+    void close(LocalExchangeSourceLocalState& local_state) override;
 
 private:
     std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;

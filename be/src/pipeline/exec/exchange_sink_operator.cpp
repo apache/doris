@@ -185,7 +185,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
     _sink_buffer = std::make_unique<ExchangeSinkBuffer<ExchangeSinkLocalState>>(
-            id, p._dest_node_id, _sender_id, _state->be_number(), state);
+            id, p._dest_node_id, _sender_id, _state->be_number(), state, this);
 
     register_channels(_sink_buffer.get());
     _queue_dependency =
@@ -681,8 +681,11 @@ Status ExchangeSinkOperatorX::channel_add_rows_with_idx(
 std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
-    fmt::format_to(debug_string_buffer, ", Sink Buffer: (_should_stop = {}, _busy_channels = {})",
-                   _sink_buffer->_should_stop.load(), _sink_buffer->_busy_channels.load());
+    fmt::format_to(debug_string_buffer,
+                   ", Sink Buffer: (_should_stop = {}, _busy_channels = {}, _is_finishing = {}), "
+                   "_reach_limit: {}",
+                   _sink_buffer->_should_stop.load(), _sink_buffer->_busy_channels.load(),
+                   _sink_buffer->_is_finishing.load(), _reach_limit.load());
     return fmt::to_string(debug_string_buffer);
 }
 

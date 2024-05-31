@@ -1122,6 +1122,8 @@ void FragmentMgr::cancel_worker() {
                     for (auto& ins_id : ins_ids) {
                         to_cancel.push_back(ins_id);
                     }
+                } else {
+                    pipeline_itr.second->clear_finished_tasks();
                 }
             }
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {

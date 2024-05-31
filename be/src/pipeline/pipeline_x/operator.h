@@ -490,6 +490,7 @@ public:
     // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
+    [[nodiscard]] virtual bool is_finished() const { return false; }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level) const = 0;
 
@@ -595,6 +596,13 @@ public:
     [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
                                                    LocalSinkStateInfo& info) = 0;
 
+    [[nodiscard]] bool is_finished(RuntimeState* state) const {
+        auto result = state->get_sink_local_state_result();
+        if (!result) {
+            return result.error();
+        }
+        return result.value()->is_finished();
+    }
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this))
