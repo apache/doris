@@ -49,42 +49,6 @@ class TCreateTabletReq;
 class TTablet;
 class TTabletInfo;
 
-class TabletSchemaPath {
-private:
-    TTabletId tablet_id;
-    TSchemaHash schema_hash;
-    size_t path_hash;
-
-public:
-    TabletSchemaPath() = default;
-    TabletSchemaPath(TTabletId tablet_id, TSchemaHash schema_hash, size_t path_hash)
-            : tablet_id(tablet_id), schema_hash(schema_hash), path_hash(path_hash) {}
-    TabletSchemaPath(TabletSchemaPath&& scp) {
-        tablet_id = std::move(scp.tablet_id);
-        schema_hash = std::move(scp.schema_hash);
-        path_hash = std::move(scp.path_hash);
-    }
-
-    bool operator==(const TabletSchemaPath& other) const {
-        return tablet_id == other.tablet_id && schema_hash == other.schema_hash &&
-               path_hash == other.path_hash;
-    }
-
-    bool operator<(const TabletSchemaPath& other) const {
-        if (tablet_id < other.tablet_id) {
-            return true;
-        } else if (tablet_id > other.tablet_id) {
-            return false;
-        } else if (schema_hash < other.schema_hash) {
-            return true;
-        } else if (schema_hash > other.schema_hash) {
-            return false;
-        } else {
-            return path_hash < other.path_hash;
-        }
-    }
-};
-
 // TabletManager provides get, add, delete tablet method for storage engine
 // NOTE: If you want to add a method that needs to hold meta-lock before you can call it,
 // please uniformly name the method in "xxx_unlocked()" mode
@@ -195,10 +159,8 @@ public:
     void obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info, int64_t num);
 
     // return `true` if register success
-    Status register_transition_tablet(int64_t tablet_id, TSchemaHash schema_hash, size_t path_hash,
-                                      std::string reason);
-    void unregister_transition_tablet(int64_t tablet_id, TSchemaHash schema_hash, size_t path_hash,
-                                      std::string reason);
+    Status register_transition_tablet(int64_t tablet_id, std::string reason);
+    void unregister_transition_tablet(int64_t tablet_id, std::string reason);
 
     void get_tablets_distribution_on_different_disks(
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
@@ -275,7 +237,7 @@ private:
         tablet_map_t tablet_map;
         mutable std::shared_mutex lock_for_transition;
         // tablet do clone, path gc, move to trash, disk migrate will record in tablets_under_transition
-        std::map<TabletSchemaPath, std::string> tablets_under_transition;
+        std::map<int64_t, std::string> tablets_under_transition;
     };
 
     struct Partition {

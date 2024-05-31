@@ -548,12 +548,8 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
                                replica_id);
     }
 
-    TSchemaHash schema_hash = to_drop_tablet->schema_hash();
-    size_t path_hash = to_drop_tablet->data_dir()->path_hash();
-    RETURN_IF_ERROR(register_transition_tablet(tablet_id, schema_hash, path_hash, "drop tablet"));
-    Defer defer {[&]() {
-        unregister_transition_tablet(tablet_id, schema_hash, path_hash, "drop tablet");
-    }};
+    RETURN_IF_ERROR(register_transition_tablet(tablet_id, "drop tablet"));
+    Defer defer {[&]() { unregister_transition_tablet(tablet_id, "drop tablet"); }};
 
     _remove_tablet_from_partition(to_drop_tablet);
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
@@ -1159,13 +1155,8 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
         }
     }
 
-    TSchemaHash schema_hash = tablet->schema_hash();
-    size_t path_hash = tablet->data_dir()->path_hash();
-    RETURN_IF_ERROR(register_transition_tablet(tablet->tablet_id(), schema_hash, path_hash,
-                                               "move to trash"));
-    Defer defer {[&]() {
-        unregister_transition_tablet(tablet->tablet_id(), schema_hash, path_hash, "move to trash");
-    }};
+    RETURN_IF_ERROR(register_transition_tablet(tablet->tablet_id(), "move to trash"));
+    Defer defer {[&]() { unregister_transition_tablet(tablet->tablet_id(), "move to trash"); }};
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     int64_t get_meta_ts = MonotonicMicros();
@@ -1256,32 +1247,24 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
     }
 }
 
-Status TabletManager::register_transition_tablet(int64_t tablet_id, TSchemaHash schema_hash,
-                                                 size_t path_hash, std::string reason) {
+Status TabletManager::register_transition_tablet(int64_t tablet_id, std::string reason) {
     tablets_shard& shard = _get_tablets_shard(tablet_id);
     std::lock_guard<std::shared_mutex> wrlock(shard.lock_for_transition);
-    auto [it, can_do] = shard.tablets_under_transition.insert(
-            std::pair(TabletSchemaPath(tablet_id, schema_hash, path_hash), reason));
+    auto [it, can_do] = shard.tablets_under_transition.insert(std::pair(tablet_id, reason));
     if (!can_do) {
-        LOG(INFO) << "tablet_id = " << tablet_id << " schema_hash=" << schema_hash
-                  << " pash_hash=" << path_hash << "is doing " << it->second
+        LOG(INFO) << "tablet_id = " << tablet_id << "is doing " << it->second
                   << " , add reason=" << reason;
-        return Status::InternalError<false>(
-                "{} failed try later, tablet_id={}, schema_hash={}, path_hash={}", reason,
-                tablet_id, schema_hash, path_hash);
+        return Status::InternalError<false>("{} failed try later, tablet_id={}", reason, tablet_id);
     }
-    LOG(INFO) << "add tablet_id= " << tablet_id << " schema_hash=" << schema_hash
-              << " path_hash=" << path_hash << " to map, reason=" << reason;
+    LOG(INFO) << "add tablet_id= " << tablet_id << " to map, reason=" << reason;
     return Status::OK();
 }
 
-void TabletManager::unregister_transition_tablet(int64_t tablet_id, TSchemaHash schema_hash,
-                                                 size_t path_hash, std::string reason) {
+void TabletManager::unregister_transition_tablet(int64_t tablet_id, std::string reason) {
     tablets_shard& shard = _get_tablets_shard(tablet_id);
     std::lock_guard<std::shared_mutex> wrlock(shard.lock_for_transition);
-    shard.tablets_under_transition.erase(TabletSchemaPath(tablet_id, schema_hash, path_hash));
-    LOG(INFO) << "erase tablet_id= " << tablet_id << " schema_hash=" << schema_hash
-              << " path_hash=" << path_hash << " from map, reason=" << reason;
+    shard.tablets_under_transition.erase(tablet_id);
+    LOG(INFO) << "erase tablet_id= " << tablet_id << " from map, reason=" << reason;
 }
 
 void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
@@ -1300,13 +1283,11 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
         return;
     }
 
-    size_t path_hash = data_dir->path_hash();
-    bool succ = register_transition_tablet(tablet_id, schema_hash, path_hash, "path gc");
+    bool succ = register_transition_tablet(tablet_id, "path gc");
     if (!succ) {
         return;
     }
-    Defer defer {
-            [&]() { unregister_transition_tablet(tablet_id, schema_hash, path_hash, "path gc"); }};
+    Defer defer {[&]() { unregister_transition_tablet(tablet_id, "path gc"); }};
 
     // TODO(ygl): may do other checks in the future
     bool exists = false;

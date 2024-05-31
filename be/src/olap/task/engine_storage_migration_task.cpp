@@ -201,14 +201,11 @@ Status EngineStorageMigrationTask::_migrate() {
     LOG(INFO) << "begin to process tablet migrate. "
               << "tablet_id=" << tablet_id << ", dest_store=" << _dest_store->path();
 
-    TSchemaHash schema_hash = _tablet->schema_hash();
-    size_t path_hash = _tablet->data_dir()->path_hash();
-
-    RETURN_IF_ERROR(_engine.tablet_manager()->register_transition_tablet(
-            _tablet->tablet_id(), schema_hash, path_hash, "disk migrate"));
+    RETURN_IF_ERROR(_engine.tablet_manager()->register_transition_tablet(_tablet->tablet_id(),
+                                                                         "disk migrate"));
     Defer defer {[&]() {
-        _engine.tablet_manager()->unregister_transition_tablet(_tablet->tablet_id(), schema_hash,
-                                                               path_hash, "disk migrate");
+        _engine.tablet_manager()->unregister_transition_tablet(_tablet->tablet_id(),
+                                                               "disk migrate");
     }};
 
     DorisMetrics::instance()->storage_migrate_requests_total->increment(1);

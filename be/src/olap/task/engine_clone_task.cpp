@@ -174,14 +174,10 @@ Status EngineCloneTask::_do_clone() {
     // Check local tablet exist or not
     TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(_clone_req.tablet_id);
 
-    TSchemaHash schema_hash = tablet->schema_hash();
-    size_t path_hash = tablet->data_dir()->path_hash();
-
-    RETURN_IF_ERROR(_engine.tablet_manager()->register_transition_tablet(
-            _clone_req.tablet_id, schema_hash, path_hash, "clone"));
+    RETURN_IF_ERROR(
+            _engine.tablet_manager()->register_transition_tablet(_clone_req.tablet_id, "clone"));
     Defer defer {[&]() {
-        _engine.tablet_manager()->unregister_transition_tablet(_clone_req.tablet_id, schema_hash,
-                                                               path_hash, "clone");
+        _engine.tablet_manager()->unregister_transition_tablet(_clone_req.tablet_id, "clone");
     }};
 
     // The status of a tablet is not ready, indicating that it is a residual tablet after a schema
