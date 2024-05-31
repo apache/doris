@@ -37,6 +37,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
@@ -79,6 +80,7 @@ public class HashJoinNode extends JoinNodeBase {
     private List<Expr> markJoinConjuncts;
 
     private DistributionMode distrMode;
+    private DistributionSpecHash.StorageBucketHashType hashType;
     private boolean isColocate = false; //the flag for colocate join
     private String colocateReason = ""; // if can not do colocate join, set reason here
 
@@ -247,6 +249,10 @@ public class HashJoinNode extends JoinNodeBase {
     public void setColocate(boolean colocate, String reason) {
         isColocate = colocate;
         colocateReason = reason;
+    }
+
+    public void setHashType(DistributionSpecHash.StorageBucketHashType hashType) {
+        this.hashType = hashType;
     }
 
     /**
@@ -807,6 +813,9 @@ public class HashJoinNode extends JoinNodeBase {
             }
         }
         msg.hash_join_node.setDistType(isColocate ? TJoinDistributionType.COLOCATE : distrMode.toThrift());
+        if (hashType != null) {
+            msg.hash_join_node.setHashType(hashType.toThrift());
+        }
     }
 
     @Override

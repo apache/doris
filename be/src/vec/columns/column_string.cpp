@@ -295,7 +295,8 @@ void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
     }
 }
 
-void ColumnString::update_murmurs_with_value(int32_t* __restrict hashes, doris::PrimitiveType type,
+template <typename T>
+void ColumnStr<T>::update_murmurs_with_value(int32_t* __restrict hashes, doris::PrimitiveType type,
                                              int32_t rows, uint32_t offset,
                                              const uint8_t* __restrict null_data) const {
     auto s = rows;
@@ -304,15 +305,13 @@ void ColumnString::update_murmurs_with_value(int32_t* __restrict hashes, doris::
     if (null_data == nullptr) {
         for (size_t i = 0; i < s; i++) {
             auto data_ref = get_data_at(i);
-            hashes[i] = HashUtil::murmur_hash3_32(data_ref.data, data_ref.size,
-                                                  HashUtil::SPARK_MURMUR_32_SEED);
+            hashes[i] = HashUtil::murmur_hash3_32(data_ref.data, data_ref.size, hashes[i]);
         }
     } else {
         for (size_t i = 0; i < s; i++) {
             if (null_data[i] == 0) {
                 auto data_ref = get_data_at(i);
-                hashes[i] = HashUtil::murmur_hash3_32(data_ref.data, data_ref.size,
-                                                      HashUtil::SPARK_MURMUR_32_SEED);
+                hashes[i] = HashUtil::murmur_hash3_32(data_ref.data, data_ref.size, hashes[i]);
             }
         }
     }

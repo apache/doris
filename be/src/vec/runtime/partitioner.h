@@ -36,7 +36,7 @@ struct ChannelField {
 
 class PartitionerBase {
 public:
-    PartitionerBase(size_t partition_count) : _partition_count(partition_count) {}
+    PartitionerBase(const size_t partition_count) : _partition_count(partition_count) {}
     virtual ~PartitionerBase() = default;
 
     virtual Status init(const std::vector<TExpr>& texprs) = 0;
@@ -59,11 +59,11 @@ protected:
     const size_t _partition_count;
 };
 
-template <typename ChannelIds>
-class Crc32HashPartitioner : public PartitionerBase {
+template <typename HashValueType, typename ChannelIds>
+class Partitioner : public PartitionerBase {
 public:
-    Crc32HashPartitioner(int partition_count) : PartitionerBase(partition_count) {}
-    ~Crc32HashPartitioner() override = default;
+    Partitioner(const size_t partition_count) : PartitionerBase(partition_count) {}
+    ~Partitioner() override = default;
 
     Status init(const std::vector<TExpr>& texprs) override {
         return VExpr::create_expr_trees(texprs, _partition_expr_ctxs);
@@ -79,9 +79,9 @@ public:
 
     Status do_partitioning(RuntimeState* state, Block* block) const override;
 
-    ChannelField get_channel_ids() const override { return {_hash_vals.data(), sizeof(uint32_t)}; }
-
-    Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
+    ChannelField get_channel_ids() const override {
+        return {_hash_vals.data(), sizeof(HashValueType)};
+    }
 
 protected:
     Status _get_partition_column_result(Block* block, std::vector<int>& result) const {
@@ -92,10 +92,12 @@ protected:
         return Status::OK();
     }
 
-    void _do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const;
+    virtual void _do_hash(const ColumnPtr& column, HashValueType* __restrict result,
+                          int idx) const = 0;
+    virtual HashValueType _get_default_seed() const { return static_cast<HashValueType>(0); }
 
     VExprContextSPtrs _partition_expr_ctxs;
-    mutable std::vector<uint32_t> _hash_vals;
+    mutable std::vector<HashValueType> _hash_vals;
 };
 
 struct ShuffleChannelIds {
@@ -112,11 +114,32 @@ struct SpillPartitionChannelIds {
     }
 };
 
+struct ShufflePModChannelIds {
+    template <typename HashValueType>
+    HashValueType operator()(HashValueType l, int32_t r) {
+        return (l % r + r) % r;
+    }
+};
+
+template <typename ChannelIds>
+class Crc32HashPartitioner final : public Partitioner<uint32_t, ChannelIds> {
+public:
+    using Base = Partitioner<uint32_t, ChannelIds>;
+    Crc32HashPartitioner(size_t partition_count)
+            : Partitioner<uint32_t, ChannelIds>(partition_count) {}
+    ~Crc32HashPartitioner() override = default;
+
+    Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
+
+private:
+    void _do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const override;
+};
+
 template <typename ChannelIds>
 class Murmur32HashPartitioner final : public Partitioner<int32_t, ChannelIds> {
 public:
     using Base = Partitioner<int32_t, ChannelIds>;
-    Murmur32HashPartitioner(int partition_count)
+    Murmur32HashPartitioner(size_t partition_count)
             : Partitioner<int32_t, ChannelIds>(partition_count) {}
     ~Murmur32HashPartitioner() override = default;
 
@@ -124,10 +147,8 @@ public:
 
 private:
     void _do_hash(const ColumnPtr& column, int32_t* __restrict result, int idx) const override;
+    int32_t _get_default_seed() const override;
 };
-
-} // namespace vectorized
-} // namespace doris
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

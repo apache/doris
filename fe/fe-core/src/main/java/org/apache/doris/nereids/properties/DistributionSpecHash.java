@@ -346,6 +346,9 @@ public class DistributionSpecHash extends DistributionSpec {
         // SPARK_MURMUR32 is the hash function for Spark bucketed hive table's storage and computation
         STORAGE_BUCKET_SPARK_MURMUR32;
 
+        /**
+         * convert to thrift
+         */
         public THashType toThrift() {
             switch (this) {
                 case STORAGE_BUCKET_CRC32:
@@ -353,8 +356,25 @@ public class DistributionSpecHash extends DistributionSpec {
                 case STORAGE_BUCKET_SPARK_MURMUR32:
                     return THashType.SPARK_MURMUR32;
                 case STORAGE_BUCKET_XXHASH64:
-                default:
                     return THashType.XXHASH64;
+                default:
+                    return THashType.CRC32;
+            }
+        }
+
+        /**
+         * convert from thrift
+         */
+        public static StorageBucketHashType fromThrift(THashType hashType) {
+            switch (hashType) {
+                case CRC32:
+                    return STORAGE_BUCKET_CRC32;
+                case SPARK_MURMUR32:
+                    return STORAGE_BUCKET_SPARK_MURMUR32;
+                case XXHASH64:
+                    return STORAGE_BUCKET_XXHASH64;
+                default:
+                    return STORAGE_BUCKET_CRC32;
             }
         }
     }

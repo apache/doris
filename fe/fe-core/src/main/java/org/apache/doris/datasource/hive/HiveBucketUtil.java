@@ -103,7 +103,7 @@ public class HiveBucketUtil {
 
     private static final Iterable<Pattern> BUCKET_PATTERNS = ImmutableList.of(
             // spark/parquet pattern
-            // format: f"part-[paritionId]-[tid]-[txnId]-[jobId]-[taskAttemptId]-[fileCount].c000.snappy.parquet"
+            // format: f"part-[paritionId]-[tid]-[txnId]-[jobId]-[taskAttemptId]_[fileCount].c000.snappy.parquet"
             Pattern.compile("part-\\d{5}-\\w{8}-\\w{4}-\\w{4}-\\w{4}-\\w{12}_(\\d{5})(?:[-_.].*)?"),
             // legacy Presto naming pattern (current version matches Hive)
             Pattern.compile("\\d{8}_\\d{6}_\\d{5}_[a-z0-9]{5}_bucket-(\\d+)(?:[-_.].*)?"),

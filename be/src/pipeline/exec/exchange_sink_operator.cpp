@@ -87,6 +87,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
     _part_type = p._part_type;
+    _hash_type = p._hash_type;
     // Shuffle the channels randomly
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM ||
         _part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
@@ -124,9 +125,18 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                                   fmt::format("Crc32HashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = channels.size();
-        _partitioner =
-                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
-                        channels.size());
+        if (_hash_type == THashType::SPARK_MURMUR32) {
+            _partitioner.reset(
+                    new vectorized::Murmur32HashPartitioner<vectorized::ShufflePModChannelIds>(
+                            channels.size()));
+            _profile->add_info_string("Partitioner",
+                                      fmt::format("Murmur32HashPartitioner({})", _partition_count));
+        } else {
+            _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
+                    channels.size()));
+            _profile->add_info_string("Partitioner",
+                                      fmt::format("Crc32HashPartitioner({})", _partition_count));
+        }
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         _profile->add_info_string("Partitioner",
@@ -211,6 +221,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     _writer.reset(new Writer());
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
+    _part_type = p._part_type;
+    _hash_type = p._hash_type;
 
     for (int i = 0; i < channels.size(); ++i) {
         RETURN_IF_ERROR(channels[i]->open(state));
@@ -271,6 +283,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _texprs(sink.output_partition.partition_exprs),
           _row_desc(row_desc),
           _part_type(sink.output_partition.type),
+          _hash_type(sink.output_partition.hash_type),
           _dests(destinations),
           _dest_node_id(sink.dest_node_id),
           _transfer_large_data_by_brpc(config::transfer_large_data_by_brpc),
@@ -294,6 +307,9 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED);
+    DCHECK(sink.output_partition.hash_type == THashType::CRC32 ||
+           sink.output_partition.hash_type == THashType::XXHASH64 ||
+           sink.output_partition.hash_type == THashType::SPARK_MURMUR32);
     _name = "ExchangeSinkOperatorX";
     _pool = std::make_shared<ObjectPool>();
     if (sink.__isset.output_tuple_id) {
@@ -311,6 +327,28 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
                                                              _tablet_sink_expr_ctxs));
     }
     return Status::OK();
+}
+
+std::string ExchangeSinkOperatorX::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
+
+    string dest_names;
+    for (const auto& dest : _dests) {
+        if (dest_names.empty()) {
+            dest_names += print_id(dest.fragment_instance_id);
+        } else {
+            dest_names += ", " + print_id(dest.fragment_instance_id);
+        }
+    }
+
+    fmt::format_to(debug_string_buffer,
+                   ", Info: (_num_recievers = {}, _dest_node_id = {},"
+                   ", _partition_type = {}, _hash_type = {},"
+                   " _destinations = [{}])",
+                   _dests.size(), _dest_node_id, to_string(_part_type), to_string(_hash_type),
+                   dest_names);
+    return fmt::to_string(debug_string_buffer);
 }
 
 Status ExchangeSinkOperatorX::open(RuntimeState* state) {
@@ -395,7 +433,8 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 if (serialized) {
                     auto cur_block = local_state._serializer.get_block()->to_block();
                     if (!cur_block.empty()) {
-                        DCHECK(eos || local_state._serializer.is_local()) << debug_string(state, 0);
+                        DCHECK(eos || local_state._serializer.is_local())
+                                << Base::debug_string(state, 0);
                         RETURN_IF_ERROR(local_state._serializer.serialize_block(
                                 &cur_block, block_holder->get_block(),
                                 local_state._rpc_channels_num));

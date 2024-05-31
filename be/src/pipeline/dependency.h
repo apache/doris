@@ -704,14 +704,22 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
 }
 
 struct DataDistribution {
-    DataDistribution(ExchangeType type) : distribution_type(type) {}
+    DataDistribution(ExchangeType type) : distribution_type(type), hash_type(THashType::CRC32) {}
     DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
-            : distribution_type(type), partition_exprs(partition_exprs_) {}
+            : distribution_type(type),
+              partition_exprs(partition_exprs_),
+              hash_type(THashType::CRC32) {}
+    DataDistribution(ExchangeType type, const THashType::type hash_type)
+            : distribution_type(type), hash_type(hash_type) {}
+    DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_,
+                     const THashType::type hash)
+            : distribution_type(type), partition_exprs(partition_exprs_), hash_type(hash) {}
     DataDistribution(const DataDistribution& other) = default;
     bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
     DataDistribution& operator=(const DataDistribution& other) = default;
     ExchangeType distribution_type;
     std::vector<TExpr> partition_exprs;
+    THashType::type hash_type;
 };
 
 class ExchangerBase;

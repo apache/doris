@@ -678,7 +678,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 notNeedShuffleSideRequired, needShuffleSideRequired);
         return new PhysicalProperties(new DistributionSpecHash(shuffleSideIds, shuffleType,
                 needShuffleSideOutput.getTableId(), needShuffleSideOutput.getSelectedIndexId(),
-                needShuffleSideOutput.getPartitionIds(), notShuffleSideOutput.getShuffleFunction()));
+                needShuffleSideOutput.getPartitionIds(), notNeedShuffleSideOutput.getShuffleFunction()));
     }
 
     private void updateChildEnforceAndCost(int index, PhysicalProperties targetProperties) {

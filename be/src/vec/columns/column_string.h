@@ -439,15 +439,13 @@ public:
             for (size_t i = start; i < end; ++i) {
                 if (null_data[i] == 0) {
                     auto data_ref = get_data_at(i);
-                    hash = HashUtil::murmur_hash3_32(data_ref.data, data_ref.size,
-                                                     HashUtil::SPARK_MURMUR_32_SEED);
+                    hash = HashUtil::murmur_hash3_32(data_ref.data, data_ref.size, hash);
                 }
             }
         } else {
             for (size_t i = start; i < end; ++i) {
                 auto data_ref = get_data_at(i);
-                hash = HashUtil::murmur_hash3_32(data_ref.data, data_ref.size,
-                                                 HashUtil::SPARK_MURMUR_32_SEED);
+                hash = HashUtil::murmur_hash3_32(data_ref.data, data_ref.size, hash);
             }
         }
     }

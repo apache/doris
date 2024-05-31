@@ -41,6 +41,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.THashType;
 import org.apache.doris.thrift.TPartitionType;
@@ -339,6 +340,7 @@ public class DistributedPlanner {
         Ref<THashType> hashType = Ref.from(THashType.CRC32);
         if (canBucketShuffleJoin(node, leftChildFragment, rhsPartitionExprs, hashType)) {
             node.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
+            node.setHashType(DistributionSpecHash.StorageBucketHashType.fromThrift(hashType.value));
             DataPartition rhsJoinPartition =
                     new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED,
                         rhsPartitionExprs, hashType.value);
@@ -635,7 +637,7 @@ public class DistributedPlanner {
                 leftRoot = leftRoot.getChild(0);
             }
             if (leftRoot instanceof ScanNode) {
-                canBucketShuffleJoin(node, (ScanNode) leftRoot, rhsHashExprs, hashType);
+                return canBucketShuffleJoin(node, (ScanNode) leftRoot, rhsHashExprs, hashType);
             }
         }
 
@@ -658,7 +660,9 @@ public class DistributedPlanner {
         HMSExternalTable leftTable = leftScanNode.getHiveTable();
 
         DistributionInfo leftDistribution = leftTable.getDefaultDistributionInfo();
-        if (leftDistribution == null || !(leftDistribution instanceof HiveExternalDistributionInfo)) {
+        if (leftDistribution == null || !(leftDistribution instanceof HiveExternalDistributionInfo)
+                || !ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()
+                || !ConnectContext.get().getSessionVariable().isEnableSparkShuffle()) {
             return false;
         }
 

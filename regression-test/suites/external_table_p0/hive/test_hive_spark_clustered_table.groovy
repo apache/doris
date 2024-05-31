@@ -51,6 +51,7 @@ suite("test_hive_spark_clustered_table", "p0,external,hive,external_docker,exter
             sql """use `${catalog_name}`.`default`"""
 
             sql """set enable_fallback_to_original_planner=false;"""
+            sql """SET enable_spark_bucket_shuffle=true"""
 
             q01()
 

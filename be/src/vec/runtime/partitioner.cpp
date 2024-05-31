@@ -17,18 +17,16 @@
 
 #include "partitioner.h"
 
-#include "common/cast_set.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "runtime/thread_context.h"
 #include "vec/columns/column_const.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::vectorized {
-#include "common/compile_check_begin.h"
 
 template <typename HashValueType, typename ChannelIds>
-Status Partitioner<HashValueType, ChannelIds>::do_partitioning(RuntimeState* state, Block* block,
-                                                               MemTracker* mem_tracker) const {
+Status Partitioner<HashValueType, ChannelIds>::do_partitioning(RuntimeState* state,
+                                                               Block* block) const {
     int rows = block->rows();
 
     if (rows > 0) {
@@ -38,7 +36,7 @@ Status Partitioner<HashValueType, ChannelIds>::do_partitioning(RuntimeState* sta
         std::vector<int> result(result_size);
 
         _hash_vals.resize(rows);
-        std::fill(_hash_vals.begin(), _hash_vals.end(), 0);
+        std::fill(_hash_vals.begin(), _hash_vals.end(), _get_default_seed());
         auto* __restrict hashes = _hash_vals.data();
         { RETURN_IF_ERROR(_get_partition_column_result(block, result)); }
         for (int j = 0; j < result_size; ++j) {
@@ -61,7 +59,7 @@ Status Partitioner<HashValueType, ChannelIds>::do_partitioning(RuntimeState* sta
 template <typename ChannelIds>
 void Crc32HashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column,
                                                 uint32_t* __restrict result, int idx) const {
-    column->update_crcs_with_value(result, _partition_expr_ctxs[idx]->root()->type().type,
+    column->update_crcs_with_value(result, Base::_partition_expr_ctxs[idx]->root()->type().type,
                                    cast_set<uint32_t>(column->size()));
 }
 
@@ -75,20 +73,8 @@ void Murmur32HashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column,
 template <typename ChannelIds>
 Status Crc32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
                                                std::unique_ptr<PartitionerBase>& partitioner) {
-    auto* new_partitioner = new Crc32HashPartitioner<ChannelIds>(cast_set<int>(_partition_count));
-    partitioner.reset(new_partitioner);
-    new_partitioner->_partition_expr_ctxs.resize(_partition_expr_ctxs.size());
-    for (size_t i = 0; i < _partition_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(
-                _partition_expr_ctxs[i]->clone(state, new_partitioner->_partition_expr_ctxs[i]));
-    }
-    return Status::OK();
-}
-
-template <typename ChannelIds>
-Status Murmur32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
-                                                  std::unique_ptr<PartitionerBase>& partitioner) {
-    auto* new_partitioner = new Murmur32HashPartitioner(Base::_partition_count);
+    auto* new_partitioner =
+            new Crc32HashPartitioner<ChannelIds>(cast_set<int>(Base::_partition_count));
     partitioner.reset(new_partitioner);
     new_partitioner->_partition_expr_ctxs.resize(Base::_partition_expr_ctxs.size());
     for (size_t i = 0; i < Base::_partition_expr_ctxs.size(); i++) {
@@ -96,6 +82,25 @@ Status Murmur32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
                 state, new_partitioner->_partition_expr_ctxs[i]));
     }
     return Status::OK();
+}
+
+template <typename ChannelIds>
+Status Murmur32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
+                                                  std::unique_ptr<PartitionerBase>& partitioner) {
+    auto* new_partitioner =
+            new Murmur32HashPartitioner<ChannelIds>(cast_set<int>(Base::_partition_count));
+    partitioner.reset(new_partitioner);
+    new_partitioner->_partition_expr_ctxs.resize(Base::_partition_expr_ctxs.size());
+    for (size_t i = 0; i < Base::_partition_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(Base::_partition_expr_ctxs[i]->clone(
+                state, new_partitioner->_partition_expr_ctxs[i]));
+    }
+    return Status::OK();
+}
+
+template <typename ChannelIds>
+int32_t Murmur32HashPartitioner<ChannelIds>::_get_default_seed() const {
+    return static_cast<int32_t>(HashUtil::SPARK_MURMUR_32_SEED);
 }
 
 template class Crc32HashPartitioner<ShuffleChannelIds>;

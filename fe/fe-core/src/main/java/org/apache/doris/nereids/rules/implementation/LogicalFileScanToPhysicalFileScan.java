@@ -28,12 +28,13 @@ import org.apache.doris.nereids.properties.DistributionSpecHash.StorageBucketHas
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
@@ -68,8 +69,18 @@ public class LogicalFileScanToPhysicalFileScan extends OneImplementationRuleFact
         }
 
         HMSExternalTable hmsExternalTable = (HMSExternalTable) table;
+        if (hmsExternalTable.getDlaType() != HMSExternalTable.DLAType.HIVE
+                && !hmsExternalTable.isSparkBucketedTable()) {
+            return DistributionSpecStorageAny.INSTANCE;
+        }
+
+        boolean isSelectUnpartitioned = !hmsExternalTable.isPartitionedTable()
+                || hmsExternalTable.getPartitionNames().size() == 1
+                || fileScan.getSelectedPartitions().selectedPartitions.size() == 1;
+
         DistributionInfo distributionInfo = hmsExternalTable.getDefaultDistributionInfo();
-        if (distributionInfo instanceof HashDistributionInfo) {
+        if (distributionInfo instanceof HashDistributionInfo && isSelectUnpartitioned
+                && ConnectContext.get().getSessionVariable().isEnableSparkShuffle()) {
             HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
             List<Slot> output = fileScan.getOutput();
             List<ExprId> hashColumns = Lists.newArrayList();
@@ -80,12 +91,10 @@ public class LogicalFileScanToPhysicalFileScan extends OneImplementationRuleFact
                     }
                 }
             }
-            StorageBucketHashType function = StorageBucketHashType.STORAGE_BUCKET_CRC32;
-            if (hmsExternalTable.isSparkBucketedTable()) {
-                function = StorageBucketHashType.STORAGE_BUCKET_SPARK_MURMUR32;
-            }
+
             return new DistributionSpecHash(hashColumns, DistributionSpecHash.ShuffleType.NATURAL,
-                fileScan.getTable().getId(), -1, Collections.emptySet(), function);
+                fileScan.getTable().getId(), -1, Collections.emptySet(),
+                StorageBucketHashType.STORAGE_BUCKET_SPARK_MURMUR32);
         }
 
         return DistributionSpecStorageAny.INSTANCE;

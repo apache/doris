@@ -91,7 +91,7 @@ public:
         return _partition_type == TPartitionType::HASH_PARTITIONED
                        ? DataDistribution(ExchangeType::HASH_SHUFFLE)
                : _partition_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED
-                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE)
+                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _hash_type)
                        : DataDistribution(ExchangeType::NOOP);
     }
 
@@ -100,6 +100,7 @@ private:
     const int _num_senders;
     const bool _is_merging;
     const TPartitionType::type _partition_type;
+    const THashType::type _hash_type;
     RowDescriptor _input_row_desc;
 
     // use in merge sort

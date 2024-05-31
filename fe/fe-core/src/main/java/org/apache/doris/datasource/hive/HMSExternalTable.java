@@ -66,6 +66,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.BiMap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -85,6 +86,7 @@ import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -395,19 +397,24 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public boolean isHiveTransactionalTable() {
-        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable)
-                && isSupportedTransactionalFileFormat();
+        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
     }
 
-    private boolean isSupportedTransactionalFileFormat() {
+    private boolean isSupportedFullAcidTransactionalFileFormat() {
         // Sometimes we meet "transactional" = "true" but format is parquet, which is not supported.
         // So we need to check the input format for transactional table.
         String inputFormatName = remoteTable.getSd().getInputFormat();
         return inputFormatName != null && SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.contains(inputFormatName);
     }
 
-    public boolean isFullAcidTable() {
-        return dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable);
+    public boolean isFullAcidTable() throws UserException {
+        if (dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable)) {
+            if (!isSupportedFullAcidTransactionalFileFormat()) {
+                throw new UserException("This table is full Acid Table, but no Orc Format.");
+            }
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -484,10 +491,52 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public String getViewText() {
         String viewText = getViewExpandedText();
         if (StringUtils.isNotEmpty(viewText)) {
-            return viewText;
+            if (!viewText.equals("/* Presto View */")) {
+                return viewText;
+            }
         }
-        return getViewOriginalText();
+        String originalText = getViewOriginalText();
+        return parseTrinoViewDefinition(originalText);
     }
+
+    /**
+     * Parse Trino/Presto view definition from the original text.
+     * The definition is stored in the format: /* Presto View: <base64-encoded-json> * /
+     *
+     * The base64 encoded JSON contains the following fields:
+     * {
+     *   "originalSql": "SELECT * FROM employees",  // The original SQL statement
+     *   "catalog": "hive",                        // The data catalog name
+     *   "schema": "mmc_hive",                     // The schema name
+     *   ...
+     * }
+     *
+     * @param originalText The original view definition text
+     * @return The parsed SQL statement, or original text if parsing fails
+     */
+    private String parseTrinoViewDefinition(String originalText) {
+        if (originalText == null || !originalText.contains("/* Presto View: ")) {
+            return originalText;
+        }
+
+        try {
+            String base64String = originalText.substring(
+                    originalText.indexOf("/* Presto View: ") + "/* Presto View: ".length(),
+                    originalText.lastIndexOf(" */")
+            ).trim();
+            byte[] decodedBytes = Base64.getDecoder().decode(base64String);
+            String decodedString = new String(decodedBytes, StandardCharsets.UTF_8);
+            JsonObject jsonObject = new Gson().fromJson(decodedString, JsonObject.class);
+
+            if (jsonObject.has("originalSql")) {
+                return jsonObject.get("originalSql").getAsString();
+            }
+        } catch (Exception e) {
+            LOG.warn("Decoding Presto view definition failed", e);
+        }
+        return originalText;
+    }
+
 
     public String getViewExpandedText() {
         if (LOG.isDebugEnabled()) {
@@ -581,7 +630,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     private Optional<SchemaCacheValue> getIcebergSchema() {
         List<Column> columns = IcebergUtils.getSchema(catalog, dbName, name);
-        List<Column> partitionColumns = initPartitionColumns(columns);
+        partitionColumns = initPartitionColumns(columns);
         initBucketingColumns(columns);
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }
@@ -658,7 +707,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     true, null, true, null, "", true, null, -1, null));
             colTypes.add(HudiUtils.convertAvroToHiveType(hudiField.schema()));
         }
-        List<Column> partitionColumns = initPartitionColumns(tmpSchema);
+        partitionColumns = initPartitionColumns(tmpSchema);
         HudiSchemaCacheValue hudiSchemaCacheValue = new HudiSchemaCacheValue(tmpSchema, partitionColumns);
         hudiSchemaCacheValue.setColTypes(colTypes);
         return Optional.of(hudiSchemaCacheValue);
@@ -676,7 +725,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
                     true, defaultValue, field.getComment(), true, -1));
         }
-        List<Column> partitionColumns = initPartitionColumns(columns);
+        partitionColumns = initPartitionColumns(columns);
         initBucketingColumns(columns);
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }

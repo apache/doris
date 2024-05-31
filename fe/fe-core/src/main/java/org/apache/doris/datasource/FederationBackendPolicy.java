@@ -23,9 +23,11 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IndexedPriorityQueue;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.ResettableRandomizedIterator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ConsistentHash;
+import org.apache.doris.datasource.hive.HiveBucketUtil;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
@@ -81,6 +83,7 @@ public class FederationBackendPolicy {
     private Map<Backend, Long> assignedWeightPerBackend = Maps.newHashMap();
 
     protected ConsistentHash<Split, Backend> consistentHash;
+    protected ConsistentHash<Integer, Backend> consistentBucketHash;
 
     private int nextBe = 0;
     private boolean initialized = false;
@@ -197,6 +200,8 @@ public class FederationBackendPolicy {
         backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
         try {
             consistentHash = consistentHashCache.get(new HashCacheKey(backends));
+            consistentBucketHash = new ConsistentHash<>(Hashing.murmur3_128(), new BucketHash(),
+                    new BackendHash(), backends, Config.split_assigner_virtual_node_number);
         } catch (ExecutionException e) {
             throw new UserException("failed to get consistent hash", e);
         }
@@ -211,6 +216,21 @@ public class FederationBackendPolicy {
     @VisibleForTesting
     public void setEnableSplitsRedistribution(boolean enableSplitsRedistribution) {
         this.enableSplitsRedistribution = enableSplitsRedistribution;
+    }
+
+    public Multimap<Pair<Backend, Integer>, Split> computeBucketAwareScanRangeAssignmentWith(List<Split> splits)
+            throws UserException {
+        ListMultimap<Pair<Backend, Integer>, Split> assignment = ArrayListMultimap.create();
+        int bucketNum = 0;
+        for (Split split : splits) {
+            FileSplit fileSplit = (FileSplit) split;
+            bucketNum = HiveBucketUtil.getBucketNumberFromPath(fileSplit.getPath().getPath().getName()).getAsInt();
+
+            List<Backend> candidateNodes = consistentBucketHash.getNode(bucketNum, 1);
+            assignment.put(Pair.of(candidateNodes.get(0), bucketNum), split);
+        }
+
+        return assignment;
     }
 
     /**

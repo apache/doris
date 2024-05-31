@@ -858,6 +858,7 @@ struct THashJoinNode {
   // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
   // deprecated
   14: optional bool use_specific_projections
+  15: optional Partitions.THashType hash_type
 }
 
 struct TNestedLoopJoinNode {
@@ -1165,6 +1166,7 @@ struct TExchangeNode {
   3: optional i64 offset
   // Shuffle partition type
   4: optional Partitions.TPartitionType partition_type
+  5: optional Partitions.THashType hash_type
 }
 
 struct TOlapRewriteNode {

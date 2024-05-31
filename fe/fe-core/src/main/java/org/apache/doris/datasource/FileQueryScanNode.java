@@ -30,13 +30,13 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveBucketUtil;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.planner.DataPartition;
@@ -68,6 +68,7 @@ import org.apache.doris.thrift.TTextSerdeType;
 import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
 import org.apache.doris.thrift.TTransactionalHiveDesc;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
@@ -91,10 +92,10 @@ import java.util.Optional;
 public abstract class FileQueryScanNode extends FileScanNode {
     private static final Logger LOG = LogManager.getLogger(FileQueryScanNode.class);
 
+    public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
+
     protected Map<String, SlotDescriptor> destSlotDescByName;
     protected TFileScanRangeParams params;
-
-    public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
 
     @Getter
     protected TableSample tableSample;
@@ -281,6 +282,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     @Override
     public void createScanRangeLocations() throws UserException {
+        if (!scanRangeLocations.isEmpty()) {
+            /* Note: createScanRangeLocations invoked twice thru finalizeForNereids()
+             *       and produced duplicate records.
+             */
+            return;
+        }
+
         long start = System.currentTimeMillis();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsStartTime();
@@ -326,13 +334,20 @@ public abstract class FileQueryScanNode extends FileScanNode {
             params.setProperties(locationProperties);
         }
 
+        boolean isSparkBucketedHiveTable = false;
+        TableIf targetTable = getTargetTable();
+        if (targetTable instanceof HMSExternalTable) {
+            isSparkBucketedHiveTable = ((HMSExternalTable) targetTable).isSparkBucketedTable();
+        }
+
         int numBackends = backendPolicy.numBackends();
         List<String> pathPartitionKeys = getPathPartitionKeys();
         if (isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
             splitAssignment = new SplitAssignment(
-                    backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
+                    backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys,
+                    isSparkBucketedHiveTable);
             splitAssignment.init();
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
@@ -362,76 +377,15 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 tSource.setSplitSourceId(splitSource.getUniqueId());
                 tSource.setNumSplits(numSplitsPerBE);
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().setSplitSource(tSource);
-/*=======
-                // If fileSplit has partition values, use the values collected from hive partitions.
-                // Otherwise, use the values in file path.
-                boolean isACID = false;
-                if (fileSplit instanceof HiveSplit) {
-                    HiveSplit hiveSplit = (HiveSplit) fileSplit;
-                    isACID = hiveSplit.isACID();
-                }
-                List<String> partitionValuesFromPath = fileSplit.getPartitionValues() == null
-                        ? BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(), pathPartitionKeys,
-                        false, isACID) : fileSplit.getPartitionValues();
 
-                boolean isSparkBucketedHiveTable = false;
-                int bucketNum = 0;
-                TableIf targetTable = getTargetTable();
-                if (targetTable instanceof HMSExternalTable) {
-                    isSparkBucketedHiveTable = ((HMSExternalTable) targetTable).isSparkBucketedTable();
-                    if (isSparkBucketedHiveTable) {
-                        bucketNum = HiveBucketUtil.getBucketNumberFromPath(fileSplit.getPath().getName()).getAsInt();
-                    }
-                }
-                TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys,
-                        locationType);
-                TFileCompressType fileCompressType = getFileCompressType(fileSplit);
-                rangeDesc.setCompressType(fileCompressType);
-                if (isACID) {
-                    HiveSplit hiveSplit = (HiveSplit) fileSplit;
-                    hiveSplit.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE);
-                    TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-                    tableFormatFileDesc.setTableFormatType(hiveSplit.getTableFormatType().value());
-                    AcidInfo acidInfo = (AcidInfo) hiveSplit.getInfo();
-                    TTransactionalHiveDesc transactionalHiveDesc = new TTransactionalHiveDesc();
-                    transactionalHiveDesc.setPartition(acidInfo.getPartitionLocation());
-                    List<TTransactionalHiveDeleteDeltaDesc> deleteDeltaDescs = new ArrayList<>();
-                    for (DeleteDeltaInfo deleteDeltaInfo : acidInfo.getDeleteDeltas()) {
-                        TTransactionalHiveDeleteDeltaDesc deleteDeltaDesc = new TTransactionalHiveDeleteDeltaDesc();
-                        deleteDeltaDesc.setDirectoryLocation(deleteDeltaInfo.getDirectoryLocation());
-                        deleteDeltaDesc.setFileNames(deleteDeltaInfo.getFileNames());
-                        deleteDeltaDescs.add(deleteDeltaDesc);
-                    }
-                    transactionalHiveDesc.setDeleteDeltas(deleteDeltaDescs);
-                    tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
-                    rangeDesc.setTableFormatParams(tableFormatFileDesc);
-                }
-
-                setScanParams(rangeDesc, fileSplit);
-
-                curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
->>>>>>> a5ce2395a2 ([feature](datalake) Add BucketShuffleJoin support for Hive table data generated by Spark. (27783))
-*/
                 TScanRangeLocation location = new TScanRangeLocation();
                 location.setBackendId(backend.getId());
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
 
-		// So there's only one scan range for each backend.
+                // So there's only one scan range for each backend.
                 // Each backend only starts up one ScanNode instance.
                 // However, even one ScanNode instance can provide maximum scanning concurrency.
-/*=======
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
-                            curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(),
-                            fileSplit.getStart(), fileSplit.getLength(),
-                            Joiner.on("|").join(fileSplit.getHosts()));
-                }
-                if (isSparkBucketedHiveTable) {
-                    bucketSeq2locations.put(bucketNum, curLocations);
-                }
->>>>>>> a5ce2395a2 ([feature](datalake) Add BucketShuffleJoin support for Hive table data generated by Spark. (27783))
-*/
                 scanRangeLocations.add(curLocations);
                 setLocationPropertiesIfNecessary(backend, locationType, locationProperties);
                 scanBackendIds.add(backend.getId());
@@ -445,14 +399,33 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (inputSplits.isEmpty() && !isFileStreamType()) {
                 return;
             }
-            Multimap<Backend, Split> assignment =  backendPolicy.computeScanRangeAssignment(inputSplits);
-            for (Backend backend : assignment.keySet()) {
-                Collection<Split> splits = assignment.get(backend);
-                for (Split split : splits) {
-                    scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys));
-                    totalFileSize += split.getLength();
+
+            if (isSparkBucketedHiveTable) {
+                Multimap<Pair<Backend, Integer>, Split> assignment;
+
+                assignment = backendPolicy.computeBucketAwareScanRangeAssignmentWith(inputSplits);
+                for (Pair<Backend, Integer> backend : assignment.keySet()) {
+                    Collection<Split> splits = assignment.get(backend);
+                    for (Split split : splits) {
+                        scanRangeLocations.add(splitToScanRange(backend.first, backend.second, locationProperties,
+                                split, pathPartitionKeys));
+                        totalFileSize += split.getLength();
+                    }
+                    scanBackendIds.add(backend.first.getId());
                 }
-                scanBackendIds.add(backend.getId());
+            } else {
+                Multimap<Backend, Split> assignment;
+
+                assignment = backendPolicy.computeScanRangeAssignment(inputSplits);
+                for (Backend backend : assignment.keySet()) {
+                    Collection<Split> splits = assignment.get(backend);
+                    for (Split split : splits) {
+                        scanRangeLocations.add(splitToScanRange(backend, 0, locationProperties, split,
+                                pathPartitionKeys));
+                        totalFileSize += split.getLength();
+                    }
+                    scanBackendIds.add(backend.getId());
+                }
             }
         }
 
@@ -469,6 +442,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     private TScanRangeLocations splitToScanRange(
             Backend backend,
+            Integer bucketNum,
             Map<String, String> locationProperties,
             Split split,
             List<String> pathPartitionKeys) throws UserException {
@@ -484,6 +458,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
         List<String> partitionValuesFromPath = fileSplit.getPartitionValues() == null
                 ? BrokerUtil.parseColumnsFromPath(fileSplit.getPathString(), pathPartitionKeys,
                 false, isACID) : fileSplit.getPartitionValues();
+
+        boolean isSparkBucketedHiveTable = false;
+        TableIf targetTable = getTargetTable();
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
@@ -523,6 +500,21 @@ public abstract class FileQueryScanNode extends FileScanNode {
         location.setBackendId(backend.getId());
         location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
         curLocations.addToLocations(location);
+
+        if (targetTable instanceof HMSExternalTable) {
+            isSparkBucketedHiveTable = ((HMSExternalTable) targetTable).isSparkBucketedTable();
+            if (isSparkBucketedHiveTable) {
+                bucketSeq2locations.put(bucketNum, curLocations);
+            }
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}, bucketNum: {}",
+                    curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(),
+                    fileSplit.getStart(), fileSplit.getLength(),
+                    Joiner.on("|").join(fileSplit.getHosts()), bucketNum);
+        }
+
         return curLocations;
     }
 

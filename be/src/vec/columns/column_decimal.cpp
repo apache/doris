@@ -189,8 +189,7 @@ void ColumnDecimal<T>::update_murmur_with_value(size_t start, size_t end, int32_
     if (null_data == nullptr) {
         for (size_t i = start; i < end; i++) {
             if constexpr (!IsDecimalV2<T>) {
-                hash = HashUtil::murmur_hash3_32(&data[i], sizeof(T),
-                                                 HashUtil::SPARK_MURMUR_32_SEED);
+                hash = HashUtil::murmur_hash3_32(&data[i], sizeof(T), hash);
             } else {
                 decimalv2_do_murmur(i, hash);
             }
@@ -199,8 +198,7 @@ void ColumnDecimal<T>::update_murmur_with_value(size_t start, size_t end, int32_
         for (size_t i = start; i < end; i++) {
             if (null_data[i] == 0) {
                 if constexpr (!IsDecimalV2<T>) {
-                    hash = HashUtil::murmur_hash3_32(&data[i], sizeof(T),
-                                                     HashUtil::SPARK_MURMUR_32_SEED);
+                    hash = HashUtil::murmur_hash3_32(&data[i], sizeof(T), hash);
                 } else {
                     decimalv2_do_murmur(i, hash);
                 }
@@ -217,7 +215,7 @@ void ColumnDecimal<T>::update_murmurs_with_value(int32_t* __restrict hashes, Pri
     DCHECK(s == size());
 
     if constexpr (!IsDecimalV2<T>) {
-        DO_MURMUR_HASHES_FUNCTION_COLUMN_IMPL(HashUtil::SPARK_MURMUR_32_SEED)
+        DO_MURMUR_HASHES_FUNCTION_COLUMN_IMPL()
     } else {
         if (null_data == nullptr) {
             for (size_t i = 0; i < s; i++) {

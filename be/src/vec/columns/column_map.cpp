@@ -346,9 +346,6 @@ void ColumnMap::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
 void ColumnMap::update_murmur_with_value(size_t start, size_t end, int32_t& hash,
                                          const uint8_t* __restrict null_data) const {
     auto& offsets = get_offsets();
-    if (hash == 0) {
-        hash = HashUtil::SPARK_MURMUR_32_SEED;
-    }
     if (null_data) {
         for (size_t i = start; i < end; ++i) {
             if (null_data[i] == 0) {

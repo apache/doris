@@ -355,6 +355,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         DataPartition dataPartition = toDataPartition(distribute.getDistributionSpec(), validOutputIds, context);
         exchangeNode.setPartitionType(dataPartition.getType());
+        exchangeNode.setHashType(dataPartition.getHashType());
         exchangeNode.setChildrenDistributeExprLists(distributeExprLists);
         PlanFragment parentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
         if (distribute.getDistributionSpec() instanceof DistributionSpecGather) {
@@ -565,7 +566,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         // TODO(cmy): determine the needCheckColumnPriv param
         FileQueryScanNode scanNode;
-        DataPartition dataPartition = DataPartition.RANDOM;
         if (table instanceof HMSExternalTable) {
             if (directoryLister == null) {
                 this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
@@ -601,8 +601,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
-        if (fileScan.getTableSnapshot().isPresent() && scanNode instanceof FileQueryScanNode) {
-            ((FileQueryScanNode) scanNode).setQueryTableSnapshot(fileScan.getTableSnapshot().get());
+        if (fileScan.getTableSnapshot().isPresent()) {
+            scanNode.setQueryTableSnapshot(fileScan.getTableSnapshot().get());
         }
         return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode, table, tupleDescriptor);
     }
@@ -706,9 +706,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (fileScan.getDistributionSpec() instanceof DistributionSpecHash) {
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) fileScan.getDistributionSpec();
             List<Expr> partitionExprs = distributionSpecHash.getOrderedShuffledColumns().stream()
-                .map(context::findSlotRef).collect(Collectors.toList());
+                    .map(context::findSlotRef).collect(Collectors.toList());
             dataPartition = new DataPartition(TPartitionType.HASH_PARTITIONED,
-                partitionExprs, scanNode.getHashType());
+                    partitionExprs, ((FileQueryScanNode) scanNode).getHashType());
         }
         // Create PlanFragment
         PlanFragment planFragment = createPlanFragment(scanNode, dataPartition, fileScan);
@@ -1453,6 +1453,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
         } else if (JoinUtils.shouldBucketShuffleJoin(physicalHashJoin)) {
             hashJoinNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+            hashJoinNode.setHashType(((DistributionSpecHash) physicalHashJoin.left()
+                    .getPhysicalProperties().getDistributionSpec()).getShuffleFunction());
         } else {
             hashJoinNode.setDistributionMode(DistributionMode.PARTITIONED);
         }
