@@ -106,13 +106,7 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
                 continue;
             }
             DistinctAndExpr distictAndExpr = new DistinctAndExpr(func.child(0), func.isDistinct());
-            if (!funcMap.containsKey(distictAndExpr)) {
-                List<AggregateFunction> functionList = new ArrayList<>();
-                functionList.add(func);
-                funcMap.put(distictAndExpr, functionList);
-            } else {
-                funcMap.get(distictAndExpr).add(func);
-            }
+            funcMap.computeIfAbsent(distictAndExpr, k -> new ArrayList<>()).add(func);
         }
         funcMap.entrySet().removeIf(entry -> entry.getValue().size() == 1);
         return funcMap;
@@ -136,9 +130,11 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
         ImmutableList.Builder<NamedExpression> normalizedAggOutputBuilder =
                 ImmutableList.builderWithExpectedSize(aggregate.getGroupByExpressions().size()
                         + aggFuncsNotChange.size() + newPercentileArrays.size());
+        List<NamedExpression> groupBySlots = new ArrayList<>();
         for (Expression groupBy : aggregate.getGroupByExpressions()) {
-            normalizedAggOutputBuilder.add(((NamedExpression) groupBy).toSlot());
+            groupBySlots.add(((NamedExpression) groupBy).toSlot());
         }
+        normalizedAggOutputBuilder.addAll(groupBySlots);
         Set<Alias> existsAliases =
                 ExpressionUtils.mutableCollect(aggregate.getOutputExpressions(), Alias.class::isInstance);
         NormalizeToSlotContext notChangeFuncContext = NormalizeToSlotContext.buildContext(existsAliases,
@@ -180,6 +176,7 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
                 newProjectOutputExpressions.add(newAlias);
             }
         }
+        newProjectOutputExpressions.addAll(groupBySlots);
         return new LogicalProject(newProjectOutputExpressions.build(), newAggregate);
     }
 
