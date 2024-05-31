@@ -32,36 +32,25 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.thrift.TExprOpcode;
 
-import com.aliyun.datalake.metastore.common.DataLakeConfig;
-import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
-import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
-import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
-import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
-import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
-import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
 import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
@@ -76,7 +65,6 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import shade.doris.hive.org.apache.thrift.TException;
 
 import java.security.PrivilegedExceptionAction;
 import java.time.LocalDateTime;
@@ -146,65 +134,6 @@ public class HiveMetaStoreClientHelper {
             }
             return formatDesc;
         }
-    }
-
-    private static IMetaStoreClient getClient(String metaStoreUris) throws DdlException {
-        HiveConf hiveConf = new HiveConf();
-        hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, metaStoreUris);
-        hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
-                String.valueOf(Config.hive_metastore_client_timeout_second));
-        IMetaStoreClient metaStoreClient = null;
-        String type = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
-        try {
-            if ("dlf".equalsIgnoreCase(type)) {
-                // For aliyun DLF
-                hiveConf.set(DataLakeConfig.CATALOG_CREATE_DEFAULT_DB, "false");
-                metaStoreClient = new ProxyMetaStoreClient(hiveConf);
-            } else {
-                metaStoreClient = new HiveMetaStoreClient(hiveConf);
-            }
-        } catch (MetaException e) {
-            LOG.warn("Create HiveMetaStoreClient failed: {}", e.getMessage());
-            throw new DdlException("Create HiveMetaStoreClient failed: " + e.getMessage());
-        }
-        return metaStoreClient;
-    }
-
-    public static Table getTable(HiveTable hiveTable) throws DdlException {
-        IMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS));
-        Table table;
-        try {
-            table = client.getTable(hiveTable.getHiveDb(), hiveTable.getHiveTable());
-        } catch (TException e) {
-            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
-        }
-        return table;
-    }
-
-    /**
-     * Get hive table with dbName and tableName.
-     * Only for Hudi.
-     *
-     * @param dbName database name
-     * @param tableName table name
-     * @param metaStoreUris hive metastore uris
-     * @return HiveTable
-     * @throws DdlException when get table from hive metastore failed.
-     */
-    @Deprecated
-    public static Table getTable(String dbName, String tableName, String metaStoreUris) throws DdlException {
-        IMetaStoreClient client = getClient(metaStoreUris);
-        Table table;
-        try {
-            table = client.getTable(dbName, tableName);
-        } catch (TException e) {
-            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
-        } finally {
-            client.close();
-        }
-        return table;
     }
 
     /**
