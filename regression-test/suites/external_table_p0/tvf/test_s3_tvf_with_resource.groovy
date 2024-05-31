@@ -101,7 +101,7 @@ suite("test_s3_tvf_with_resource", "p0") {
         order_qt_select_1 """ SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.orc",
                             "format" = "orc",
-                            "use_path_style" = "true",
+                            "use_path_style" = "false", -- aliyun does not support path_style
                             "resource" = "${resource_name}"
                         );
                         """
@@ -125,7 +125,7 @@ suite("test_s3_tvf_with_resource", "p0") {
         order_qt_select_3 """ SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.orc",
                             "format" = "orc",
-                            "use_path_style" = "true",
+                            "use_path_style" = "false", -- aliyun does not support path_style
                             "resource" = "${resource_name}"
                         );
                         """
