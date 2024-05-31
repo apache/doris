@@ -139,6 +139,7 @@ import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -1809,11 +1810,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         long version = olapTable.getNextVersion();
         long versionTime = System.currentTimeMillis();
         olapTable.updateVisibleVersionAndTime(version, versionTime);
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of deleting the partition
+        try {
+            Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new DropPartitionEvent(db.getCatalog().getId(), db.getId(),
+                            olapTable.getId()));
+        } catch (Throwable t) {
+            // According to normal logic, no exceptions will be thrown,
+            // but in order to avoid bugs affecting the original logic, all exceptions are caught
+            LOG.warn("produceEvent failed: ", t);
+        }
         // log
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition,
                 clause.isForceDrop(), recycleTime, version, versionTime);
         Env.getCurrentEnv().getEditLog().logDropPartition(info);
-
         LOG.info("succeed in dropping partition[{}], table : [{}-{}], is temp : {}, is force : {}",
                 partitionName, olapTable.getId(), olapTable.getName(), isTempPartition, clause.isForceDrop());
     }
