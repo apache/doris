@@ -17,24 +17,12 @@
 
 package org.apache.doris.jdbc;
 
-import java.util.Map;
+public class JdbcExecutorException extends Exception {
+    public JdbcExecutorException(String msg, Throwable cause) {
+        super(msg, cause);
+    }
 
-public interface JdbcExecutor {
-    int read() throws JdbcExecutorException;
-
-    int write(Map<String, String> params) throws JdbcExecutorException;
-
-    long getBlockAddress(int batchSize, Map<String, String> outputParams) throws JdbcExecutorException;
-
-    void close() throws JdbcExecutorException, Exception;
-
-    void openTrans() throws JdbcExecutorException;
-
-    void commitTrans() throws JdbcExecutorException;
-
-    void rollbackTrans() throws JdbcExecutorException;
-
-    int getCurBlockRows();
-
-    boolean hasNext() throws JdbcExecutorException;
+    public JdbcExecutorException(String msg) {
+        super(msg);
+    }
 }
