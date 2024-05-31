@@ -54,7 +54,8 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
 }
 
 std::string FileScanLocalState::name_suffix() const {
-    return fmt::format(" (id={}. table name = {})", std::to_string(_parent->node_id()),
+    return fmt::format(" (id={}. nereids_id={}. table name = {})",
+                       std::to_string(_parent->node_id()), std::to_string(_parent->nereids_id()),
                        _parent->cast<FileScanOperatorX>()._table_name);
 }
 
