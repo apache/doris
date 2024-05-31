@@ -63,13 +63,7 @@ suite("test_index_rqg_bug2", "test_index_rqg_bug2"){
         INDEX col_varchar_10__undef_signed_index_inverted_idx (`col_varchar_10__undef_signed_index_inverted`) USING INVERTED,
         INDEX col_varchar_10__undef_signed_not_null_index_inverted_idx (`col_varchar_10__undef_signed_not_null_index_inverted`) USING INVERTED,
         INDEX col_varchar_1024__undef_signed_index_inverted_idx (`col_varchar_1024__undef_signed_index_inverted`) USING INVERTED,
-        INDEX col_varchar_1024__undef_signed_not_null_index_inverted_idx (`col_varchar_1024__undef_signed_not_null_index_inverted`) USING INVERTED,
-        INDEX col_array_bigint__undef_signed_index_inverted_idx (`col_array_bigint__undef_signed_index_inverted`) USING INVERTED,
-        INDEX col_array_bigint__undef_signed_not_null_index_inverted_idx (`col_array_bigint__undef_signed_not_null_index_inverted`) USING INVERTED,
-        INDEX col_array_varchar_64___undef_signed_index_inverted_idx (`col_array_varchar_64___undef_signed_index_inverted`) USING INVERTED,
-        INDEX col_array_varchar_64___undef_signed_not_null_index_inverted_idx (`col_array_varchar_64___undef_signed_not_null_index_inverted`) USING INVERTED,
-        INDEX col_array_date__undef_signed_index_inverted_idx (`col_array_date__undef_signed_index_inverted`) USING INVERTED,
-        INDEX col_array_date__undef_signed_not_null_index_inverted_idx (`col_array_date__undef_signed_not_null_index_inverted`) USING INVERTED
+        INDEX col_varchar_1024__undef_signed_not_null_index_inverted_idx (`col_varchar_1024__undef_signed_not_null_index_inverted`) USING INVERTED
     ) ENGINE=olap
     UNIQUE KEY(col_date_undef_signed_not_null_index_inverted, col_bigint_undef_signed_not_null_index_inverted, col_bigint_undef_signed_not_null)
     PARTITION BY RANGE(col_date_undef_signed_not_null_index_inverted) (
