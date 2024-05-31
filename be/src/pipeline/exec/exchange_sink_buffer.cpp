@@ -83,9 +83,11 @@ std::shared_ptr<BroadcastPBlockHolder> BroadcastPBlockHolderQueue::pop() {
 
 namespace pipeline {
 
+<<<<<<< HEAD
 template <typename Parent>
 ExchangeSinkBuffer<Parent>::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
-                                               int send_id, int be_number, RuntimeState* state)
+                                               int send_id, int be_number, RuntimeState* state,
+                                               ExchangeSinkLocalState* parent)
         : HasTaskExecutionCtx(state),
           _queue_capacity(0),
           _is_finishing(false),
@@ -94,10 +96,8 @@ ExchangeSinkBuffer<Parent>::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId de
           _sender_id(send_id),
           _be_number(be_number),
           _state(state),
-          _context(state->get_query_ctx()) {}
-
-template <typename Parent>
-ExchangeSinkBuffer<Parent>::~ExchangeSinkBuffer() = default;
+          _context(state->get_query_ctx()),
+          _parent(parent) {}
 
 template <typename Parent>
 void ExchangeSinkBuffer<Parent>::close() {
@@ -251,8 +251,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
             broadcast_q = _instance_to_broadcast_package_queue[id];
 
     if (_is_finishing) {
-        _rpc_channel_is_idle[id] = true;
-        _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
+        _turn_off_channel(id);
         return Status::OK();
     }
 
@@ -410,8 +409,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         }
         broadcast_q.pop();
     } else {
-        _rpc_channel_is_idle[id] = true;
-        _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
+        _turn_off_channel(id);
     }
 
     return Status::OK();
@@ -443,10 +441,7 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
         __builtin_unreachable();
     } else {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
-        if (!_rpc_channel_is_idle[id]) {
-            _rpc_channel_is_idle[id] = true;
-            _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
-        }
+        _turn_off_channel(id);
     }
 }
 
@@ -454,17 +449,19 @@ template <typename Parent>
 void ExchangeSinkBuffer<Parent>::_failed(InstanceLoId id, const std::string& err) {
     _is_finishing = true;
     _context->cancel(err, Status::Cancelled(err));
-    _ended(id);
+    if constexpr (std::is_same_v<ExchangeSinkLocalState, Parent>) {
+        std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+        _turn_off_channel(id, true);
+    } else {
+        _ended(id);
+    }
 }
 
 template <typename Parent>
 void ExchangeSinkBuffer<Parent>::_set_receiver_eof(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     _instance_to_receiver_eof[id] = true;
-    if (!_rpc_channel_is_idle[id]) {
-        _rpc_channel_is_idle[id] = true;
-        _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
-    }
+    _turn_off_channel(id, std::is_same_v<ExchangeSinkLocalState, Parent> ? true : false);
     std::queue<BroadcastTransmitInfo<Parent>, std::list<BroadcastTransmitInfo<Parent>>> empty;
     swap(empty, _instance_to_broadcast_package_queue[id]);
 }
@@ -473,6 +470,22 @@ template <typename Parent>
 bool ExchangeSinkBuffer<Parent>::_is_receiver_eof(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     return _instance_to_receiver_eof[id];
+}
+
+template <typename Parent>
+void ExchangeSinkBuffer::_turn_off_channel(InstanceLoId id, bool cleanup) {
+    if (!_rpc_channel_is_idle[id]) {
+        _rpc_channel_is_idle[id] = true;
+        auto all_done = _busy_channels.fetch_sub(1) == 1;
+        _set_ready_to_finish(all_done);
+        if (cleanup && all_done) {
+            auto weak_task_ctx = weak_task_exec_ctx();
+            if (auto pip_ctx = weak_task_ctx.lock()) {
+                DCHECK(_parent);
+                _parent->set_reach_limit();
+            }
+        }
+    }
 }
 
 template <typename Parent>

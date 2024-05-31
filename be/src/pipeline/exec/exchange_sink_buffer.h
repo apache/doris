@@ -47,6 +47,7 @@ using InstanceLoId = int64_t;
 
 namespace pipeline {
 class Dependency;
+class ExchangeSinkLocalState;
 } // namespace pipeline
 
 namespace vectorized {
@@ -199,8 +200,8 @@ template <typename Parent>
 class ExchangeSinkBuffer : public HasTaskExecutionCtx {
 public:
     ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
-                       RuntimeState* state);
-    ~ExchangeSinkBuffer();
+                       RuntimeState* state, ExchangeSinkLocalState* parent);
+    ~ExchangeSinkBuffer() = default;
     void register_sink(TUniqueId);
 
     Status add_block(TransmitInfo<Parent>&& request);
@@ -271,6 +272,7 @@ private:
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
     inline bool _is_receiver_eof(InstanceLoId id);
+    inline void _turn_off_channel(InstanceLoId id, bool cleanup = false);
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
 
@@ -278,7 +280,8 @@ private:
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
     std::shared_ptr<Dependency> _finish_dependency = nullptr;
     std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
-    std::atomic<bool> _should_stop {false};
+    std::atomic<bool> _should_stop = false;
+    ExchangeSinkLocalState* _parent = nullptr;
 };
 
 } // namespace pipeline

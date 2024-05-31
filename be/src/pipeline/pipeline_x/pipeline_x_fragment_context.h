@@ -70,6 +70,13 @@ public:
 
     ~PipelineXFragmentContext() override;
 
+    void clear_finished_tasks() override {
+        for (size_t j = 0; j < _tasks.size(); j++) {
+            for (size_t i = 0; i < _tasks[j].size(); i++) {
+                _tasks[j][i]->stop_if_finished();
+            }
+        }
+    };
     void instance_ids(std::vector<TUniqueId>& ins_ids) const override {
         ins_ids.resize(_fragment_instance_ids.size());
         for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {

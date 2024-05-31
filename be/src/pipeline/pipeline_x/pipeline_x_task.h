@@ -157,6 +157,12 @@ public:
         return false;
     }
 
+    void stop_if_finished() {
+        if (_sink->is_finished(_state)) {
+            clear_blocking_state();
+        }
+    }
+
     static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
 
 private:

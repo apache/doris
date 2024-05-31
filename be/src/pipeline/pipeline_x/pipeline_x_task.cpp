@@ -247,7 +247,10 @@ Status PipelineXTask::execute(bool* eos) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
-    *eos = false;
+    *eos = _sink->is_finished(_state);
+    if (*eos) {
+        return Status::OK();
+    }
     if (has_dependency()) {
         set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
         return Status::OK();
@@ -310,7 +313,9 @@ Status PipelineXTask::execute(bool* eos) {
             return status;
         });
         // Pull block from operator chain
-        if (!_dry_run) {
+        if (_dry_run || _sink->is_finished(_state)) {
+            *eos = true;
+        } else {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
             try {
@@ -319,8 +324,6 @@ Status PipelineXTask::execute(bool* eos) {
                 return Status::InternalError(e.to_string() +
                                              " task debug string: " + debug_string());
             }
-        } else {
-            *eos = true;
         }
 
         if (_block->rows() != 0 || *eos) {
