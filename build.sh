@@ -30,9 +30,6 @@ set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export DORIS_HOME="${ROOT}"
-if [[ -z "${DORIS_THIRDPARTY}" ]]; then
-    export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
-fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 
@@ -359,8 +356,7 @@ if [[ -z "${USE_MEM_TRACKER}" ]]; then
         USE_MEM_TRACKER='OFF'
     fi
 fi
-BUILD_TYPE_LOWWER=$(echo "${BUILD_TYPE}" | tr '[:upper:]' '[:lower:]')
-if [[ "${BUILD_TYPE_LOWWER}" == "asan" ]]; then
+if [[ "${BUILD_TYPE,,}" == "asan" ]]; then
     USE_JEMALLOC='OFF'
 elif [[ -z "${USE_JEMALLOC}" ]]; then
     USE_JEMALLOC='ON'
