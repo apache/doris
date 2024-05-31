@@ -82,7 +82,8 @@ public abstract class MaterializationContext {
     protected boolean success = false;
     // Mark enable record failure detail info or not, because record failure detail info is performance-depleting
     protected final boolean enableRecordFailureDetail;
-    // The materialization plan struct info
+    // The materialization plan struct info, construct struct info is expensive,
+    // this should be constructed once for all query for performance
     protected final StructInfo structInfo;
     // Group id set that are rewritten unsuccessfully by this materialization for reducing rewrite times
     protected final Set<GroupId> matchedFailGroups = new HashSet<>();
@@ -96,8 +97,8 @@ public abstract class MaterializationContext {
     /**
      * MaterializationContext, this contains necessary info for query rewriting by materialization
      */
-    public MaterializationContext(Plan plan, Plan originalPlan,
-            Plan scanPlan, CascadesContext cascadesContext) {
+    public MaterializationContext(Plan plan, Plan originalPlan, Plan scanPlan,
+            CascadesContext cascadesContext, StructInfo structInfo) {
         this.plan = plan;
         this.originalPlan = originalPlan;
         this.scanPlan = scanPlan;
@@ -115,24 +116,36 @@ public abstract class MaterializationContext {
                 this.planOutputShuttledExpressions,
                 this.scanPlan.getOutput());
         // Construct materialization struct info, catch exception which may cause planner roll back
+        if (structInfo == null) {
+            Optional<StructInfo> structInfoOptional = constructStructInfo(plan, cascadesContext, new BitSet());
+            if (!structInfoOptional.isPresent()) {
+                this.available = false;
+            }
+            this.structInfo = structInfoOptional.orElseGet(() -> null);
+        } else {
+            this.structInfo = structInfo;
+        }
+    }
+
+    /**
+     * Construct materialized view Struct info
+     */
+    public static Optional<StructInfo> constructStructInfo(Plan plan, CascadesContext cascadesContext,
+            BitSet expectedTableBitSet) {
         List<StructInfo> viewStructInfos;
         try {
-            viewStructInfos = MaterializedViewUtils.extractStructInfo(plan, cascadesContext, new BitSet());
+            viewStructInfos = MaterializedViewUtils.extractStructInfo(plan, cascadesContext, expectedTableBitSet);
             if (viewStructInfos.size() > 1) {
                 // view struct info should only have one, log error and use the first struct info
-                LOG.warn(String.format("view strut info is more than one, materialization scan plan is %s, "
-                                + "materialization plan is %s",
-                        scanPlan.treeString(), plan.treeString()));
+                LOG.warn(String.format("view strut info is more than one, materialization plan is %s",
+                        plan.treeString()));
             }
         } catch (Exception exception) {
-            LOG.warn(String.format("construct materialization struct info fail, materialization scan plan is %s, "
-                            + "materialization plan is %s",
-                    scanPlan.treeString(), plan.treeString()), exception);
-            this.available = false;
-            this.structInfo = null;
-            return;
+            LOG.warn(String.format("construct materialization struct info fail, materialization plan is %s",
+                    plan.treeString()), exception);
+            return Optional.empty();
         }
-        this.structInfo = viewStructInfos.get(0);
+        return Optional.of(viewStructInfos.get(0));
     }
 
     public boolean alreadyRewrite(GroupId groupId) {
