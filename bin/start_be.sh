@@ -31,12 +31,14 @@ OPTS="$(getopt \
     -o '' \
     -l 'daemon' \
     -l 'console' \
+    -l 'version' \
     -- "$@")"
 
 eval set -- "${OPTS}"
 
 RUN_DAEMON=0
 RUN_CONSOLE=0
+RUN_VERSION=0
 while true; do
     case "$1" in
     --daemon)
@@ -45,6 +47,10 @@ while true; do
         ;;
     --console)
         RUN_CONSOLE=1
+        shift
+        ;;
+    --version)
+        RUN_VERSION=1
         shift
         ;;
     --)
@@ -63,6 +69,78 @@ DORIS_HOME="$(
     pwd
 )"
 export DORIS_HOME
+
+# export env variables from be.conf
+#
+# LOG_DIR
+# PID_DIR
+export LOG_DIR="${DORIS_HOME}/log"
+PID_DIR="$(
+    cd "${curdir}"
+    pwd
+)"
+export PID_DIR
+
+jdk_version() {
+    local java_cmd="${1}"
+    local result
+    local IFS=$'\n'
+
+    if ! command -v "${java_cmd}" >/dev/null; then
+        echo "ERROR: invalid java_cmd ${java_cmd}" >>"${LOG_DIR}/be.out"
+        result=no_java
+        return 1
+    else
+        echo "INFO: java_cmd ${java_cmd}" >>"${LOG_DIR}/be.out"
+        local version
+        # remove \r for Cygwin
+        version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
+        version="${version//\"/}"
+        if [[ "${version}" =~ ^1\. ]]; then
+            result="$(echo "${version}" | awk -F '.' '{print $2}')"
+        else
+            result="$(echo "${version}" | awk -F '.' '{print $1}')"
+        fi
+        echo "INFO: jdk_version ${result}" >>"${LOG_DIR}/be.out"
+    fi
+    echo "${result}"
+    return 0
+}
+
+setup_java_env() {
+    local java_version
+
+    if [[ -z "${JAVA_HOME}" ]]; then
+        return 1
+    fi
+
+    local jvm_arch='amd64'
+    if [[ "$(uname -m)" == 'aarch64' ]]; then
+        jvm_arch='aarch64'
+    fi
+    java_version="$(
+        set -e
+        jdk_version "${JAVA_HOME}/bin/java"
+    )"
+    if [[ "${java_version}" -gt 8 ]]; then
+        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${LD_LIBRARY_PATH}"
+        # JAVA_HOME is jdk
+    elif [[ -d "${JAVA_HOME}/jre" ]]; then
+        export LD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}/server:${JAVA_HOME}/jre/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
+        # JAVA_HOME is jre
+    else
+        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
+    fi
+}
+
+# prepare jvm if needed
+setup_java_env || true
+
+if [[ "${RUN_VERSION}" -eq 1 ]]; then
+    chmod 755 "${DORIS_HOME}/lib/doris_be"
+    "${DORIS_HOME}"/lib/doris_be --version
+    exit 1
+fi
 
 if [[ "$(uname -s)" != 'Darwin' ]]; then
     MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
@@ -143,43 +221,6 @@ export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 #echo ${DORIS_CLASSPATH}
 
 export LD_LIBRARY_PATH="${DORIS_HOME}/lib/hadoop_hdfs/native:${LD_LIBRARY_PATH}"
-
-jdk_version() {
-    local java_cmd="${1}"
-    local result
-    local IFS=$'\n'
-
-    if ! command -v "${java_cmd}" >/dev/null; then
-        echo "ERROR: invalid java_cmd ${java_cmd}" >>"${LOG_DIR}/be.out"
-        result=no_java
-        return 1
-    else
-        echo "INFO: java_cmd ${java_cmd}" >>"${LOG_DIR}/be.out"
-        local version
-        # remove \r for Cygwin
-        version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
-        version="${version//\"/}"
-        if [[ "${version}" =~ ^1\. ]]; then
-            result="$(echo "${version}" | awk -F '.' '{print $2}')"
-        else
-            result="$(echo "${version}" | awk -F '.' '{print $1}')"
-        fi
-        echo "INFO: jdk_version ${result}" >>"${LOG_DIR}/be.out"
-    fi
-    echo "${result}"
-    return 0
-}
-
-# export env variables from be.conf
-#
-# LOG_DIR
-# PID_DIR
-export LOG_DIR="${DORIS_HOME}/log"
-PID_DIR="$(
-    cd "${curdir}"
-    pwd
-)"
-export PID_DIR
 
 # set odbc conf path
 export ODBCSYSINI="${DORIS_HOME}/conf"

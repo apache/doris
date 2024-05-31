@@ -151,16 +151,18 @@ public:
     }
 
     Status reset() override {
-        auto block_size = _options.data_page_size;
-        _count = 0;
-        _data.clear();
-        _data.reserve(block_size);
-        DCHECK_EQ(reinterpret_cast<uintptr_t>(_data.data()) & (alignof(CppType) - 1), 0)
-                << "buffer must be naturally-aligned";
-        _buffer.clear();
-        _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE);
-        _finished = false;
-        _remain_element_capacity = block_size / SIZE_OF_TYPE;
+        RETURN_IF_CATCH_EXCEPTION({
+            auto block_size = _options.data_page_size;
+            _count = 0;
+            _data.clear();
+            _data.reserve(block_size);
+            DCHECK_EQ(reinterpret_cast<uintptr_t>(_data.data()) & (alignof(CppType) - 1), 0)
+                    << "buffer must be naturally-aligned";
+            _buffer.clear();
+            _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE);
+            _finished = false;
+            _remain_element_capacity = block_size / SIZE_OF_TYPE;
+        });
         return Status::OK();
     }
 

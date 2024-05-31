@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_show_partition_stats") {
+suite("test_partition_stats") {
 
     def wait_row_count_reported = { db, table, row, column, expected ->
         def result = sql """show frontends;"""
@@ -48,9 +48,9 @@ suite("test_show_partition_stats") {
 
     }
 
-    sql """drop database if exists test_show_partition_stats"""
-    sql """create database test_show_partition_stats"""
-    sql """use test_show_partition_stats"""
+    sql """drop database if exists test_partition_stats"""
+    sql """create database test_partition_stats"""
+    sql """use test_partition_stats"""
     def enable = sql """show variables like "%enable_partition_analyze%" """
     if (enable[0][1].equalsIgnoreCase("false")) {
         logger.info("partition analyze disabled. " + enable)
@@ -117,6 +117,69 @@ suite("test_show_partition_stats") {
     assertEquals(9, result.size())
     result = sql """show column cached stats part partition(*)"""
     assertEquals(27, result.size())
-    sql """drop database if exists test_show_partition_stats"""
+
+    sql """CREATE TABLE `part1` (
+        `id` INT NULL,
+        `colint` INT NULL,
+        `coltinyint` tinyint NULL,
+        `colsmallint` smallINT NULL,
+        `colbigint` bigINT NULL,
+        `collargeint` largeINT NULL,
+        `colfloat` float NULL,
+        `coldouble` double NULL,
+        `coldecimal` decimal(27, 9) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT 'OLAP'
+    PARTITION BY RANGE(`id`)
+    (
+        PARTITION p1 VALUES [("-2147483648"), ("10000")),
+        PARTITION p2 VALUES [("10000"), ("20000")),
+        PARTITION p3 VALUES [("20000"), ("30000"))
+    )
+    DISTRIBUTED BY HASH(`id`) BUCKETS 3
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    )   
+    """
+    sql """Insert into part1 values (1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1), (2, 2, 2, 2, 2, 2, 2.2, 2.2, 2.2), (3, 3, 3, 3, 3, 3, 3.3, 3.3, 3.3),(4, 4, 4, 4, 4, 4, 4.4, 4.4, 4.4),(5, 5, 5, 5, 5, 5, 5.5, 5.5, 5.5),(6, 6, 6, 6, 6, 6, 6.6, 6.6, 6.6),(10001, 10001, 10001, 10001, 10001, 10001, 10001.10001, 10001.10001, 10001.10001),(10002, 10002, 10002, 10002, 10002, 10002, 10002.10002, 10002.10002, 10002.10002),(10003, 10003, 10003, 10003, 10003, 10003, 10003.10003, 10003.10003, 10003.10003),(10004, 10004, 10004, 10004, 10004, 10004, 10004.10004, 10004.10004, 10004.10004),(10005, 10005, 10005, 10005, 10005, 10005, 10005.10005, 10005.10005, 10005.10005),(10006, 10006, 10006, 10006, 10006, 10006, 10006.10006, 10006.10006, 10006.10006),(20001, 20001, 20001, 20001, 20001, 20001, 20001.20001, 20001.20001, 20001.20001),(20002, 20002, 20002, 20002, 20002, 20002, 20002.20002, 20002.20002, 20002.20002),(20003, 20003, 20003, 20003, 20003, 20003, 20003.20003, 20003.20003, 20003.20003),(20004, 20004, 20004, 20004, 20004, 20004, 20004.20004, 20004.20004, 20004.20004),(20005, 20005, 20005, 20005, 20005, 20005, 20005.20005, 20005.20005, 20005.20005),(20006, 20006, 20006, 20006, 20006, 20006, 20006.20006, 20006.20006, 20006.20006)"""
+    sql """analyze table part1 with sync;"""
+
+    def dbId
+    def tblIdPart
+    def tblIdPart1
+    result = sql """show catalogs"""
+
+    result = sql """show proc '/catalogs/0'"""
+    for (int i = 0; i < result.size(); i++) {
+        if (result[i][1] == 'test_partition_stats') {
+            dbId = result[i][0]
+        }
+    }
+    result = sql """show proc '/catalogs/0/$dbId'"""
+    for (int i = 0; i < result.size(); i++) {
+        if (result[i][1] == 'part') {
+            tblIdPart = result[i][0]
+        }
+        if (result[i][1] == 'part1') {
+            tblIdPart1 = result[i][0]
+        }
+    }
+
+    result = sql """select * from internal.__internal_schema.partition_statistics where tbl_id = ${tblIdPart}"""
+    assertEquals(27, result.size())
+    result = sql """select * from internal.__internal_schema.partition_statistics where tbl_id = ${tblIdPart1}"""
+    assertEquals(27, result.size())
+    sql """drop table part"""
+    sql """drop expired stats"""
+    result = sql """select * from internal.__internal_schema.partition_statistics where tbl_id = ${tblIdPart}"""
+    assertEquals(0, result.size())
+    result = sql """select * from internal.__internal_schema.partition_statistics where tbl_id = ${tblIdPart1}"""
+    assertEquals(27, result.size())
+    sql """drop database test_partition_stats"""
+    sql """drop expired stats"""
+    result = sql """select * from internal.__internal_schema.partition_statistics where tbl_id = ${tblIdPart1}"""
+    assertEquals(0, result.size())
+
 }
 

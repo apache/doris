@@ -33,7 +33,6 @@ class ScannerDelegate;
 }
 
 namespace doris::pipeline {
-class PipScannerContext;
 
 class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
 public:

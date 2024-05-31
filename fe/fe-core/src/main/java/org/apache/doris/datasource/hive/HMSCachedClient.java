@@ -110,4 +110,9 @@ public interface HMSCachedClient {
     void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions);
 
     void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData);
+
+    /**
+     * close the connection, eg, to hms
+     */
+    void close();
 }

@@ -1283,6 +1283,7 @@ DEFINE_Int64(max_nonblock_close_thread_num, "64");
 DEFINE_mDouble(mem_alloc_fault_probability, "0.0");
 // The time out milliseconds for remote fetch schema RPC, default 60s
 DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
+DEFINE_Int64(s3_file_system_local_upload_buffer_size, "5242880");
 
 // clang-format off
 #ifdef BE_TEST

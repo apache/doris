@@ -22,7 +22,7 @@ suite("test_issue_27409") {
             `identity_type_desc` varchar(25) NULL,
             `system_type` varchar(25) NULL,
             `statistic_data` int(11) NULL,
-            `one_id` bitmap BITMAP_UNION NULL,
+            `one_id` bitmap BITMAP_UNION ,
             INDEX index_identity_type_desc (`identity_type_desc`) USING BITMAP COMMENT 'identity_type_desc',
             INDEX index_system_type (`system_type`) USING BITMAP COMMENT 'system_type',
             INDEX index_statistic_data (`statistic_data`) USING BITMAP COMMENT 'statistic_data'
