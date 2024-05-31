@@ -3373,7 +3373,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
         tResult.setInvertedIndexMaxExpansions(invertedIndexMaxExpansions);
 
-        tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
+        tResult.setEnableDecimal256(getEnableDecimal256());
 
         tResult.setSkipMissingVersion(skipMissingVersion);
 
@@ -3769,7 +3769,7 @@ public class SessionVariable implements Serializable, Writable {
             return false;
         }
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        return sessionVariable.isEnableNereidsPlanner() && sessionVariable.isEnableDecimal256();
+        return connectContext.getState().isNereids() && sessionVariable.isEnableDecimal256();
     }
 
     public boolean isEnableDecimal256() {
