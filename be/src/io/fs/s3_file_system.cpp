@@ -301,6 +301,11 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
     // clang-format off
     auto resp = client->list_objects( {.bucket = _bucket, .prefix = prefix,}, files);
     // clang-format on
+    if (resp.code == ErrorCode::OK) {
+        for (auto&& file : *files) {
+            file.file_name.erase(0, prefix.size());
+        }
+    }
 
     return {resp.code, std::move(resp.err_msg)};
 }

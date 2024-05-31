@@ -212,9 +212,17 @@ int S3Accessor::put_object(const std::string& relative_path, const std::string& 
 
 int S3Accessor::list(const std::string& relative_path, std::vector<ObjectMeta>* files) {
     return s3_get_rate_limit([&]() {
-        return obj_client_
-                ->list_objects({.bucket = conf_.bucket, .prefix = get_key(relative_path)}, files)
-                .ret;
+        auto resp = obj_client_->list_objects(
+                {.bucket = conf_.bucket, .prefix = get_key(relative_path)}, files);
+
+        if (resp.ret == 0) {
+            auto pos = conf_.prefix.size() + 1;
+            for (auto&& file : *files) {
+                file.path = file.path.substr(pos);
+            }
+        }
+
+        return resp.ret;
     });
 }
 

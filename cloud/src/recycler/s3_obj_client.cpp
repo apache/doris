@@ -113,8 +113,7 @@ ObjectStorageResponse S3ObjClient::list_objects(const ObjectStoragePathOptions& 
         const auto& result = outcome.GetResult();
         VLOG_DEBUG << "get " << result.GetContents().size() << " objects";
         for (const auto& obj : result.GetContents()) {
-            files->push_back({obj.GetKey().substr(opts.prefix.size() + 1), obj.GetSize(),
-                              obj.GetLastModified().Seconds()});
+            files->push_back({obj.GetKey(), obj.GetSize(), obj.GetLastModified().Seconds()});
         }
         is_truncated = result.GetIsTruncated();
         request.SetContinuationToken(result.GetNextContinuationToken());

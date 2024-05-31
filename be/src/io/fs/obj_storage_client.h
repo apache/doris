@@ -100,6 +100,7 @@ public:
                                              size_t offset, size_t bytes_read,
                                              size_t* size_return) = 0;
     // According to the passed bucket and prefix, it traverses and retrieves all files under the prefix, and returns the name and file size of all files.
+    // **Notice**: The files returned by this function contains the full key in object storage.
     virtual ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
                                                std::vector<FileInfo>* files) = 0;
     // According to the bucket and prefix specified by the user, it performs batch deletion based on the object names in the object array.

@@ -105,6 +105,7 @@ public:
     // If it exists, it will return the corresponding file size
     virtual ObjectStorageResponse head_object(const ObjectStoragePathOptions& opts) = 0;
     // According to the passed bucket and prefix, it traverses and retrieves all files under the prefix, and returns the name and file size of all files.
+    // **Attention**: The ObjectMeta contains the full key in object storage
     virtual ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
                                                std::vector<ObjectMeta>* files) = 0;
     // According to the bucket and prefix specified by the user, it performs batch deletion based on the object names in the object array.
