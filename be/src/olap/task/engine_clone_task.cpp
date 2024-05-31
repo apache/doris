@@ -178,6 +178,20 @@ Status EngineCloneTask::_do_clone() {
     // Check local tablet exist or not
     TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(_clone_req.tablet_id);
 
+    TSchemaHash schema_hash = tablet->schema_hash();
+    size_t path_hash = tablet->data_dir()->path_hash();
+
+    auto [it, can_do]= _engine.tablet_manager()->register_transition_tablet(_clone_req.tablet_id, schema_hash, path_hash, "clone");
+    if (!can_do) {
+        LOG(INFO) << "other op " << it->second << " effect this tablet_id = " << _clone_req.tablet_id << " schema_hash=" << schema_hash << " pash_hash=" << path_hash;
+        return Status::InternalError<false>("clone tablet failed try later, tablet_id={}, schema_hash={}, path_hash={}", _clone_req.tablet_id , schema_hash, path_hash);
+    }
+    LOG(INFO) << "add tablet_id= " << _clone_req.tablet_id << " schema_hash=" << schema_hash << " path_hash=" << path_hash << " clone tablet to map";
+    Defer defer {[&]() {
+        LOG(INFO) << "erase tablet_id= " << _clone_req.tablet_id << " schema_hash=" << schema_hash << " path_hash=" << path_hash << " clone tablet from map";
+        _engine.tablet_manager()->unregister_transition_tablet(_clone_req.tablet_id, schema_hash, path_hash);
+    }};
+
     // The status of a tablet is not ready, indicating that it is a residual tablet after a schema
     // change failure. Clone a new tablet from remote be to overwrite it. This situation basically only
     // occurs when the be_rebalancer_fuzzy_test configuration is enabled.
@@ -263,9 +277,6 @@ Status EngineCloneTask::_do_clone() {
                                                   &store, _clone_req.partition_id));
         auto tablet_dir = fmt::format("{}/{}/{}", local_shard_root_path, _clone_req.tablet_id,
                                       _clone_req.schema_hash);
-        auto tablet_manager = _engine.tablet_manager();
-        RETURN_IF_ERROR(tablet_manager->try_move_to_trash(_clone_req.tablet_id,
-                                                          _clone_req.schema_hash, tablet_dir));
 
         Defer remove_useless_dir {[&] {
             if (status.ok()) {
@@ -284,6 +295,7 @@ Status EngineCloneTask::_do_clone() {
 
         LOG(INFO) << "clone copy done. src_host: " << src_host.host
                   << " src_file_path: " << src_file_path;
+        auto tablet_manager = _engine.tablet_manager();
         RETURN_IF_ERROR_(status, tablet_manager->load_tablet_from_dir(store, _clone_req.tablet_id,
                                                                       _clone_req.schema_hash,
                                                                       tablet_dir, false));

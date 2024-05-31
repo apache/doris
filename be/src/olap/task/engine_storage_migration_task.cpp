@@ -200,6 +200,21 @@ Status EngineStorageMigrationTask::_migrate() {
     int64_t tablet_id = _tablet->tablet_id();
     LOG(INFO) << "begin to process tablet migrate. "
               << "tablet_id=" << tablet_id << ", dest_store=" << _dest_store->path();
+    
+    TSchemaHash schema_hash = _tablet->schema_hash();
+    size_t path_hash = _tablet->data_dir()->path_hash();
+
+    auto [it, can_do] = _engine.tablet_manager()->register_transition_tablet(_tablet->tablet_id(), schema_hash, path_hash, "disk migrate");
+    if (!can_do) {
+        LOG(INFO) << "other op " << it->second << " effect this tablet_id = " << tablet_id << " schema_hash=" << schema_hash << " pash_hash=" << path_hash;
+        return Status::InternalError<false>("disk migrate tablet failed try later, tablet_id={}, schema_hash={}, path_hash={}", tablet_id, schema_hash, path_hash);
+    }
+    LOG(INFO) << "add tablet_id= " << tablet_id << " schema_hash=" << schema_hash << " path_hash=" << path_hash << " disk migrate tablet to map";
+    Defer defer {[&]() {
+        LOG(INFO) << "erase tablet_id= " << tablet_id << " schema_hash=" << schema_hash << " path_hash=" << path_hash << " disk migrate tablet from map";
+        _engine.tablet_manager()->unregister_transition_tablet(_tablet->tablet_id(), schema_hash, path_hash);
+    }};
+
 
     DorisMetrics::instance()->storage_migrate_requests_total->increment(1);
     int32_t start_version = 0;
