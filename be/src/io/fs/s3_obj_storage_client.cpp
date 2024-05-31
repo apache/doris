@@ -100,9 +100,10 @@ ObjectStorageUploadResponse S3ObjStorageClient::create_multipart_upload(
     }
 
     return ObjectStorageUploadResponse {
-            .resp = {s3fs_error(outcome.GetError(),
-                                fmt::format("failed to create multipart upload {} ",
-                                            opts.path.native())),
+            .resp = {convert_to_obj_response(
+                             s3fs_error(outcome.GetError(),
+                                        fmt::format("failed to create multipart upload {} ",
+                                                    opts.path.native()))),
                      static_cast<int>(outcome.GetError().GetResponseCode()),
                      outcome.GetError().GetRequestId()},
     };
@@ -126,7 +127,7 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
         auto st = s3fs_error(response.GetError(),
                              fmt::format("failed to put object {}", opts.path.native()));
         LOG(WARNING) << st;
-        return ObjectStorageResponse {std::move(st),
+        return ObjectStorageResponse {convert_to_obj_response(std::move(st)),
                                       static_cast<int>(response.GetError().GetResponseCode()),
                                       response.GetError().GetRequestId()};
     }
@@ -168,7 +169,7 @@ ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStorageP
                 upload_part_outcome.GetError().GetResponseCode());
         LOG_WARNING(s.to_string());
         return ObjectStorageUploadResponse {
-                .resp = {std::move(s),
+                .resp = {convert_to_obj_response(std::move(s)),
                          static_cast<int>(upload_part_outcome.GetError().GetResponseCode()),
                          upload_part_outcome.GetError().GetRequestId()}};
     }
@@ -199,7 +200,8 @@ ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
                              fmt::format("failed to complete multi part upload {}, upload_id={}",
                                          opts.path.native(), *opts.upload_id));
         LOG(WARNING) << st;
-        return {std::move(st), static_cast<int>(complete_outcome.GetError().GetResponseCode()),
+        return {convert_to_obj_response(std::move(st)),
+                static_cast<int>(complete_outcome.GetError().GetResponseCode()),
                 complete_outcome.GetError().GetRequestId()};
     }
     return {};
@@ -213,12 +215,14 @@ ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePat
     auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
             _client->HeadObject(request), "s3_file_system::head_object", std::ref(request).get());
     if (outcome.IsSuccess()) {
-        return {.resp = Status::OK(), .file_size = outcome.GetResult().GetContentLength()};
+        return {.resp = {convert_to_obj_response(Status::OK())},
+                .file_size = outcome.GetResult().GetContentLength()};
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-        return {.resp = Status::NotFound("")};
+        return {.resp = {convert_to_obj_response(Status::NotFound(""))}};
     } else {
-        return {.resp = {s3fs_error(outcome.GetError(),
-                                    fmt::format("failed to check exists {}", opts.key)),
+        return {.resp = {convert_to_obj_response(
+                                 s3fs_error(outcome.GetError(),
+                                            fmt::format("failed to check exists {}", opts.key))),
                          static_cast<int>(outcome.GetError().GetResponseCode()),
                          outcome.GetError().GetRequestId()}};
     }
@@ -236,15 +240,17 @@ ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOpti
     SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
     auto outcome = _client->GetObject(request);
     if (!outcome.IsSuccess()) {
-        return {s3fs_error(outcome.GetError(),
-                           fmt::format("failed to read from {}", opts.path.native())),
+        return {convert_to_obj_response(
+                        s3fs_error(outcome.GetError(),
+                                   fmt::format("failed to read from {}", opts.path.native()))),
                 static_cast<int>(outcome.GetError().GetResponseCode()),
                 outcome.GetError().GetRequestId()};
     }
     *size_return = outcome.GetResult().GetContentLength();
     if (*size_return != bytes_read) {
-        return {Status::InternalError("failed to read from {}(bytes read: {}, bytes req: {})",
-                                      opts.path.native(), *size_return, bytes_read)};
+        return {convert_to_obj_response(
+                Status::InternalError("failed to read from {}(bytes read: {}, bytes req: {})",
+                                      opts.path.native(), *size_return, bytes_read))};
     }
     return {};
 }
@@ -262,7 +268,8 @@ ObjectStorageResponse S3ObjStorageClient::list_objects(const ObjectStoragePathOp
         }
         if (!outcome.IsSuccess()) {
             files->clear();
-            return {s3fs_error(outcome.GetError(), fmt::format("failed to list {}", opts.prefix)),
+            return {convert_to_obj_response(s3fs_error(
+                            outcome.GetError(), fmt::format("failed to list {}", opts.prefix))),
                     static_cast<int>(outcome.GetError().GetResponseCode()),
                     outcome.GetError().GetRequestId()};
         }
@@ -297,15 +304,16 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects(const ObjectStoragePath
     SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_latency);
     auto delete_outcome = _client->DeleteObjects(delete_request);
     if (!delete_outcome.IsSuccess()) {
-        return {s3fs_error(delete_outcome.GetError(),
-                           fmt::format("failed to delete dir {}", opts.key)),
+        return {convert_to_obj_response(
+                        s3fs_error(delete_outcome.GetError(),
+                                   fmt::format("failed to delete dir {}", opts.key))),
                 static_cast<int>(delete_outcome.GetError().GetResponseCode()),
                 delete_outcome.GetError().GetRequestId()};
     }
     if (!delete_outcome.GetResult().GetErrors().empty()) {
         const auto& e = delete_outcome.GetResult().GetErrors().front();
-        return {Status::InternalError("failed to delete object {}: {}", e.GetKey(),
-                                      e.GetMessage())};
+        return {convert_to_obj_response(Status::InternalError("failed to delete object {}: {}",
+                                                              e.GetKey(), e.GetMessage()))};
     }
     return {};
 }
@@ -320,7 +328,8 @@ ObjectStorageResponse S3ObjStorageClient::delete_object(const ObjectStoragePathO
         outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return {};
     }
-    return {s3fs_error(outcome.GetError(), fmt::format("failed to delete file {}", opts.key)),
+    return {convert_to_obj_response(s3fs_error(outcome.GetError(),
+                                               fmt::format("failed to delete file {}", opts.key))),
             static_cast<int>(outcome.GetError().GetResponseCode()),
             outcome.GetError().GetRequestId()};
 }
@@ -339,9 +348,9 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
             outcome = _client->ListObjectsV2(request);
         }
         if (!outcome.IsSuccess()) {
-            return {s3fs_error(
+            return {convert_to_obj_response(s3fs_error(
                             outcome.GetError(),
-                            fmt::format("failed to list objects when delete dir {}", opts.prefix)),
+                            fmt::format("failed to list objects when delete dir {}", opts.prefix))),
                     static_cast<int>(outcome.GetError().GetResponseCode()),
                     outcome.GetError().GetRequestId()};
         }
@@ -358,15 +367,16 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
             SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_latency);
             auto delete_outcome = _client->DeleteObjects(delete_request);
             if (!delete_outcome.IsSuccess()) {
-                return {s3fs_error(delete_outcome.GetError(),
-                                   fmt::format("failed to delete dir {}", opts.key)),
+                return {convert_to_obj_response(
+                                s3fs_error(delete_outcome.GetError(),
+                                           fmt::format("failed to delete dir {}", opts.key))),
                         static_cast<int>(delete_outcome.GetError().GetResponseCode()),
                         delete_outcome.GetError().GetRequestId()};
             }
             if (!delete_outcome.GetResult().GetErrors().empty()) {
                 const auto& e = delete_outcome.GetResult().GetErrors().front();
-                return {Status::InternalError("failed to delete object {}: {}", opts.key,
-                                              e.GetMessage())};
+                return {convert_to_obj_response(Status::InternalError(
+                        "failed to delete object {}: {}", opts.key, e.GetMessage()))};
             }
         }
         is_trucated = result.GetIsTruncated();

@@ -46,19 +46,14 @@ struct ObjectStoragePathOptions {
 
 struct ObjectCompleteMultiParts {};
 
+struct ObjectStorageStatus {
+    int code = 0;
+    std::string msg = std::string();
+};
+
 // We only store error code along with err_msg instead of Status to unify BE and recycler's error handle logic
 struct ObjectStorageResponse {
-    ObjectStorageResponse(int code = 0, std::string msg = "")
-            : code(code), err_msg(std::move(msg)) {}
-    ObjectStorageResponse(std::pair<int, std::string> msg_pair)
-            : code(msg_pair.first), err_msg(std::move(msg_pair.second)) {}
-    ObjectStorageResponse(Status st, int http_code = 0, std::string request_id = "")
-            : ObjectStorageResponse(st.retrieve_error_msg()) {
-        this->http_code = http_code;
-        this->request_id = std::move(request_id);
-    }
-    int code {0};
-    std::string err_msg = std::string();
+    ObjectStorageStatus status {};
     int http_code {200};
     std::string request_id = std::string();
 };

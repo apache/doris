@@ -1040,7 +1040,8 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_3) {
     sp->set_call_back("S3FileWriter::_complete:3", [](auto&& outcome) {
         auto pair = try_any_cast_ret<io::ObjectStorageResponse>(outcome);
         pair->second = true;
-        pair->first = io::ObjectStorageResponse(Status::IOError("inject error"));
+        pair->first = io::ObjectStorageResponse {
+                .status = convert_to_obj_response(Status::IOError<false>("inject error"))};
     });
     Defer defer {[&]() { sp->clear_call_back("S3FileWriter::_complete:3"); }};
     auto client = s3_fs->client_holder();

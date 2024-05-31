@@ -131,8 +131,8 @@ Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
             .key = key,
     });
 
-    if (resp.resp.code != ErrorCode::OK) {
-        return ResultError(std::move(Status(resp.resp.code, std::move(resp.resp.err_msg))
+    if (resp.resp.status.code != ErrorCode::OK) {
+        return ResultError(std::move(Status(resp.resp.status.code, std::move(resp.resp.status.msg))
                                              .append(fmt::format("failed to head s3 file {}",
                                                                  full_s3_path(bucket, key)))));
     }
@@ -208,10 +208,10 @@ Status S3FileSystem::delete_file_impl(const Path& file) {
 
     auto resp = client->delete_object({.bucket = _bucket, .key = key});
 
-    if (resp.code == ErrorCode::OK || resp.code == ErrorCode::NOT_FOUND) {
+    if (resp.status.code == ErrorCode::OK || resp.status.code == ErrorCode::NOT_FOUND) {
         return Status::OK();
     }
-    return std::move(Status(resp.code, std::move(resp.err_msg))
+    return std::move(Status(resp.status.code, std::move(resp.status.msg))
                              .append(fmt::format("failed to delete file {}", full_s3_path(key))));
 }
 
@@ -229,7 +229,7 @@ Status S3FileSystem::delete_directory_impl(const Path& dir) {
             .bucket = _bucket,
             .prefix = prefix,
     });
-    return {resp.code, std::move(resp.err_msg)};
+    return {resp.status.code, std::move(resp.status.msg)};
 }
 
 Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
@@ -252,8 +252,8 @@ Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
             return Status::OK();
         }
         // clang-format off
-        if (auto resp = client->delete_objects( {.bucket = _bucket,}, std::move(objects)); resp.code != ErrorCode::OK) {
-            return {resp.code, std::move(resp.err_msg)};
+        if (auto resp = client->delete_objects( {.bucket = _bucket,}, std::move(objects)); resp.status.code != ErrorCode::OK) {
+            return {resp.status.code, std::move(resp.status.msg)};
         }
         // clang-format on
     } while (path_iter != remote_files.end());
@@ -268,14 +268,14 @@ Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
 
     auto resp = client->head_object({.bucket = _bucket, .key = key});
 
-    if (resp.resp.code == ErrorCode::OK) {
+    if (resp.resp.status.code == ErrorCode::OK) {
         *res = true;
-    } else if (resp.resp.code == ErrorCode::NOT_FOUND) {
+    } else if (resp.resp.status.code == ErrorCode::NOT_FOUND) {
         *res = false;
     } else {
         return std::move(
-                Status(resp.resp.code, std::move(resp.resp.err_msg))
-                        .append(fmt::format("failed to check exists {}", full_s3_path(key))));
+                Status(resp.resp.status.code, std::move(resp.resp.status.msg))
+                        .append(fmt::format(" failed to check exists {}", full_s3_path(key))));
     }
     return Status::OK();
 }
@@ -301,13 +301,13 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
     // clang-format off
     auto resp = client->list_objects( {.bucket = _bucket, .prefix = prefix,}, files);
     // clang-format on
-    if (resp.code == ErrorCode::OK) {
+    if (resp.status.code == ErrorCode::OK) {
         for (auto&& file : *files) {
             file.file_name.erase(0, prefix.size());
         }
     }
 
-    return {resp.code, std::move(resp.err_msg)};
+    return {resp.status.code, std::move(resp.status.msg)};
 }
 
 Status S3FileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
@@ -407,8 +407,8 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
     auto resp = client->get_object( {.bucket = _bucket, .key = key,},
             buf.get(), 0, size, &bytes_read);
     // clang-format on
-    if (resp.code != ErrorCode::OK) {
-        return {resp.code, std::move(resp.err_msg)};
+    if (resp.status.code != ErrorCode::OK) {
+        return {resp.status.code, std::move(resp.status.msg)};
     }
     Aws::OFStream local_file_s;
     local_file_s.open(local_file, std::ios::out | std::ios::binary);
