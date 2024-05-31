@@ -261,8 +261,8 @@ constexpr bool is_numeric_type(const FieldType& field_type) {
 }
 
 constexpr bool is_ip_type(const FieldType& field_type) {
-        return field_type == FieldType::OLAP_FIELD_TYPE_IPV4 ||
-               field_type == FieldType::OLAP_FIELD_TYPE_IPV6;
+    return field_type == FieldType::OLAP_FIELD_TYPE_IPV4 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV6;
 }
 // Util used to get string name of thrift enum item
 #define EnumToString(enum_type, index, out)                   \
