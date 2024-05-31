@@ -114,7 +114,8 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;
-    _can_fast_execute = _function->can_fast_execute();
+    _can_fast_execute = _function->can_fast_execute() && _children.size() == 2 &&
+                        _children[0]->is_slot_ref() && _children[1]->is_literal();
 
     return Status::OK();
 }
