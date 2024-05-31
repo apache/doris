@@ -261,9 +261,13 @@ suite("test_limit_op_mtmv") {
         Assert.fail();
     }
 
+    // not allow dynamic_partition
+    test {
+        sql """ALTER TABLE ${mvName} set ("dynamic_partition.enable" = "true")"""
+        exception "dynamic"
+        }
     sql """drop materialized view if exists ${mvName};"""
-  // not allow dynamic_partition
-  test {
+    test {
           sql """
               CREATE MATERIALIZED VIEW ${mvName}
               BUILD DEFERRED REFRESH AUTO ON MANUAL
