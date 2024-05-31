@@ -78,6 +78,7 @@ namespace doris {
 namespace segment_v2 {
 
 static bvar::Adder<size_t> g_column_reader_memory_bytes("doris_column_reader_memory_bytes");
+static bvar::Adder<size_t> g_column_reader_num("doris_column_reader_num");
 
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                             uint64_t num_rows, const io::FileReaderSPtr& file_reader,
@@ -210,10 +211,12 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
     _meta_compression = meta.compression();
 
     g_column_reader_memory_bytes << sizeof(*this);
+    g_column_reader_num << 1;
 }
 
 ColumnReader::~ColumnReader() {
     g_column_reader_memory_bytes << -sizeof(*this);
+    g_column_reader_num << -1;
 }
 
 Status ColumnReader::init(const ColumnMetaPB* meta) {
