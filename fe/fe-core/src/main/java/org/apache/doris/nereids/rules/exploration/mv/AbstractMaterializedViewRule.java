@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
@@ -235,14 +236,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             } else {
                 // Try to rewrite compensate predicates by using mv scan
                 List<Expression> rewriteCompensatePredicates = rewriteExpression(compensatePredicates.toList(),
-                        queryPlan, materializationContext.getExprToScanExprMapping(),
+                        queryPlan, materializationContext.getShuttledExprToScanExprMapping(),
                         viewToQuerySlotMapping, true, queryStructInfo.getTableBitSet());
                 if (rewriteCompensatePredicates.isEmpty()) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "Rewrite compensate predicate by view fail",
                             () -> String.format("compensatePredicates = %s,\n mvExprToMvScanExprMapping = %s,\n"
                                             + "viewToQuerySlotMapping = %s",
-                                    compensatePredicates, materializationContext.getExprToScanExprMapping(),
+                                    compensatePredicates, materializationContext.getShuttledExprToScanExprMapping(),
                                     viewToQuerySlotMapping));
                     continue;
                 }
@@ -325,17 +326,35 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext);
-            Optional<Pair<Id, Statistics>> materializationPlanStatistics =
-                    materializationContext.getPlanStatistics(cascadesContext);
-            if (materializationPlanStatistics.isPresent() && materializationPlanStatistics.get().key() != null) {
-                cascadesContext.getStatementContext().addStatistics(
-                        materializationPlanStatistics.get().key(), materializationPlanStatistics.get().value());
-            }
+            trySetStatistics(materializationContext, cascadesContext);
             rewriteResults.add(rewrittenPlan);
             // if rewrite successfully, try to regenerate mv scan because it maybe used again
             materializationContext.tryReGenerateScanPlan(cascadesContext);
         }
         return rewriteResults;
+    }
+
+    // Set materialization context statistics to statementContext for cost estimate later
+    private static void trySetStatistics(MaterializationContext context, CascadesContext cascadesContext) {
+        Optional<Pair<Id, Statistics>> materializationPlanStatistics = context.getPlanStatistics(cascadesContext);
+        if (materializationPlanStatistics.isPresent() && materializationPlanStatistics.get().key() != null) {
+            Statistics originalPlanStatistics = materializationPlanStatistics.get().value();
+            Map<Expression, ColumnStatistic> normalizedExpressionMap = new HashMap<>();
+            // this statistics column expression is materialization origin plan, should normalize it to
+            // materialization scan plan
+            for (Map.Entry<Expression, ColumnStatistic> entry : originalPlanStatistics.columnStatistics().entrySet()) {
+                Expression targetExpression = entry.getKey();
+                Expression sourceExpression = context.getExprToScanExprMapping().get(targetExpression);
+                if (sourceExpression != null && targetExpression instanceof NamedExpression
+                        && sourceExpression instanceof NamedExpression) {
+                    normalizedExpressionMap.put(normalizeExpression(
+                            (NamedExpression) sourceExpression, (NamedExpression) targetExpression).toSlot(),
+                            entry.getValue());
+                }
+            }
+            cascadesContext.getStatementContext().addStatistics(materializationPlanStatistics.get().key(),
+                    originalPlanStatistics.withExpressionToColumnStats(normalizedExpressionMap));
+        }
     }
 
     private boolean needUnionRewrite(
@@ -520,8 +539,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     /**
      * Normalize expression with query, keep the consistency of exprId and nullable props with
      * query
+     * Keep the replacedExpression slot property is the same as the sourceExpression
      */
-    private NamedExpression normalizeExpression(
+    private static NamedExpression normalizeExpression(
             NamedExpression sourceExpression, NamedExpression replacedExpression) {
         Expression innerExpression = replacedExpression;
         if (replacedExpression.nullable() != sourceExpression.nullable()) {

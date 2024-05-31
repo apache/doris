@@ -131,8 +131,8 @@ public class AsyncMaterializationContext extends MaterializationContext {
         return baseViews;
     }
 
-    public ExpressionMapping getExprToScanExprMapping() {
-        return exprToScanExprMapping;
+    public ExpressionMapping getShuttledExprToScanExprMapping() {
+        return shuttledExprToScanExprMapping;
     }
 
     public boolean isAvailable() {
