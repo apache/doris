@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <type_traits>
 
+#include "common/compiler_util.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -53,6 +54,10 @@ struct BitShiftLeftImpl {
         } else {
             // return zero if b < 0, keep consistent with mysql
             // cast to unsigned so that we can do logical shift by default, keep consistent with mysql
+            if (UNLIKELY(b >= 64)) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                        "second argument of bit_shift_left less than 64");
+            }
             return b < 0 ? 0
                          : static_cast<typename std::make_unsigned<A>::type>(a)
                                    << static_cast<Result>(b);
@@ -72,6 +77,11 @@ struct BitShiftRightImpl {
         } else {
             // return zero if b < 0, keep consistent with mysql
             // cast to unsigned so that we can do logical shift by default, keep consistent with mysql
+            if (UNLIKELY(b >= 64)) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                        "second argument of bit_shift_right should less than 64");
+            }
+            
             return b < 0 ? 0
                          : static_cast<typename std::make_unsigned<A>::type>(a) >>
                                    static_cast<Result>(b);
