@@ -236,6 +236,11 @@ private:
     static std::atomic<int64_t> _s_virtual_memory_used;
     static std::atomic<int64_t> _s_proc_mem_no_allocator_cache;
 
+    static int64_t _s_cgroup_mem_limit;
+    static int64_t _s_cgroup_mem_usage;
+    static bool _s_cgroup_mem_refresh_state;
+    static int64_t _s_cgroup_mem_refresh_wait_times;
+
     static std::atomic<int64_t> _s_sys_mem_available;
     static int64_t _s_sys_mem_available_low_water_mark;
     static int64_t _s_sys_mem_available_warning_water_mark;
