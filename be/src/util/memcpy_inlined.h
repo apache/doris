@@ -1,18 +1,21 @@
-// Copyright 2008 Google Inc. All Rights Reserved.
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
-// Fast memory copying and comparison routines.
-//   strings::fastmemcmp_inlined() replaces memcmp()
-//   strings::memcpy_inlined() replaces memcpy()
-//   strings::memeq(a, b, n) replaces memcmp(a, b, n) == 0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
-// strings::*_inlined() routines are inline versions of the
-// routines exported by this module.  Sometimes using the inlined
-// versions is faster.  Measure before using the inlined versions.
-//
-// Performance measurement:
-//   strings::fastmemcmp_inlined
-//     Analysis: memcmp, fastmemcmp_inlined, fastmemcmp
-//     2012-01-30
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
 
 #pragma once
 #ifdef __AVX2__
@@ -29,88 +32,20 @@
 #include "gutil/integral_types.h"
 #include "gutil/port.h"
 
-namespace strings {
-
-// Return true if the n bytes at a equal the n bytes at b.
-// The regions are allowed to overlap.
-//
-// The performance is similar to the performance memcmp(), but faster for
-// moderately-sized inputs, or inputs that share a common prefix and differ
-// somewhere in their last 8 bytes. Further optimizations can be added later
-// if it makes sense to do so.
-inline bool memeq(const void* a_v, const void* b_v, size_t n) {
-    const uint8_t* a = reinterpret_cast<const uint8_t*>(a_v);
-    const uint8_t* b = reinterpret_cast<const uint8_t*>(b_v);
-
-    size_t n_rounded_down = n & ~static_cast<size_t>(7);
-    if (PREDICT_FALSE(n_rounded_down == 0)) { // n <= 7
-        return memcmp(a, b, n) == 0;
-    }
-    // n >= 8
-    uint64 u = UNALIGNED_LOAD64(a) ^ UNALIGNED_LOAD64(b);
-    uint64 v = UNALIGNED_LOAD64(a + n - 8) ^ UNALIGNED_LOAD64(b + n - 8);
-    if ((u | v) != 0) { // The first or last 8 bytes differ.
-        return false;
-    }
-    a += 8;
-    b += 8;
-    n = n_rounded_down - 8;
-    if (n > 128) {
-        // As of 2012, memcmp on x86-64 uses a big unrolled loop with SSE2
-        // instructions, and while we could try to do something faster, it
-        // doesn't seem worth pursuing.
-        return memcmp(a, b, n) == 0;
-    }
-    for (; n >= 16; n -= 16) {
-        uint64 x = UNALIGNED_LOAD64(a) ^ UNALIGNED_LOAD64(b);
-        uint64 y = UNALIGNED_LOAD64(a + 8) ^ UNALIGNED_LOAD64(b + 8);
-        if ((x | y) != 0) {
-            return false;
-        }
-        a += 16;
-        b += 16;
-    }
-    // n must be 0 or 8 now because it was a multiple of 8 at the top of the loop.
-    return n == 0 || UNALIGNED_LOAD64(a) == UNALIGNED_LOAD64(b);
-}
-
-inline int fastmemcmp_inlined(const void* a_void, const void* b_void, size_t n) {
-    const uint8_t* a = reinterpret_cast<const uint8_t*>(a_void);
-    const uint8_t* b = reinterpret_cast<const uint8_t*>(b_void);
-
-    if (n >= 64) {
-        return memcmp(a, b, n);
-    }
-    const void* a_limit = a + n;
-    const size_t sizeof_uint64 = sizeof(uint64); // NOLINT(runtime/sizeof)
-    while (a + sizeof_uint64 <= a_limit && UNALIGNED_LOAD64(a) == UNALIGNED_LOAD64(b)) {
-        a += sizeof_uint64;
-        b += sizeof_uint64;
-    }
-    const size_t sizeof_uint32 = sizeof(uint32); // NOLINT(runtime/sizeof)
-    if (a + sizeof_uint32 <= a_limit && UNALIGNED_LOAD32(a) == UNALIGNED_LOAD32(b)) {
-        a += sizeof_uint32;
-        b += sizeof_uint32;
-    }
-    while (a < a_limit) {
-        int d = static_cast<uint32>(*a++) - static_cast<uint32>(*b++);
-        if (d) return d;
-    }
-    return 0;
-}
+namespace doris {
 
 ALWAYS_INLINE inline void memcpy_inlined(void* __restrict _dst, const void* __restrict _src,
                                          size_t size) {
     auto dst = static_cast<uint8_t*>(_dst);
     auto src = static_cast<const uint8_t*>(_src);
 
-[[maybe_unused]]tail:
-    /// Small sizes and tails after the loop for large sizes.
-    /// The order of branches is important but in fact the optimal order depends on the distribution of sizes in your application.
-    /// This order of branches is from the disassembly of glibc's code.
-    /// We copy chunks of possibly uneven size with two overlapping movs.
-    /// Example: to copy 5 bytes [0, 1, 2, 3, 4] we will copy tail [1, 2, 3, 4] first and then head [0, 1, 2, 3].
-    if (size <= 16) {
+    [[maybe_unused]] tail :
+            /// Small sizes and tails after the loop for large sizes.
+            /// The order of branches is important but in fact the optimal order depends on the distribution of sizes in your application.
+            /// This order of branches is from the disassembly of glibc's code.
+            /// We copy chunks of possibly uneven size with two overlapping movs.
+            /// Example: to copy 5 bytes [0, 1, 2, 3, 4] we will copy tail [1, 2, 3, 4] first and then head [0, 1, 2, 3].
+            if (size <= 16) {
         if (size >= 8) {
             /// Chunks of 8..16 bytes.
             __builtin_memcpy(dst + size - 8, src + size - 8, 8);
@@ -128,7 +63,8 @@ ALWAYS_INLINE inline void memcpy_inlined(void* __restrict _dst, const void* __re
             *dst = *src;
         }
         /// No bytes remaining.
-    } else {
+    }
+    else {
 #ifdef __AVX2__
         if (size <= 256) {
             if (size <= 32) {
@@ -208,5 +144,4 @@ ALWAYS_INLINE inline void memcpy_inlined(void* __restrict _dst, const void* __re
 #endif
     }
 }
-
-} // namespace strings
+} // namespace doris
