@@ -34,6 +34,7 @@ enum class Metrics {
     NUM_ROWSETS = 3,
     NUM_BASE_ROWSETS = 4,
     NUM_CUMU_ROWSETS = 5,
+    UNKNOWN = 100000,
 };
 
 Status check_param(HttpRequest* req, int& top_n, Metrics& metrics) {
@@ -90,7 +91,7 @@ using MinHeap = std::priority_queue<TabletCounter, std::vector<TabletCounter>, C
 
 void ShowHotspotAction::handle(HttpRequest* req) {
     int topn = 0;
-    Metrics metrics;
+    Metrics metrics {Metrics::UNKNOWN};
     auto st = check_param(req, topn, metrics);
     if (!st.ok()) [[unlikely]] {
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, st.to_string());
@@ -120,9 +121,12 @@ void ShowHotspotAction::handle(HttpRequest* req) {
     case Metrics::NUM_CUMU_ROWSETS:
         count_fn = [](auto&& t) { return t.fetch_add_approximate_cumu_num_rowsets(0); };
         break;
+    default:
+        break;
     }
 
     if (!count_fn) {
+        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, "metrics not specified");
         return;
     }
 
