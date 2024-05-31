@@ -206,7 +206,9 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         ExpressionCostEvaluator expressionCostEvaluator = new ExpressionCostEvaluator();
         double exprCost = 0.0;
         for (Expression expr : physicalProject.getProjects()) {
-            exprCost += expr.accept(expressionCostEvaluator, null);
+            if (!(expr instanceof SlotReference)) {
+                exprCost += expr.accept(expressionCostEvaluator, null);
+            }
         }
         return CostV1.ofCpu(context.getSessionVariable(), exprCost + 1);
     }

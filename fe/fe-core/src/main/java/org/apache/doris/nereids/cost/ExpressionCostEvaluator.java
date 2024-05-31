@@ -20,13 +20,16 @@ package org.apache.doris.nereids.cost;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.Maps;
 
@@ -44,6 +47,8 @@ public class ExpressionCostEvaluator extends ExpressionVisitor<Double, Void> {
         dataTypeCost.put(DecimalV2Type.class, 1.5);
         dataTypeCost.put(DecimalV3Type.class, 1.5);
         dataTypeCost.put(StringType.class, 2.0);
+        dataTypeCost.put(CharType.class, 2.0);
+        dataTypeCost.put(VarcharType.class, 2.0);
         dataTypeCost.put(ArrayType.class, 3.0);
         dataTypeCost.put(MapType.class, 3.0);
         dataTypeCost.put(StructType.class, 3.0);
@@ -51,17 +56,21 @@ public class ExpressionCostEvaluator extends ExpressionVisitor<Double, Void> {
 
     @Override
     public Double visit(Expression expr, Void context) {
-        double cost = 1.0;
+        double cost = 0.0;
         for (Expression child : expr.children()) {
             cost += child.accept(this, context);
-            cost += dataTypeCost.getOrDefault(child.getDataType().getClass(), 0.1);
         }
         return cost;
     }
 
     @Override
     public Double visitSlotReference(SlotReference slot, Void context) {
-        return 0.0;
+        return dataTypeCost.getOrDefault(slot.getDataType().getClass(), 0.1);
+    }
+
+    @Override
+    public Double visitLiteral(Literal literal, Void context) {
+        return 0.1;
     }
 
     @Override
