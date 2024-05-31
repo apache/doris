@@ -30,6 +30,11 @@ set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export DORIS_HOME="${ROOT}"
+if [[ -z "${DORIS_THIRDPARTY}" ]]; then
+    export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
+fi
+export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
+export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 
 . "${DORIS_HOME}/env.sh"
 

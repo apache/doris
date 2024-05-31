@@ -22,7 +22,9 @@
 #include <boost/algorithm/string/replace.hpp>
 #ifdef USE_JEMALLOC
 #include "jemalloc/jemalloc.h"
-#else
+#endif
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h>
 #endif
 

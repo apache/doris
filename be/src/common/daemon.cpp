@@ -20,7 +20,10 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <gflags/gflags.h>
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
+#endif
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <butil/iobuf.h>
 #include <math.h>

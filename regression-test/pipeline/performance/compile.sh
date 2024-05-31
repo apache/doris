@@ -128,7 +128,7 @@ sudo docker run -i --rm \
     -v "${teamcity_build_checkoutDir}":/root/doris \
     "${docker_image}" \
     /bin/bash -c "mkdir -p ${git_storage_path} \
-    				&& cp -r /root/git/* ${git_storage_path}/ \
+                    && cp -r /root/git/* ${git_storage_path}/ \
                     && cd /root/doris \
                     && export CCACHE_LOGFILE=/tmp/cache.debug \
                     && export CCACHE_REMOTE_STORAGE=file:///root/ccache \

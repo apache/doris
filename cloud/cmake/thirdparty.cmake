@@ -61,6 +61,7 @@ add_thirdparty(thrift)
 add_thirdparty(crypto)
 add_thirdparty(openssl LIBNAME "lib/libssl.a")
 add_thirdparty(jemalloc LIBNAME "lib/libjemalloc_doris.a")
+add_thirdparty(jemalloc_arrow LIBNAME "lib/libjemalloc_arrow.a")
 add_thirdparty(leveldb) # Required by brpc
 add_thirdparty(brpc LIB64)
 add_thirdparty(rocksdb) # For local storage mocking
