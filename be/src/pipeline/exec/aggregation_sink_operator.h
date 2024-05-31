@@ -150,9 +150,7 @@ public:
                        ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
-    bool require_data_distribution() const override {
-        return _is_colocate;
-    }
+    bool require_data_distribution() const override { return _is_colocate; }
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
     vectorized::AggregatedDataVariants* get_agg_data(RuntimeState* state) {
