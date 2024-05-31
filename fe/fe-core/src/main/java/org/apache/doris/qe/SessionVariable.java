@@ -189,6 +189,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_JOIN_NUMBER_OF_REORDER = "max_join_number_of_reorder";
 
     public static final String ENABLE_NEREIDS_DML = "enable_nereids_dml";
+    public static final String ENABLE_NEREIDS_DML_WITH_PIPELINE = "enable_nereids_dml_with_pipeline";
     public static final String ENABLE_STRICT_CONSISTENCY_DML = "enable_strict_consistency_dml";
 
     public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
@@ -750,6 +751,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML, needForward = true)
     public boolean enableNereidsDML = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML_WITH_PIPELINE, needForward = true,
+            description = {"在新优化器中，使用pipeline引擎执行DML", "execute DML with pipeline engine in Nereids"})
+    public boolean enableNereidsDmlWithPipeline = false;
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
     public boolean enableStrictConsistencyDml = false;

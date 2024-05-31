@@ -47,6 +47,9 @@ public class TurnOffPipelineForDml extends PlanPreprocessor {
 
     private void turnOffPipeline(StatementContext context) {
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
+        if (sessionVariable.enableNereidsDmlWithPipeline) {
+            return;
+        }
         // set temporary session value, and then revert value in the 'finally block' of StmtExecutor#execute
         sessionVariable.setIsSingleSetVar(true);
         try {
