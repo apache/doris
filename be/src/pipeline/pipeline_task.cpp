@@ -336,8 +336,8 @@ Status PipelineTask::execute(bool* eos) {
             return status;
         });
         // `_dry_run` means sink operator need no more data
-        // `_sink->eos(_state)` means sink operator should be finished
-        if (_dry_run || _sink->eos(_state)) {
+        // `_sink->is_finished(_state)` means sink operator should be finished
+        if (_dry_run || _sink->is_finished(_state)) {
             *eos = true;
             _eos = true;
         } else {
