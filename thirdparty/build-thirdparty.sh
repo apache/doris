@@ -875,11 +875,6 @@ build_rocksdb_jemalloc_with_prefix() {
     cp librocksdb.a "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a"
     cp -r include/rocksdb "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix"
     strip_lib librocksdb_jemalloc_with_prefix.a
-    # for compatibility with previous doris version
-    rm -rf "${TP_LIB_DIR}/librocksdb.a"
-    rm -rf "${TP_INCLUDE_DIR}/rocksdb"
-    cp "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
-    cp -r "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix" "${TP_INCLUDE_DIR}/rocksdb"
 }
 
 # cyrus_sasl
@@ -1890,10 +1885,10 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         thrift
         leveldb
         brpc
-        jemalloc_doris
-        rocksdb
         jemalloc_doris_with_prefix
         rocksdb_jemalloc_with_prefix
+        jemalloc_doris
+        rocksdb
         krb5 # before cyrus_sasl
         cyrus_sasl
         librdkafka

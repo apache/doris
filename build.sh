@@ -30,8 +30,10 @@ set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export DORIS_HOME="${ROOT}"
-export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
-export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
+export TP_DIR="${ROOT}/thirdparty"
+export TP_INSTALL_DIR="${TP_DIR:-.}/installed"
+export TP_INCLUDE_DIR="${TP_INSTALL_DIR}/include"
+export TP_LIB_DIR="${TP_INSTALL_DIR}/lib"
 
 . "${DORIS_HOME}/env.sh"
 
@@ -356,9 +358,7 @@ if [[ -z "${USE_MEM_TRACKER}" ]]; then
         USE_MEM_TRACKER='OFF'
     fi
 fi
-if [[ "${BUILD_TYPE,,}" == "asan" ]]; then
-    USE_JEMALLOC='OFF'
-elif [[ -z "${USE_JEMALLOC}" ]]; then
+if [[ -z "${USE_JEMALLOC}" ]]; then
     USE_JEMALLOC='ON'
 fi
 if [[ ! -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
