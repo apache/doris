@@ -101,7 +101,7 @@ suite("test_insert_from_tvf_with_common_user", "p0") {
 
         sql """ INSERT INTO ${load_table_name}
                 SELECT * FROM S3 (
-                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                     "ACCESS_KEY"= "${ak}",
                     "SECRET_KEY" = "${sk}",
                     "format" = "csv",

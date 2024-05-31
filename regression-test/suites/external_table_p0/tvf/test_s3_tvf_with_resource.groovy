@@ -99,7 +99,7 @@ suite("test_s3_tvf_with_resource", "p0") {
     // 1. normal
     try {
         order_qt_select_1 """ SELECT * FROM S3 (
-                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.orc",
+                            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.orc",
                             "format" = "orc",
                             "use_path_style" = "true",
                             "resource" = "${resource_name}"
@@ -123,7 +123,7 @@ suite("test_s3_tvf_with_resource", "p0") {
     // 3.test use_path_style
     try {
         order_qt_select_3 """ SELECT * FROM S3 (
-                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.orc",
+                            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.orc",
                             "format" = "orc",
                             "use_path_style" = "true",
                             "resource" = "${resource_name}"
