@@ -253,6 +253,13 @@ MutableColumnPtr DataTypeMap::create_column() const {
                              ColumnArray::ColumnOffsets::create());
 }
 
+Status DataTypeMap::check_column_type(const IColumn* column) const {
+    const auto* map_column = check_and_get_column<ColumnMap>(column);
+    RETURN_IF_ERROR(_check_column_is_null(map_column));
+    RETURN_IF_ERROR(key_type->check_column_type(&map_column->get_keys()));
+    RETURN_IF_ERROR(value_type->check_column_type(&map_column->get_values()));
+    return Status::OK();
+}
 void DataTypeMap::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     auto key_children = col_meta->add_children();

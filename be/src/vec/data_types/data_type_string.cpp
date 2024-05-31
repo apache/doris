@@ -70,6 +70,10 @@ MutableColumnPtr DataTypeString::create_column() const {
     return ColumnString::create();
 }
 
+Status DataTypeString::check_column_type(const IColumn* column) const {
+    return check_single_type<ColumnString>(column);
+}
+
 bool DataTypeString::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }

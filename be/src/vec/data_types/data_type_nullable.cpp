@@ -207,6 +207,13 @@ MutableColumnPtr DataTypeNullable::create_column() const {
     return ColumnNullable::create(nested_data_type->create_column(), ColumnUInt8::create());
 }
 
+Status DataTypeNullable::check_column_type(const IColumn* column) const {
+    const auto* col = check_and_get_column<ColumnNullable>(column);
+    RETURN_IF_ERROR(_check_column_is_null(col));
+    RETURN_IF_ERROR(nested_data_type->check_column_type(&col->get_nested_column()));
+    return Status::OK();
+}
+
 Field DataTypeNullable::get_default() const {
     return Null();
 }

@@ -53,6 +53,13 @@ String IDataType::do_get_name() const {
     return get_family_name();
 }
 
+Status IDataType::_check_column_is_null(const IColumn* column) const {
+    if (column) {
+        return Status::OK();
+    }
+    return Status::InternalError("check failed in data type = {}", get_name());
+}
+
 void IDataType::update_avg_value_size_hint(const IColumn& column, double& avg_value_size_hint) {
     /// Update the average value size hint if amount of read rows isn't too small
     size_t row_size = column.size();

@@ -117,6 +117,8 @@ public:
                                                                      const Block&, Block*,
                                                                      bool do_projection = false);
 
+    Status check_column_data_type(vectorized::Block* block, int result_column_id);
+
     int get_last_result_column_id() const {
         DCHECK(_last_result_column_id != -1);
         return _last_result_column_id;

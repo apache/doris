@@ -95,10 +95,21 @@ public:
 protected:
     virtual String do_get_name() const;
 
+    Status _check_column_is_null(const IColumn* column) const;
+
 public:
     /** Create empty column for corresponding type.
       */
     virtual MutableColumnPtr create_column() const = 0;
+    // check column type match datatype
+    virtual Status check_column_type(const IColumn* column) const = 0;
+
+    template <typename Type>
+    Status check_single_type(const IColumn* column) const {
+        const auto* col = check_and_get_column<Type>(column);
+        RETURN_IF_ERROR(_check_column_is_null(col));
+        return Status::OK();
+    }
 
     /** Create ColumnConst for corresponding type, with specified size and value.
       */
