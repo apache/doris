@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.cost;
 
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.DecimalV2Type;
@@ -60,10 +61,16 @@ public class ExpressionCostEvaluatorTest {
         double cost6 = expr6.accept(evaluator, null);
         System.out.println("cost6 = " + cost6);
 
+        Expression c = parse("c");
+        Alias alias = new Alias(c);
+        double cost7 = alias.accept(evaluator, null);
+        System.out.println(cost7);
+
         Assertions.assertTrue(cost1 > cost2);
         Assertions.assertTrue(cost3 > cost2);
         Assertions.assertTrue(cost4 > cost1);
         Assertions.assertTrue(cost5 > cost6);
+        Assertions.assertEquals(cost7, 0.0);
     }
 
     private Expression parse(String exprStr) {

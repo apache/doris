@@ -59,23 +59,27 @@ public class ExpressionCostEvaluator extends ExpressionVisitor<Double, Void> {
         double cost = 0.0;
         for (Expression child : expr.children()) {
             cost += child.accept(this, context);
-            cost += 0.1;
+            cost += 0.1;// the more children, the more computing cost
         }
         return cost;
     }
 
     @Override
     public Double visitSlotReference(SlotReference slot, Void context) {
-        return dataTypeCost.getOrDefault(slot.getDataType().getClass(), 0.1);
+        return dataTypeCost.getOrDefault(slot.getDataType().getClass(), 0.0);
     }
 
     @Override
     public Double visitLiteral(Literal literal, Void context) {
-        return 0.1;
+        return 0.0;
     }
 
     @Override
     public Double visitAlias(Alias alias, Void context) {
+        Expression child = alias.child();
+        if (child instanceof SlotReference) {
+            return 0.0;
+        }
         return alias.child().accept(this, context);
     }
 }
