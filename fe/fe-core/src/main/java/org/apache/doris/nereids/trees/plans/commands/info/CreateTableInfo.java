@@ -1052,5 +1052,9 @@ public class CreateTableInfo {
     public PartitionTableInfo getPartitionTableInfo() {
         return partitionTableInfo;
     }
+
+    public DistributionDescriptor getDistribution() {
+        return distribution;
+    }
 }
 

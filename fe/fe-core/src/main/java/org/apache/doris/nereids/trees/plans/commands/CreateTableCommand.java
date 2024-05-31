@@ -129,11 +129,17 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                         DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
                 if (s.isColumnFromTable()) {
                     if ((!((SlotReference) s).getTable().isPresent()
-                            || !((SlotReference) s).getTable().get().isManagedTable())
-                            && (createTableInfo.getPartitionTableInfo().getPartitionColumns() == null
-                            || !createTableInfo.getPartitionTableInfo().getPartitionColumns().contains(s.getName()))) {
-                        dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                CharacterType.class, StringType.INSTANCE);
+                            || !((SlotReference) s).getTable().get().isManagedTable())) {
+                        if (createTableInfo.getPartitionTableInfo().inIdentifierPartitions(s.getName())
+                                || createTableInfo.getDistribution().inDistributionColumns(s.getName())) {
+                            // String type can not be used in partition/distributed column
+                            // so we replace it to varchar
+                            dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                    StringType.class, VarcharType.MAX_VARCHAR_TYPE);
+                        } else {
+                            dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                    CharacterType.class, StringType.INSTANCE);
+                        }
                     }
                 } else {
                     dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,

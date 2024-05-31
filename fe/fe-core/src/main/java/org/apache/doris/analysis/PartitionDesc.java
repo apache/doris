@@ -285,4 +285,8 @@ public class PartitionDesc {
             throws DdlException, AnalysisException {
         throw new NotImplementedException("toPartitionInfo not implemented");
     }
+
+    public boolean inIdentifierPartitions(String colName) {
+        return partitionColNames != null && partitionColNames.contains(colName);
+    }
 }
