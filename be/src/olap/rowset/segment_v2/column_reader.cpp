@@ -573,7 +573,7 @@ Status ColumnReader::_load_inverted_index_index(
                         "create StringTypeInvertedIndexReader error: {}", e.what());
             }
         }
-    } else if (is_numeric_type(type)) {
+    } else if (is_numeric_type(type) || is_ip_type(type)) {
         try {
             _inverted_index = BkdIndexReader::create_shared(index_meta, index_file_reader);
         } catch (const CLuceneError& e) {
