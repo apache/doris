@@ -52,19 +52,25 @@ struct ObjectStorageResponse {
             : code(code), err_msg(std::move(msg)) {}
     ObjectStorageResponse(std::pair<int, std::string> msg_pair)
             : code(msg_pair.first), err_msg(std::move(msg_pair.second)) {}
-    ObjectStorageResponse(Status st) : ObjectStorageResponse(st.retrieve_error_msg()) {}
+    ObjectStorageResponse(Status st, int http_code = 0, std::string request_id = "")
+            : ObjectStorageResponse(st.retrieve_error_msg()) {
+        this->http_code = http_code;
+        this->request_id = std::move(request_id);
+    }
     int code {0};
     std::string err_msg = std::string();
+    int http_code {200};
+    std::string request_id = std::string();
 };
 
 struct ObjectStorageUploadResponse {
-    ObjectStorageResponse resp;
+    ObjectStorageResponse resp {};
     std::optional<std::string> upload_id = std::nullopt;
     std::optional<std::string> etag = std::nullopt;
 };
 
 struct ObjectStorageHeadResponse {
-    ObjectStorageResponse resp;
+    ObjectStorageResponse resp {};
     long long file_size {0};
 };
 
