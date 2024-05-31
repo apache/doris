@@ -83,7 +83,6 @@ std::shared_ptr<BroadcastPBlockHolder> BroadcastPBlockHolderQueue::pop() {
 
 namespace pipeline {
 
-<<<<<<< HEAD
 template <typename Parent>
 ExchangeSinkBuffer<Parent>::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
                                                int send_id, int be_number, RuntimeState* state,
@@ -473,7 +472,7 @@ bool ExchangeSinkBuffer<Parent>::_is_receiver_eof(InstanceLoId id) {
 }
 
 template <typename Parent>
-void ExchangeSinkBuffer::_turn_off_channel(InstanceLoId id, bool cleanup) {
+void ExchangeSinkBuffer<Parent>::_turn_off_channel(InstanceLoId id, bool cleanup) {
     if (!_rpc_channel_is_idle[id]) {
         _rpc_channel_is_idle[id] = true;
         auto all_done = _busy_channels.fetch_sub(1) == 1;

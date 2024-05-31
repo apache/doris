@@ -200,7 +200,7 @@ template <typename Parent>
 class ExchangeSinkBuffer : public HasTaskExecutionCtx {
 public:
     ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
-                       RuntimeState* state, ExchangeSinkLocalState* parent);
+                       RuntimeState* state, ExchangeSinkLocalState* parent = nullptr);
     ~ExchangeSinkBuffer() = default;
     void register_sink(TUniqueId);
 
