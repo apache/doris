@@ -1231,6 +1231,17 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                           << ", schema_hash=" << tablet->schema_hash()
                           << ", delete tablet_path=" << tablet_path;
                 RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_path));
+
+                auto fs_tablet_path = io::Path(tablet_path);
+                std::string source_parent_dir = fs_tablet_path.parent_path();
+                std::vector<io::FileInfo> sub_files;
+                RETURN_IF_ERROR(io::global_local_filesystem()->list(source_parent_dir, false,
+                                                                    &sub_files, &exists));
+                if (sub_files.empty()) {
+                    LOG(INFO) << "meta key not found remove empty dir=" << source_parent_dir;
+                    RETURN_IF_ERROR(
+                            io::global_local_filesystem()->delete_directory(source_parent_dir));
+                }
                 return true;
             }
             LOG(WARNING) << "errors while load meta from store, skip this tablet. "
@@ -1249,7 +1260,7 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
 
 Status TabletManager::register_transition_tablet(int64_t tablet_id, std::string reason) {
     tablets_shard& shard = _get_tablets_shard(tablet_id);
-    std::lock_guard<std::shared_mutex> wrlock(shard.lock_for_transition);
+    std::lock_guard<std::mutex> lk(shard.lock_for_transition);
     auto [it, can_do] = shard.tablets_under_transition.insert(std::pair(tablet_id, reason));
     if (!can_do) {
         LOG(INFO) << "tablet_id = " << tablet_id << "is doing " << it->second
@@ -1262,7 +1273,7 @@ Status TabletManager::register_transition_tablet(int64_t tablet_id, std::string 
 
 void TabletManager::unregister_transition_tablet(int64_t tablet_id, std::string reason) {
     tablets_shard& shard = _get_tablets_shard(tablet_id);
-    std::lock_guard<std::shared_mutex> wrlock(shard.lock_for_transition);
+    std::lock_guard<std::mutex> lk(shard.lock_for_transition);
     shard.tablets_under_transition.erase(tablet_id);
     LOG(INFO) << "erase tablet_id= " << tablet_id << " from map, reason=" << reason;
 }

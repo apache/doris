@@ -235,7 +235,7 @@ private:
         }
         mutable std::shared_mutex lock;
         tablet_map_t tablet_map;
-        mutable std::shared_mutex lock_for_transition;
+        std::mutex lock_for_transition;
         // tablet do clone, path gc, move to trash, disk migrate will record in tablets_under_transition
         std::map<int64_t, std::string> tablets_under_transition;
     };

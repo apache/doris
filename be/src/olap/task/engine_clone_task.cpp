@@ -271,6 +271,17 @@ Status EngineCloneTask::_do_clone() {
                           "failed to delete useless clone dir ");
         }};
 
+        bool exists = true;
+        Status exists_st = io::global_local_filesystem()->exists(tablet_dir, &exists);
+        if (!exists_st) {
+            LOG(WARNING) << "cant get path=" << tablet_dir << " state, st=" << exists_st;
+            return exists_st;
+        }
+        if (exists) {
+            LOG(WARNING) << "before clone dest path=" << tablet_dir << " exist, remote it first";
+            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_dir));
+        }
+
         bool allow_incremental_clone = false;
         RETURN_IF_ERROR_(status,
                          _make_and_download_snapshots(*store, tablet_dir, &src_host, &src_file_path,
