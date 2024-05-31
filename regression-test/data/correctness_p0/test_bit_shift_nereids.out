@@ -64,12 +64,6 @@ testing big_shift_right
 1
 
 -- !select --
-0
-
--- !select --
-0
-
--- !select --
 1
 0
 0

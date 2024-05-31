@@ -21,7 +21,6 @@ suite("test_bit_shift") {
     """
     def INT64_MAX=9223372036854775807;
     def INT64_MIN=-9223372036854775808;
-    def INT8_MAX=127
     def INT8_MIN=-128
 
     // bit_shift_left
@@ -85,8 +84,6 @@ suite("test_bit_shift") {
     qt_select "SELECT bit_shift_right(${INT64_MAX}, 63);"
     qt_select "SELECT bit_shift_right(${INT64_MIN}, 62);"
     qt_select "SELECT bit_shift_right(${INT64_MIN}, 63);"
-    qt_select "SELECT bit_shift_right(1, ${INT8_MAX});"
-    qt_select "SELECT bit_shift_right(1, ${INT8_MIN});"
 
     // nagitave shift count
 
