@@ -1325,9 +1325,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (resultExpr.getSrcSlotRef() != null
                             && resultExpr.getSrcSlotRef().getTable() != null
                             && !resultExpr.getSrcSlotRef().getTable().isManagedTable()
-                            && createTableStmt.getPartitionDesc().getPartitionColNames() != null
-                            && !createTableStmt.getPartitionDesc().getPartitionColNames().contains(
-                                    resultExpr.getSrcSlotRef().getColumnName())) {
+                            && (createTableStmt.getPartitionDesc().getPartitionColNames() == null
+                            || !createTableStmt.getPartitionDesc().getPartitionColNames().contains(
+                                    resultExpr.getSrcSlotRef().getColumnName()))) {
                         typeDef = new TypeDef(ScalarType.createStringType());
                     }
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
