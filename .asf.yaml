@@ -61,6 +61,7 @@ github:
           - ShellCheck          
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
+          - Build Third Party Libraries (macOS-arm64)
           - COMPILE (DORIS_COMPILE)
           - Need_2_Approval
           - Cloud UT (Doris Cloud UT)
