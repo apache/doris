@@ -73,9 +73,8 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
         S3URI s3uri = getS3Uri(uriStr, Boolean.parseBoolean(usePathStyle.toLowerCase()),
                 Boolean.parseBoolean(forceParsingByStandardUri.toLowerCase()));
-        String endpoint = otherProps.containsKey(S3Properties.ENDPOINT) ? otherProps.get(S3Properties.ENDPOINT) :
-                s3uri.getEndpoint().orElseThrow(() ->
-                        new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT)));
+        String endpoint = getOrDefaultAndRemove(otherProps, S3Properties.ENDPOINT, s3uri.getEndpoint().orElseThrow(() ->
+                new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT))));
         if (!otherProps.containsKey(S3Properties.REGION)) {
             String region = s3uri.getRegion().orElseThrow(() ->
                     new AnalysisException(String.format("Properties '%s' is required.", S3Properties.REGION)));
@@ -83,16 +82,17 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         }
         checkNecessaryS3Properties(otherProps);
         CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(endpoint,
-                otherProps.get(S3Properties.REGION),
-                otherProps.get(S3Properties.ACCESS_KEY),
-                otherProps.get(S3Properties.SECRET_KEY));
+                getOrDefaultAndRemove(otherProps, S3Properties.REGION, ""),
+                getOrDefaultAndRemove(otherProps, S3Properties.ACCESS_KEY, ""),
+                getOrDefaultAndRemove(otherProps, S3Properties.SECRET_KEY, ""));
         if (otherProps.containsKey(S3Properties.SESSION_TOKEN)) {
-            credential.setSessionToken(otherProps.get(S3Properties.SESSION_TOKEN));
+            credential.setSessionToken(getOrDefaultAndRemove(otherProps, S3Properties.SESSION_TOKEN, ""));
         }
 
         locationProperties = S3Properties.credentialToMap(credential);
         locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
         locationProperties.putAll(S3ClientBEProperties.getBeFSProperties(locationProperties));
+        locationProperties.putAll(otherProps);
 
         filePath = NAME + S3URI.SCHEME_DELIM + s3uri.getBucket() + S3URI.PATH_DELIM + s3uri.getKey();
 
