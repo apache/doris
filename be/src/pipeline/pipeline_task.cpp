@@ -273,6 +273,7 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
+    _eos = _sink->is_finished(_state) || _eos;
     *eos = _eos;
     if (_eos) {
         // If task is waken up by finish dependency, `_eos` is set to true by last execution, and we should return here.
@@ -334,14 +335,15 @@ Status PipelineTask::execute(bool* eos) {
                     Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task executing failed");
             return status;
         });
-        // Pull block from operator chain
-        if (!_dry_run) {
+        // `_dry_run` means sink operator need no more data
+        // `_sink->is_finished(_state)` means sink operator should be finished
+        if (_dry_run || _sink->is_finished(_state)) {
+            *eos = true;
+            _eos = true;
+        } else {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
             RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_root->get_block_after_projects(_state, block, eos));
-        } else {
-            *eos = true;
-            _eos = true;
         }
 
         if (_block->rows() != 0 || *eos) {

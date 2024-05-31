@@ -1046,6 +1046,9 @@ void FragmentMgr::cancel_worker() {
                     to_cancel.push_back(fragment_instance_itr.second->fragment_instance_id());
                 }
             }
+            for (auto& pipeline_itr : _pipeline_map) {
+                pipeline_itr.second->clear_finished_tasks();
+            }
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
                 if (auto q_ctx = it->second.lock()) {
                     if (q_ctx->is_timeout(now) && q_ctx->enable_pipeline_x_exec()) {
