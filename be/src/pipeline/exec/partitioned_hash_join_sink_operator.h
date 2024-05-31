@@ -111,7 +111,7 @@ public:
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                _join_distribution == TJoinDistributionType::COLOCATE
                        ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE,
-                                          _distribution_partition_exprs)
+                                          _distribution_partition_exprs, _hash_type)
                        : DataDistribution(ExchangeType::HASH_SHUFFLE,
                                           _distribution_partition_exprs);
     }
@@ -136,6 +136,7 @@ private:
     Status _setup_internal_operator(RuntimeState* state);
 
     const TJoinDistributionType::type _join_distribution;
+    THashType::type _hash_type;
 
     std::vector<TExpr> _build_exprs;
 
