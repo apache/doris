@@ -134,12 +134,11 @@ void ColumnConst::update_murmurs_with_value(int32_t* __restrict hashes, doris::P
     auto real_data = data->get_data_at(0);
     if (real_data.data == nullptr) {
         for (int i = 0; i < rows; ++i) {
-            hashes[i] = HashUtil::murmur_hash3_32_null(HashUtil::SPARK_MURMUR_32_SEED);
+            hashes[i] = HashUtil::murmur_hash3_32_null(hashes[i]);
         }
     } else {
         for (int i = 0; i < rows; ++i) {
-            hashes[i] = HashUtil::murmur_hash3_32(real_data.data, real_data.size,
-                                                  HashUtil::SPARK_MURMUR_32_SEED);
+            hashes[i] = HashUtil::murmur_hash3_32(real_data.data, real_data.size, hashes[i]);
         }
     }
 }

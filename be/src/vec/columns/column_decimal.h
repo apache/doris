@@ -295,7 +295,7 @@ protected:
         const auto& dec_val = (const DecimalV2Value&)data[i];
         int64_t int_val = dec_val.int_value();
         int32_t frac_val = dec_val.frac_value();
-        hash = HashUtil::murmur_hash3_32(&int_val, sizeof(int_val), HashUtil::SPARK_MURMUR_32_SEED);
+        hash = HashUtil::murmur_hash3_32(&int_val, sizeof(int_val), hash);
         hash = HashUtil::murmur_hash3_32(&frac_val, sizeof(frac_val), hash);
     };
 };

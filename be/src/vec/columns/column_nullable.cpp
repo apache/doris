@@ -101,7 +101,6 @@ void ColumnNullable::update_murmur_with_value(size_t start, size_t end, int32_t&
     } else {
         const auto* __restrict real_null_data =
                 assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
-        hash = HashUtil::SPARK_MURMUR_32_SEED;
         for (int i = start; i < end; ++i) {
             if (real_null_data[i] != 0) {
                 hash = HashUtil::murmur_hash3_32_null(hash);
@@ -153,7 +152,7 @@ void ColumnNullable::update_murmurs_with_value(int32_t* __restrict hashes,
     } else {
         for (int i = 0; i < s; ++i) {
             if (real_null_data[i] != 0) {
-                hashes[i] = HashUtil::murmur_hash3_32_null(HashUtil::SPARK_MURMUR_32_SEED);
+                hashes[i] = HashUtil::murmur_hash3_32_null(hashes[i]);
             }
         }
         nested_column->update_murmurs_with_value(hashes, type, rows, offset, real_null_data);
