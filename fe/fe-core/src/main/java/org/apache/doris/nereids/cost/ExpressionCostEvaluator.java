@@ -59,6 +59,7 @@ public class ExpressionCostEvaluator extends ExpressionVisitor<Double, Void> {
         double cost = 0.0;
         for (Expression child : expr.children()) {
             cost += child.accept(this, context);
+            cost += 0.1;
         }
         return cost;
     }

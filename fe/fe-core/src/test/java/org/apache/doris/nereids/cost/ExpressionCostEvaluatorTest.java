@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -53,9 +52,18 @@ public class ExpressionCostEvaluatorTest {
         double cost4 = expr4.accept(evaluator, null);
         System.out.println("cost4 = " + cost4);
 
+        Expression expr5 = parse("abs(a) + 1");
+        double cost5 = expr5.accept(evaluator, null);
+        System.out.println("cost5 = " + cost5);
+
+        Expression expr6 = parse("a + 1");
+        double cost6 = expr6.accept(evaluator, null);
+        System.out.println("cost6 = " + cost6);
+
         Assertions.assertTrue(cost1 > cost2);
         Assertions.assertTrue(cost3 > cost2);
         Assertions.assertTrue(cost4 > cost1);
+        Assertions.assertTrue(cost5 > cost6);
     }
 
     private Expression parse(String exprStr) {
