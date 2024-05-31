@@ -57,16 +57,16 @@ class SipHash;
         }                                                                            \
     }
 
-#define DO_MURMUR_HASHES_FUNCTION_COLUMN_IMPL(SEED)                               \
-    if (null_data == nullptr) {                                                   \
-        for (size_t i = 0; i < s; i++) {                                          \
-            hashes[i] = HashUtil::murmur_hash3_32(&data[i], sizeof(T), SEED);     \
-        }                                                                         \
-    } else {                                                                      \
-        for (size_t i = 0; i < s; i++) {                                          \
-            if (null_data[i] == 0)                                                \
-                hashes[i] = HashUtil::murmur_hash3_32(&data[i], sizeof(T), SEED); \
-        }                                                                         \
+#define DO_MURMUR_HASHES_FUNCTION_COLUMN_IMPL()                                        \
+    if (null_data == nullptr) {                                                        \
+        for (size_t i = 0; i < s; i++) {                                               \
+            hashes[i] = HashUtil::murmur_hash3_32(&data[i], sizeof(T), hashes[i]);     \
+        }                                                                              \
+    } else {                                                                           \
+        for (size_t i = 0; i < s; i++) {                                               \
+            if (null_data[i] == 0)                                                     \
+                hashes[i] = HashUtil::murmur_hash3_32(&data[i], sizeof(T), hashes[i]); \
+        }                                                                              \
     }
 
 namespace doris::vectorized {

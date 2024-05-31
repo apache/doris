@@ -503,6 +503,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
         ShuffleType outputShuffleType = shuffleSide == ShuffleSide.LEFT
                 ? rightHashSpec.getShuffleType() : leftHashSpec.getShuffleType();
+        DistributionSpecHash.StorageBucketHashType outputShuffleFunction = shuffleSide == ShuffleSide.LEFT
+                ? rightHashSpec.getShuffleFunction() : leftHashSpec.getShuffleFunction();
 
         switch (hashJoin.getJoinType()) {
             case INNER_JOIN:
@@ -522,7 +524,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case LEFT_OUTER_JOIN:
                 if (shuffleSide == ShuffleSide.LEFT) {
                     return new PhysicalProperties(
-                            leftHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
+                            leftHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType, outputShuffleFunction)
                     );
                 } else {
                     return new PhysicalProperties(leftHashSpec);
@@ -536,7 +538,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     // retain left shuffle type, since coordinator use left most node to schedule fragment
                     // forbid colocate join, since right table already shuffle
                     return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
-                            leftHashSpec.getShuffleType()));
+                            leftHashSpec.getShuffleType(), leftHashSpec.getShuffleFunction()));
                 }
             case FULL_OUTER_JOIN:
                 return PhysicalProperties.createAnyFromHash(leftHashSpec, rightHashSpec);
@@ -582,7 +584,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     // retain left shuffle type, since coordinator use left most node to schedule fragment
                     // forbid colocate join, since right table already shuffle
                     return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
-                            leftHashSpec.getShuffleType()));
+                            leftHashSpec.getShuffleType(), leftHashSpec.getShuffleFunction()));
                 }
             case FULL_OUTER_JOIN:
                 return PhysicalProperties.createAnyFromHash(leftHashSpec);

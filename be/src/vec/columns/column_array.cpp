@@ -323,9 +323,6 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
 void ColumnArray::update_murmur_with_value(size_t start, size_t end, int32_t& hash,
                                            const uint8_t* __restrict null_data) const {
     auto& offsets_column = get_offsets();
-    if (hash == 0) {
-        hash = HashUtil::SPARK_MURMUR_32_SEED;
-    }
     if (null_data) {
         for (size_t i = start; i < end; ++i) {
             if (null_data[i] == 0) {

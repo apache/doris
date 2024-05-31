@@ -220,14 +220,14 @@ void ColumnVector<T>::update_murmurs_with_value(int32_t* __restrict hashes, Prim
     DCHECK(s == size());
 
     if constexpr (!std::is_same_v<T, Int64>) {
-        DO_MURMUR_HASHES_FUNCTION_COLUMN_IMPL(HashUtil::SPARK_MURMUR_32_SEED)
+        DO_MURMUR_HASHES_FUNCTION_COLUMN_IMPL()
     } else {
         if (type == TYPE_DATE || type == TYPE_DATETIME) {
             char buf[64];
             auto date_convert_do_crc = [&](size_t i) {
                 const VecDateTimeValue& date_val = (const VecDateTimeValue&)data[i];
                 auto len = date_val.to_buffer(buf);
-                hashes[i] = HashUtil::murmur_hash3_32(buf, len, HashUtil::SPARK_MURMUR_32_SEED);
+                hashes[i] = HashUtil::murmur_hash3_32(buf, len, hashes[i]);
             };
 
             if (null_data == nullptr) {
@@ -242,7 +242,7 @@ void ColumnVector<T>::update_murmurs_with_value(int32_t* __restrict hashes, Prim
                 }
             }
         } else {
-            DO_MURMUR_HASHES_FUNCTION_COLUMN_IMPL(HashUtil::SPARK_MURMUR_32_SEED)
+            DO_MURMUR_HASHES_FUNCTION_COLUMN_IMPL()
         }
     }
 }

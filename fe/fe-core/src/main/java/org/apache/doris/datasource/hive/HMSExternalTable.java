@@ -64,6 +64,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.BiMap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -81,14 +82,13 @@ import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -577,7 +577,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     private Optional<SchemaCacheValue> getIcebergSchema() {
         List<Column> columns = IcebergUtils.getSchema(catalog, dbName, name);
-        List<Column> partitionColumns = initPartitionColumns(columns);
+        partitionColumns = initPartitionColumns(columns);
         initBucketingColumns(columns);
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }
@@ -654,7 +654,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     true, null, true, null, "", true, null, -1, null));
             colTypes.add(HudiUtils.convertAvroToHiveType(hudiField.schema()));
         }
-        List<Column> partitionColumns = initPartitionColumns(tmpSchema);
+        partitionColumns = initPartitionColumns(tmpSchema);
         HudiSchemaCacheValue hudiSchemaCacheValue = new HudiSchemaCacheValue(tmpSchema, partitionColumns);
         hudiSchemaCacheValue.setColTypes(colTypes);
         return Optional.of(hudiSchemaCacheValue);
@@ -672,7 +672,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
                     true, defaultValue, field.getComment(), true, -1));
         }
-        List<Column> partitionColumns = initPartitionColumns(columns);
+        partitionColumns = initPartitionColumns(columns);
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }
 
