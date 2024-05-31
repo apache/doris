@@ -408,7 +408,8 @@ void ExchangeSinkBuffer::_ended(InstanceLoId id) {
 void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
     _is_finishing = true;
     _context->cancel(Status::Cancelled(err));
-    _ended(id);
+    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    _turn_off_channel(id, true);
 }
 
 void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
