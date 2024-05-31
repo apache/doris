@@ -1109,7 +1109,7 @@ public class AnalysisManager implements Writable {
                     Database database = dbOption.get();
                     Optional<Table> tableOption = database.getTable(record.getKey());
                     if (!tableOption.isPresent()) {
-                        LOG.warn("Table {} does not exist in DB {}.", event.getDbId(), event.getDbId());
+                        LOG.warn("Table {} does not exist in DB {}.", record.getKey(), event.getDbId());
                         continue;
                     }
                     Table table = tableOption.get();
