@@ -40,7 +40,7 @@ suite("test_routine_load_generated_column") {
             def record = new ProducerRecord<>(topic, null, line)
             producer.send(record)
         }
-        def tableName = "gencol_refer_gencol"
+        def tableName = "gencol_refer_gencol_rload"
         sql "drop table if exists ${tableName}"
         sql """create table  ${tableName}(a int,c double generated always as (abs(a+b)) not null,b int, d int generated always as(c+1))
         DISTRIBUTED BY HASH(a)

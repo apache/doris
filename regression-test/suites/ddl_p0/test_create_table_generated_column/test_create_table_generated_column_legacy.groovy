@@ -18,36 +18,36 @@
 suite("test_create_table_generated_column_legacy") {
     // test legacy planner create
     sql "SET enable_nereids_planner=false;"
-    sql "drop table if exists test_gen_col_common"
-    qt_common_default """create table test_gen_col_common(a int,b int,c double generated always as (abs(a+b)) not null)
+    sql "drop table if exists test_gen_col_common_legacy"
+    qt_common_default """create table test_gen_col_common_legacy(a int,b int,c double generated always as (abs(a+b)) not null)
     DISTRIBUTED BY HASH(a)
     PROPERTIES("replication_num" = "1");
     ;"""
-    sql "drop table if exists test_gen_col_without_generated_always"
-    qt_common_without_generated_always """create table test_gen_col_without_generated_always(a int,b int,c double as (abs(a+b)) not null)
+    sql "drop table if exists test_gen_col_without_generated_always_legacy"
+    qt_common_without_generated_always """create table test_gen_col_without_generated_always_legacy(a int,b int,c double as (abs(a+b)) not null)
     DISTRIBUTED BY HASH(a)
     PROPERTIES("replication_num" = "1");
     ;"""
-    sql "drop table if exists test_gen_col_in_middle"
-    qt_gencol_in_middle """create table test_gen_col_in_middle(a int,c double generated always as (abs(a+b)) not null,b int)
+    sql "drop table if exists test_gen_col_in_middle_legacy"
+    qt_gencol_in_middle """create table test_gen_col_in_middle_legacy(a int,c double generated always as (abs(a+b)) not null,b int)
     DISTRIBUTED BY HASH(a)
     PROPERTIES("replication_num" = "1");"""
-    sql "drop table if exists gencol_refer_gencol"
+    sql "drop table if exists gencol_refer_gencol_legacy"
     qt_gencol_refer_gencol """
-    create table gencol_refer_gencol(a int,c double generated always as (abs(a+b)) not null,b int, d int generated always as(c+1))
+    create table gencol_refer_gencol_legacy(a int,c double generated always as (abs(a+b)) not null,b int, d int generated always as(c+1))
     DISTRIBUTED BY HASH(a)
     PROPERTIES("replication_num" = "1");
     """
-    sql "drop table if exists test_gen_col_array_func"
+    sql "drop table if exists test_gen_col_array_func_legacy"
     qt_gencol_array_function_create """
-    create table test_gen_col_array_func(pk int,a array<int>,b array<int>, c array<int> generated always as (array_union(a,b)) not null)
+    create table test_gen_col_array_func_legacy(pk int,a array<int>,b array<int>, c array<int> generated always as (array_union(a,b)) not null)
             DISTRIBUTED BY HASH(pk)
             PROPERTIES("replication_num" = "1");
     ;
     """
-    sql "drop table if exists test_gen_col_element_at_func"
+    sql "drop table if exists test_gen_col_element_at_func_legacy"
     qt_gencol_array_function_element_at_create """
-    create table test_gen_col_element_at_func(pk int,a array<int>,b array<int>, c int generated always as (element_at(a, 1)) not null)
+    create table test_gen_col_element_at_func_legacy(pk int,a array<int>,b array<int>, c int generated always as (element_at(a, 1)) not null)
             DISTRIBUTED BY HASH(pk)
             PROPERTIES("replication_num" = "1");
     ;
@@ -84,7 +84,7 @@ suite("test_create_table_generated_column_legacy") {
     // gencol_refer_gencol_after
     test {
         sql """
-        create table gencol_refer_gencol(a int,c double generated always as (abs(a+d)) not null,b int, d int generated always as(c+1))
+        create table gencol_refer_gencol_legacy(a int,c double generated always as (abs(a+d)) not null,b int, d int generated always as(c+1))
         DISTRIBUTED BY HASH(a)
         PROPERTIES("replication_num" = "1");
         """
@@ -130,7 +130,7 @@ suite("test_create_table_generated_column_legacy") {
 
     test {
         sql """
-            create table test_gen_col_array_func(pk int,a array<int>,b array<int>, c double generated always as (a+b) not null)
+            create table test_gen_col_array_func_legacy(pk int,a array<int>,b array<int>, c double generated always as (a+b) not null)
             DISTRIBUTED BY HASH(pk)
             PROPERTIES("replication_num" = "1");
         """
@@ -153,48 +153,48 @@ suite("test_create_table_generated_column_legacy") {
 
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
-    qt_common_default_insert "INSERT INTO test_gen_col_common values(6,7,default);"
-    qt_common_default_insert_with_specific_column "INSERT INTO test_gen_col_common(a,b) values(1,2);"
-    qt_common_default_test_insert_default "INSERT INTO test_gen_col_common values(3,5,default);"
-    qt_commont_default_select "select * from test_gen_col_common order by 1,2,3;"
+    qt_common_default_insert "INSERT INTO test_gen_col_common_legacy values(6,7,default);"
+    qt_common_default_insert_with_specific_column "INSERT INTO test_gen_col_common_legacy(a,b) values(1,2);"
+    qt_common_default_test_insert_default "INSERT INTO test_gen_col_common_legacy values(3,5,default);"
+    qt_commont_default_select "select * from test_gen_col_common_legacy order by 1,2,3;"
 
     // qt_common_default_test_insert_null
     test {
-        sql "INSERT INTO test_gen_col_common(a,b) values(1,null);"
+        sql "INSERT INTO test_gen_col_common_legacy(a,b) values(1,null);"
         exception "Insert has filtered data in strict mode."
     }
 
     // qt_common_default_test_insert_gencol
     test {
-        sql "INSERT INTO test_gen_col_common values(1,2,3);"
-        exception "The value specified for generated column 'c' in table 'test_gen_col_common' is not allowed."
+        sql "INSERT INTO test_gen_col_common_legacy values(1,2,3);"
+        exception "The value specified for generated column 'c' in table 'test_gen_col_common_legacy' is not allowed."
     }
 
 
-    qt_common_without_generated_always_insert "INSERT INTO test_gen_col_without_generated_always values(6,7,default);"
-    qt_common_without_generated_always_insert_with_specific_column "INSERT INTO test_gen_col_without_generated_always(a,b) values(1,2);"
-    qt_commont_without_generated_always_select "select * from test_gen_col_without_generated_always order by 1,2,3;"
+    qt_common_without_generated_always_insert "INSERT INTO test_gen_col_without_generated_always_legacy values(6,7,default);"
+    qt_common_without_generated_always_insert_with_specific_column "INSERT INTO test_gen_col_without_generated_always_legacy(a,b) values(1,2);"
+    qt_commont_without_generated_always_select "select * from test_gen_col_without_generated_always_legacy order by 1,2,3;"
 
 
-    qt_gencol_in_middle_insert "insert into test_gen_col_in_middle values(1,default,5);"
-    qt_gencol_in_middle_insert_with_specific_column "insert into test_gen_col_in_middle(a,b) values(4,5);"
-    qt_gencol_in_middle_insert_with_specific_column_2 "insert into test_gen_col_in_middle(a,b,c) values(1,6,default);"
-    qt_gencol_in_middle_select "select * from test_gen_col_in_middle order by 1,2,3;"
+    qt_gencol_in_middle_insert "insert into test_gen_col_in_middle_legacy values(1,default,5);"
+    qt_gencol_in_middle_insert_with_specific_column "insert into test_gen_col_in_middle_legacy(a,b) values(4,5);"
+    qt_gencol_in_middle_insert_with_specific_column_2 "insert into test_gen_col_in_middle_legacy(a,b,c) values(1,6,default);"
+    qt_gencol_in_middle_select "select * from test_gen_col_in_middle_legacy order by 1,2,3;"
 
 
-    qt_gencol_refer_gencol_insert "insert into gencol_refer_gencol values(1,default,5,default);"
-    qt_gencol_refer_gencol_insert2 "insert into gencol_refer_gencol(a,b) values(5,6);"
-    qt_gencol_refer_gencol_insert3 "insert into gencol_refer_gencol(a,b,c) values(2,9,default);"
-    qt_gencol_refer_gencol_insert4 "insert into gencol_refer_gencol(a,b,c,d) values(3,3,default,default);"
-    qt_gencol_refer_gencol_select "select * from gencol_refer_gencol order by 1,2,3,4;"
+    qt_gencol_refer_gencol_insert "insert into gencol_refer_gencol_legacy values(1,default,5,default);"
+    qt_gencol_refer_gencol_insert2 "insert into gencol_refer_gencol_legacy(a,b) values(5,6);"
+    qt_gencol_refer_gencol_insert3 "insert into gencol_refer_gencol_legacy(a,b,c) values(2,9,default);"
+    qt_gencol_refer_gencol_insert4 "insert into gencol_refer_gencol_legacy(a,b,c,d) values(3,3,default,default);"
+    qt_gencol_refer_gencol_select "select * from gencol_refer_gencol_legacy order by 1,2,3,4;"
 
 
-    qt_gencol_array_function_insert "insert into test_gen_col_array_func values(1,[1,2],[3,2],default);"
-    qt_gencol_array_function_select "select * from test_gen_col_array_func"
+    qt_gencol_array_function_insert "insert into test_gen_col_array_func_legacy values(1,[1,2],[3,2],default);"
+    qt_gencol_array_function_select "select * from test_gen_col_array_func_legacy"
 
 
-    qt_gencol_array_function_element_at_insert "insert into test_gen_col_element_at_func values(1,[1,2],[3,2],default);"
-    qt_gencol_array_function_element_at_select "select * from test_gen_col_element_at_func"
+    qt_gencol_array_function_element_at_insert "insert into test_gen_col_element_at_func_legacy values(1,[1,2],[3,2],default);"
+    qt_gencol_array_function_element_at_select "select * from test_gen_col_element_at_func_legacy"
 
     test {
         sql """
@@ -207,23 +207,23 @@ suite("test_create_table_generated_column_legacy") {
     }
 
     // test drop dependency
-    sql "drop table if exists gencol_refer_gencol"
+    sql "drop table if exists gencol_refer_gencol_legacy"
     qt_gencol_refer_gencol """
-    create table gencol_refer_gencol(a int,c double generated always as (abs(a+b)) not null,b int, d int generated always as(c+1))
+    create table gencol_refer_gencol_legacy(a int,c double generated always as (abs(a+b)) not null,b int, d int generated always as(c+1))
     DISTRIBUTED BY HASH(a)
     PROPERTIES("replication_num" = "1");
     """
-    sql "insert into gencol_refer_gencol(a,b) values(3,4)"
+    sql "insert into gencol_refer_gencol_legacy(a,b) values(3,4)"
     test {
-        sql "alter table gencol_refer_gencol drop column a"
+        sql "alter table gencol_refer_gencol_legacy drop column a"
         exception "Column 'a' has a generated column dependency on :[c]"
     }
     test {
-        sql "alter table gencol_refer_gencol drop column c"
+        sql "alter table gencol_refer_gencol_legacy drop column c"
         exception "Column 'c' has a generated column dependency on :[d]"
     }
-    sql "alter table gencol_refer_gencol drop column d"
-    sql "alter table gencol_refer_gencol drop column c"
-    sql "alter table gencol_refer_gencol drop column b"
-    qt_test_drop_column "select * from gencol_refer_gencol"
+    sql "alter table gencol_refer_gencol_legacy drop column d"
+    sql "alter table gencol_refer_gencol_legacy drop column c"
+    sql "alter table gencol_refer_gencol_legacy drop column b"
+    qt_test_drop_column "select * from gencol_refer_gencol_legacy"
 }
