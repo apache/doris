@@ -157,11 +157,7 @@ EngineCloneTask::EngineCloneTask(StorageEngine& engine, const TCloneReq& clone_r
 
 Status EngineCloneTask::execute() {
     // register the tablet to avoid it is deleted by gc thread during clone process
-    if (!_engine.tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
-        return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
-    }
     Status st = _do_clone();
-    _engine.tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
     _engine.tablet_manager()->update_partitions_visible_version(
             {{_clone_req.partition_id, _clone_req.version}});
     return st;
@@ -181,15 +177,11 @@ Status EngineCloneTask::_do_clone() {
     TSchemaHash schema_hash = tablet->schema_hash();
     size_t path_hash = tablet->data_dir()->path_hash();
 
-    auto [it, can_do]= _engine.tablet_manager()->register_transition_tablet(_clone_req.tablet_id, schema_hash, path_hash, "clone");
-    if (!can_do) {
-        LOG(INFO) << "other op " << it->second << " effect this tablet_id = " << _clone_req.tablet_id << " schema_hash=" << schema_hash << " pash_hash=" << path_hash;
-        return Status::InternalError<false>("clone tablet failed try later, tablet_id={}, schema_hash={}, path_hash={}", _clone_req.tablet_id , schema_hash, path_hash);
-    }
-    LOG(INFO) << "add tablet_id= " << _clone_req.tablet_id << " schema_hash=" << schema_hash << " path_hash=" << path_hash << " clone tablet to map";
+    RETURN_IF_ERROR(_engine.tablet_manager()->register_transition_tablet(
+            _clone_req.tablet_id, schema_hash, path_hash, "clone"));
     Defer defer {[&]() {
-        LOG(INFO) << "erase tablet_id= " << _clone_req.tablet_id << " schema_hash=" << schema_hash << " path_hash=" << path_hash << " clone tablet from map";
-        _engine.tablet_manager()->unregister_transition_tablet(_clone_req.tablet_id, schema_hash, path_hash);
+        _engine.tablet_manager()->unregister_transition_tablet(_clone_req.tablet_id, schema_hash,
+                                                               path_hash, "clone");
     }};
 
     // The status of a tablet is not ready, indicating that it is a residual tablet after a schema
@@ -198,13 +190,8 @@ Status EngineCloneTask::_do_clone() {
     if (tablet && tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(WARNING) << "tablet state is not ready when clone, need to drop old tablet, tablet_id="
                      << tablet->tablet_id();
-        // can not drop tablet when under clone. so unregister clone tablet firstly.
-        _engine.tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
         RETURN_IF_ERROR(_engine.tablet_manager()->drop_tablet(tablet->tablet_id(),
                                                               tablet->replica_id(), false));
-        if (!_engine.tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
-            return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
-        }
         tablet.reset();
     }
     bool is_new_tablet = tablet == nullptr;

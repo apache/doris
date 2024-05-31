@@ -50,36 +50,39 @@ class TTablet;
 class TTabletInfo;
 
 class TabletSchemaPath {
-    private:
-        TTabletId tablet_id;
-        TSchemaHash schema_hash;
-        size_t path_hash;
-    public:
-        TabletSchemaPath() = default;
-        TabletSchemaPath(TTabletId tablet_id, TSchemaHash schema_hash, size_t path_hash) : tablet_id(tablet_id), schema_hash(schema_hash), path_hash(path_hash) {}
-        TabletSchemaPath(TabletSchemaPath&& scp) {
-            tablet_id = std::move(scp.tablet_id);
-            schema_hash = std::move(scp.schema_hash);
-            path_hash = std::move(scp.path_hash);
-        }
-                
-        bool operator==(const TabletSchemaPath& other) const {
-            return tablet_id == other.tablet_id && schema_hash == other.schema_hash && path_hash == other.path_hash;
-        }
+private:
+    TTabletId tablet_id;
+    TSchemaHash schema_hash;
+    size_t path_hash;
 
-        bool operator<(const TabletSchemaPath& other) const {
-            if (tablet_id < other.tablet_id) {
-                return true;
-            } else if (tablet_id > other.tablet_id) {
-                return false;
-            } else if (schema_hash < other.schema_hash) {
-                return true;
-            } else if (schema_hash > other.schema_hash) {
-                return false;
-            } else {
-                return path_hash < other.path_hash;
-            }
+public:
+    TabletSchemaPath() = default;
+    TabletSchemaPath(TTabletId tablet_id, TSchemaHash schema_hash, size_t path_hash)
+            : tablet_id(tablet_id), schema_hash(schema_hash), path_hash(path_hash) {}
+    TabletSchemaPath(TabletSchemaPath&& scp) {
+        tablet_id = std::move(scp.tablet_id);
+        schema_hash = std::move(scp.schema_hash);
+        path_hash = std::move(scp.path_hash);
+    }
+
+    bool operator==(const TabletSchemaPath& other) const {
+        return tablet_id == other.tablet_id && schema_hash == other.schema_hash &&
+               path_hash == other.path_hash;
+    }
+
+    bool operator<(const TabletSchemaPath& other) const {
+        if (tablet_id < other.tablet_id) {
+            return true;
+        } else if (tablet_id > other.tablet_id) {
+            return false;
+        } else if (schema_hash < other.schema_hash) {
+            return true;
+        } else if (schema_hash > other.schema_hash) {
+            return false;
+        } else {
+            return path_hash < other.path_hash;
         }
+    }
 };
 
 // TabletManager provides get, add, delete tablet method for storage engine
@@ -192,15 +195,10 @@ public:
     void obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info, int64_t num);
 
     // return `true` if register success
-    bool register_clone_tablet(int64_t tablet_id);
-    void unregister_clone_tablet(int64_t tablet_id);
-
-    // return `true` if register success
-    std::pair<std::map<TabletSchemaPath, std::string>::iterator, bool> register_transition_tablet(int64_t tablet_id, TSchemaHash schema_hash, size_t path_hash, std::string reason);
-    void unregister_transition_tablet(int64_t tablet_id, TSchemaHash schema_hash, size_t path_hash);
-
-    std::pair<std::map<TabletSchemaPath, std::string>::iterator, bool> register_transition_tablet_nolock(int64_t tablet_id, TSchemaHash schema_hash, size_t path_hash, std::string reason);
-    void unregister_transition_tablet_nolock(int64_t tablet_id, TSchemaHash schema_hash, size_t path_hash);
+    Status register_transition_tablet(int64_t tablet_id, TSchemaHash schema_hash, size_t path_hash,
+                                      std::string reason);
+    void unregister_transition_tablet(int64_t tablet_id, TSchemaHash schema_hash, size_t path_hash,
+                                      std::string reason);
 
     void get_tablets_distribution_on_different_disks(
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
@@ -271,15 +269,13 @@ private:
         tablets_shard() = default;
         tablets_shard(tablets_shard&& shard) {
             tablet_map = std::move(shard.tablet_map);
-            tablets_under_clone = std::move(shard.tablets_under_clone);
             tablets_under_transition = std::move(shard.tablets_under_transition);
         }
-        // protect tablet_map, tablets_under_clone and tablets_under_restore
         mutable std::shared_mutex lock;
         tablet_map_t tablet_map;
-        std::set<int64_t> tablets_under_clone;
+        mutable std::shared_mutex lock_for_transition;
         // tablet do clone, path gc, move to trash, disk migrate will record in tablets_under_transition
-        std::map<TabletSchemaPath, std::string> tablets_under_transition; 
+        std::map<TabletSchemaPath, std::string> tablets_under_transition;
     };
 
     struct Partition {
