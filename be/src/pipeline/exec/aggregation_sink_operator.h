@@ -146,8 +146,12 @@ public:
                            ? DataDistribution(ExchangeType::PASSTHROUGH)
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();
         }
-        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        return _is_colocate && _require_bucket_distribution
+                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                       : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+    }
+    bool require_data_distribution() const override {
+        return _is_colocate;
     }
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
@@ -195,6 +199,7 @@ protected:
 
     const std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
+    const bool _require_bucket_distribution;
 
     RowDescriptor _agg_fn_output_row_descriptor;
 };
