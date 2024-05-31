@@ -261,6 +261,20 @@ suite("test_limit_op_mtmv") {
         Assert.fail();
     }
 
+    sql """drop materialized view if exists ${mvName};"""
+  // not allow dynamic_partition
+  test {
+          sql """
+              CREATE MATERIALIZED VIEW ${mvName}
+              BUILD DEFERRED REFRESH AUTO ON MANUAL
+              partition by(`k3`)
+              DISTRIBUTED BY RANDOM BUCKETS 2
+              PROPERTIES ('replication_num' = '1','dynamic_partition.enable'='true')
+              AS
+              SELECT * FROM ${tableName};
+          """
+          exception "dynamic"
+      }
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 }
