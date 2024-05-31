@@ -55,6 +55,7 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     SCOPED_TIMER(Base::_init_timer);
     _agg_data = Base::_shared_state->agg_data.get();
     _agg_arena_pool = Base::_shared_state->agg_arena_pool.get();
+    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
     _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
                                                             TUnit::BYTES, "MemoryUsage", 1);
     _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
@@ -479,11 +480,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
 
 size_t AggSinkLocalState::_get_hash_table_size() const {
     return std::visit(
-            vectorized::Overload {[&](std::monostate& arg) -> size_t {
-                                      throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                             "uninited hash table");
-                                      return 0;
-                                  },
+            vectorized::Overload {[&](std::monostate& arg) -> size_t { return 0; },
                                   [&](auto& agg_method) { return agg_method.hash_table->size(); }},
             _agg_data->method_variant);
 }
@@ -698,6 +695,8 @@ Status AggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_
     if (in_block->rows() > 0) {
         RETURN_IF_ERROR(local_state._executor->execute(&local_state, in_block));
         local_state._executor->update_memusage(&local_state);
+        COUNTER_SET(local_state._hash_table_size_counter,
+                    (int64_t)local_state._get_hash_table_size());
     }
     if (eos) {
         local_state._dependency->set_ready_to_read();

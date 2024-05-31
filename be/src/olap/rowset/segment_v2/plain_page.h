@@ -70,10 +70,12 @@ public:
     }
 
     Status reset() override {
-        _buffer.reserve(_options.data_page_size + 1024);
-        _count = 0;
-        _buffer.clear();
-        _buffer.resize(PLAIN_PAGE_HEADER_SIZE);
+        RETURN_IF_CATCH_EXCEPTION({
+            _buffer.reserve(_options.data_page_size + 1024);
+            _count = 0;
+            _buffer.clear();
+            _buffer.resize(PLAIN_PAGE_HEADER_SIZE);
+        });
         return Status::OK();
     }
 

@@ -41,7 +41,8 @@ suite("test_hive_write_different_path", "p0,external,hive,external_docker,extern
             sql """drop catalog if exists ${catalog3}"""
             sql """create catalog if not exists ${catalog1} properties (
                 'type'='hms',
-                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+                'use_meta_cache' = 'true'
             );"""
 
             sql """ use ${catalog1}.write_test """
@@ -73,7 +74,8 @@ suite("test_hive_write_different_path", "p0,external,hive,external_docker,extern
             sql """create catalog if not exists ${catalog2} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port2}'
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port2}',
+                'use_meta_cache' = 'true'
             );"""
             sql """create catalog if not exists ${catalog3} properties (
                 'type'='hms',
