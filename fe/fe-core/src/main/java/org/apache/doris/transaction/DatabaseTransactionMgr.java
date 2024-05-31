@@ -1088,12 +1088,7 @@ public class DatabaseTransactionMgr {
     }
 
     private void produceEvent(TransactionState transactionState, Database db) {
-        Collection<TableCommitInfo> tableCommitInfos;
-        if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
-            tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
-        } else {
-            tableCommitInfos = transactionState.getIdToTableCommitInfos().values();
-        }
+        Collection<TableCommitInfo> tableCommitInfos = transactionState.getIdToTableCommitInfos().values();
         for (TableCommitInfo tableCommitInfo : tableCommitInfos) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
