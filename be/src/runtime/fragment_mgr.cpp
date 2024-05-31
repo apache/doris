@@ -997,6 +997,9 @@ void FragmentMgr::cancel_instance(const TUniqueId instance_id, const Status reas
     std::shared_ptr<PlanFragmentExecutor> non_pipeline_ctx;
     {
         std::lock_guard<std::mutex> state_lock(_lock);
+        DCHECK(!_pipeline_map.contains(instance_id))
+                << " Pipeline tasks should be canceled by query instead of instance! Query ID: "
+                << print_id(_pipeline_map[instance_id]->get_query_id());
         const bool is_pipeline_instance = _pipeline_map.contains(instance_id);
         if (is_pipeline_instance) {
             auto itr = _pipeline_map.find(instance_id);
@@ -1027,25 +1030,12 @@ void FragmentMgr::cancel_instance(const TUniqueId instance_id, const Status reas
     }
 }
 
-void FragmentMgr::cancel_fragment(const TUniqueId query_id, int32_t fragment_id,
-                                  const Status reason) {
-    std::unique_lock<std::mutex> lock(_lock);
-    if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
-        // the lock should only be used to protect the map, not scope query ctx
-        lock.unlock();
-        WARN_IF_ERROR(q_ctx->cancel_pipeline_context(fragment_id, reason),
-                      "fail to cancel fragment");
-    } else {
-        LOG(WARNING) << "Could not find the query id:" << print_id(query_id)
-                     << " fragment id:" << fragment_id << " to cancel";
-    }
-}
-
 void FragmentMgr::cancel_worker() {
     LOG(INFO) << "FragmentMgr cancel worker start working.";
     do {
         std::vector<TUniqueId> to_cancel;
-        std::vector<TUniqueId> queries_to_cancel;
+        std::vector<TUniqueId> queries_lost_coordinator;
+        std::vector<TUniqueId> queries_timeout;
 
         timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
@@ -1056,18 +1046,13 @@ void FragmentMgr::cancel_worker() {
                     to_cancel.push_back(fragment_instance_itr.second->fragment_instance_id());
                 }
             }
-            for (auto& pipeline_itr : _pipeline_map) {
-                if (pipeline_itr.second->is_timeout(now)) {
-                    std::vector<TUniqueId> ins_ids;
-                    pipeline_itr.second->instance_ids(ins_ids);
-                    for (auto& ins_id : ins_ids) {
-                        to_cancel.push_back(ins_id);
-                    }
-                }
-            }
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
                 if (auto q_ctx = it->second.lock()) {
-                    if (q_ctx->is_timeout(now)) {
+                    if (q_ctx->is_timeout(now) && q_ctx->enable_pipeline_x_exec()) {
+                        LOG_WARNING("Query {} is timeout", print_id(it->first));
+                        queries_timeout.push_back(it->first);
+                        ++it;
+                    } else if (q_ctx->is_timeout(now)) {
                         LOG_WARNING("Query {} is timeout", print_id(it->first));
                         it = _query_ctx_map.erase(it);
                     } else {
@@ -1120,7 +1105,7 @@ void FragmentMgr::cancel_worker() {
                         }
                     }
                     // Coordinator of this query has already dead or query context has been released.
-                    queries_to_cancel.push_back(it.first);
+                    queries_lost_coordinator.push_back(it.first);
                 }
             }
         }
@@ -1136,12 +1121,18 @@ void FragmentMgr::cancel_worker() {
                       << print_id(id);
         }
 
-        if (!queries_to_cancel.empty()) {
-            LOG(INFO) << "There are " << queries_to_cancel.size()
+        if (!queries_lost_coordinator.empty()) {
+            LOG(INFO) << "There are " << queries_lost_coordinator.size()
                       << " queries need to be cancelled, coordinator dead or restarted.";
         }
 
-        for (const auto& qid : queries_to_cancel) {
+        for (const auto& qid : queries_timeout) {
+            cancel_query(qid,
+                         Status::Error<ErrorCode::TIMEOUT>(
+                                 "FragmentMgr cancel worker going to cancel timeout instance "));
+        }
+
+        for (const auto& qid : queries_lost_coordinator) {
             cancel_query(qid, Status::InternalError("Coordinator dead."));
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
@@ -1166,40 +1157,17 @@ void FragmentMgr::debug(std::stringstream& ss) {
  * 2. build TExecPlanFragmentParams
  */
 Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
+                                                const TQueryPlanInfo& t_query_plan_info,
                                                 const TUniqueId& fragment_instance_id,
                                                 std::vector<TScanColumnDesc>* selected_columns) {
-    const std::string& opaqued_query_plan = params.opaqued_query_plan;
-    std::string query_plan_info;
-    // base64 decode query plan
-    if (!base64_decode(opaqued_query_plan, &query_plan_info)) {
-        LOG(WARNING) << "open context error: base64_decode decode opaqued_query_plan failure";
-        std::stringstream msg;
-        msg << "query_plan_info: " << query_plan_info
-            << " validate error, should not be modified after returned Doris FE processed";
-        return Status::InvalidArgument(msg.str());
-    }
-    TQueryPlanInfo t_query_plan_info;
-    const uint8_t* buf = (const uint8_t*)query_plan_info.data();
-    uint32_t len = query_plan_info.size();
-    // deserialize TQueryPlanInfo
-    auto st = deserialize_thrift_msg(buf, &len, false, &t_query_plan_info);
-    if (!st.ok()) {
-        LOG(WARNING) << "open context error: deserialize TQueryPlanInfo failure";
-        std::stringstream msg;
-        msg << "query_plan_info: " << query_plan_info
-            << " deserialize error, should not be modified after returned Doris FE processed";
-        return Status::InvalidArgument(msg.str());
-    }
-
     // set up desc tbl
     DescriptorTbl* desc_tbl = nullptr;
     ObjectPool obj_pool;
-    st = DescriptorTbl::create(&obj_pool, t_query_plan_info.desc_tbl, &desc_tbl);
+    Status st = DescriptorTbl::create(&obj_pool, t_query_plan_info.desc_tbl, &desc_tbl);
     if (!st.ok()) {
         LOG(WARNING) << "open context error: extract DescriptorTbl failure";
         std::stringstream msg;
-        msg << "query_plan_info: " << query_plan_info
-            << " create DescriptorTbl error, should not be modified after returned Doris FE "
+        msg << " create DescriptorTbl error, should not be modified after returned Doris FE "
                "processed";
         return Status::InvalidArgument(msg.str());
     }
@@ -1207,8 +1175,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     if (tuple_desc == nullptr) {
         LOG(WARNING) << "open context error: extract TupleDescriptor failure";
         std::stringstream msg;
-        msg << "query_plan_info: " << query_plan_info
-            << " get  TupleDescriptor error, should not be modified after returned Doris FE "
+        msg << " get  TupleDescriptor error, should not be modified after returned Doris FE "
                "processed";
         return Status::InvalidArgument(msg.str());
     }
