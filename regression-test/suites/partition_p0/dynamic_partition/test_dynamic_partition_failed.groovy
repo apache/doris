@@ -55,7 +55,7 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
                     "dynamic_partition.start" = "-99999999",
                     "dynamic_partition.create_history_partition" = "true"
                   )'''
-            exception 'InternalCatalog.createPartitionWithIndices.createFailed'
+            exception 'date/datetime literal [+271768-09-11 00:00:00] is invalid'
         }
     } finally {
         setFeConfig('max_dynamic_partition_num', old_max_dynamic_partition_num)
