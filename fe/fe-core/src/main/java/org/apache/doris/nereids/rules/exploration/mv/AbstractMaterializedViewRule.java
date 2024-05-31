@@ -59,7 +59,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
@@ -338,22 +337,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     private static void trySetStatistics(MaterializationContext context, CascadesContext cascadesContext) {
         Optional<Pair<Id, Statistics>> materializationPlanStatistics = context.getPlanStatistics(cascadesContext);
         if (materializationPlanStatistics.isPresent() && materializationPlanStatistics.get().key() != null) {
-            Statistics originalPlanStatistics = materializationPlanStatistics.get().value();
-            Map<Expression, ColumnStatistic> normalizedExpressionMap = new HashMap<>();
-            // this statistics column expression is materialization origin plan, should normalize it to
-            // materialization scan plan
-            for (Map.Entry<Expression, ColumnStatistic> entry : originalPlanStatistics.columnStatistics().entrySet()) {
-                Expression targetExpression = entry.getKey();
-                Expression sourceExpression = context.getExprToScanExprMapping().get(targetExpression);
-                if (sourceExpression != null && targetExpression instanceof NamedExpression
-                        && sourceExpression instanceof NamedExpression) {
-                    normalizedExpressionMap.put(normalizeExpression(
-                            (NamedExpression) sourceExpression, (NamedExpression) targetExpression).toSlot(),
-                            entry.getValue());
-                }
-            }
             cascadesContext.getStatementContext().addStatistics(materializationPlanStatistics.get().key(),
-                    originalPlanStatistics.withExpressionToColumnStats(normalizedExpressionMap));
+                    materializationPlanStatistics.get().value());
         }
     }
 
@@ -541,7 +526,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * query
      * Keep the replacedExpression slot property is the same as the sourceExpression
      */
-    private static NamedExpression normalizeExpression(
+    public static NamedExpression normalizeExpression(
             NamedExpression sourceExpression, NamedExpression replacedExpression) {
         Expression innerExpression = replacedExpression;
         if (replacedExpression.nullable() != sourceExpression.nullable()) {
