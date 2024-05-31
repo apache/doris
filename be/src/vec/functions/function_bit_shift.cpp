@@ -77,7 +77,7 @@ struct BitShiftRightImpl {
             if (UNLIKELY(b >= 64 || b < 0)) {
                 return 0;
             }
-            
+
             return static_cast<typename std::make_unsigned<A>::type>(a) >> static_cast<Result>(b);
         }
     }
