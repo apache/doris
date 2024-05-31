@@ -17,30 +17,23 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-public class PrepareStmtContext {
-    private static final Logger LOG = LogManager.getLogger(PrepareStmtContext.class);
-    public StatementBase stmt;
+public class PreparedStatementContext {
+    public PrepareCommand command;
     public ConnectContext ctx;
-    public Planner planner;
-    public Analyzer analyzer;
+    StatementContext statementContext;
     public String stmtString;
 
     // Timestamp in millisecond last command starts at
     protected volatile long startTime;
 
-    public PrepareStmtContext(StatementBase stmt, ConnectContext ctx, Planner planner,
-                                    Analyzer analyzer, String stmtString) {
-        this.stmt = stmt;
+    public PreparedStatementContext(PrepareCommand command,
+                ConnectContext ctx, StatementContext statementContext, String stmtString) {
+        this.command = command;
         this.ctx = ctx;
-        this.planner = planner;
-        this.analyzer = analyzer;
+        this.statementContext = statementContext;
         this.stmtString = stmtString;
     }
 
