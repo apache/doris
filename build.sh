@@ -372,12 +372,7 @@ if [[ ! -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
     fi
 else
     if [[ -z "${USE_JEMALLOC_HOOK}" ]]; then
-        if [[ "$(uname -s)" != 'Darwin' ]]; then
-            USE_JEMALLOC_HOOK='OFF'
-        else
-            # compile jemalloc on mac have default prefix `je_`, so default use prefix jemalloc to ensure code uniformity.
-            USE_JEMALLOC_HOOK='ON'
-        fi
+        USE_JEMALLOC_HOOK='OFF'
     fi
     # update jemalloc prefix
     rm -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
