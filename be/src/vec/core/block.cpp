@@ -735,7 +735,6 @@ void Block::swap(Block& other) noexcept {
 
 void Block::swap(Block&& other) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
-    clear();
     data = std::move(other.data);
     index_by_name = std::move(other.index_by_name);
     row_same_bit = std::move(other.row_same_bit);

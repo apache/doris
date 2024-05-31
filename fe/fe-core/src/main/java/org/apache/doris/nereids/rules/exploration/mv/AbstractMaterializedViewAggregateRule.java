@@ -94,7 +94,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // Firstly,if group by expression between query and view is equals, try to rewrite expression directly
         Plan queryTopPlan = queryTopPlanAndAggPair.key();
         if (isGroupByEquals(queryTopPlanAndAggPair, viewTopPlanAndAggPair, viewToQuerySlotMapping, queryStructInfo,
-                viewStructInfo)) {
+                viewStructInfo, materializationContext)) {
             List<Expression> rewrittenQueryExpressions = rewriteExpression(queryTopPlan.getOutput(),
                     queryTopPlan,
                     materializationContext.getExprToScanExprMapping(),
@@ -253,7 +253,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             Pair<Plan, LogicalAggregate<Plan>> viewTopPlanAndAggPair,
             SlotMapping viewToQuerySlotMapping,
             StructInfo queryStructInfo,
-            StructInfo viewStructInfo) {
+            StructInfo viewStructInfo,
+            MaterializationContext materializationContext) {
         Plan queryTopPlan = queryTopPlanAndAggPair.key();
         Plan viewTopPlan = viewTopPlanAndAggPair.key();
         LogicalAggregate<Plan> queryAggregate = queryTopPlanAndAggPair.value();

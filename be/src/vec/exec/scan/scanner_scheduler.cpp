@@ -261,24 +261,26 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
             break;
         }
-        raw_bytes_read += free_block->allocated_bytes();
+        auto free_block_bytes = free_block->allocated_bytes();
+        raw_bytes_read += free_block_bytes;
         if (!scan_task->cached_blocks.empty() &&
-            scan_task->cached_blocks.back()->rows() + free_block->rows() <= ctx->batch_size()) {
-            size_t block_size = scan_task->cached_blocks.back()->allocated_bytes();
-            vectorized::MutableBlock mutable_block(scan_task->cached_blocks.back().get());
+            scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
+                    ctx->batch_size()) {
+            size_t block_size = scan_task->cached_blocks.back().first->allocated_bytes();
+            vectorized::MutableBlock mutable_block(scan_task->cached_blocks.back().first.get());
             status = mutable_block.merge(*free_block);
             if (!status.ok()) {
                 LOG(WARNING) << "Block merge failed: " << status.to_string();
                 break;
             }
-            scan_task->cached_blocks.back().get()->set_columns(
+            scan_task->cached_blocks.back().first.get()->set_columns(
                     std::move(mutable_block.mutable_columns()));
             ctx->return_free_block(std::move(free_block));
-            ctx->inc_free_block_usage(scan_task->cached_blocks.back()->allocated_bytes() -
+            ctx->inc_free_block_usage(scan_task->cached_blocks.back().first->allocated_bytes() -
                                       block_size);
         } else {
             ctx->inc_free_block_usage(free_block->allocated_bytes());
-            scan_task->cached_blocks.push_back(std::move(free_block));
+            scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
         }
     } // end for while
 

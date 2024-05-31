@@ -73,7 +73,7 @@ private:
 
 public:
     std::weak_ptr<ScannerDelegate> scanner;
-    std::list<vectorized::BlockUPtr> cached_blocks;
+    std::list<std::pair<vectorized::BlockUPtr, size_t>> cached_blocks;
     uint64_t last_submit_time; // nanoseconds
 
     void set_status(Status _status) {

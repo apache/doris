@@ -1338,6 +1338,7 @@ struct TPlanNode {
   105: optional list<Types.TTupleId> intermediate_output_tuple_id_list
 
   106: optional list<i32> topn_filter_source_node_ids
+  107: optional i32 nereids_id
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

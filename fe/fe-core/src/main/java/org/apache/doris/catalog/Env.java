@@ -191,6 +191,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -3131,6 +3132,10 @@ public class Env {
 
     public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
         getInternalCatalog().recoverPartition(recoverStmt);
+    }
+
+    public void dropCatalogRecycleBin(IdType idType, long id) throws DdlException {
+        getInternalCatalog().dropCatalogRecycleBin(idType, id);
     }
 
     public void replayEraseDatabase(long dbId) throws DdlException {

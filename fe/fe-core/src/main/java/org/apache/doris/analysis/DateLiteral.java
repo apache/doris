@@ -786,6 +786,10 @@ public class DateLiteral extends LiteralExpr {
         return getLongValue();
     }
 
+    public double getDoubleValueAsDateTime() {
+        return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
+    }
+
     @Override
     protected void toThrift(TExprNode msg) {
         if (type.isDatetimeV2()) {

@@ -332,7 +332,8 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
             sql """create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+                'use_meta_cache' = 'true'
             );"""
             sql """switch ${catalog_name}"""
 

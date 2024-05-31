@@ -1491,7 +1491,8 @@ public class DatabaseTransactionMgr {
                         || tblPartitionInfo.getType() == PartitionType.LIST) {
                     partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
                 }
-                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange, -1, -1);
+                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange, -1, -1,
+                        table.isTemporaryPartition(partitionId));
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
             }
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
@@ -1514,7 +1515,8 @@ public class DatabaseTransactionMgr {
             partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
         }
         return new PartitionCommitInfo(partitionId, partitionRange,
-                partitionVersion, System.currentTimeMillis() /* use as partition visible time */);
+                partitionVersion, System.currentTimeMillis() /* use as partition visible time */,
+                table.isTemporaryPartition(partitionId));
     }
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
