@@ -330,9 +330,7 @@ DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, i
           _output_tuple_id(tnode.agg_node.output_tuple_id),
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
-          _partition_exprs(tnode.__isset.distribute_expr_lists &&
-                                           tnode.agg_node.__isset.is_colocate &&
-                                           tnode.agg_node.is_colocate && require_bucket_distribution
+          _partition_exprs(tnode.__isset.distribute_expr_lists && require_bucket_distribution
                                    ? tnode.distribute_expr_lists[0]
                                    : tnode.agg_node.grouping_exprs),
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate),
