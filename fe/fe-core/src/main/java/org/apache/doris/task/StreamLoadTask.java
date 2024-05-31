@@ -466,6 +466,10 @@ public class StreamLoadTask implements LoadTaskInfo {
 
     // used for stream load
     private void setColumnToColumnExpr(String columns) throws UserException {
+        // wrap each column with `` to escape potential syntax error caused by keyword
+        columns = String.join(",", Arrays.stream(columns.split(","))
+                .map(column -> "`" + column.trim() + "`")
+                .toArray(String[]::new));
         String columnsSQL = new String("COLUMNS (" + columns + ")");
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
         ImportColumnsStmt columnsStmt;
