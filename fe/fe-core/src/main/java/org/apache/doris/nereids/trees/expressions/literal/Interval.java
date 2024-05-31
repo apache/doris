@@ -25,6 +25,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateType;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.EnumUtils;
 
 import java.util.Optional;
 
@@ -102,12 +103,7 @@ public class Interval extends Expression implements LeafExpression, AlwaysNotNul
          * Construct time unit by name
          */
         public static Optional<TimeUnit> of(String name) {
-            for (TimeUnit unit : TimeUnit.values()) {
-                if (unit.toString().equalsIgnoreCase(name)) {
-                    return Optional.of(unit);
-                }
-            }
-            return Optional.empty();
+            return Optional.ofNullable(EnumUtils.getEnumIgnoreCase(TimeUnit.class, name));
         }
     }
 }

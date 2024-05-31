@@ -95,7 +95,7 @@ public class MaterializedViewUtils {
             }
         }
         if (columnExpr == null) {
-            return new RelatedTableInfo("partition column can not find from sql select column");
+            return RelatedTableInfo.failWith("partition column can not find from sql select column");
         }
         if (timeUnit != null) {
             Expression dateTrunc = new DateTrunc(columnExpr, new VarcharLiteral(timeUnit));
@@ -106,18 +106,18 @@ public class MaterializedViewUtils {
             List<Object> dataTruncExpressions = dateTrunc.collectToList(DateTrunc.class::isInstance);
             if (dataTruncExpressions.size() > 1) {
                 // mv time unit level is little then query
-                return new RelatedTableInfo("partition column time unit level should be "
+                return RelatedTableInfo.failWith("partition column time unit level should be "
                         + "greater than sql select column");
             }
             columnExpr = (Slot) dateTrunc.getArgument(0);
         }
         if (!(columnExpr instanceof SlotReference)) {
-            return new RelatedTableInfo("partition reference column should be direct column "
+            return RelatedTableInfo.failWith("partition reference column should be direct column "
                     + "rather then expression");
         }
         SlotReference columnSlot = (SlotReference) columnExpr;
         if (!columnSlot.isColumnFromTable()) {
-            return new RelatedTableInfo("partition slot referenced column should be "
+            return RelatedTableInfo.failWith("partition slot referenced column should be "
                     + "direct column rather then expression");
         }
         // Collect table relation map which is used to identify self join
@@ -135,15 +135,15 @@ public class MaterializedViewUtils {
         Multimap<TableIf, Column> partitionRelatedTableAndColumnMap =
                 checkContext.getPartitionRelatedTableAndColumnMap();
         if (partitionRelatedTableAndColumnMap.isEmpty()) {
-            return new RelatedTableInfo(String.format("can't not find valid partition track column, because %s",
+            return RelatedTableInfo.failWith(String.format("can't not find valid partition track column, because %s",
                             String.join(",", checkContext.getFailReasons())));
         }
         // TODO support to return only one related table info, support multi later
         for (Map.Entry<TableIf, Column> entry : partitionRelatedTableAndColumnMap.entries()) {
-            return new RelatedTableInfo(new BaseTableInfo(entry.getKey()), true,
+            return RelatedTableInfo.successWith(new BaseTableInfo(entry.getKey()), true,
                     entry.getValue().getName());
         }
-        return new RelatedTableInfo("can't not find valid partition track column finally");
+        return RelatedTableInfo.failWith("can't not find valid partition track column finally");
     }
 
     /**
@@ -521,19 +521,19 @@ public class MaterializedViewUtils {
         private final String column;
         private final Set<String> failReasons = new HashSet<>();
 
-        public RelatedTableInfo(String failReason) {
-            this(null, false, null, failReason);
-        }
-
-        public RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column) {
-            this(tableInfo, pctPossible, column, "");
-        }
-
         public RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column, String failReason) {
             this.tableInfo = tableInfo;
             this.pctPossible = pctPossible;
             this.column = column;
             this.failReasons.add(failReason);
+        }
+
+        public static RelatedTableInfo failWith(String failReason) {
+            return new RelatedTableInfo(null, false, null, failReason);
+        }
+
+        public static RelatedTableInfo successWith(BaseTableInfo tableInfo, boolean pctPossible, String column) {
+            return new RelatedTableInfo(tableInfo, pctPossible, column, "");
         }
 
         public BaseTableInfo getTableInfo() {

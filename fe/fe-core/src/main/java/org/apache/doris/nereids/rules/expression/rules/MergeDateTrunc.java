@@ -26,11 +26,10 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Rewrite rule to convert
@@ -40,12 +39,7 @@ import java.util.Set;
 public class MergeDateTrunc implements ExpressionPatternRuleFactory {
 
     public static MergeDateTrunc INSTANCE = new MergeDateTrunc();
-    public static Set<TimeUnit> UN_SUPPORT_TIME_UNIT = new HashSet<>();
-
-    static {
-        UN_SUPPORT_TIME_UNIT.add(TimeUnit.WEEK);
-        UN_SUPPORT_TIME_UNIT.add(TimeUnit.QUARTER);
-    }
+    public static ImmutableSet<TimeUnit> UN_SUPPORT_TIME_UNIT = ImmutableSet.of(TimeUnit.WEEK, TimeUnit.QUARTER);
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {

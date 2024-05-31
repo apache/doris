@@ -82,7 +82,7 @@ public class MTMVPartitionDefinition {
         if (this.partitionType == MTMVPartitionType.EXPR) {
             String functionName = ((UnboundFunction) functionCallExpression).getName();
             if (functionCallExpression instanceof UnboundFunction
-                    && functionName.equals(PARTITION_BY_FUNCTION_NAME)) {
+                    && functionName.equalsIgnoreCase(PARTITION_BY_FUNCTION_NAME)) {
                 partitionColName = functionCallExpression.getArgument(0) instanceof UnboundSlot
                         ? ((UnboundSlot) functionCallExpression.getArgument(0)).getName() : null;
                 timeUnit = functionCallExpression.getArguments().get(1).isLiteral()

@@ -54,8 +54,8 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 DigitalMaskingConvert.INSTANCE,
                 SimplifyArithmeticComparisonRule.INSTANCE,
                 ConvertAggStateCast.INSTANCE,
-                CheckCast.INSTANCE,
-                MergeDateTrunc.INSTANCE
+                MergeDateTrunc.INSTANCE,
+                CheckCast.INSTANCE
             )
     );
 
