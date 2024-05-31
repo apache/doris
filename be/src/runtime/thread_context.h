@@ -85,7 +85,7 @@
 #define MEMORY_ORPHAN_CHECK() (void)0
 #endif
 
-#if defined(USE_MEM_TRACKER) && !defined(BE_TEST) && defined(USE_JEMALLOC_HOOK)
+#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
 // Count a code segment memory (memory malloc - memory free) to int64_t
 // Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT_BY_HOOK(&scope_mem); xxx; xxx; }
 #define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) \
@@ -93,7 +93,6 @@
 
 // Count a code segment memory (memory malloc - memory free) to MemTracker.
 // Compared to count `scope_mem`, MemTracker is easier to observe from the outside and is thread-safe.
-// Usage example: std::unique_ptr<MemTracker> tracker = std::make_unique<MemTracker>("first_tracker");
 //                { SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(_mem_tracker.get()); xxx; xxx; }
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumerByHook(mem_tracker)
@@ -108,8 +107,6 @@
     auto VARNAME_LINENUM(scope_skip_memory_check) = doris::ScopeSkipMemoryCheck()
 
 #define SKIP_LARGE_MEMORY_CHECK(...)                                       \
-    do {                                                                   \
-        doris::ThreadLocalHandle::create_thread_local_if_not_exits();      \
         doris::thread_context()->skip_large_memory_check++;                \
         DEFER({                                                            \
             doris::thread_context()->skip_large_memory_check--;            \
