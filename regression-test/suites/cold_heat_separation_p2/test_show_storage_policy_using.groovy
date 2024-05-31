@@ -146,8 +146,8 @@ suite("test_show_storage_policy_using") {
     assertTrue(show_result.size() == 0)
 
     // cleanup
-//    sql """ DROP TABLE IF EXISTS table_with_storage_policy_1 """
-//    sql """ DROP TABLE IF EXISTS table_no_storage_policy_1 """
-//    sql """ DROP TABLE IF EXISTS partition_with_storage_policy_1 """
-//    sql """ DROP TABLE IF EXISTS table_with_storage_policy_2"""
+    sql """ DROP TABLE IF EXISTS table_with_storage_policy_1 """
+    sql """ DROP TABLE IF EXISTS table_no_storage_policy_1 """
+    sql """ DROP TABLE IF EXISTS partition_with_storage_policy_1 """
+    sql """ DROP TABLE IF EXISTS table_with_storage_policy_2"""
 }
