@@ -1622,7 +1622,7 @@ public class StmtExecutor {
                 planner.plan(newSelectStmt, context.getSessionVariable().toThrift());
             }
         }
-        sendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
+        executeAndSendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
     }
 
     // Process a select statement.
@@ -1704,11 +1704,12 @@ public class StmtExecutor {
             }
         }
 
-        sendResult(isOutfileQuery, false, queryStmt, channel, null, null);
+        executeAndSendResult(isOutfileQuery, false, queryStmt, channel, null, null);
         LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
     }
 
-    private void sendResult(boolean isOutfileQuery, boolean isSendFields, Queriable queryStmt, MysqlChannel channel,
+    public void executeAndSendResult(boolean isOutfileQuery, boolean isSendFields,
+            Queriable queryStmt, MysqlChannel channel,
             CacheAnalyzer cacheAnalyzer, InternalService.PFetchCacheResult cacheResult) throws Exception {
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
@@ -1719,7 +1720,15 @@ public class StmtExecutor {
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
         CoordInterface coordBase = null;
-        if (queryStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).isPointQueryShortCircuit()) {
+        if (statementContext.isShortCircuitQuery()) {
+            ShortCircuitQueryContext shortCircuitQueryContext =
+                        statementContext.getShortCircuitQueryContext() != null
+                                ? statementContext.getShortCircuitQueryContext()
+                                : new ShortCircuitQueryContext(planner, (Queriable) parsedStmt);
+            coordBase = new PointQueryExecutor(shortCircuitQueryContext,
+                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+        } else if (queryStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).isPointQueryShortCircuit()) {
+            // this branch is for legacy planner, to be removed
             coordBase = new PointQueryExec(planner, analyzer,
                     context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
         } else {
