@@ -268,7 +268,9 @@ public:
     // TODO(yingchun): better to make constructor as private to avoid
     // manually init members incorrectly, and define a new function like
     // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
-    TabletSchema() = default;
+    TabletSchema();
+    virtual ~TabletSchema();
+
     void init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns = false);
     // Notice: Use deterministic way to serialize protobuf,
     // since serialize Map in protobuf may could lead to un-deterministic by default
