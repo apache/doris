@@ -68,8 +68,8 @@ suite("test_generated_column") {
     PROPERTIES("replication_num" = "1");"""
     qt_gencol_empty_values_insert "insert into test_gen_col_empty_values values(),()"
     qt_gencol_empty_values_insert_2 "insert into test_gen_col_empty_values(c) values(default),(default)"
-    qt_gencol_empty_values_insert_2 "insert into test_gen_col_empty_values(a,c) values(1,default),(3,default)"
-    qt_gencol_empty_values_insert_2 "insert into test_gen_col_empty_values(c,a) values(default,5),(default,6)"
+    qt_gencol_empty_values_insert_3 "insert into test_gen_col_empty_values(a,c) values(1,default),(3,default)"
+    qt_gencol_empty_values_insert_4 "insert into test_gen_col_empty_values(c,a) values(default,5),(default,6)"
 
     sql "drop table if exists gencol_refer_gencol"
     qt_gencol_refer_gencol """

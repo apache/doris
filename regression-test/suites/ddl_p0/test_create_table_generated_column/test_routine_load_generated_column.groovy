@@ -58,7 +58,6 @@ suite("test_routine_load_generated_column") {
                 "property.kafka_default_offsets" = "OFFSET_BEGINNING"
             );
         """
-        sql "sync"
         while (true) {
             sleep(1000)
             def res = sql "show routine load for gen_col_routine_load"
