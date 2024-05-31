@@ -460,6 +460,7 @@ public enum RuleType {
 
     // sentinel, use to count rules
     SENTINEL(RuleTypeClass.SENTINEL),
+    SHOR_CIRCUIT_POINT_QUERY(RuleTypeClass.REWRITE),
     ;
 
     private final RuleTypeClass ruleTypeClass;
