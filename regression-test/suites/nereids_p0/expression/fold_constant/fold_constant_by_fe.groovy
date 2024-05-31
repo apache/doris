@@ -68,7 +68,7 @@ suite("test_fold_constant_by_fe") {
     test_year = [2001, 2013, 123, 1969, 2023]
     for (year in test_year) {
         for (integer in test_int) {
-            qt_sql "select /*+SET_VAR(time_zone=\"UTC+8\")*/ makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year / 10 * year * integer})"
+            qt_sql "select /*+SET_VAR(time_zone=\"UTC+8\")*/ makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(cast(${year / 10 * year * integer} as BigInt))"
         }
     }
 
