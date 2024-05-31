@@ -24,8 +24,8 @@ suite("test_hive_orc_add_column", "all_types,p0,external,hive,external_docker,ex
     }
 
     try {
-        String hms_port = context.config.otherConfigs.get("hive3HmsPort")
-        String catalog_name = "hive3_test_orc_add_column"
+        String hms_port = context.config.otherConfigs.get("hms_port")
+        String catalog_name = "hive_test_orc_add_column"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         sql """drop catalog if exists ${catalog_name}"""
