@@ -99,7 +99,7 @@ suite("test_export_with_s3", "p2") {
 
         // check data correctness
         order_qt_select """ select * from s3(
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4)}0.${file_suffix}",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}0.${file_suffix}",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "column_separator"=",",
