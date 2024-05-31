@@ -603,19 +603,6 @@ CREATE TABLE `unsupported_type_table`(
 
 set hive.stats.column.autogather=false;
 
-
-CREATE TABLE `all_partition_types2_orc_zlib`(
-  `id` int
-)
-PARTITIONED BY (
-  `decimal_col` decimal(18,6),
-  `string_col` string,
-  `date_col` date,
-  `char_col` char(11),
-  `varchar_col` varchar(50))
-stored as orc
-TBLPROPERTIES("orc.compress"="ZLIB");
-
 CREATE TABLE `test_hive_orc_add_column`(
   id int,
   col1 int
