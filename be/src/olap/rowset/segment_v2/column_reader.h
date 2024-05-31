@@ -117,7 +117,7 @@ public:
 
     enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
 
-    ~ColumnReader();
+    virtual ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
     Status new_iterator(ColumnIterator** iterator);
