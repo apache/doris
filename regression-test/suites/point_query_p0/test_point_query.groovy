@@ -17,7 +17,7 @@
 
 import java.math.BigDecimal;
 
-suite("test_point_query") {
+suite("test_point_query", "nonConcurrent") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
@@ -30,7 +30,7 @@ suite("test_point_query") {
     try {
         set_be_config.call("disable_storage_row_cache", "false")
         // nereids do not support point query now
-        sql """set enable_nereids_planner=false"""
+        sql """set global enable_nereids_planner=false"""
 
         def user = context.config.jdbcUser
         def password = context.config.jdbcPassword
@@ -274,5 +274,6 @@ suite("test_point_query") {
         sql "select  /*+ SET_VAR(enable_nereids_planner=false) */  substr(RPTNO,2,5) from test_ODS_EBA_LLREPORT where  RPTNO = '567890'"
     } finally {
         set_be_config.call("disable_storage_row_cache", "true")
+        sql """set global enable_nereids_planner=true"""
     }
 } 
