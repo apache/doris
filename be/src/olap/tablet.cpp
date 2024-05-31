@@ -3292,7 +3292,7 @@ Status Tablet::commit_phase_update_delete_bitmap(
     return Status::OK();
 }
 
-Status Tablet::update_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id) {
+Status Tablet::update_delete_bitmap(TabletTxnInfo* txn_info, int64_t txn_id) {
     SCOPED_BVAR_LATENCY(g_tablet_update_delete_bitmap_latency);
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
@@ -3392,6 +3392,8 @@ Status Tablet::update_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_i
         RowsetSharedPtr transient_rowset;
         RETURN_IF_ERROR(rowset_writer->build(transient_rowset));
         rowset->merge_rowset_meta(transient_rowset->rowset_meta());
+        // update the shared_ptr to new delete bitmap
+        txn_info->delete_bitmap = delete_bitmap;
 
         // erase segment cache cause we will add a segment to rowset
         SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());
