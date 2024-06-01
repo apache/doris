@@ -887,21 +887,21 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (stmt.isView()) {
                 if (!(table instanceof View)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "VIEW",
-                            genDropHint(table));
+                            genDropHint(dbName, table));
                 }
             } else {
                 if (table instanceof View) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
-                            genDropHint(table));
+                            genDropHint(dbName, table));
                 }
             }
 
             if (!stmt.isMaterializedView() && table instanceof MTMV) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
-                        genDropHint(table));
+                        genDropHint(dbName, table));
             } else if (stmt.isMaterializedView() && !(table instanceof MTMV)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV",
-                        genDropHint(table));
+                        genDropHint(dbName, table));
             }
 
             if (!stmt.isForceDrop()) {
@@ -964,16 +964,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                 tableName, dbName, stmt.isForceDrop(), costTimes);
     }
 
-    private static String genDropHint(TableIf table) {
+    private static String genDropHint(String dbName, TableIf table) {
         String type = "";
         if (table instanceof View) {
             type = "VIEW";
-        } else if (table instanceof OlapTable) {
-            type = "TABLE";
         } else if (table instanceof MTMV) {
             type = "MATERIALIZED VIEW";
+        } else if (table instanceof OlapTable) {
+            type = "TABLE";
         }
-        return "Use 'DROP " + type + " " + table.getName();
+        return String.format("Use 'DROP %s %s.%s'", type, dbName, table.getName());
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
