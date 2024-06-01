@@ -76,7 +76,7 @@ Status VExprContext::check_column_data_type(vectorized::Block* block, int result
     ColumnWithTypeAndName data = block->get_by_position(result_column_id);
     DataTypePtr column_data_type = data.type;
     DataTypePtr expr_data_type = root()->data_type();
-    if (remove_nullable(expr_data_type)->equals(*remove_nullable(column_data_type))) {
+    if (!(remove_nullable(expr_data_type)->equals(*remove_nullable(column_data_type)))) {
         return Status::InternalError(
                 "VExprContext expr match failed , expr data type : {} can not match block column "
                 "data type :{}",
