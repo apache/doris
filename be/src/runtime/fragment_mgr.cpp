@@ -218,7 +218,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.__set_status(exec_status.to_thrift());
     params.__set_done(req.done);
     params.__set_query_type(req.runtime_state->query_type());
-    params.__set_finished_scan_ranges(req.runtime_state->num_finished_range());
 
     DCHECK(req.runtime_state != nullptr);
 
@@ -296,23 +295,29 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         int64_t num_rows_load_success = 0;
         int64_t num_rows_load_filtered = 0;
         int64_t num_rows_load_unselected = 0;
+        int64_t num_finished_ranges = 0;
         if (req.runtime_state->num_rows_load_total() > 0 ||
-            req.runtime_state->num_rows_load_filtered() > 0) {
+            req.runtime_state->num_rows_load_filtered() > 0 ||
+            req.runtime_state->num_finished_range() > 0) {
             params.__isset.load_counters = true;
 
             num_rows_load_success = req.runtime_state->num_rows_load_success();
             num_rows_load_filtered = req.runtime_state->num_rows_load_filtered();
             num_rows_load_unselected = req.runtime_state->num_rows_load_unselected();
+            num_finished_ranges = req.runtime_state->num_finished_range();
         } else if (!req.runtime_states.empty()) {
             for (auto* rs : req.runtime_states) {
-                if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0) {
+                if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0 ||
+                    req.runtime_state->num_finished_range() > 0) {
                     params.__isset.load_counters = true;
                     num_rows_load_success += rs->num_rows_load_success();
                     num_rows_load_filtered += rs->num_rows_load_filtered();
                     num_rows_load_unselected += rs->num_rows_load_unselected();
+                    num_finished_ranges += rs->num_finished_range();
                 }
             }
         }
+        params.__set_finished_scan_ranges(num_finished_ranges);
         params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
         params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
         params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
