@@ -100,8 +100,6 @@ public:
 
     const RowDescriptor& row_desc() { return _row_desc; }
 
-    virtual bool can_write() { return true; }
-
     std::shared_ptr<QueryStatistics> get_query_statistics_ptr();
 
 protected:
