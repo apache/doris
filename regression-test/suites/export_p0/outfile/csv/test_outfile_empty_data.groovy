@@ -157,7 +157,7 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
                 "SECRET_KEY" = "${sk}",
                 "format" = "${format}",
                 "region" = "${region}",
-                "use_path_style" = "true"
+                "use_path_style" = "false" -- aliyun does not support path_style
             );
             """
 

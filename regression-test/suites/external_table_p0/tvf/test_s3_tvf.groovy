@@ -111,7 +111,7 @@ suite("test_s3_tvf", "p0") {
                             "s3.access_key"= "${ak}",
                             "s3.secret_key" = "${sk}",
                             "format" = "orc",
-                            "use_path_style" = "true",
+                            "use_path_style" = "false", -- aliyun does not support path_style
                             "region" = "${region}"
                         );
                         """
