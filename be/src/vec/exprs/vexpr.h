@@ -134,6 +134,7 @@ public:
     TypeDescriptor type() { return _type; }
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
+    virtual bool is_literal() const { return false; }
 
     TExprNodeType::type node_type() const { return _node_type; }
 
