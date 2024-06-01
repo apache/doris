@@ -73,8 +73,10 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
         S3URI s3uri = getS3Uri(uriStr, Boolean.parseBoolean(usePathStyle.toLowerCase()),
                 Boolean.parseBoolean(forceParsingByStandardUri.toLowerCase()));
-        String endpoint = getOrDefaultAndRemove(otherProps, S3Properties.ENDPOINT, s3uri.getEndpoint().orElseThrow(() ->
-                new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT))));
+        String endpoint = getOrDefaultAndRemove(otherProps, S3Properties.ENDPOINT, s3uri.getEndpoint().orElse(""));
+        if (Strings.isNullOrEmpty(endpoint)) {
+            throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT));
+        }
         if (!otherProps.containsKey(S3Properties.REGION)) {
             String region = s3uri.getRegion().orElseThrow(() ->
                     new AnalysisException(String.format("Properties '%s' is required.", S3Properties.REGION)));
@@ -151,3 +153,4 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         return "S3TableValuedFunction";
     }
 }
+
