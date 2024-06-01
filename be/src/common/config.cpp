@@ -1222,6 +1222,9 @@ DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
 DEFINE_mBool(ignore_schema_change_check, "false");
 
+//JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues. The default setting is off.
+DEFINE_Bool(enable_jvm_monitor, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
