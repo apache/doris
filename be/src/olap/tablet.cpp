@@ -3614,7 +3614,7 @@ Status Tablet::update_delete_bitmap(TabletTxnInfo* txn_info, int64_t txn_id) {
         RETURN_IF_ERROR(rowset_writer->build(transient_rowset));
         rowset->merge_rowset_meta(transient_rowset->rowset_meta());
 
-	// update the shared_ptr to new bitmap, which is consistent with current rowset.
+        // update the shared_ptr to new bitmap, which is consistent with current rowset.
         txn_info->delete_bitmap = delete_bitmap;
 
         // erase segment cache cause we will add a segment to rowset
