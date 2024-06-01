@@ -20,13 +20,9 @@
 
 #include "vec/columns/column_array.h"
 
-#include <assert.h>
-#include <string.h>
-
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <limits>
-#include <memory>
+#include <cstring>
 #include <vector>
 
 #include "common/status.h"
@@ -90,7 +86,7 @@ INSTANTIATE_INDEX_IMPL(ColumnArray)
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
         : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
-    const ColumnOffsets* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
+    const auto* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
 
     if (!offsets_concrete) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "offsets_column must be a ColumnUInt64");

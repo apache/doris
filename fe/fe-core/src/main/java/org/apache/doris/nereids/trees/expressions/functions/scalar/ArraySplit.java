@@ -20,60 +20,62 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
- * ScalarFunction 'array_reverse_sort'.
+ * ScalarFunction 'array_split'.
  */
-public class ArrayReverseSort extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
-
+public class ArraySplit extends ScalarFunction implements PropagateNullable, HighOrderFunction {
+    // arg0 = Array<T>, return_value = Array<Array<T>>
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.retArgType(0).args(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX))
-    );
+            FunctionSignature.ret(ArrayType.of(new FollowToArgumentType(0))).args(
+                    ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX),
+                    ArrayType.of(BooleanType.INSTANCE)));
 
-    /**
-     * constructor with 1 argument.
-     */
-    public ArrayReverseSort(Expression arg) {
-        super("array_reverse_sort", arg);
+    private ArraySplit(List<Expression> expressions) {
+        super("array_split", expressions);
     }
 
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
-        if (((ArrayType) argType).getItemType().isComplexType()) {
-            throw new AnalysisException("array_reverse_sort does not support complex types: " + toSql());
+    /**
+     * constructor with arguments.
+     */
+    public ArraySplit(Expression arg0, Expression arg1) {
+        super("array_split", arg0, arg1);
+    }
+
+    /**
+     * constructor with arguments.
+     * array_split(lambda, a1, ...) = array_split(a1, array_map(lambda, a1, ...))
+     */
+    public ArraySplit(Expression arg) {
+        super("array_split", arg.child(1).child(0), new ArrayMap(arg));
+        if (!(arg instanceof Lambda)) {
+            throw new AnalysisException(
+                    String.format("The 1st arg of %s must be lambda but is %s", getName(), arg));
         }
     }
 
-    /**
-     * withChildren.
-     */
     @Override
-    public ArrayReverseSort withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new ArrayReverseSort(children.get(0));
+    public ArraySplit withChildren(List<Expression> children) {
+        return new ArraySplit(children.get(0), children.get(1));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitArrayReverseSort(this, context);
+        return visitor.visitArraySplit(this, context);
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
+    public List<FunctionSignature> getImplSignature() {
         return SIGNATURES;
     }
 }
