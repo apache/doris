@@ -490,7 +490,9 @@ public:
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             vectorized::Block* output_block);
 
-    Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
+    Status update_delete_bitmap_without_lock(
+            const RowsetSharedPtr& rowset,
+            const std::vector<RowsetSharedPtr>* specified_base_rowsets = nullptr);
 
     Status commit_phase_update_delete_bitmap(
             const RowsetSharedPtr& rowset, RowsetIdUnorderedSet& pre_rowset_ids,

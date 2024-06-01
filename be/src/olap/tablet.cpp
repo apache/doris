@@ -355,11 +355,19 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
                                   const std::vector<RowsetSharedPtr>& to_delete,
                                   bool is_incremental_clone) {
     LOG(INFO) << "begin to revise tablet. tablet_id=" << tablet_id();
-    delete_rowsets(to_delete, false);
-    add_rowsets(to_add);
-    // reconstruct from tablet meta
-    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
-    if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
+    // 1. for incremental clone, we have to add the rowsets first to make it easy to compute
+    //    all the delete bitmaps, and it's easy to delete them if we end up with a failure
+    // 2. for full clone, we can calculate delete bitmaps on the cloned rowsets directly.
+    if (is_incremental_clone) {
+        CHECK(to_delete.empty()); // don't need to delete rowsets
+        add_rowsets(to_add);
+        // reconstruct from tablet meta
+        _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
+    }
+
+    Status calc_bm_status;
+    std::vector<RowsetSharedPtr> base_rowsets_for_full_clone = to_add; // copy vector
+    while (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
         std::vector<RowsetSharedPtr> calc_delete_bitmap_rowsets;
         int64_t to_add_min_version = INT64_MAX;
         int64_t to_add_max_version = INT64_MIN;
@@ -394,17 +402,70 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
         }
 
         if (calc_delete_bitmap_ver.first <= calc_delete_bitmap_ver.second) {
-            Status res =
+            calc_bm_status =
                     capture_consistent_rowsets(calc_delete_bitmap_ver, &calc_delete_bitmap_rowsets);
-            // Because the data in memory has been changed, can't return an error.
-            CHECK(res.ok()) << "fail to capture_consistent_rowsets, res: " << res;
-
+            if (!calc_bm_status.ok()) {
+                LOG(WARNING) << "fail to capture_consistent_rowsets, res: " << calc_bm_status;
+                break;
+            }
             for (auto rs : calc_delete_bitmap_rowsets) {
-                res = update_delete_bitmap_without_lock(rs);
-                CHECK(res.ok()) << "fail to update_delete_bitmap_without_lock, res: " << res;
+                if (is_incremental_clone) {
+                    calc_bm_status = update_delete_bitmap_without_lock(rs);
+                } else {
+                    calc_bm_status =
+                            update_delete_bitmap_without_lock(rs, &base_rowsets_for_full_clone);
+                    base_rowsets_for_full_clone.push_back(rs);
+                }
+                if (!calc_bm_status.ok()) {
+                    LOG(WARNING) << "fail to update_delete_bitmap_without_lock, res: "
+                                 << calc_bm_status;
+                    break;
+                }
+            }
+        }
+        break; // while (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write())
+    }
+
+    // error handling
+    if (!calc_bm_status.ok()) {
+        if (is_incremental_clone) {
+            delete_rowsets(to_add, false);
+            LOG(WARNING) << "incremental clone on tablet: " << tablet_id() << " failed due to "
+                         << calc_bm_status.msg() << ", revert " << to_add.size()
+                         << " rowsets added before.";
+        } else {
+            LOG(WARNING) << "full clone on tablet: " << tablet_id() << " failed due to "
+                         << calc_bm_status.msg() << ", will not update tablet meta.";
+        }
+        return calc_bm_status;
+    }
+
+    // full clone, calculate delete bitmap succeeded, update rowset
+    if (!is_incremental_clone) {
+        delete_rowsets(to_delete, false);
+        add_rowsets(to_add);
+        // reconstruct from tablet meta
+        _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
+
+        // check the rowsets used for delete bitmap calculation is equal to the rowsets
+        // that we can capture by version
+        if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
+            Version full_version = Version(0, max_version_unlocked().second);
+            std::vector<RowsetSharedPtr> expected_rowsets;
+            auto st = capture_consistent_rowsets(full_version, &expected_rowsets);
+            DCHECK(st.ok()) << st;
+            DCHECK_EQ(base_rowsets_for_full_clone.size(), expected_rowsets.size());
+            if (st.ok() && base_rowsets_for_full_clone.size() != expected_rowsets.size())
+                    [[unlikely]] {
+                LOG(WARNING) << "full clone succeeded, but the count("
+                             << base_rowsets_for_full_clone.size()
+                             << ") of base rowsets used for delete bitmap calculation is not match "
+                                "expect count("
+                             << expected_rowsets.size() << ") we capture from tablet meta";
             }
         }
     }
+
     // clear stale rowset
     for (auto& [v, rs] : _stale_rs_version_map) {
         _engine.add_unused_rowset(rs);
@@ -3201,12 +3262,18 @@ void Tablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
 }
 
 // The caller should hold _rowset_update_lock and _meta_lock lock.
-Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) {
+Status Tablet::update_delete_bitmap_without_lock(
+        const RowsetSharedPtr& rowset, const std::vector<RowsetSharedPtr>* specified_base_rowsets) {
     DBUG_EXECUTE_IF("Tablet.update_delete_bitmap_without_lock.random_failed", {
-        if (rand() % 100 < (100 * dp->param("percent", 0.1))) {
-            LOG_WARNING("Tablet.update_delete_bitmap_without_lock.random_failed");
+        auto rnd = rand() % 100;
+        auto percent = dp->param("percent", 0.1);
+        if (rnd < (100 * percent)) {
+            LOG(WARNING) << "BaseTablet.update_delete_bitmap_without_lock.random_failed";
             return Status::InternalError(
                     "debug tablet update delete bitmap without lock random failed");
+        } else {
+            LOG(INFO) << "BaseTablet.update_delete_bitmap_without_lock.random_failed not triggered"
+                      << ", rnd:" << rnd << ", percent: " << percent;
         }
     });
     int64_t cur_version = rowset->end_version();
@@ -3219,12 +3286,21 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
                   << tablet_id() << " cur max_version: " << cur_version;
         return Status::OK();
     }
-    RowsetIdUnorderedSet cur_rowset_ids;
-    RETURN_IF_ERROR(all_rs_id(cur_version - 1, &cur_rowset_ids));
+
+    // calculate delete bitmap between segments if necessary.
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     RETURN_IF_ERROR(calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
 
-    std::vector<RowsetSharedPtr> specified_rowsets = get_rowset_by_ids(&cur_rowset_ids);
+    // get all base rowsets to calculate on
+    std::vector<RowsetSharedPtr> specified_rowsets;
+    RowsetIdUnorderedSet cur_rowset_ids;
+    if (specified_base_rowsets == nullptr) {
+        RETURN_IF_ERROR(all_rs_id(cur_version - 1, &cur_rowset_ids));
+        specified_rowsets = get_rowset_by_ids(&cur_rowset_ids);
+    } else {
+        specified_rowsets = *specified_base_rowsets;
+    }
+
     OlapStopWatch watch;
     auto token = _engine.calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
