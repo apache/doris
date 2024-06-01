@@ -156,6 +156,7 @@ suite("test_export_table_with_label_retry", "p0") {
 
     def uuid = UUID.randomUUID().toString()
     def outFilePath = """${outfile_path_prefix}_${uuid}"""
+    def wrongFilePath = """${wrong_outfile_path_prefix}_${uuid}"""
     def label = "label_${uuid}"
     try {
         // check export path
@@ -163,7 +164,7 @@ suite("test_export_table_with_label_retry", "p0") {
 
         // exec wrong export
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${wrong_outfile_path_prefix}/"
+            EXPORT TABLE ${table_export_name} TO "file://${wrongFilePath}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
@@ -177,7 +178,7 @@ suite("test_export_table_with_label_retry", "p0") {
 
         // exec right export with same label again
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outfile_path_prefix}/"
+            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
