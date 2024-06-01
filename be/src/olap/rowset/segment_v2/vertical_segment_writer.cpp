@@ -320,8 +320,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     for (auto i : including_cids) {
         full_block.replace_by_position(i, data.block->get_by_position(input_id++).column);
     }
-    _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, data.row_pos,
-                                                                   data.num_rows, including_cids);
+    RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
+            &full_block, data.row_pos, data.num_rows, including_cids));
 
     bool have_input_seq_column = false;
     // write including columns
@@ -496,8 +496,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
     // convert missing columns and send to column writer
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
-    _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, data.row_pos,
-                                                                   data.num_rows, missing_cids);
+    RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
+            &full_block, data.row_pos, data.num_rows, missing_cids));
     for (auto cid : missing_cids) {
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
         if (!status.ok()) {
@@ -742,8 +742,8 @@ Status VerticalSegmentWriter::write_batch() {
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid)));
         for (auto& data : _batched_blocks) {
-            _olap_data_convertor->set_source_content_with_specifid_columns(
-                    data.block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid});
+            RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
+                    data.block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid}));
 
             // convert column data from engine format to storage layer format
             auto [status, column] = _olap_data_convertor->convert_column_data(cid);
