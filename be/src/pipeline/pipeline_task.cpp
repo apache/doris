@@ -429,7 +429,7 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
 
 void PipelineTask::finalize() {
     std::unique_lock<std::mutex> lc(_dependency_lock);
-    _finished = true;
+    _finalized = true;
     _sink_shared_state.reset();
     _op_shared_states.clear();
     _le_state_map.clear();
@@ -475,17 +475,18 @@ std::string PipelineTask::debug_string() {
             debug_string_buffer,
             "PipelineTask[this = {}, open = {}, eos = {}, finish = {}, dry run = {}, elapse time "
             "= {}s], block dependency = {}, is running = {}\noperators: ",
-            (void*)this, _opened, _eos, _finished, _dry_run, elapsed,
-            cur_blocked_dep && !_finished ? cur_blocked_dep->debug_string() : "NULL", is_running());
+            (void*)this, _opened, _eos, _finalized, _dry_run, elapsed,
+            cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
+            is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
-                       _opened && !_finished ? _operators[i]->debug_string(_state, i)
-                                             : _operators[i]->debug_string(i));
+                       _opened && !_finalized ? _operators[i]->debug_string(_state, i)
+                                              : _operators[i]->debug_string(i));
     }
     fmt::format_to(debug_string_buffer, "\n{}\n",
-                   _opened && !_finished ? _sink->debug_string(_state, _operators.size())
-                                         : _sink->debug_string(_operators.size()));
-    if (_finished) {
+                   _opened && !_finalized ? _sink->debug_string(_state, _operators.size())
+                                          : _sink->debug_string(_operators.size()));
+    if (_finalized) {
         return fmt::to_string(debug_string_buffer);
     }
 
