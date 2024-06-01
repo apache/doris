@@ -66,7 +66,7 @@ bool is_s3_conf_valid(const S3ClientConf& conf) {
 // Return true is convert `str` to int successfully
 bool to_int(std::string_view str, int& res) {
     auto [_, ec] = std::from_chars(str.data(), str.data() + str.size(), res);
-    return ec != std::errc {};
+    return ec == std::errc {};
 }
 
 const std::string USE_PATH_STYLE = "use_path_style";
@@ -258,18 +258,18 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     }
     if (auto it = properties.find(S3_MAX_CONN_SIZE); it != properties.end()) {
         if (!to_int(it->second, s3_conf->client_conf.max_connections)) {
-            return Status::InvalidArgument("invalid {} value {}", S3_MAX_CONN_SIZE, it->second);
+            return Status::InvalidArgument("invalid {} value \"{}\"", S3_MAX_CONN_SIZE, it->second);
         }
     }
     if (auto it = properties.find(S3_REQUEST_TIMEOUT_MS); it != properties.end()) {
         if (!to_int(it->second, s3_conf->client_conf.request_timeout_ms)) {
-            return Status::InvalidArgument("invalid {} value {}", S3_REQUEST_TIMEOUT_MS,
+            return Status::InvalidArgument("invalid {} value \"{}\"", S3_REQUEST_TIMEOUT_MS,
                                            it->second);
         }
     }
     if (auto it = properties.find(S3_CONN_TIMEOUT_MS); it != properties.end()) {
         if (!to_int(it->second, s3_conf->client_conf.connect_timeout_ms)) {
-            return Status::InvalidArgument("invalid {} value {}", S3_CONN_TIMEOUT_MS, it->second);
+            return Status::InvalidArgument("invalid {} value \"{}\"", S3_CONN_TIMEOUT_MS, it->second);
         }
     }
 
