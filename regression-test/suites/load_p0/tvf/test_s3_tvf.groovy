@@ -56,6 +56,7 @@ suite("test_s3_tvf", "load_p0") {
     // ,
     // path partition key
     // NOTE: maybe path_partition_keys don't support with broker_load, we just calulate the insert_count equal to file rows
+    // this parameter is similar with columns from path as (c1, c2, ...) in broker_load method, look at test case test_tvf_based_broker_load.groovy
    for (String table : basicTables) {
     attributeList.add(new TvfAttribute(table, "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, kd16", "K00,K01,K02,K03,K04,K05,K06,K07,K08,K09,K10,K11,K12,K13,K14,K15,K16,K17,K18,Kd16", "", "")
                  .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/kd16=abcdefg/basic_data.csv")
