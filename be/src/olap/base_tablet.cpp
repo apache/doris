@@ -33,6 +33,8 @@ extern MetricPrototype METRIC_query_scan_count;
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
 
+static bvar::Adder<size_t> g_total_tablet_num("doris_total_tablet_num");
+
 BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move(tablet_meta)) {
     _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
             fmt::format("Tablet.{}", tablet_id()), {{"tablet_id", std::to_string(tablet_id())}},
@@ -42,10 +44,12 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_count);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
+    g_total_tablet_num << 1;
 }
 
 BaseTablet::~BaseTablet() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
+    g_total_tablet_num << -1;
 }
 
 Status BaseTablet::set_tablet_state(TabletState state) {
