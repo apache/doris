@@ -106,16 +106,6 @@ void ExchangeSinkBuffer::close() {
     //_instance_to_request.clear();
 }
 
-bool ExchangeSinkBuffer::can_write() const {
-    size_t max_package_size =
-            config::exchg_buffer_queue_capacity_factor * _instance_to_package_queue.size();
-    size_t total_package_size = 0;
-    for (auto& [_, q] : _instance_to_package_queue) {
-        total_package_size += q.size();
-    }
-    return total_package_size <= max_package_size;
-}
-
 void ExchangeSinkBuffer::_set_ready_to_finish(bool all_done) {
     if (_finish_dependency && _should_stop && all_done) {
         _finish_dependency->set_ready();

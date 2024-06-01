@@ -233,7 +233,6 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
 
     void debug_profile();
-    bool can_read();
 
 private:
     Status _init_hash_method();
