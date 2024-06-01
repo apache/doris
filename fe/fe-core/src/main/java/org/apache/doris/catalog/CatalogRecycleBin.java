@@ -1116,9 +1116,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         eraseDatabase(currentTimeMs, keepNum);
     }
 
-    public List<List<String>> getInfo() {
+    public synchronized List<List<String>> getInfo() {
         Map<Long, Pair<Long, Long>> dbToDataSize = new HashMap<>();
-
         List<List<String>> tableInfos = Lists.newArrayList();
         for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
             List<String> info = Lists.newArrayList();
