@@ -17,10 +17,12 @@
 
 #include "jvm_metrics.h"
 
+#include <util/jni-util.h>
+
 #include <functional>
 
+#include "common/config.h"
 #include "util/metrics.h"
-
 namespace doris {
 
 #define DEFINE_JVM_SIZE_BYTES_METRIC(name, type)                                     \
@@ -76,15 +78,28 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(jvm_gc_g1_old_generation_time_ms, MetricUni
 
 const char* JvmMetrics::_s_hook_name = "jvm_metrics";
 
-JvmMetrics::JvmMetrics(MetricRegistry* registry, JNIEnv* env) : _jvm_stats(env) {
+JvmMetrics::JvmMetrics(MetricRegistry* registry, JNIEnv* env) {
     DCHECK(registry != nullptr);
     _registry = registry;
 
     _server_entity = _registry->register_entity("server");
     DCHECK(_server_entity != nullptr);
-    if (_jvm_stats.init_complete()) {
+
+    do {
+        if (!doris::config::enable_jvm_monitor) {
+            break;
+        }
+        try {
+            _jvm_stats.init(env);
+        } catch (...) {
+            LOG(WARNING) << "JVM STATS INIT FAIL";
+            break;
+        }
+        if (!_jvm_stats.init_complete()) {
+            break;
+        }
         _server_entity->register_hook(_s_hook_name, std::bind(&JvmMetrics::update, this));
-    }
+    } while (false);
 
     INT_GAUGE_METRIC_REGISTER(_server_entity, jvm_heap_size_bytes_max);
     INT_GAUGE_METRIC_REGISTER(_server_entity, jvm_heap_size_bytes_committed);
@@ -117,11 +132,58 @@ JvmMetrics::JvmMetrics(MetricRegistry* registry, JNIEnv* env) : _jvm_stats(env) 
 }
 
 void JvmMetrics::update() {
-    _jvm_stats.refresh(this);
-}
-#include <util/jni-util.h>
+    static long fail_count = 0;
+    bool have_exception = false;
+    try {
+        _jvm_stats.refresh(this);
+    } catch (...) {
+        have_exception = true;
+        LOG(WARNING) << "JVM MONITOR UPDATE FAIL!";
+        fail_count++;
+    }
 
-jvmStats::jvmStats(JNIEnv* ENV) : env(ENV) {
+    //When 30 consecutive exceptions occur, turn off jvm information collection.
+    if (!have_exception) {
+        fail_count = 0;
+    }
+    if (fail_count >= 30) {
+        LOG(WARNING) << "JVM MONITOR CLOSE!";
+        _jvm_stats.set_complete(false);
+        _server_entity->deregister_hook(_s_hook_name);
+
+        jvm_heap_size_bytes_max->set_value(0);
+        jvm_heap_size_bytes_committed->set_value(0);
+        jvm_heap_size_bytes_used->set_value(0);
+
+        jvm_non_heap_size_bytes_used->set_value(0);
+        jvm_non_heap_size_bytes_committed->set_value(0);
+
+        jvm_young_size_bytes_used->set_value(0);
+        jvm_young_size_bytes_peak_used->set_value(0);
+        jvm_young_size_bytes_max->set_value(0);
+
+        jvm_old_size_bytes_used->set_value(0);
+        jvm_old_size_bytes_peak_used->set_value(0);
+        jvm_old_size_bytes_max->set_value(0);
+
+        jvm_thread_count->set_value(0);
+        jvm_thread_peak_count->set_value(0);
+        jvm_thread_new_count->set_value(0);
+        jvm_thread_runnable_count->set_value(0);
+        jvm_thread_blocked_count->set_value(0);
+        jvm_thread_waiting_count->set_value(0);
+        jvm_thread_timed_waiting_count->set_value(0);
+        jvm_thread_terminated_count->set_value(0);
+
+        jvm_gc_g1_young_generation_count->set_value(0);
+        jvm_gc_g1_young_generation_time_ms->set_value(0);
+        jvm_gc_g1_old_generation_count->set_value(0);
+        jvm_gc_g1_old_generation_time_ms->set_value(0);
+    }
+}
+
+void JvmStats::init(JNIEnv* ENV) {
+    env = ENV;
     _managementFactoryClass = env->FindClass("java/lang/management/ManagementFactory");
     if (_managementFactoryClass == nullptr) {
         LOG(WARNING)
@@ -244,15 +306,19 @@ jvmStats::jvmStats(JNIEnv* ENV) : env(ENV) {
     LOG(INFO) << "Start JVM monitoring.";
 
     _init_complete = true;
+    return;
 }
 
-#include "jni.h"
-
-void jvmStats::refresh(JvmMetrics* jvm_metrics) {
+void JvmStats::refresh(JvmMetrics* jvm_metrics) {
     if (!_init_complete) {
         return;
     }
-    static_cast<void>(JniUtil::GetJNIEnv(&env));
+
+    Status st = JniUtil::GetJNIEnv(&env);
+    if (!st.ok()) {
+        LOG(WARNING) << "JVM STATS GET JNI ENV FAIL";
+        return;
+    }
 
     jobject memoryMXBeanObj =
             env->CallStaticObjectMethod(_managementFactoryClass, _getMemoryMXBeanMethod);
@@ -302,8 +368,8 @@ void jvmStats::refresh(JvmMetrics* jvm_metrics) {
 
         jstring name =
                 (jstring)env->CallObjectMethod(memoryPoolMXBean, _getMemoryPollMXBeanNameMethod);
-        const char* nameStr = env->GetStringUTFChars(name, NULL);
-        if (nameStr != NULL) {
+        const char* nameStr = env->GetStringUTFChars(name, nullptr);
+        if (nameStr != nullptr) {
             auto it = _memoryPoolName.find(nameStr);
             if (it == _memoryPoolName.end()) {
                 continue;
@@ -408,16 +474,22 @@ void jvmStats::refresh(JvmMetrics* jvm_metrics) {
     env->DeleteLocalRef(threadMXBean);
     env->DeleteLocalRef(gcMXBeansList);
 }
-jvmStats::~jvmStats() {
+JvmStats::~JvmStats() {
     if (!_init_complete) {
         return;
     }
-    env->DeleteLocalRef(_newThreadStateObj);
-    env->DeleteLocalRef(_runnableThreadStateObj);
-    env->DeleteLocalRef(_blockedThreadStateObj);
-    env->DeleteLocalRef(_waitingThreadStateObj);
-    env->DeleteLocalRef(_timedWaitingThreadStateObj);
-    env->DeleteLocalRef(_terminatedThreadStateObj);
+    try {
+        env->DeleteLocalRef(_newThreadStateObj);
+        env->DeleteLocalRef(_runnableThreadStateObj);
+        env->DeleteLocalRef(_blockedThreadStateObj);
+        env->DeleteLocalRef(_waitingThreadStateObj);
+        env->DeleteLocalRef(_timedWaitingThreadStateObj);
+        env->DeleteLocalRef(_terminatedThreadStateObj);
+
+    } catch (...) {
+        // When be is killed, DeleteLocalRef may fail.
+        // In order to exit more gracefully, we catch the exception here.
+    }
 }
 
 } // namespace doris

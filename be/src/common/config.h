@@ -1303,6 +1303,9 @@ DECLARE_mInt32(thrift_client_open_num_tries);
 
 DECLARE_mBool(ignore_schema_change_check);
 
+//JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues.
+DECLARE_Bool(enable_jvm_monitor);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
