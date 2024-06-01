@@ -73,6 +73,9 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
         S3URI s3uri = getS3Uri(uriStr, Boolean.parseBoolean(usePathStyle.toLowerCase()),
                 Boolean.parseBoolean(forceParsingByStandardUri.toLowerCase()));
+
+        // get endpoint first from properties, if not present, get it from s3 uri.
+        // If endpoint is missing, exception will be thrown.
         String endpoint = getOrDefaultAndRemove(otherProps, S3Properties.ENDPOINT, s3uri.getEndpoint().orElse(""));
         if (Strings.isNullOrEmpty(endpoint)) {
             throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT));
