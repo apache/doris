@@ -298,19 +298,6 @@ void VAnalyticEvalNode::release_resource(RuntimeState* state) {
     return ExecNode::release_resource(state);
 }
 
-//TODO: maybe could have better strategy, not noly when need data to sink data
-//even could get some resources in advance as soon as possible
-bool VAnalyticEvalNode::can_write() {
-    return _need_more_input;
-}
-
-bool VAnalyticEvalNode::can_read() {
-    if (_need_more_input) {
-        return false;
-    }
-    return true;
-}
-
 Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
