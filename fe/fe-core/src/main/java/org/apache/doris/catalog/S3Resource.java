@@ -121,7 +121,7 @@ public class S3Resource extends Resource {
     private static void pingS3(CloudCredentialWithEndpoint credential, String bucketName, String rootPath,
             Map<String, String> properties) throws DdlException {
         String bucket = "s3://" + bucketName + "/";
-        Map<String, String> propertiesPing = new HashMap<>();
+        Map<String, String> propertiesPing = Maps.newHashMap(properties);
         propertiesPing.put(S3Properties.Env.ACCESS_KEY, credential.getAccessKey());
         propertiesPing.put(S3Properties.Env.SECRET_KEY, credential.getSecretKey());
         propertiesPing.put(S3Properties.Env.TOKEN, credential.getSessionToken());
@@ -129,8 +129,8 @@ public class S3Resource extends Resource {
         propertiesPing.put(S3Properties.Env.REGION, credential.getRegion());
         propertiesPing.put(PropertyConverter.USE_PATH_STYLE,
                 properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false"));
-        properties.putAll(propertiesPing);
-        S3FileSystem fileSystem = new S3FileSystem(properties);
+        // properties.putAll(propertiesPing);
+        S3FileSystem fileSystem = new S3FileSystem(propertiesPing);
         String testFile = bucket + rootPath + "/test-object-valid.txt";
         String content = "doris will be better";
         if (FeConstants.runningUnitTest) {
