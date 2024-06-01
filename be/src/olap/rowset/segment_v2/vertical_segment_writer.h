@@ -195,6 +195,9 @@ private:
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
     std::vector<RowsInBlock> _batched_blocks;
+    bool _has_delete_predicate = false;
+    std::unique_ptr<DeleteHandler> _delete_handler = nullptr;
+    std::vector<bool> _delete_predicate_rows;
 };
 
 } // namespace segment_v2

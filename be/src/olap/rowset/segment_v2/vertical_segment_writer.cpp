@@ -32,11 +32,13 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
+#include "common/status.h"
 #include "gutil/port.h"
 #include "inverted_index_fs_directory.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
+#include "olap/delete_handler.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
@@ -384,8 +386,25 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
-    // locate rows in base data
 
+    // init delete predicates for all rowsets
+    std::vector<RowsetMetaSharedPtr> delete_predicates;
+    int64_t max_rowset_version = 0;
+    for (const auto& rs : specified_rowsets) {
+        if (rs->rowset_meta()->get_rowset_pb().has_delete_predicate()) {
+            _has_delete_predicate = true;
+            delete_predicates.push_back(rs->rowset_meta());
+            max_rowset_version = max_rowset_version >= rs->version().second ? max_rowset_version
+                                                                            : rs->version().second;
+        }
+    }
+    if (_has_delete_predicate) {
+        _delete_handler = DeleteHandler::create_unique();
+        RETURN_IF_ERROR(_delete_handler->init(_tablet_schema, delete_predicates, max_rowset_version,
+                                              false));
+    }
+
+    // locate rows in base data
     int64_t num_rows_filtered = 0;
     for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
         // block   segment
@@ -558,6 +577,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
     std::map<uint32_t, uint32_t> read_index;
     size_t read_idx = 0;
     for (auto rs_it : _rssid_to_rid) {
+        size_t start_row_num = old_value_block.rows();
         for (auto seg_it : rs_it.second) {
             auto rowset = _rsid_to_rowset[rs_it.first];
             CHECK(rowset);
@@ -584,6 +604,55 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                     LOG(WARNING) << "failed to fetch value by rowids";
                     return st;
                 }
+            }
+        }
+        if (_has_delete_predicate) {
+            // Get and parse the delete predicate from each rowset.
+            // Use 'vector<bool> _delete_predicate_rows' to record rows deleted by delete predicates.
+            // Here's an example. We perform 3 operations. The table schema is: int k1, varchar v1 (nullable).
+            // 1. Insert into table values(1,'a');
+            // 2. Insert into table values(2,'b');
+            // 3. Delete from table where v1='b';
+            // Now, the rowsets are as follows:
+            // rowset1 ID:1 Version:[1-1] Type:DATA contains (1,'a')
+            // rowset2 ID:2 Version:[2-2] Type:DATA contains (2,'b')
+            // rowset3 ID:3 Version:[3-3] Type:DELETE with the delete predicate: v1='b'
+            // For a partial update, we first read all old data. Then we compare the new data with the old data.
+            // If the key of the new data exists, we update only the specified columns of the new data.
+            // If the key does not exist, we insert the new data.
+            // In the example above, if we perform a partial update: 4. Insert into table (k1) values(2);
+            // We must consider the delete predicate, which indicates that data where k1=2 does not exist (deleted by step3).
+            // Therefore, after reading all rowsets, our data block shows (1,'a')(2,'b').
+            // Given the delete predicate v1='b', we mark data (2,'b') as deleted.
+            // _delete_predicate_rows will be [False, True]. 'False' means (1,'a') exists.
+            // 'True' means (2,'b') does not exist. For the new partial update,
+            // we understand that key '2' does not exist, so we ignore the old value and write (2, NULL) into the table
+            // because the nullable column v1 will automatically be filled with 'NULL'.
+            // Question: Why not just delete (2,'b') in the data block?
+            // Answer: For historical reasons. Before reading the data block, we identify the number of rows needed
+            // based on the primary key index. Some preparatory work depends on this row count.
+            // Therefore, if we delete (2,'b') directly in the block, some checks, such as
+            // CHECK(row_num_need_to_read = block.rows()), will fail.
+
+            std::unique_ptr<vectorized::MutableBlock> delete_pre_block =
+                    vectorized::MutableBlock::create_unique(old_value_block.clone_empty());
+            RETURN_IF_ERROR(delete_pre_block->add_rows(&old_value_block, start_row_num - 1,
+                                                       old_value_block.rows() - start_row_num));
+            std::shared_ptr<AndBlockColumnPredicate> delete_condition_predicates =
+                    AndBlockColumnPredicate::create_shared();
+            std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>
+                    del_predicates_for_zone_map;
+            _delete_handler->get_delete_conditions_after_version(
+                    _rsid_to_rowset[rs_it.first]->end_version(), delete_condition_predicates.get(),
+                    &del_predicates_for_zone_map);
+            std::vector<uint16_t> select_rowid_idx_vec;
+            uint16_t selected_size = 0;
+            selected_size = delete_condition_predicates->evaluate(
+                    delete_pre_block->mutable_columns(), select_rowid_idx_vec.data(),
+                    selected_size);
+            _delete_predicate_rows.resize(old_value_block.rows());
+            for (size_t i = 0; i < selected_size; i++) {
+                _delete_predicate_rows[start_row_num + select_rowid_idx_vec[i] - 1] = true;
             }
         }
     }
@@ -645,7 +714,8 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         // to check if a row REALLY exists in the table.
         if (use_default_or_null_flag[idx] ||
             (delete_sign_column_data != nullptr &&
-             delete_sign_column_data[read_index[idx + segment_start_pos]] != 0)) {
+             delete_sign_column_data[read_index[idx + segment_start_pos]] != 0) ||
+            (_has_delete_predicate && _delete_predicate_rows[idx])) {
             for (auto i = 0; i < missing_cids.size(); ++i) {
                 // if the column has default value, fill it with default value
                 // otherwise, if the column is nullable, fill it with null value
