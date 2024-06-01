@@ -269,7 +269,8 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     }
     if (auto it = properties.find(S3_CONN_TIMEOUT_MS); it != properties.end()) {
         if (!to_int(it->second, s3_conf->client_conf.connect_timeout_ms)) {
-            return Status::InvalidArgument("invalid {} value \"{}\"", S3_CONN_TIMEOUT_MS, it->second);
+            return Status::InvalidArgument("invalid {} value \"{}\"", S3_CONN_TIMEOUT_MS,
+                                           it->second);
         }
     }
 
