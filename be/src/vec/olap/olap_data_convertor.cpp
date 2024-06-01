@@ -239,7 +239,7 @@ std::pair<Status, IOlapColumnDataAccessor*> OlapBlockDataConvertor::convert_colu
         size_t cid) {
     assert(cid < _convertors.size());
     auto convert_func = [&]() -> Status {
-        RETURN_IF_CATCH_EXCEPTION(_convertors[cid]->convert_to_olap());
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_convertors[cid]->convert_to_olap());
         return Status::OK();
     };
     auto status = convert_func();
