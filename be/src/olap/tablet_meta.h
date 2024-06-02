@@ -129,7 +129,7 @@ public:
     Status save_meta(DataDir* data_dir);
 
     void serialize(std::string* meta_binary);
-    Status deserialize(const std::string& meta_binary);
+    Status deserialize(std::string_view meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);

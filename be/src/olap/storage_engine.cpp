@@ -819,7 +819,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 void StorageEngine::_clean_unused_rowset_metas() {
     std::vector<RowsetMetaSharedPtr> invalid_rowset_metas;
     auto clean_rowset_func = [this, &invalid_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
-                                                           const std::string& meta_str) -> bool {
+                                                           std::string_view meta_str) -> bool {
         // return false will break meta iterator, return true to skip this error
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
@@ -885,12 +885,12 @@ void StorageEngine::_clean_unused_rowset_metas() {
 
 void StorageEngine::_clean_unused_binlog_metas() {
     std::vector<std::string> unused_binlog_key_suffixes;
-    auto unused_binlog_collector = [this, &unused_binlog_key_suffixes](const std::string& key,
-                                                                       const std::string& value,
+    auto unused_binlog_collector = [this, &unused_binlog_key_suffixes](std::string_view key,
+                                                                       std::string_view value,
                                                                        bool need_check) -> bool {
         if (need_check) {
             BinlogMetaEntryPB binlog_meta_pb;
-            if (UNLIKELY(!binlog_meta_pb.ParseFromString(value))) {
+            if (UNLIKELY(!binlog_meta_pb.ParseFromArray(value.data(), value.size()))) {
                 LOG(WARNING) << "parse rowset meta string failed for binlog meta key: " << key;
             } else if (_tablet_manager->get_tablet(binlog_meta_pb.tablet_id()) == nullptr) {
                 LOG(INFO) << "failed to find tablet " << binlog_meta_pb.tablet_id()
@@ -920,7 +920,7 @@ void StorageEngine::_clean_unused_binlog_metas() {
 void StorageEngine::_clean_unused_delete_bitmap() {
     std::unordered_set<int64_t> removed_tablets;
     auto clean_delete_bitmap_func = [this, &removed_tablets](int64_t tablet_id, int64_t version,
-                                                             const std::string& val) -> bool {
+                                                             std::string_view val) -> bool {
         TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
         if (tablet == nullptr) {
             if (removed_tablets.insert(tablet_id).second) {
@@ -948,7 +948,7 @@ void StorageEngine::_clean_unused_pending_publish_info() {
     std::vector<std::pair<int64_t, int64_t>> removed_infos;
     auto clean_pending_publish_info_func = [this, &removed_infos](int64_t tablet_id,
                                                                   int64_t publish_version,
-                                                                  const string& info) -> bool {
+                                                                  std::string_view info) -> bool {
         TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
         if (tablet == nullptr) {
             removed_infos.emplace_back(tablet_id, publish_version);

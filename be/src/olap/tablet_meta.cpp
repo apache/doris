@@ -510,9 +510,9 @@ void TabletMeta::serialize(string* meta_binary) {
     }
 }
 
-Status TabletMeta::deserialize(const string& meta_binary) {
+Status TabletMeta::deserialize(std::string_view meta_binary) {
     TabletMetaPB tablet_meta_pb;
-    bool parsed = tablet_meta_pb.ParseFromString(meta_binary);
+    bool parsed = tablet_meta_pb.ParseFromArray(meta_binary.data(), meta_binary.size());
     if (!parsed) {
         return Status::Error<INIT_FAILED>("parse tablet meta failed");
     }
