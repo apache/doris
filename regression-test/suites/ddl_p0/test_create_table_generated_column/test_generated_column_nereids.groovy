@@ -139,7 +139,7 @@ suite("test_generated_column") {
 
     sql "drop table if exists test_encrypt_key_gen_col_with_db"
     qt_test_aes_encrypt_with_db """create table test_encrypt_key_gen_col_with_db(a int default 10, b int default 100,
-    c varchar(100) as(hex(aes_encrypt("abc",key ${db}.my_key))));"""
+    c varchar(100) as(hex(aes_encrypt("abc",key ${db}.my_key)))) distributed by hash(a) properties("replication_num"="1");"""
     qt_test_aes_encrypt_insert_with_db "insert into test_encrypt_key_gen_col_with_db values(1,2,default)"
     qt_test_aes_encrypt_select_with_db "select * from test_encrypt_key_gen_col_with_db"
 
