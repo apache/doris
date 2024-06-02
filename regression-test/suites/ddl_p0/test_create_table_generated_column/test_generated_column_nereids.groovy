@@ -133,7 +133,7 @@ suite("test_generated_column") {
     sql """CREATE ENCRYPTKEY my_key AS "ABCD123456789";"""
     sql "drop table if exists test_encrypt_key_gen_col"
     qt_test_aes_encrypt """create table test_encrypt_key_gen_col(a int default 10, b int default 100,
-    c varchar(100) as(hex(aes_encrypt("abc",key my_key))));"""
+    c varchar(100) as(hex(aes_encrypt("abc",key my_key))))  distributed by hash(a) properties("replication_num"="1");;"""
     qt_test_aes_encrypt_insert "insert into test_encrypt_key_gen_col values(1,2,default)"
     qt_test_aes_encrypt_select "select * from test_encrypt_key_gen_col"
 
