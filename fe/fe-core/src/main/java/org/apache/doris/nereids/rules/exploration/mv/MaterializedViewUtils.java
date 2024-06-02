@@ -521,7 +521,7 @@ public class MaterializedViewUtils {
         private final boolean pctPossible;
         private final String column;
         private final Set<String> failReasons = new HashSet<>();
-        // This records the partition expression
+        // This records the partition expression if exist
         private Optional<Expression> partitionExpression;
 
         public RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column, String failReason,
