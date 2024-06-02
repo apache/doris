@@ -97,8 +97,9 @@ public class MaterializedViewUtils {
         if (columnExpr == null) {
             return RelatedTableInfo.failWith("partition column can not find from sql select column");
         }
+        Expression dateTrunc = null;
         if (timeUnit != null) {
-            Expression dateTrunc = new DateTrunc(columnExpr, new VarcharLiteral(timeUnit));
+            dateTrunc = new DateTrunc(columnExpr, new VarcharLiteral(timeUnit));
             dateTrunc = ExpressionUtils.shuttleExpressionWithLineage(dateTrunc, materializedViewPlan, new BitSet());
             // merge date_trunc
             dateTrunc = new ExpressionNormalization().rewrite(dateTrunc,
@@ -141,7 +142,7 @@ public class MaterializedViewUtils {
         // TODO support to return only one related table info, support multi later
         for (Map.Entry<TableIf, Column> entry : partitionRelatedTableAndColumnMap.entries()) {
             return RelatedTableInfo.successWith(new BaseTableInfo(entry.getKey()), true,
-                    entry.getValue().getName());
+                    entry.getValue().getName(), dateTrunc);
         }
         return RelatedTableInfo.failWith("can't not find valid partition track column finally");
     }
@@ -520,20 +521,26 @@ public class MaterializedViewUtils {
         private final boolean pctPossible;
         private final String column;
         private final Set<String> failReasons = new HashSet<>();
+        // This records the partition expression
+        private Optional<Expression> partitionExpression;
 
-        public RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column, String failReason) {
+        public RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column, String failReason,
+                Expression partitionExpression) {
             this.tableInfo = tableInfo;
             this.pctPossible = pctPossible;
             this.column = column;
             this.failReasons.add(failReason);
+            this.partitionExpression = Optional.ofNullable(partitionExpression);
         }
 
         public static RelatedTableInfo failWith(String failReason) {
-            return new RelatedTableInfo(null, false, null, failReason);
+            return new RelatedTableInfo(null, false, null, failReason,
+                    null);
         }
 
-        public static RelatedTableInfo successWith(BaseTableInfo tableInfo, boolean pctPossible, String column) {
-            return new RelatedTableInfo(tableInfo, pctPossible, column, "");
+        public static RelatedTableInfo successWith(BaseTableInfo tableInfo, boolean pctPossible, String column,
+                Expression partitionExpression) {
+            return new RelatedTableInfo(tableInfo, pctPossible, column, "", partitionExpression);
         }
 
         public BaseTableInfo getTableInfo() {
@@ -554,6 +561,10 @@ public class MaterializedViewUtils {
 
         public String getFailReason() {
             return String.join(",", failReasons);
+        }
+
+        public Optional<Expression> getPartitionExpression() {
+            return partitionExpression;
         }
     }
 }

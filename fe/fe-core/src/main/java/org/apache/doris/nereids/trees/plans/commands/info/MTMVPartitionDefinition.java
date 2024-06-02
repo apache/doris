@@ -41,6 +41,8 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.RelatedTableInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -87,9 +89,6 @@ public class MTMVPartitionDefinition {
                         ? ((UnboundSlot) functionCallExpression.getArgument(0)).getName() : null;
                 timeUnit = functionCallExpression.getArguments().get(1).isLiteral()
                         ? ((Literal) functionCallExpression.getArgument(1)).getStringValue() : null;
-                // todo use new expression?
-                mtmvPartitionInfo.setExpr(new FunctionCallExpr(functionName,
-                        new FunctionParams(convertToLegacyArguments(functionCallExpression.children()))));
             } else {
                 throw new AnalysisException(
                         "unsupported auto partition expr " + functionCallExpression.toString());
@@ -102,6 +101,16 @@ public class MTMVPartitionDefinition {
         RelatedTableInfo relatedTableInfo = getRelatedTableInfo(planner, ctx, logicalQuery, partitionColName, timeUnit);
         mtmvPartitionInfo.setRelatedCol(relatedTableInfo.getColumn());
         mtmvPartitionInfo.setRelatedTable(relatedTableInfo.getTableInfo());
+        if (relatedTableInfo.getPartitionExpression().isPresent()) {
+            // Set mv partition expr by relatedTableInfo, this is used for partition rollup and so on
+            if (relatedTableInfo.getPartitionExpression().get().getExpressionName()
+                    .equalsIgnoreCase(PARTITION_BY_FUNCTION_NAME)) {
+                DateTrunc dateTrunc = (DateTrunc) relatedTableInfo.getPartitionExpression().get();
+                // todo use new expression?
+                mtmvPartitionInfo.setExpr(new FunctionCallExpr(dateTrunc.getName(),
+                        new FunctionParams(convertToLegacyArguments(dateTrunc.children()))));
+            }
+        }
         if (this.partitionType == MTMVPartitionType.EXPR) {
             try {
                 MTMVPartitionExprFactory.getExprService(mtmvPartitionInfo.getExpr()).analyze(mtmvPartitionInfo);
@@ -157,8 +166,8 @@ public class MTMVPartitionDefinition {
 
     private static List<Expr> convertToLegacyArguments(List<Expression> children) {
         return children.stream().map(child -> {
-            if (child instanceof UnboundSlot) {
-                return new SlotRef(null, ((UnboundSlot) child).getName());
+            if (child instanceof Slot) {
+                return new SlotRef(null, ((Slot) child).getName());
             } else if (child instanceof Literal) {
                 return new StringLiteral(((Literal) child).getStringValue());
             } else {
