@@ -66,6 +66,7 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
@@ -367,13 +368,21 @@ public class DateLiteral extends LiteralExpr {
         type = other.type;
     }
 
+    public DateLiteral(String s) throws AnalysisException {
+        super();
+        init(s, null);
+        analysisDone();
+    }
+
     public static DateLiteral createMinValue(Type type) throws AnalysisException {
         return new DateLiteral(type, false);
     }
 
-    private void init(String s, Type type) throws AnalysisException {
+    private void init(String s, @Nullable Type type) throws AnalysisException {
         try {
-            Preconditions.checkArgument(type.isDateType());
+            if (type != null) {
+                Preconditions.checkArgument(type.isDateType());
+            }
             TemporalAccessor dateTime = null;
             boolean parsed = false;
             int offset = 0;
@@ -445,25 +454,29 @@ public class DateLiteral extends LiteralExpr {
                     builder.appendLiteral(" ");
                 }
                 String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[] {};
-                if (timePart.length > 0 && (type.equals(Type.DATE) || type.equals(Type.DATEV2))) {
+                if (timePart.length > 0 && type != null && (type.equals(Type.DATE) || type.equals(Type.DATEV2))) {
                     throw new AnalysisException("Invalid date value: " + s);
                 }
-                if (timePart.length == 0 && (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2))) {
+                if (timePart.length == 0 && type != null
+                        && (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2))) {
                     throw new AnalysisException("Invalid datetime value: " + s);
                 }
                 for (int i = 0; i < timePart.length; i++) {
                     switch (i) {
                         case 0:
-                            builder.appendPattern(String.join("", Collections.nCopies(timePart[i].length(), "H")));
+                            builder.appendPattern(String.join("",
+                                    Collections.nCopies(timePart[i].length(), "H")));
                             break;
                         case 1:
-                            builder.appendPattern(String.join("", Collections.nCopies(timePart[i].length(), "m")));
+                            builder.appendPattern(String.join("",
+                                    Collections.nCopies(timePart[i].length(), "m")));
                             break;
                         case 2:
                             builder.appendPattern(String.join("", Collections.nCopies(timePart[i].contains(".")
                                     ? timePart[i].split("\\.")[0].length() : timePart[i].length(), "s")));
                             if (timePart[i].contains(".")) {
-                                builder.appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true);
+                                builder.appendFraction(ChronoField.MICRO_OF_SECOND,
+                                        0, 6, true);
                             }
                             break;
                         default:
@@ -488,10 +501,29 @@ public class DateLiteral extends LiteralExpr {
             minute = getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR, 0);
             second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
             microsecond = getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0);
-            if (microsecond != 0 && type.isDatetime()) {
-                int dotIndex = s.lastIndexOf(".");
-                int scale = s.length() - dotIndex - 1;
-                type = ScalarType.createDatetimeV2Type(scale);
+            if (type != null) {
+                if (microsecond != 0 && type.isDatetime()) {
+                    int dotIndex = s.lastIndexOf(".");
+                    int scale = s.length() - dotIndex - 1;
+                    type = ScalarType.createDatetimeV2Type(scale);
+                }
+            } else {
+                if (hour == 0 && minute == 0 && second == 0 && microsecond == 0) {
+                    type = ScalarType.getDefaultDateType(Type.DATE);
+                } else {
+                    type = ScalarType.getDefaultDateType(Type.DATETIME);
+                    if (type.isDatetimeV2() && microsecond != 0) {
+                        int scale = 6;
+                        for (int i = 0; i < 6; i++) {
+                            if (microsecond % Math.pow(10.0, i + 1) > 0) {
+                                break;
+                            } else {
+                                scale -= 1;
+                            }
+                        }
+                        type = ScalarType.createDatetimeV2Type(scale);
+                    }
+                }
             }
             this.type = type;
 
@@ -718,6 +750,10 @@ public class DateLiteral extends LiteralExpr {
     @Override
     public double getDoubleValue() {
         return getLongValue();
+    }
+
+    public double getDoubleValueAsDateTime() {
+        return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
     }
 
     @Override
