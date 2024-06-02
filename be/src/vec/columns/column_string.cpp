@@ -24,6 +24,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <ostream>
 
+#include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
@@ -195,8 +196,9 @@ void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indic
             const size_t size_to_append =
                     src_offset_data[src_offset] - src_offset_data[src_offset - 1];
             const size_t offset = src_offset_data[src_offset - 1];
-            memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
-                                                     src_data_ptr + offset, size_to_append);
+
+            memcpy_inlined(dst_data_ptr + dst_chars_pos, src_data_ptr + offset, size_to_append);
+
             dst_chars_pos += size_to_append;
         }
     };

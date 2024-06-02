@@ -250,6 +250,9 @@ public class BDBHA implements HAProtocol {
 
     public void removeDroppedMember(ConcurrentLinkedQueue<String> removedFrontends) {
         ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
+        if (replicationGroupAdmin == null) {
+            return;
+        }
         Set<ReplicationNode> replicationNodes = replicationGroupAdmin.getGroup().getElectableNodes();
         LOG.debug("removedFrontends:{}", removedFrontends);
         for (ReplicationNode replicationNode : replicationNodes) {

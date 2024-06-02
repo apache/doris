@@ -21,6 +21,7 @@ import java.sql.Statement
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
+// modify replica num from 3 to 1
 suite("txn_insert") {
     // check backend num >= 3
     def backends = sql "show backends"

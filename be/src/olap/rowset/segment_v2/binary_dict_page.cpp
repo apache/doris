@@ -158,19 +158,21 @@ OwnedSlice BinaryDictPageBuilder::finish() {
 }
 
 Status BinaryDictPageBuilder::reset() {
-    _finished = false;
-    _buffer.reserve(_options.data_page_size + BINARY_DICT_PAGE_HEADER_SIZE);
-    _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
+    RETURN_IF_CATCH_EXCEPTION({
+        _finished = false;
+        _buffer.reserve(_options.data_page_size + BINARY_DICT_PAGE_HEADER_SIZE);
+        _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
-    if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
-        PageBuilder* data_page_builder_ptr = nullptr;
-        RETURN_IF_ERROR(BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>::create(
-                &data_page_builder_ptr, _options));
-        _data_page_builder.reset(data_page_builder_ptr);
-        _encoding_type = PLAIN_ENCODING;
-    } else {
-        RETURN_IF_ERROR(_data_page_builder->reset());
-    }
+        if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
+            PageBuilder* data_page_builder_ptr = nullptr;
+            RETURN_IF_ERROR(BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>::create(
+                    &data_page_builder_ptr, _options));
+            _data_page_builder.reset(data_page_builder_ptr);
+            _encoding_type = PLAIN_ENCODING;
+        } else {
+            RETURN_IF_ERROR(_data_page_builder->reset());
+        }
+    });
     return Status::OK();
 }
 

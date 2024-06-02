@@ -44,6 +44,7 @@ import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
+import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
@@ -769,9 +770,9 @@ class Suite implements GroovyInterceptable {
             cmd = "scp -o StrictHostKeyChecking=no -r ${files} ${username}@${host}:${filePath}"
         }
         staticLogger.info("Execute: ${cmd}".toString())
-        Process process = cmd.execute()
+        Process process = new ProcessBuilder("/bin/bash", "-c", cmd).redirectErrorStream(true).start()
         def code = process.waitFor()
-        staticLogger.info("execute result ${process.getText()}.")
+        staticLogger.info("execute output ${process.text}")
         Assert.assertEquals(0, code)
     }
 
@@ -809,12 +810,13 @@ class Suite implements GroovyInterceptable {
         def executeCommand = { String cmd, Boolean mustSuc ->
             try {
                 staticLogger.info("execute ${cmd}")
-                def proc = cmd.execute()
-                // if timeout, exception will be thrown
-                proc.waitForOrKill(900 * 1000)
-                staticLogger.info("execute result ${proc.getText()}.")
-                if (mustSuc == true) {
-                    Assert.assertEquals(0, proc.exitValue())
+                def proc = new ProcessBuilder("/bin/bash", "-c", cmd).redirectErrorStream(true).start()
+                int exitcode = proc.waitFor()
+                if (exitcode != 0) {
+                    staticLogger.info("exit code: ${exitcode}, output\n: ${proc.text}")
+                    if (mustSuc == true) {
+                       Assert.assertEquals(0, exitCode)
+                    }
                 }
             } catch (IOException e) {
                 Assert.assertTrue(false, "execute timeout")
@@ -1146,6 +1148,28 @@ class Suite implements GroovyInterceptable {
 
     DebugPoint GetDebugPoint() {
         return debugPoint
+    }
+
+    void waitingMTMVTaskFinishedByMvName(String mvName) {
+        Thread.sleep(2000);
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime ASC"
+        String status = "NULL"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                status = result.last().get(4)
+            }
+            logger.info("The state of ${showTasks} is ${status}")
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        if (status != "SUCCESS") {
+            logger.info("status is not success")
+        }
+        Assert.assertEquals("SUCCESS", status)
     }
 
     void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
@@ -1664,6 +1688,38 @@ class Suite implements GroovyInterceptable {
             logger.info("set be_id ${id} ${paramName} to ${paramValue}".toString())
             def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
             assertTrue(out.contains("OK"))
+        }
+    }
+
+    def check_table_version_continuous = { db_name, table_name ->
+        def tablets = sql_return_maparray """ show tablets from ${db_name}.${table_name} """
+        for (def tablet_info : tablets) {
+            logger.info("tablet: $tablet_info")
+            def compact_url = tablet_info.get("CompactionStatus")
+            String command = "curl ${compact_url}"
+            Process process = command.execute()
+            def code = process.waitFor()
+            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+            def out = process.getText()
+            logger.info("code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+
+            def compactJson = parseJson(out.trim())
+            def rowsets = compactJson.get("rowsets")
+
+            def last_start_version = 0
+            def last_end_version = -1
+            for(def rowset : rowsets) {
+                def version_str = rowset.substring(1, rowset.indexOf("]"))
+                logger.info("version_str: $version_str")
+                def versions = version_str.split("-")
+                def start_version = versions[0].toLong()
+                def end_version = versions[1].toLong()
+                logger.info("cur_version:[$start_version - $end_version], last_version:[$last_start_version - $last_end_version]")
+                assertEquals(last_end_version + 1, start_version)
+                last_start_version = start_version
+                last_end_version = end_version
+            }
         }
     }
 }

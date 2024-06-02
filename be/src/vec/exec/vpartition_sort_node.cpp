@@ -317,11 +317,6 @@ Status VPartitionSortNode::alloc_resource(RuntimeState* state) {
     return Status::OK();
 }
 
-bool VPartitionSortNode::can_read() {
-    std::lock_guard<std::mutex> lock(_buffer_mutex);
-    return !_blocks_buffer.empty() || _can_read;
-}
-
 Status VPartitionSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_block,
                                 bool* eos) {
     SCOPED_TIMER(_exec_timer);

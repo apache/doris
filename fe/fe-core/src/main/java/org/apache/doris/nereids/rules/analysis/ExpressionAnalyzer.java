@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
@@ -539,6 +540,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
         }
         return expr;
+    }
+
+    @Override
+    public Expression visitPlaceholder(Placeholder placeholder, ExpressionRewriteContext context) {
+        Expression realExpr = context.cascadesContext.getStatementContext()
+                    .getIdToPlaceholderRealExpr().get(placeholder.getPlaceholderId());
+        return visit(realExpr, context);
     }
 
     @Override

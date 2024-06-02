@@ -1360,6 +1360,12 @@ DECLARE_Int64(max_nonblock_close_thread_num);
 DECLARE_mDouble(mem_alloc_fault_probability);
 // The time out milliseconds for remote fetch schema RPC
 DECLARE_mInt64(fetch_remote_schema_rpc_timeout_ms);
+// The size of the local buffer for S3FileSytem's upload function
+
+DECLARE_Int64(s3_file_system_local_upload_buffer_size);
+
+//JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues.
+DECLARE_Bool(enable_jvm_monitor);
 
 #ifdef BE_TEST
 // test s3

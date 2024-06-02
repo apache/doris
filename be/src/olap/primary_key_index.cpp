@@ -32,6 +32,8 @@
 
 namespace doris {
 
+static bvar::Adder<size_t> g_primary_key_index_memory_bytes("doris_primary_key_index_memory_bytes");
+
 Status PrimaryKeyIndexBuilder::init() {
     // TODO(liaoxin) using the column type directly if there's only one column in unique key columns
     const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();

@@ -151,8 +151,8 @@ void SetSourceOperatorX<is_intersect>::_add_result_columns(
 
     auto it = value.begin();
     for (auto idx = build_col_idx.begin(); idx != build_col_idx.end(); ++idx) {
-        auto& column = *build_block.get_by_position(idx->first).column;
-        local_state._mutable_cols[idx->second]->insert_from(column, it->row_num);
+        auto& column = *build_block.get_by_position(idx->second).column;
+        local_state._mutable_cols[idx->first]->insert_from(column, it->row_num);
     }
     block_size++;
 }

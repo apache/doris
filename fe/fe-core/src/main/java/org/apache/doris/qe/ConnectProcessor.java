@@ -257,8 +257,11 @@ public abstract class ConnectProcessor {
         Exception nereidsSyntaxException = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
-        // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
-        if (mysqlCommand == MysqlCommand.COM_QUERY && sessionVariable.isEnableNereidsPlanner()) {
+        // Currently we add a config to decide whether using PREPARED/EXECUTE command for nereids
+        // TODO: after implemented full prepared, we could remove this flag
+        boolean nereidsUseServerPrep = sessionVariable.enableServeSidePreparedStatement
+                        || mysqlCommand == MysqlCommand.COM_QUERY;
+        if (nereidsUseServerPrep && sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
                 cachedStmts = parseFromSqlCache(originStmt);
                 if (cachedStmts != null) {
@@ -708,6 +711,9 @@ public abstract class ConnectProcessor {
         if (request.isSetUserVariables()) {
             ctx.setUserVars(userVariableFromThrift(request.getUserVariables()));
         }
+
+        // set resource tag
+        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser));
 
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;

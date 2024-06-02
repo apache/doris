@@ -71,8 +71,6 @@ public:
         return send(state, block, eos);
     }
 
-    [[nodiscard]] virtual bool is_pending_finish() const { return false; }
-
     // Releases all resources that were allocated in prepare()/send().
     // Further send() calls are illegal after calling close().
     // It must be okay to call this multiple times. Subsequent calls should
@@ -101,8 +99,6 @@ public:
     RuntimeProfile* profile() { return _profile; }
 
     const RowDescriptor& row_desc() { return _row_desc; }
-
-    virtual bool can_write() { return true; }
 
     std::shared_ptr<QueryStatistics> get_query_statistics_ptr();
 

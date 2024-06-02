@@ -71,7 +71,7 @@ suite("test_bitmap_function") {
     sql """
         CREATE TABLE test_bitmap1 (
           dt INT(11) NULL,
-          id bitmap BITMAP_UNION NULL
+          id bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(dt)
         DISTRIBUTED BY HASH(dt) BUCKETS 2
@@ -91,7 +91,7 @@ suite("test_bitmap_function") {
     sql """
         CREATE TABLE test_bitmap2 (
           dt INT(11) NULL,
-          id bitmap BITMAP_UNION NULL
+          id bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(dt)
         DISTRIBUTED BY HASH(dt) BUCKETS 2
@@ -325,7 +325,7 @@ suite("test_bitmap_function") {
     sql """
         CREATE TABLE test_bitmap1 (
           dt INT(11) NULL,
-          id bitmap BITMAP_UNION NULL
+          id bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(dt)
         DISTRIBUTED BY HASH(dt) BUCKETS 2
@@ -345,7 +345,7 @@ suite("test_bitmap_function") {
     sql """
         CREATE TABLE test_bitmap2 (
           dt INT(11) NULL,
-          id bitmap BITMAP_UNION NULL
+          id bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(dt)
         DISTRIBUTED BY HASH(dt) BUCKETS 2
@@ -601,7 +601,7 @@ suite("test_bitmap_function") {
     sql """ CREATE TABLE IF NOT EXISTS ${arthogonalBitmapTable} (
         tag_group bigint(20) NULL COMMENT "标签组",
         bucket int(11) NOT NULL COMMENT "分桶字段",
-        members bitmap BITMAP_UNION NULL COMMENT "人群") ENGINE=OLAP
+        members bitmap BITMAP_UNION  COMMENT "人群") ENGINE=OLAP
         AGGREGATE KEY(tag_group,
                       bucket)
         DISTRIBUTED BY HASH(bucket) BUCKETS 64
