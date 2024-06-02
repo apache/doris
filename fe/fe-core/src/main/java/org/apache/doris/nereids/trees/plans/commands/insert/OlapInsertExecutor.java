@@ -299,6 +299,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     }
 
     private boolean isGroupCommitHttpStream() {
-        return ConnectContext.get() != null && ConnectContext.get().isGroupCommitStreamLoadSql();
+        return ConnectContext.get() != null && ConnectContext.get().isGroupCommit();
     }
 }
