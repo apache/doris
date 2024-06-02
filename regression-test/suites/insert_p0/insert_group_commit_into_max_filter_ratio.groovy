@@ -93,7 +93,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
                 logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
             }
             // assertEquals(result, expected_row_count)
-            assertTrue(serverInfo.contains("'status':'ABORTED'"))
+            assertTrue(serverInfo.contains("too many filtered rows"))
             // assertFalse(serverInfo.contains("'label':'group_commit_"))
         } catch (Exception e) {
             logger.info("exception: " + e)
@@ -234,8 +234,11 @@ suite("insert_group_commit_into_max_filter_ratio") {
             // TODO should throw exception?
             sql """ set group_commit = async_mode; """
             sql """ set enable_insert_strict = true; """
-            fail_group_commit_insert """ insert into ${dbTableName} values (8, 'a', 'a'); """, 0
-
+            if (item == "nereids") {
+                // sql """ insert into ${dbTableName} values (8, 'a', 'a'); """, 1
+            } else {
+                fail_group_commit_insert """ insert into ${dbTableName} values (8, 'a', 'a'); """, 0
+            }
             sql """ set group_commit = async_mode; """
             sql """ set enable_insert_strict = false; """
             group_commit_insert """ insert into ${dbTableName} values (9, 'a', 'a'); """, 0

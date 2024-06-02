@@ -159,7 +159,16 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
         if (oneRowRelation.isPresent()) {
             constantExprsList = ImmutableList.of(oneRowRelation.get().getProjects());
         }
-        List<String> columnNames = physicalOlapTableSink.getTargetTable().getFullSchema().stream()
+
+        // should set columns of sink since we maybe generate some invisible columns
+        List<Column> fullSchema = physicalOlapTableSink.getTargetTable().getFullSchema();
+        List<Column> targetSchema;
+        if (physicalOlapTableSink.getTargetTable().getFullSchema().size() != physicalOlapTableSink.getCols().size()) {
+            targetSchema = fullSchema;
+        } else {
+            targetSchema = physicalOlapTableSink.getCols().stream().collect(Collectors.toList());
+        }
+        List<String> columnNames = targetSchema.stream()
                 .map(Column::getName)
                 .map(n -> n.replace("`", "``"))
                 .collect(Collectors.toList());
