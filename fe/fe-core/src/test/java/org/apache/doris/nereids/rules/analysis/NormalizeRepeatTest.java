@@ -41,7 +41,7 @@ public class NormalizeRepeatTest implements MemoPatternMatchSupported {
         Slot name = scan1.getOutput().get(1);
         Alias alias = new Alias(new Sum(name), "sum(name)");
         Plan plan = new LogicalRepeat<>(
-                ImmutableList.of(ImmutableList.of(id)),
+                ImmutableList.of(ImmutableList.of(id), ImmutableList.of(name)),
                 ImmutableList.of(idNotNull, alias),
                 scan1
         );
