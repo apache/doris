@@ -240,7 +240,7 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
             sb.append("', 'err':'").append(errMsg).append("'");
         }
         sb.append("}");
-        ctx.getState().setOk(loadedRows, 0, sb.toString());
+        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, t.getMessage());
         // set insert result in connection context,
         // so that user can use `show insert result` to get info of the last insert operation.
         ctx.setOrUpdateInsertResult(txnId, labelName, database.getFullName(), table.getName(),
