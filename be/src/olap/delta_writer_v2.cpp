@@ -112,7 +112,6 @@ Status DeltaWriterV2::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
-    context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
     context.tablet = nullptr;
     context.write_type = DataWriteType::TYPE_DIRECT;
@@ -140,14 +139,8 @@ Status DeltaWriterV2::init() {
     return Status::OK();
 }
 
-Status DeltaWriterV2::append(const vectorized::Block* block) {
-    return write(block, {}, true);
-}
-
-Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
-                            bool is_append) {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
-    if (UNLIKELY(row_idxs.empty() && !is_append)) {
+Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) {
+    if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
     _lock_watch.start();
@@ -163,13 +156,13 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
                         { memtable_flush_running_count_limit = 0; });
         while (_memtable_writer->flush_running_count() >= memtable_flush_running_count_limit) {
             if (_state->is_cancelled()) {
-                return Status::Cancelled(_state->cancel_reason());
+                return _state->cancel_reason();
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
     SCOPED_RAW_TIMER(&_write_memtable_time);
-    return _memtable_writer->write(block, row_idxs, is_append);
+    return _memtable_writer->write(block, row_idxs);
 }
 
 Status DeltaWriterV2::close() {
@@ -229,18 +222,24 @@ void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
         }
     }
 
-    if (indexes.size() > 0 && indexes[i]->columns.size() != 0 &&
+    if (!indexes.empty() && !indexes[i]->columns.empty() &&
         indexes[i]->columns[0]->unique_id() >= 0) {
         _tablet_schema->build_current_tablet_schema(index_id, table_schema_param->version(),
                                                     indexes[i], ori_tablet_schema);
     }
 
     _tablet_schema->set_table_id(table_schema_param->table_id());
+    _tablet_schema->set_db_id(table_schema_param->db_id());
+    if (table_schema_param->is_partial_update()) {
+        _tablet_schema->set_auto_increment_column(table_schema_param->auto_increment_coulumn());
+    }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
     _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
                                table_schema_param->partial_update_input_columns(),
-                               table_schema_param->is_strict_mode());
+                               table_schema_param->is_strict_mode(),
+                               table_schema_param->timestamp_ms(), table_schema_param->timezone(),
+                               table_schema_param->auto_increment_coulumn());
 }
 
 } // namespace doris

@@ -19,22 +19,26 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ExternalAnalysisTask;
-import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.Table;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class IcebergExternalTable extends ExternalTable {
+
     public IcebergExternalTable(long id, String name, String dbName, IcebergExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.ICEBERG_EXTERNAL_TABLE);
     }
@@ -51,9 +55,8 @@ public class IcebergExternalTable extends ExternalTable {
     }
 
     @Override
-    public List<Column> initSchema() {
-        makeSureInitialized();
-        return IcebergUtils.getSchema(catalog, dbName, name);
+    public Optional<SchemaCacheValue> initSchema() {
+        return Optional.of(new SchemaCacheValue(IcebergUtils.getSchema(catalog, dbName, name)));
     }
 
     @Override
@@ -75,16 +78,25 @@ public class IcebergExternalTable extends ExternalTable {
     }
 
     @Override
-    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
-        makeSureInitialized();
-        return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(),
-                () -> StatisticsUtil.getIcebergColumnStats(colName,
-                        ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name)));
-    }
-
-    @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
         return new ExternalAnalysisTask(info);
+    }
+
+    @Override
+    public long fetchRowCount() {
+        makeSureInitialized();
+        return IcebergUtils.getIcebergRowCount(getCatalog(), getDbName(), getName());
+    }
+
+    public Table getIcebergTable() {
+        return IcebergUtils.getIcebergTable(getCatalog(), getDbName(), getName());
+    }
+
+    @Override
+    public Set<String> getPartitionNames() {
+        getIcebergTable();
+        return IcebergUtils.getIcebergTable(getCatalog(), getDbName(), getName())
+                .spec().fields().stream().map(PartitionField::name).collect(Collectors.toSet());
     }
 }

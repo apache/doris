@@ -95,11 +95,15 @@ public class Statistics {
     }
 
     public Statistics withSel(double sel) {
+        return withSel(sel, 0);
+    }
+
+    public Statistics withSel(double sel, double numNull) {
         sel = StatsMathUtil.minNonNaN(sel, 1);
         if (Double.isNaN(rowCount)) {
             return this;
         }
-        double newCount = rowCount * sel;
+        double newCount = rowCount * sel + numNull;
         return new Statistics(newCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
     }
 
@@ -160,6 +164,10 @@ public class Statistics {
             zero.addColumnStats(entry.getKey(), ColumnStatistic.ZERO);
         }
         return zero;
+    }
+
+    public static double getValidSelectivity(double nullSel) {
+        return nullSel < 0 ? 0 : (nullSel > 1 ? 1 : nullSel);
     }
 
     /**

@@ -30,7 +30,11 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
+
+#include "io/fs/file_system.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 
 class CLuceneError;
 
@@ -41,15 +45,28 @@ class RAMDirectory;
 } // namespace lucene
 
 namespace doris {
-
+class TabletIndex;
 namespace segment_v2 {
 
+class ReaderFileEntry : LUCENE_BASE {
+public:
+    std::string file_name {};
+    int64_t offset;
+    int64_t length;
+    ReaderFileEntry() {
+        //file_name = nullptr;
+        offset = 0;
+        length = 0;
+    }
+    ~ReaderFileEntry() override = default;
+};
+
+using EntriesType =
+        lucene::util::CLHashMap<char*, ReaderFileEntry*, lucene::util::Compare::Char,
+                                lucene::util::Equals::Char, lucene::util::Deletor::acArray,
+                                lucene::util::Deletor::Object<ReaderFileEntry>>;
 class CLUCENE_EXPORT DorisCompoundReader : public lucene::store::Directory {
 private:
-    class ReaderFileEntry;
-
-    friend class DorisCompoundReader::ReaderFileEntry;
-
     int32_t readBufferSize;
     // base info
     lucene::store::Directory* dir = nullptr;
@@ -57,21 +74,33 @@ private:
     std::string directory;
     std::string file_name;
     CL_NS(store)::IndexInput* stream = nullptr;
-
-    using EntriesType =
-            lucene::util::CLHashMap<char*, ReaderFileEntry*, lucene::util::Compare::Char,
-                                    lucene::util::Equals::Char, lucene::util::Deletor::acArray,
-                                    lucene::util::Deletor::Object<ReaderFileEntry>>;
-
     EntriesType* entries = nullptr;
-
     std::mutex _this_lock;
+    bool _own_index_input = true;
 
 protected:
     /** Removes an existing file in the directory-> */
     bool doDeleteFile(const char* name) override;
 
 public:
+    explicit DorisCompoundReader(
+            CL_NS(store)::IndexInput* stream, EntriesType* entries_clone,
+            bool own_index_input = false,
+            int32_t _readBufferSize = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE)
+            : readBufferSize(_readBufferSize),
+              stream(stream),
+              entries(_CLNEW EntriesType(true, true)),
+              _own_index_input(own_index_input) {
+        for (auto& e : *entries_clone) {
+            auto* origin_entry = e.second;
+            auto* entry = _CLNEW ReaderFileEntry();
+            char* aid = strdup(e.first);
+            entry->file_name = origin_entry->file_name;
+            entry->offset = origin_entry->offset;
+            entry->length = origin_entry->length;
+            entries->put(aid, entry);
+        }
+    };
     DorisCompoundReader(lucene::store::Directory* dir, const char* name,
                         int32_t _readBufferSize = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE,
                         bool open_idx_file_cache = false);

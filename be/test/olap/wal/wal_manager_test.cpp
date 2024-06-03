@@ -44,7 +44,6 @@
 namespace doris {
 
 extern TLoadTxnBeginResult k_stream_load_begin_result;
-extern Status k_stream_load_exec_status;
 
 ExecEnv* _env = nullptr;
 std::filesystem::path wal_dir = std::filesystem::current_path().string() + "/wal_test";
@@ -103,7 +102,6 @@ public:
 
 TEST_F(WalManagerTest, recovery_normal) {
     _env->wal_mgr()->wal_limit_test_bytes = 1099511627776;
-    k_stream_load_exec_status = Status::OK();
 
     std::string db_id = "1";
     int64_t tb_1_id = 1;
@@ -173,13 +171,13 @@ TEST_F(WalManagerTest, TestDynamicWalSpaceLimt) {
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "5%";
     EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
-    wal_limit_bytes = available_bytes * 0.05;
+    wal_limit_bytes = size_t(available_bytes * 0.05);
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, wal_limit_bytes);
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "50%";
     EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
-    wal_limit_bytes = available_bytes * 0.5;
+    wal_limit_bytes = size_t(available_bytes * 0.5);
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, wal_limit_bytes);
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;

@@ -21,29 +21,11 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vsort_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-class SortSourceOperatorBuilder final : public OperatorBuilder<vectorized::VSortNode> {
-public:
-    SortSourceOperatorBuilder(int32_t id, ExecNode* sort_node);
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class SortSourceOperator final : public SourceOperator<vectorized::VSortNode> {
-public:
-    SortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
 
 class SortSourceOperatorX;
 class SortLocalState final : public PipelineXLocalState<SortSharedState> {
@@ -60,10 +42,11 @@ class SortSourceOperatorX final : public OperatorX<SortLocalState> {
 public:
     SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                         const DescriptorTbl& descs);
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
+
+    const vectorized::SortDescription& get_sort_description(RuntimeState* state) const;
 
 private:
     friend class SortLocalState;

@@ -26,9 +26,11 @@
 #include <stdint.h>
 #include <zlib.h>
 
+#include <memory>
 #include <string>
 
 #include "common/status.h"
+#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 
@@ -57,7 +59,14 @@ public:
                               size_t* more_output_bytes) = 0;
 
 public:
-    static Status create_decompressor(CompressType type, Decompressor** decompressor);
+    static Status create_decompressor(CompressType type,
+                                      std::unique_ptr<Decompressor>* decompressor);
+
+    static Status create_decompressor(TFileCompressType::type type,
+                                      std::unique_ptr<Decompressor>* decompressor);
+
+    static Status create_decompressor(TFileFormatType::type type,
+                                      std::unique_ptr<Decompressor>* decompressor);
 
     virtual std::string debug_info();
 

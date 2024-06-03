@@ -61,7 +61,15 @@ public:
     VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
              RuntimeProfile* profile);
 
-    virtual ~VScanner() = default;
+    virtual ~VScanner() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_state->query_mem_tracker());
+        _input_block.clear();
+        _conjuncts.clear();
+        _projections.clear();
+        _origin_block.clear();
+        _common_expr_ctxs_push_down.clear();
+        _stale_expr_ctxs.clear();
+    }
 
     virtual Status init() { return Status::OK(); }
 
@@ -86,7 +94,7 @@ protected:
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
 
     // Update the counters before closing this scanner
-    virtual void _update_counters_before_close();
+    virtual void _collect_profile_before_close();
 
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
@@ -101,6 +109,7 @@ public:
 
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
 
+    int64_t projection_time() const { return _projection_timer; }
     int64_t get_rows_read() const { return _num_rows_read; }
 
     bool is_init() const { return _is_init; }
@@ -146,7 +155,7 @@ public:
         // update counters. For example, update counters depend on scanner's tablet, but
         // the tablet == null when init failed.
         if (_is_open) {
-            _update_counters_before_close();
+            _collect_profile_before_close();
         }
         _need_to_close = true;
     }
@@ -195,6 +204,8 @@ protected:
     // It includes predicate in SQL and runtime filters.
     VExprContextSPtrs _conjuncts;
     VExprContextSPtrs _projections;
+    // Used in common subexpression elimination to compute intermediate results.
+    std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
     vectorized::Block _origin_block;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
@@ -227,6 +238,7 @@ protected:
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
+    int64_t _projection_timer = 0;
 
     bool _should_stop = false;
 };

@@ -50,6 +50,10 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
 
+    private LambdaFunctionCallExpr() {
+        // use for serde only
+    }
+
     public LambdaFunctionCallExpr(String functionName, List<Expr> params) {
         super(functionName, params);
     }

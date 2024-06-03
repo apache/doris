@@ -54,6 +54,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
+import org.apache.doris.cloud.alter.CloudSchemaChangeHandler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -62,6 +63,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
@@ -95,7 +97,7 @@ public class Alter {
     private SystemHandler clusterHandler;
 
     public Alter() {
-        schemaChangeHandler = new SchemaChangeHandler();
+        schemaChangeHandler = Config.isCloudMode() ? new CloudSchemaChangeHandler() : new SchemaChangeHandler();
         materializedViewHandler = new MaterializedViewHandler();
         clusterHandler = new SystemHandler();
     }
@@ -140,6 +142,19 @@ public class Alter {
         alterClauses.addAll(stmt.getOps());
         AlterOperations currentAlterOps = new AlterOperations();
         currentAlterOps.checkConflict(alterClauses);
+
+        for (AlterClause clause : alterClauses) {
+            Map<String, String> properties = null;
+            try {
+                properties = clause.getProperties();
+            } catch (Exception e) {
+                continue;
+            }
+
+            if (properties != null && !properties.isEmpty()) {
+                checkNoForceProperty(properties);
+            }
+        }
 
         if (olapTable instanceof MTMV) {
             currentAlterOps.checkMTMVAllow(alterClauses);
@@ -411,8 +426,8 @@ public class Alter {
         }
         odbcTable.writeLock();
         try {
-            db.dropTable(mysqlTable.getName());
-            db.createTable(odbcTable);
+            db.unregisterTable(mysqlTable.getName());
+            db.registerTable(odbcTable);
             if (!isReplay) {
                 ModifyTableEngineOperationLog log = new ModifyTableEngineOperationLog(db.getId(),
                         externalTable.getId(), prop);
@@ -470,9 +485,6 @@ public class Alter {
                 ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
                 Map<String, String> properties = clause.getProperties();
                 List<String> partitionNames = clause.getPartitionNames();
-                // currently, only in memory and storage policy property could reach here
-                Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)
-                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
                 ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsProperties(
                         db, tableName, partitionNames, properties);
                 OlapTable olapTable = (OlapTable) table;
@@ -484,28 +496,6 @@ public class Alter {
                 }
             } else if (alterClause instanceof ModifyTablePropertiesClause) {
                 Map<String, String> properties = alterClause.getProperties();
-                // currently, only in memory and storage policy property could reach here
-                Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)
-                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)
-                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
-                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)
-                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)
-                        || properties
-                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)
-                        || properties
-                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)
-                        || properties
-                            .containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
-                        || properties
-                            .containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)
-                        || properties
-                            .containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
-                        || properties
-                            .containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
-                        || properties
-                            .containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)
-                        || properties
-                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD));
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
@@ -591,17 +581,17 @@ public class Alter {
         String newTblName = newTbl.getName();
 
         // drop origin table and new table
-        db.dropTable(oldTblName);
-        db.dropTable(newTblName);
+        db.unregisterTable(oldTblName);
+        db.unregisterTable(newTblName);
 
         // rename new table name to origin table name and add it to database
         newTbl.checkAndSetName(oldTblName, false);
-        db.createTable(newTbl);
+        db.registerTable(newTbl);
 
         if (swapTable) {
             // rename origin table name to new table name and add it to database
             origTable.checkAndSetName(newTblName, false);
-            db.createTable(origTable);
+            db.registerTable(origTable);
         } else {
             // not swap, the origin table is not used anymore, need to drop all its tablets.
             Env.getCurrentEnv().onEraseOlapTable(origTable, isReplay);
@@ -633,8 +623,8 @@ public class Alter {
                 }
                 view.setNewFullSchema(newFullSchema);
                 String viewName = view.getName();
-                db.dropTable(viewName);
-                db.createTable(view);
+                db.unregisterTable(viewName);
+                db.registerTable(view);
 
                 AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(),
                         inlineViewDef, newFullSchema, sqlMode);
@@ -669,8 +659,8 @@ public class Alter {
             }
             view.setNewFullSchema(newFullSchema);
 
-            db.dropTable(viewName);
-            db.createTable(view);
+            db.unregisterTable(viewName);
+            db.registerTable(view);
 
             LOG.info("replay modify view[{}] definition to {}", viewName, inlineViewDef);
         } finally {
@@ -726,6 +716,7 @@ public class Alter {
                                          Map<String, String> properties,
                                          boolean isTempPartition)
             throws DdlException, AnalysisException {
+        checkNoForceProperty(properties);
         Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
         List<ModifyPartitionInfo> modifyPartitionInfos = Lists.newArrayList();
         olapTable.checkNormalStateForAlter();
@@ -804,6 +795,15 @@ public class Alter {
         // log here
         BatchModifyPartitionsInfo info = new BatchModifyPartitionsInfo(modifyPartitionInfos);
         Env.getCurrentEnv().getEditLog().logBatchModifyPartition(info);
+    }
+
+    public void checkNoForceProperty(Map<String, String> properties) throws DdlException {
+        for (RewriteProperty property : PropertyAnalyzer.getInstance().getForceProperties()) {
+            if (properties.containsKey(property.key())) {
+                throw new DdlException("Cann't modify property '" + property.key() + "'"
+                        + (Config.isCloudMode() ? " in cloud mode" : "") + ".");
+            }
+        }
     }
 
     public void replayModifyPartition(ModifyPartitionInfo info) throws MetaNotFoundException {

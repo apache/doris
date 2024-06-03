@@ -21,30 +21,11 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vanalytic_eval_node.h"
+#include "pipeline/dependency.h"
 
 namespace doris {
-class ExecNode;
 
 namespace pipeline {
-class AnalyticSinkOperatorBuilder final : public OperatorBuilder<vectorized::VAnalyticEvalNode> {
-public:
-    AnalyticSinkOperatorBuilder(int32_t, ExecNode*);
-
-    OperatorPtr build_operator() override;
-
-    bool is_sink() const override { return true; }
-};
-
-class AnalyticSinkOperator final : public StreamingOperator<vectorized::VAnalyticEvalNode> {
-public:
-    AnalyticSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
-
-    bool can_write() override { return _node->can_write(); }
-};
-
 class AnalyticSinkOperatorX;
 
 class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSharedState> {
@@ -55,6 +36,7 @@ public:
             : PipelineXSinkLocalState<AnalyticSharedState>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class AnalyticSinkOperatorX;
@@ -85,7 +67,7 @@ private:
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
 public:
     AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                          const DescriptorTbl& descs);
+                          const DescriptorTbl& descs, bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<AnalyticSinkLocalState>::_name);
@@ -96,8 +78,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};

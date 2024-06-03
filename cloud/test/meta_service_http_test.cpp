@@ -326,7 +326,6 @@ static void prepare_rowset(MetaService* meta_service, const doris::RowsetMetaClo
     brpc::Controller cntl;
     auto arena = res.GetArena();
     auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
-    req->set_temporary(true);
     req->mutable_rowset_meta()->CopyFrom(rowset);
     meta_service->prepare_rowset(&cntl, req, &res, nullptr);
     if (!arena) delete req;
@@ -337,7 +336,6 @@ static void commit_rowset(MetaService* meta_service, const doris::RowsetMetaClou
     brpc::Controller cntl;
     auto arena = res.GetArena();
     auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
-    req->set_temporary(true);
     req->mutable_rowset_meta()->CopyFrom(rowset);
     meta_service->commit_rowset(&cntl, req, &res, nullptr);
     if (!arena) delete req;
@@ -598,6 +596,8 @@ TEST(MetaServiceHttpTest, InstanceTestWithVersion) {
 }
 
 TEST(MetaServiceHttpTest, AlterClusterTest) {
+    config::enable_cluster_name_check = true;
+
     HttpContext ctx;
     {
         CreateInstanceRequest req;
@@ -627,6 +627,71 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
         req.mutable_cluster()->set_cluster_name(mock_cluster_name);
         req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
         req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name("not-support");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name("中文not-support");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name("   ");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name(" not_support  ");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name(" not_support");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id + "1");
         auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
         ASSERT_EQ(status_code, 200);
         ASSERT_EQ(resp.code(), MetaServiceCode::OK);

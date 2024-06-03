@@ -20,11 +20,14 @@
 suite("eliminate_empty") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set forbid_unknown_col_stats=false'
+    multi_sql """
+        SET enable_nereids_planner=true;
+        SET enable_fallback_to_original_planner=false;
+        set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+        set forbid_unknown_col_stats=false;
+    """
     qt_onerow_union """
-        select * from (select 1, 2 union select 3, 4) T
+        select * from (select 1, 2 union select 3, 4) T order by 1, 2
     """
 
     qt_join """

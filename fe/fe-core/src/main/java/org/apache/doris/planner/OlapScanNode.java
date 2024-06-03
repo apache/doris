@@ -29,6 +29,7 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -121,7 +122,8 @@ public class OlapScanNode extends ScanNode {
      * When the field value is ON, the storage engine can return the data directly
      * without pre-aggregation.
      * When the field value is OFF, the storage engine needs to aggregate the data
-     * before returning to scan node.
+     * before returning to scan node. And if the table is an aggregation table,
+     * all key columns need to be read an participate in aggregation.
      * For example:
      * Aggregate table: k1, k2, v1 sum
      * Field value is ON
@@ -135,7 +137,9 @@ public class OlapScanNode extends ScanNode {
      * Query2: select k1, min(v1) from table group by k1
      * This aggregation function in query is min which different from the schema.
      * So the data stored in storage engine need to be merged firstly before
-     * returning to scan node.
+     * returning to scan node. Although we only queried key column k1, key column
+     * k2 still needs to be detected and participate in aggregation to ensure the
+     * results are correct.
      *
      * There are currently two places to modify this variable:
      * 1. The turnOffPreAgg() method of SingleNodePlanner.
@@ -174,9 +178,6 @@ public class OlapScanNode extends ScanNode {
     // It's limit for scanner instead of scanNode so we add a new limit.
     private long sortLimit = -1;
 
-    private boolean useTopnOpt = false;
-
-
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
 
@@ -207,6 +208,7 @@ public class OlapScanNode extends ScanNode {
     // only used in short circuit plan at present
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
                         new PartitionPruneV2ForShortCircuitPlan();
+    PrepareStmt preparedStatment = null;
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
@@ -309,14 +311,6 @@ public class OlapScanNode extends ScanNode {
 
     public void setSortLimit(long sortLimit) {
         this.sortLimit = sortLimit;
-    }
-
-    public boolean getUseTopnOpt() {
-        return useTopnOpt;
-    }
-
-    public void setUseTopnOpt(boolean useTopnOpt) {
-        this.useTopnOpt = useTopnOpt;
     }
 
     public Collection<Long> getSelectedPartitionIds() {
@@ -553,9 +547,9 @@ public class OlapScanNode extends ScanNode {
         super.init(analyzer);
 
         filterDeletedRows(analyzer);
-        // lazy evaluation, since stmt is a prepared statment
-        isFromPrepareStmt = analyzer.getPrepareStmt() != null;
-        if (!isFromPrepareStmt) {
+        // point query could do lazy evaluation, since stmt is a prepared statment
+        preparedStatment = analyzer.getPrepareStmt();
+        if (preparedStatment == null || !preparedStatment.isPointQueryShortCircuit()) {
             if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
                 partitionsInfo = olapTable.getPartitionInfo();
                 analyzerPartitionExpr(analyzer, partitionsInfo);
@@ -621,7 +615,7 @@ public class OlapScanNode extends ScanNode {
         }
 
         // prepare stmt evaluate lazily in Coordinator execute
-        if (!isFromPrepareStmt) {
+        if (preparedStatment == null || !preparedStatment.isPointQueryShortCircuit()) {
             try {
                 createScanRangeLocations();
             } catch (AnalysisException e) {
@@ -891,8 +885,12 @@ public class OlapScanNode extends ScanNode {
                         LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
                                 replica.getId());
                     }
-                    errs.add("replica " + replica.getId() + "'s backend " + replica.getBackendId()
-                            + " does not exist or not alive");
+                    String err = "replica " + replica.getId() + "'s backend " + replica.getBackendId()
+                            + " does not exist or not alive";
+                    if (Config.isCloudMode()) {
+                        errs.add(ConnectContext.cloudNoBackendsReason());
+                    }
+                    errs.add(err);
                     continue;
                 }
                 if (!backend.isMixNode()) {
@@ -1144,7 +1142,8 @@ public class OlapScanNode extends ScanNode {
     }
 
     public boolean isPointQuery() {
-        return this.pointQueryEqualPredicats != null;
+        return this.pointQueryEqualPredicats != null
+                    || (preparedStatment != null && preparedStatment.isPointQueryShortCircuit());
     }
 
     private void computeTabletInfo() throws UserException {
@@ -1334,8 +1333,11 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
         }
-        if (useTopnOpt) {
-            output.append(prefix).append("TOPN OPT\n");
+        if (useTopnFilter()) {
+            String topnFilterSources = String.join(",",
+                    topnFilterSortNodes.stream()
+                            .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
+            output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
         }
 
         if (!conjuncts.isEmpty()) {
@@ -1508,9 +1510,12 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             msg.olap_scan_node.setSortLimit(sortLimit);
         }
-        msg.olap_scan_node.setUseTopnOpt(useTopnOpt);
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
-        msg.olap_scan_node.setTableName(olapTable.getName());
+        String tableName = olapTable.getName();
+        if (selectedIndexId != -1) {
+            tableName = tableName + "(" + getSelectedIndexName() + ")";
+        }
+        msg.olap_scan_node.setTableName(tableName);
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
 
         msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
@@ -1525,6 +1530,7 @@ public class OlapScanNode extends ScanNode {
         if (shouldColoScan || SessionVariable.enablePipelineEngineX()) {
             msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
         }
+        super.toThrift(msg);
     }
 
     public void collectColumns(Analyzer analyzer, Set<String> equivalenceColumns, Set<String> unequivalenceColumns) {
@@ -1780,5 +1786,10 @@ public class OlapScanNode extends ScanNode {
     @Override
     public int getScanRangeNum() {
         return getScanTabletIds().size();
+    }
+
+    @Override
+    public int numScanBackends() {
+        return scanBackendIds.size();
     }
 }

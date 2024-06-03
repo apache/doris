@@ -46,7 +46,6 @@
 #include "vec/core/types.h"
 #include "vec/exec/join/join_op.h" // IWYU pragma: keep
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/runtime/shared_hash_table_controller.h"
 #include "vjoin_node_base.h"
 
 template <typename T>
@@ -78,12 +77,14 @@ Status process_runtime_filter_build(RuntimeState* state, Block* block, Parent* p
     if (parent->runtime_filters().empty()) {
         return Status::OK();
     }
-    parent->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-            parent->_build_expr_ctxs, parent->runtime_filters(), is_global);
+    uint64_t rows = block->rows();
+    {
+        SCOPED_TIMER(parent->_runtime_filter_init_timer);
+        RETURN_IF_ERROR(parent->_runtime_filter_slots->init_filters(state, rows));
+        RETURN_IF_ERROR(parent->_runtime_filter_slots->ignore_filters(state));
+    }
 
-    RETURN_IF_ERROR(parent->_runtime_filter_slots->init(state, block->rows()));
-
-    if (!parent->_runtime_filter_slots->empty() && block->rows() > 1) {
+    if (!parent->_runtime_filter_slots->empty() && rows > 1) {
         SCOPED_TIMER(parent->_runtime_filter_compute_timer);
         parent->_runtime_filter_slots->insert(block);
     }
@@ -215,15 +216,6 @@ public:
 
     void debug_string(int indentation_level, std::stringstream* out) const override;
 
-    bool can_sink_write() const {
-        if (_should_build_hash_table) {
-            return true;
-        }
-        return _shared_hash_table_context && _shared_hash_table_context->signaled;
-    }
-
-    bool should_build_hash_table() const { return _should_build_hash_table; }
-
     bool have_other_join_conjunct() const { return _have_other_join_conjunct; }
     bool is_right_semi_anti() const { return _is_right_semi_anti; }
     bool is_outer_join() const { return _is_outer_join; }
@@ -281,9 +273,11 @@ private:
     // mark the build hash table whether it needs to store null value
     std::vector<bool> _store_null_in_hash_table;
 
+    std::vector<bool> _should_convert_build_side_to_nullable;
+    std::vector<bool> _should_convert_probe_side_to_nullable;
     // In right anti join, if the probe side is not nullable and the build side is nullable,
     // we need to convert the probe column to nullable.
-    std::vector<ColumnPtr> _temp_probe_nullable_columns;
+    std::vector<vectorized::ColumnPtr> _key_columns_holder;
 
     std::vector<uint16_t> _probe_column_disguise_null;
     std::vector<uint16_t> _probe_column_convert_to_null;
@@ -342,8 +336,6 @@ private:
     bool _build_side_ignore_null = false;
 
     bool _is_broadcast_join = false;
-    bool _should_build_hash_table = true;
-    std::shared_ptr<SharedHashTableController> _shared_hashtable_controller;
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
 
     std::vector<SlotId> _hash_output_slot_ids;
@@ -353,8 +345,6 @@ private:
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
     MutableBlock _build_side_mutable_block;
-
-    SharedHashTableContextPtr _shared_hash_table_context = nullptr;
 
     Status _materialize_build_side(RuntimeState* state) override;
 

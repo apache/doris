@@ -20,28 +20,8 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vempty_set_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class EmptySetSourceOperatorBuilder final : public OperatorBuilder<vectorized::VEmptySetNode> {
-public:
-    EmptySetSourceOperatorBuilder(int32_t id, ExecNode* empty_set_node);
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class EmptySetSourceOperator final : public SourceOperator<vectorized::VEmptySetNode> {
-public:
-    EmptySetSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* empty_set_node);
-    bool can_read() override { return true; }
-};
+namespace doris::pipeline {
 
 class EmptySetLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
@@ -58,11 +38,9 @@ public:
                             const DescriptorTbl& descs)
             : OperatorX<EmptySetLocalState>(pool, tnode, operator_id, descs) {}
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return true; }
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

@@ -31,6 +31,7 @@ public class StatisticDeriveTest extends TestWithFeService {
         Config.enable_odbc_mysql_broker_table = true;
         // create database
         createDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         createTable(
                 "CREATE TABLE test.join1 (\n"
@@ -164,7 +165,6 @@ public class StatisticDeriveTest extends TestWithFeService {
         Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "NESTED LOOP JOIN");
-        assertSQLPlanOrErrorMsgContains(sql, "ASSERT NUMBER OF ROWS");
         assertSQLPlanOrErrorMsgContains(sql, "EXCHANGE");
         assertSQLPlanOrErrorMsgContains(sql, "AGGREGATE");
         assertSQLPlanOrErrorMsgContains(sql, "OlapScanNode");

@@ -76,7 +76,9 @@ suite ("test_agg_keys_schema_change") {
         qt_sc """ select * from schema_change_agg_keys_regression_test order by user_id"""
 
         // alter and test light schema change
-        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+        if (!isCloudMode()) {
+            sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+        }
 
         sql """ INSERT INTO ${tableName} VALUES
                 (2, '2017-10-01', 'Beijing', 10, 1, 1, 31, 21, hll_hash(2), to_bitmap(2))

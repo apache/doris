@@ -88,7 +88,7 @@ private:
     void hash_table_init();
     Status hash_table_build(RuntimeState* state);
     Status process_build_block(Block& block, RuntimeState* state);
-    Status extract_build_column(Block& block, ColumnRawPtrs& raw_ptrs);
+    Status extract_build_column(Block& block, ColumnRawPtrs& raw_ptrs, size_t& row_num);
     Status extract_probe_column(Block& block, ColumnRawPtrs& raw_ptrs, int child_id);
     void refresh_hash_table();
 
@@ -112,8 +112,8 @@ private:
     std::vector<VExprContextSPtrs> _child_expr_lists;
     //record build column type
     DataTypes _left_table_data_types;
-    //first:column_id, could point to origin column or cast column
-    //second:idx mapped to column types
+    //first: idx mapped to column types
+    //second: column_id, could point to origin column or cast column
     std::unordered_map<int, int> _build_col_idx;
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;

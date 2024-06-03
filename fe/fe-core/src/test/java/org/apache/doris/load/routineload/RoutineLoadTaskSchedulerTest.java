@@ -32,15 +32,14 @@ import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Maps;
-import com.google.common.collect.Queues;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
 import org.junit.Test;
 
 import java.util.Map;
-import java.util.Queue;
 import java.util.UUID;
+import java.util.concurrent.LinkedBlockingDeque;
 
 public class RoutineLoadTaskSchedulerTest {
 
@@ -68,10 +67,10 @@ public class RoutineLoadTaskSchedulerTest {
         KafkaProgress kafkaProgress = new KafkaProgress();
         Deencapsulation.setField(kafkaProgress, "partitionIdToOffset", partitionIdToOffset);
 
-        Queue<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = Queues.newLinkedBlockingQueue();
-        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+        LinkedBlockingDeque<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = new LinkedBlockingDeque<>();
+        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000, 0,
                 partitionIdToOffset, false);
-        routineLoadTaskInfoQueue.add(routineLoadTaskInfo1);
+        routineLoadTaskInfoQueue.addFirst(routineLoadTaskInfo1);
 
         Map<Long, RoutineLoadTaskInfo> idToRoutineLoadTask = Maps.newHashMap();
         idToRoutineLoadTask.put(1L, routineLoadTaskInfo1);

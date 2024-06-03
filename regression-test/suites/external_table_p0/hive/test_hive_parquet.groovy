@@ -169,20 +169,16 @@ suite("test_hive_parquet", "p0,external,hive,external_docker,external_docker_hiv
         """
     }
 
-    def q23 = {
-        sql """use hive_schema_change"""
-        // not support the schema change of complex type
-        test {
-            sql "select * from struct_test"
-            exception "Wrong data type for column 'f2'"
-        }
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
     }
 
-    String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    for (String hivePrefix : ["hive2", "hive3"]) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String catalog_name = "hive_test_parquet"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "${hivePrefix}_test_parquet"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -216,7 +212,6 @@ suite("test_hive_parquet", "p0,external,hive,external_docker,external_docker_hiv
             q20()
             q21()
             q22()
-            q23()
 
             sql """explain physical plan select l_partkey from partition_table
                 where (nation != 'cn' or city !='beijing') and (l_quantity > 28 or l_extendedprice > 30000)

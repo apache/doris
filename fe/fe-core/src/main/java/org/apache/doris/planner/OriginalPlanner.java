@@ -37,11 +37,10 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
@@ -99,7 +98,11 @@ public class OriginalPlanner extends Planner {
 
     public void plan(StatementBase queryStmt, TQueryOptions queryOptions)
             throws UserException {
+        this.queryOptions = queryOptions;
         createPlanFragments(queryStmt, analyzer, queryOptions);
+
+        // update scan nodes visible version at the end of plan phase.
+        ScanNode.setVisibleVersionForOlapScanNodes(getScanNodes());
     }
 
     @Override
@@ -301,6 +304,7 @@ public class OriginalPlanner extends Planner {
                     // Cache them for later request better performance
                     analyzer.getPrepareStmt().cacheSerializedDescriptorTable(olapScanNode.getDescTable());
                     analyzer.getPrepareStmt().cacheSerializedOutputExprs(rootFragment.getOutputExprs());
+                    analyzer.getPrepareStmt().cacheSerializedQueryOptions(queryOptions);
                 }
             } else if (selectStmt.isTwoPhaseReadOptEnabled()) {
                 // Optimize query like `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...`
@@ -373,7 +377,7 @@ public class OriginalPlanner extends Planner {
         PlanFragment topPlanFragment = fragments.get(0);
         ExchangeNode topPlanNode = (ExchangeNode) topPlanFragment.getPlanRoot();
         // try to push down result file sink
-        if (topPlanNode.isMergingExchange()) {
+        if (topPlanNode.isFunctionalExchange()) {
             return;
         }
         PlanFragment secondPlanFragment = fragments.get(1);
@@ -385,7 +389,7 @@ public class OriginalPlanner extends Planner {
             return;
         }
         // create result file sink desc
-        TupleDescriptor fileStatusDesc = constructFileStatusTupleDesc(analyzer);
+        TupleDescriptor fileStatusDesc = ResultFileSink.constructFileStatusTupleDesc(analyzer.getDescTbl());
         resultFileSink.resetByDataStreamSink((DataStreamSink) secondPlanFragment.getSink());
         resultFileSink.setOutputTupleId(fileStatusDesc.getId());
         secondPlanFragment.setOutputExprs(topPlanFragment.getOutputExprs());
@@ -543,51 +547,15 @@ public class OriginalPlanner extends Planner {
                     && sortNode.getLimit() <= ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                     && sortNode.getSortInfo().getOrigOrderingExprs().size() > 0) {
                 Expr firstSortExpr = sortNode.getSortInfo().getOrigOrderingExprs().get(0);
-                if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isStringType()
-                        && !firstSortExpr.getType().isFloatingPointType()) {
+                if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isFloatingPointType()) {
                     OlapScanNode scanNode = (OlapScanNode) child;
                     if (scanNode.isDupKeysOrMergeOnWrite()) {
                         sortNode.setUseTopnOpt(true);
-                        scanNode.setUseTopnOpt(true);
+                        // scanNode.setUseTopnOpt(true);
                     }
                 }
             }
         }
-    }
-
-    /**
-     * Construct a tuple for file status, the tuple schema as following:
-     * | FileNumber | Int     |
-     * | TotalRows  | Bigint  |
-     * | FileSize   | Bigint  |
-     * | URL        | Varchar |
-     */
-    private TupleDescriptor constructFileStatusTupleDesc(Analyzer analyzer) {
-        TupleDescriptor resultFileStatusTupleDesc =
-                analyzer.getDescTbl().createTupleDescriptor("result_file_status");
-        resultFileStatusTupleDesc.setIsMaterialized(true);
-        SlotDescriptor fileNumber = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
-        fileNumber.setLabel("FileNumber");
-        fileNumber.setType(ScalarType.createType(PrimitiveType.INT));
-        fileNumber.setIsMaterialized(true);
-        fileNumber.setIsNullable(false);
-        SlotDescriptor totalRows = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
-        totalRows.setLabel("TotalRows");
-        totalRows.setType(ScalarType.createType(PrimitiveType.BIGINT));
-        totalRows.setIsMaterialized(true);
-        totalRows.setIsNullable(false);
-        SlotDescriptor fileSize = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
-        fileSize.setLabel("FileSize");
-        fileSize.setType(ScalarType.createType(PrimitiveType.BIGINT));
-        fileSize.setIsMaterialized(true);
-        fileSize.setIsNullable(false);
-        SlotDescriptor url = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
-        url.setLabel("URL");
-        url.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-        url.setIsMaterialized(true);
-        url.setIsNullable(false);
-        resultFileStatusTupleDesc.computeStatAndMemLayout();
-        return resultFileStatusTupleDesc;
     }
 
     private static class QueryStatisticsTransferOptimizer {
@@ -669,13 +637,25 @@ public class OriginalPlanner extends Planner {
             return Optional.empty();
         }
         SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
-        if (!parsedSelectStmt.getTableRefs().isEmpty()) {
-            return Optional.empty();
-        }
         List<SelectListItem> selectItems = parsedSelectStmt.getSelectList().getItems();
         List<Column> columns = new ArrayList<>(selectItems.size());
         List<String> columnLabels = parsedSelectStmt.getColLabels();
         List<String> data = new ArrayList<>();
+        if ((singleNodePlanner.getScanNodes().size() > 0 && singleNodePlanner.getScanNodes().get(0)
+                instanceof IcebergScanNode) && (((IcebergScanNode) getScanNodes().get(0)).rowCount > 0)) {
+            SelectListItem item = selectItems.get(0);
+            Expr expr = item.getExpr();
+            String columnName = columnLabels.get(0);
+            columns.add(new Column(columnName, expr.getType()));
+            data.add(String.valueOf(((IcebergScanNode) getScanNodes().get(0)).rowCount));
+            ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+            ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
+            // only support one iceberg scan node and one count, e.g. select count(*) from icetbl;
+            return Optional.of(resultSet);
+        }
+        if (!parsedSelectStmt.getTableRefs().isEmpty()) {
+            return Optional.empty();
+        }
         for (int i = 0; i < selectItems.size(); i++) {
             SelectListItem item = selectItems.get(i);
             Expr expr = item.getExpr();

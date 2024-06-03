@@ -52,7 +52,6 @@ public class StatisticsCleaner extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(StatisticsCleaner.class);
 
     private OlapTable colStatsTbl;
-    private OlapTable histStatsTbl;
 
     private Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog;
     private Map<Long, DatabaseIf> idToDb;
@@ -79,10 +78,8 @@ public class StatisticsCleaner extends MasterDaemon {
                 return;
             }
             clearStats(colStatsTbl);
-            clearStats(histStatsTbl);
         } finally {
             colStatsTbl = null;
-            histStatsTbl = null;
             idToCatalog = null;
             idToDb = null;
             idToTbl = null;
@@ -107,12 +104,7 @@ public class StatisticsCleaner extends MasterDaemon {
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     dbName,
-                                    StatisticConstants.STATISTIC_TBL_NAME);
-            histStatsTbl =
-                    (OlapTable) StatisticsUtil
-                            .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                    dbName,
-                                    StatisticConstants.HISTOGRAM_TBL_NAME);
+                                    StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         } catch (Throwable t) {
             LOG.warn("Failed to init stats cleaner", t);
             return false;
@@ -127,16 +119,20 @@ public class StatisticsCleaner extends MasterDaemon {
 
     private Map<Long, DatabaseIf> constructDbMap() {
         Map<Long, DatabaseIf> idToDb = Maps.newHashMap();
-        for (CatalogIf ctl : idToCatalog.values()) {
-            idToDb.putAll(ctl.getIdToDb());
+        for (CatalogIf<? extends DatabaseIf> ctl : idToCatalog.values()) {
+            for (DatabaseIf db : ctl.getAllDbs()) {
+                idToDb.put(db.getId(), db);
+            }
         }
         return idToDb;
     }
 
     private Map<Long, TableIf> constructTblMap() {
         Map<Long, TableIf> idToTbl = new HashMap<>();
-        for (DatabaseIf db : idToDb.values()) {
-            idToTbl.putAll(db.getIdToTable());
+        for (DatabaseIf<? extends TableIf> db : idToDb.values()) {
+            for (TableIf tbl : db.getTables()) {
+                idToTbl.put(tbl.getId(), tbl);
+            }
         }
         return idToTbl;
     }

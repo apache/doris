@@ -108,9 +108,11 @@ public:
         return true;
     }
 
-    DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elemSerDeSPtrs, const Strings names,
+    DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elem_serdes_ptrs, const Strings names,
                         int nesting_level = 1)
-            : DataTypeSerDe(nesting_level), elemSerDeSPtrs(_elemSerDeSPtrs), elemNames(names) {}
+            : DataTypeSerDe(nesting_level),
+              elem_serdes_ptrs(_elem_serdes_ptrs),
+              elem_names(names) {}
 
     Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
@@ -137,20 +139,16 @@ public:
             int hive_text_complex_type_delimiter_level = 1) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
-                              int end) const override {
-        return Status::NotSupported("write_column_to_pb with type " + column.get_name());
-    }
-    Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
-        return Status::NotSupported("read_column_from_pb with type " + column.get_name());
-    }
+                              int end) const override;
+    Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
                                  int32_t col_id, int row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start,
-                               int end) const override;
+                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               const cctz::time_zone& ctz) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override;
 
@@ -166,7 +164,7 @@ public:
 
     void set_return_object_as_string(bool value) override {
         DataTypeSerDe::set_return_object_as_string(value);
-        for (auto& serde : elemSerDeSPtrs) {
+        for (auto& serde : elem_serdes_ptrs) {
             serde->set_return_object_as_string(value);
         }
     }
@@ -182,8 +180,8 @@ private:
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int row_idx, bool col_const) const;
 
-    DataTypeSerDeSPtrs elemSerDeSPtrs;
-    Strings elemNames;
+    DataTypeSerDeSPtrs elem_serdes_ptrs;
+    Strings elem_names;
 };
 } // namespace vectorized
 } // namespace doris

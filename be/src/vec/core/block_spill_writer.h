@@ -47,7 +47,11 @@ public:
         _init_profile();
     }
 
-    ~BlockSpillWriter() { static_cast<void>(close()); }
+    ~BlockSpillWriter() {
+        if (nullptr != file_writer_ && file_writer_->state() != io::FileWriter::State::CLOSED) {
+            std::ignore = file_writer_->close();
+        }
+    }
 
     Status open();
 

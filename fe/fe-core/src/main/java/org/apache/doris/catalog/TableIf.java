@@ -25,12 +25,12 @@ import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.ImmutableList;
@@ -55,35 +55,59 @@ import java.util.stream.Collectors;
 public interface TableIf {
     Logger LOG = LogManager.getLogger(TableIf.class);
 
-    void readLock();
+    default void readLock() {
+    }
 
-    boolean tryReadLock(long timeout, TimeUnit unit);
+    default boolean tryReadLock(long timeout, TimeUnit unit) {
+        return true;
+    }
 
-    void readUnlock();
+    default void readUnlock() {
+    }
 
-    void writeLock();
+    ;
 
-    boolean writeLockIfExist();
+    default void writeLock() {
+    }
 
-    boolean tryWriteLock(long timeout, TimeUnit unit);
+    default boolean writeLockIfExist() {
+        return true;
+    }
 
-    void writeUnlock();
+    default boolean tryWriteLock(long timeout, TimeUnit unit) {
+        return true;
+    }
 
-    boolean isWriteLockHeldByCurrentThread();
+    default void writeUnlock() {
+    }
 
-    <E extends Exception> void writeLockOrException(E e) throws E;
+    default boolean isWriteLockHeldByCurrentThread() {
+        return true;
+    }
 
-    void writeLockOrDdlException() throws DdlException;
+    default <E extends Exception> void writeLockOrException(E e) throws E {
+    }
 
-    void writeLockOrMetaException() throws MetaNotFoundException;
+    default void writeLockOrDdlException() throws DdlException {
+    }
 
-    void writeLockOrAlterCancelException() throws AlterCancelException;
+    default void writeLockOrMetaException() throws MetaNotFoundException {
+    }
 
-    boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException;
+    default void writeLockOrAlterCancelException() throws AlterCancelException {
+    }
 
-    <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E;
+    default boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException {
+        return true;
+    }
 
-    boolean tryWriteLockIfExist(long timeout, TimeUnit unit);
+    default <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E {
+        return true;
+    }
+
+    default boolean tryWriteLockIfExist(long timeout, TimeUnit unit) {
+        return true;
+    }
 
     long getId();
 
@@ -95,7 +119,11 @@ public interface TableIf {
 
     List<Column> getBaseSchema();
 
-    List<Column> getSchemaAllIndexes(boolean full);
+    default Set<Column> getSchemaAllIndexes(boolean full) {
+        Set<Column> ret = Sets.newHashSet();
+        ret.addAll(getBaseSchema());
+        return ret;
+    }
 
     default List<Column> getBaseSchemaOrEmpty() {
         try {
@@ -135,6 +163,11 @@ public interface TableIf {
 
     long getRowCount();
 
+    // Get the row count from cache,
+    // If miss, just return 0
+    // This is used for external table, because for external table, the fetching row count may be expensive
+    long getCachedRowCount();
+
     long fetchRowCount();
 
     long getDataLength();
@@ -158,9 +191,11 @@ public interface TableIf {
 
     Optional<ColumnStatistic> getColumnStatistic(String colName);
 
-    boolean needReAnalyzeTable(TableStatsMeta tblStats);
-
-    Map<String, Set<String>> findReAnalyzeNeededPartitions();
+    /**
+     * @param columns Set of column names.
+     * @return Set of pairs. Each pair is <IndexName, ColumnName>. For external table, index name is table name.
+     */
+    Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns);
 
     // Get all the chunk sizes of this table. Now, only HMS external table implemented this interface.
     // For HMS external table, the return result is a list of all the files' size.
@@ -396,7 +431,7 @@ public interface TableIf {
         MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, @Deprecated HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE;
+        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -505,10 +540,6 @@ public interface TableIf {
         return getType() == TableType.OLAP || getType() == TableType.MATERIALIZED_VIEW;
     }
 
-    default long getLastUpdateTime() {
-        return -1L;
-    }
-
     default long getDataSize(boolean singleReplica) {
         // TODO: Each tableIf should impl it by itself.
         return 0;
@@ -524,5 +555,9 @@ public interface TableIf {
 
     default Set<String> getDistributionColumnNames() {
         return Sets.newHashSet();
+    }
+
+    default boolean isPartitionedTable() {
+        return false;
     }
 }

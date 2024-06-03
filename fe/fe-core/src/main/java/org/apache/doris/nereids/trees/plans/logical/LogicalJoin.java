@@ -22,10 +22,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.TableFdItem;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
@@ -58,7 +57,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -84,76 +82,69 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     private DistributeHint hint;
 
-    public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+    public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
+                       JoinReorderContext otherJoinReorderContext) {
         this(joinType, ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE),
                 Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(leftChild, rightChild), null);
+                ImmutableList.of(leftChild, rightChild), otherJoinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE),
                 Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(leftChild, rightChild), null);
+                ImmutableList.of(leftChild, rightChild), otherJoinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION,
                 new DistributeHint(DistributeType.NONE), Optional.empty(),
-                Optional.empty(), Optional.empty(), ImmutableList.of(leftChild, rightChild), null);
+                Optional.empty(), Optional.empty(), ImmutableList.of(leftChild, rightChild), otherJoinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts, DistributeHint hint, LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
+            RIGHT_CHILD_TYPE rightChild, JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
                 Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(leftChild, rightChild), null);
+                ImmutableList.of(leftChild, rightChild), otherJoinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts, DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference, LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
+            RIGHT_CHILD_TYPE rightChild, JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
                 markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(leftChild, rightChild), null);
+                ImmutableList.of(leftChild, rightChild), otherJoinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
                        List<Expression> otherJoinConjuncts, List<Expression> markJoinConjuncts, DistributeHint hint,
                        Optional<MarkJoinSlotReference> markJoinSlotReference, LEFT_CHILD_TYPE leftChild,
-                       RIGHT_CHILD_TYPE rightChild) {
+                       RIGHT_CHILD_TYPE rightChild, JoinReorderContext joinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, hint,
                 markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(leftChild, rightChild), null);
-    }
-
-    public LogicalJoin(long bitmap, JoinType joinType, List<Expression> hashJoinConjuncts,
-            List<Expression> otherJoinConjuncts, DistributeHint hint,
-            Optional<MarkJoinSlotReference> markJoinSlotReference, LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
-                markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(leftChild, rightChild), null);
-        this.bitmap = LongBitmap.or(this.bitmap, bitmap);
+                ImmutableList.of(leftChild, rightChild), joinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts, DistributeHint hint,
-            Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children) {
+            Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children,
+            JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
-                markJoinSlotReference, Optional.empty(), Optional.empty(), children, null);
+                markJoinSlotReference, Optional.empty(), Optional.empty(), children, otherJoinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
                        List<Expression> otherJoinConjuncts, List<Expression> markJoinConjuncts, DistributeHint hint,
-                       Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children) {
+                       Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children,
+                       JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, hint,
-                markJoinSlotReference, Optional.empty(), Optional.empty(), children, null);
+                markJoinSlotReference, Optional.empty(), Optional.empty(), children, otherJoinReorderContext);
     }
 
     private LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
@@ -165,9 +156,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         // Just use in withXXX method. Don't need check/copyOf()
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, children);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
-        this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
-        this.markJoinConjuncts = ImmutableList.copyOf(markJoinConjuncts);
+        this.hashJoinConjuncts = Utils.fastToImmutableList(hashJoinConjuncts);
+        this.otherJoinConjuncts = Utils.fastToImmutableList(otherJoinConjuncts);
+        this.markJoinConjuncts = Utils.fastToImmutableList(markJoinConjuncts);
         this.hint = Objects.requireNonNull(hint, "hint can not be null");
         if (joinReorderContext != null) {
             this.joinReorderContext.copyFrom(joinReorderContext);
@@ -177,7 +168,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public LogicalJoin<? extends Plan, ? extends Plan> swap() {
         return withTypeChildren(getJoinType().swap(),
-                right(), left());
+                right(), left(), null);
     }
 
     public List<Expression> getOtherJoinConjuncts() {
@@ -192,11 +183,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
      * getConditionSlot
      */
     public Set<Slot> getConditionSlot() {
-        // this function is called by rules which reject mark join
-        // so markJoinConjuncts is not processed here
-        Preconditions.checkState(!isMarkJoin(),
-                "shouldn't call mark join's getConditionSlot method");
-        return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
+        return Stream.concat(Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream()),
+                markJoinConjuncts.stream())
                 .flatMap(expr -> expr.getInputSlots().stream())
                 .collect(ImmutableSet.toImmutableSet());
     }
@@ -205,11 +193,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
      * getConditionExprId
      */
     public Set<ExprId> getConditionExprId() {
-        // this function is called by rules which reject mark join
-        // so markJoinConjuncts is not processed here
-        Preconditions.checkState(!isMarkJoin(),
-                "shouldn't call mark join's getConditionExprId method");
-        return Stream.concat(getHashJoinConjuncts().stream(), getOtherJoinConjuncts().stream())
+        return Stream.concat(Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream()),
+                markJoinConjuncts.stream())
                 .flatMap(expr -> expr.getInputSlotExprIds().stream()).collect(Collectors.toSet());
     }
 
@@ -254,6 +239,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public boolean isMarkJoin() {
         return markJoinSlotReference.isPresent();
+    }
+
+    public boolean isLeadingJoin() {
+        return joinReorderContext.isLeadingJoin();
     }
 
     public List<Expression> getMarkJoinConjuncts() {
@@ -370,60 +359,74 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 joinReorderContext);
     }
 
-    public LogicalJoin<Plan, Plan> withChildrenNoContext(Plan left, Plan right) {
+    public LogicalJoin<Plan, Plan> withChildrenNoContext(Plan left, Plan right,
+                                                         JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(left, right), null);
+                ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
+    /**
+     * Using in binding using join, and must set logical properties to empty.
+     */
     public LogicalJoin<Plan, Plan> withJoinConjuncts(List<Expression> hashJoinConjuncts,
-            List<Expression> otherJoinConjuncts) {
+            List<Expression> otherJoinConjuncts, JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                children, null);
+                children, otherJoinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withJoinConjuncts(List<Expression> hashJoinConjuncts,
                                                      List<Expression> otherJoinConjuncts,
-                                                     List<Expression> markJoinConjuncts) {
+                                                     List<Expression> markJoinConjuncts,
+                                                     JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
-                hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                children, null);
+                hint, markJoinSlotReference, Optional.empty(), Optional.of(getLogicalProperties()),
+                children, otherJoinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withHashJoinConjunctsAndChildren(
-            List<Expression> hashJoinConjuncts, Plan left, Plan right) {
+            List<Expression> hashJoinConjuncts, Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(left, right), null);
+                ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withConjunctsChildren(List<Expression> hashJoinConjuncts,
-            List<Expression> otherJoinConjuncts, Plan left, Plan right) {
+            List<Expression> otherJoinConjuncts, Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(left, right), null);
+                ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withConjunctsChildren(List<Expression> hashJoinConjuncts,
                                                          List<Expression> otherJoinConjuncts,
-                                                         List<Expression> markJoinConjuncts, Plan left, Plan right) {
+                                                         List<Expression> markJoinConjuncts, Plan left, Plan right,
+                                                         JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(left, right), null);
+                ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
-                hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                children, null);
+                hint, markJoinSlotReference, groupExpression, Optional.of(getLogicalProperties()),
+                children, joinReorderContext);
     }
 
-    public LogicalJoin<Plan, Plan> withTypeChildren(JoinType joinType, Plan left, Plan right) {
+    public LogicalJoin<Plan, Plan> withJoinTypeAndContext(JoinType joinType,
+            JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(left, right), null);
+                children, otherJoinReorderContext);
+    }
+
+    public LogicalJoin<Plan, Plan> withTypeChildren(JoinType joinType, Plan left, Plan right,
+                                                    JoinReorderContext otherJoinReorderContext) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
+                ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
     /**
@@ -455,85 +458,16 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        if (isMarkJoin()) {
-            // TODO disable function dependence calculation for mark join, but need re-think this in future.
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
-        }
-        //1. NALAJ and FOJ block functional dependencies
-        if (joinType.isNullAwareLeftAntiJoin() || joinType.isFullOuterJoin()) {
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
-        }
-
-        // left/right semi/anti join propagate left/right functional dependencies
-        if (joinType.isLeftAntiJoin() || joinType.isLefSemiJoin()) {
-            return left().getLogicalProperties().getFunctionalDependencies();
-        }
-        if (joinType.isRightSemiJoin() || joinType.isRightAntiJoin()) {
-            return right().getLogicalProperties().getFunctionalDependencies();
-        }
-
-        // if there is non-equal join conditions, block functional dependencies
-        if (!otherJoinConjuncts.isEmpty()) {
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
-        }
-
-        Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
-        if (keys == null) {
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
-        }
-
-        // Note here we only check whether the left is unique.
-        // So the hash condition can't be null-safe
-        // TODO: consider Null-safe hash condition when left and rigth is not nullable
-        boolean isLeftUnique = left().getLogicalProperties()
-                .getFunctionalDependencies().isUnique(keys.first);
-        boolean isRightUnique = right().getLogicalProperties()
-                .getFunctionalDependencies().isUnique(keys.second);
-        Builder fdBuilder = new Builder();
-        if (joinType.isInnerJoin()) {
-            // inner join propagate uniforms slots
-            // And if the hash keys is unique, inner join can propagate all functional dependencies
-            if (isLeftUnique && isRightUnique) {
-                fdBuilder.addFunctionalDependencies(left().getLogicalProperties().getFunctionalDependencies());
-                fdBuilder.addFunctionalDependencies(right().getLogicalProperties().getFunctionalDependencies());
-            } else {
-                fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
-                fdBuilder.addUniformSlot(right().getLogicalProperties().getFunctionalDependencies());
-            }
-        }
-
-        // left/right outer join propagate left/right uniforms slots
-        // And if the right/left hash keys is unique,
-        // join can propagate left/right functional dependencies
-        if (joinType.isLeftOuterJoin()) {
-            if (isRightUnique) {
-                return left().getLogicalProperties().getFunctionalDependencies();
-            }
-            fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
-        }
-        if (joinType.isRightOuterJoin()) {
-            if (isLeftUnique) {
-                return left().getLogicalProperties().getFunctionalDependencies();
-            }
-            fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
-        }
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        fdBuilder.addFdItems(fdItems);
-        return fdBuilder.build();
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+    public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
         if (isMarkJoin() || joinType.isNullAwareLeftAntiJoin()
                 || joinType.isFullOuterJoin()
                 || !otherJoinConjuncts.isEmpty()) {
             return ImmutableSet.of();
         } else if (joinType.isLeftAntiJoin() || joinType.isLefSemiJoin()) {
-            return left().getLogicalProperties().getFunctionalDependencies().getFdItems();
+            return left().getLogicalProperties().getTrait().getFdItems();
         } else if (joinType.isRightSemiJoin() || joinType.isRightAntiJoin()) {
-            return right().getLogicalProperties().getFunctionalDependencies().getFdItems();
+            return right().getLogicalProperties().getTrait().getFdItems();
         } else if (joinType.isInnerJoin()) {
             Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
             if (keys == null) {
@@ -543,7 +477,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             Set<Slot> rightSlotSet = keys.second;
 
             // enhance the fd from candidate to formal
-            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getFunctionalDependencies().getFdItems();
+            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getTrait().getFdItems();
             leftItems.stream().filter(e -> e.isCandidate()).forEach(f -> {
                         if (leftSlotSet.containsAll(f.getParentExprs())) {
                             f.setCandidate(false);
@@ -553,7 +487,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             boolean isLeftUnique = leftItems.stream().filter(e -> e.isCandidate())
                     .anyMatch(f -> leftSlotSet.containsAll(f.getParentExprs()));
 
-            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getFunctionalDependencies().getFdItems();
+            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getTrait().getFdItems();
             rightItems.stream().filter(e -> e.isCandidate()).forEach(f -> {
                         if (rightSlotSet.containsAll(f.getParentExprs())) {
                             f.setCandidate(false);
@@ -602,7 +536,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             Set<Slot> rightSlotSet = keys.second;
 
             // enhance the fd from candidate to formal
-            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getFunctionalDependencies().getFdItems();
+            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getTrait().getFdItems();
             leftItems.stream().filter(e -> e.isCandidate()).forEach(f -> {
                         if (leftSlotSet.containsAll(f.getParentExprs())) {
                             f.setCandidate(false);
@@ -610,7 +544,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                     }
             );
 
-            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getFunctionalDependencies().getFdItems();
+            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getTrait().getFdItems();
             boolean isRightUnique = rightItems.stream().filter(e -> e.isCandidate())
                     .anyMatch(f -> rightSlotSet.containsAll(f.getParentExprs()));
             if (isRightUnique) {
@@ -639,11 +573,11 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             Set<Slot> rightSlotSet = keys.second;
 
             // enhance the fd from candidate to formal
-            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getFunctionalDependencies().getFdItems();
+            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getTrait().getFdItems();
             boolean isLeftUnique = leftItems.stream().filter(e -> e.isCandidate())
                     .anyMatch(f -> leftSlotSet.containsAll(f.getParentExprs()));
 
-            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getFunctionalDependencies().getFdItems();
+            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getTrait().getFdItems();
             rightItems.stream().filter(e -> e.isCandidate()).forEach(f -> {
                         if (rightSlotSet.containsAll(f.getParentExprs())) {
                             f.setCandidate(false);
@@ -704,5 +638,88 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         properties.put("MarkJoinSlotReference", markJoinSlotReference.toString());
         logicalJoin.put("Properties", properties);
         return logicalJoin;
+    }
+
+    @Override
+    public void computeUnique(Builder builder) {
+        if (isMarkJoin()) {
+            // TODO disable function dependence calculation for mark join, but need re-think this in future.
+            return;
+        }
+        if (joinType.isLeftSemiOrAntiJoin()) {
+            builder.addUniqueSlot(left().getLogicalProperties().getTrait());
+        } else if (joinType.isRightSemiOrAntiJoin()) {
+            builder.addUniqueSlot(right().getLogicalProperties().getTrait());
+        }
+        // if there is non-equal join conditions, don't propagate unique
+        if (hashJoinConjuncts.isEmpty()) {
+            return;
+        }
+        Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
+        if (keys == null) {
+            return;
+        }
+
+        // Note here we only check whether the left is unique.
+        // So the hash condition can't be null-safe
+        // TODO: consider Null-safe hash condition when left and rigth is not nullable
+        boolean isLeftUnique = left().getLogicalProperties()
+                .getTrait().isUnique(keys.first);
+        boolean isRightUnique = right().getLogicalProperties()
+                .getTrait().isUnique(keys.second);
+
+        // left/right outer join propagate left/right uniforms slots
+        // And if the right/left hash keys is unique,
+        // join can propagate left/right functional dependencies
+        if (joinType.isLeftOuterJoin() && isRightUnique) {
+            builder.addUniqueSlot(left().getLogicalProperties().getTrait());
+        } else if (joinType.isRightOuterJoin() && isLeftUnique) {
+            builder.addUniqueSlot(right().getLogicalProperties().getTrait());
+        } else if (joinType.isInnerJoin() && isLeftUnique && isRightUnique) {
+            // inner join propagate uniforms slots
+            // And if the hash keys is unique, inner join can propagate all functional dependencies
+            builder.addDataTrait(left().getLogicalProperties().getTrait());
+            builder.addDataTrait(right().getLogicalProperties().getTrait());
+        }
+    }
+
+    @Override
+    public void computeUniform(Builder builder) {
+        if (isMarkJoin()) {
+            // TODO disable function dependence calculation for mark join, but need re-think this in future.
+            return;
+        }
+        if (!joinType.isLeftSemiOrAntiJoin()) {
+            builder.addUniformSlot(right().getLogicalProperties().getTrait());
+        }
+        if (!joinType.isRightSemiOrAntiJoin()) {
+            builder.addUniformSlot(left().getLogicalProperties().getTrait());
+        }
+    }
+
+    @Override
+    public void computeEqualSet(Builder builder) {
+        if (!joinType.isLeftSemiOrAntiJoin()) {
+            builder.addEqualSet(right().getLogicalProperties().getTrait());
+        }
+        if (!joinType.isRightSemiOrAntiJoin()) {
+            builder.addEqualSet(left().getLogicalProperties().getTrait());
+        }
+        if (joinType.isInnerJoin()) {
+            for (Expression expression : getHashJoinConjuncts()) {
+                Optional<Pair<Slot, Slot>> equalSlot = ExpressionUtils.extractEqualSlot(expression);
+                equalSlot.ifPresent(slotSlotPair -> builder.addEqualPair(slotSlotPair.first, slotSlotPair.second));
+            }
+        }
+    }
+
+    @Override
+    public void computeFd(Builder builder) {
+        if (!joinType.isLeftSemiOrAntiJoin()) {
+            builder.addFuncDepsDG(right().getLogicalProperties().getTrait());
+        }
+        if (!joinType.isRightSemiOrAntiJoin()) {
+            builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
+        }
     }
 }

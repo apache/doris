@@ -46,7 +46,7 @@ import org.junit.jupiter.api.Assertions;
 import java.util.List;
 import java.util.Map;
 
-public abstract class ExpressionRewriteTestHelper {
+public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
     protected static final NereidsParser PARSER = new NereidsParser();
     protected ExpressionRuleExecutor executor;
 

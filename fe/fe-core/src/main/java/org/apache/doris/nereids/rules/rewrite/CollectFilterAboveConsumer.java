@@ -47,6 +47,6 @@ public class CollectFilterAboveConsumer extends OneRewriteRuleFactory {
                 ctx.cascadesContext.putConsumerIdToFilter(cteConsumer.getRelationId(), rewrittenExpr);
             }
             return ctx.root;
-        }).toRule(RuleType.COLLECT_FILTER_ON_CONSUMER);
+        }).toRule(RuleType.COLLECT_FILTER_ABOVE_CTE_CONSUMER);
     }
 }

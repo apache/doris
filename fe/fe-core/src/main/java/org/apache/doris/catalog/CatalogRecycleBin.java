@@ -112,7 +112,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     private void addRecycledTabletsForTable(Set<Long> recycledTabletSet, Table table) {
-        if (table.getType() == TableType.OLAP) {
+        if (table.isManagedTable()) {
             OlapTable olapTable = (OlapTable) table;
             Collection<Partition> allPartitions = olapTable.getAllPartitions();
             for (Partition partition : allPartitions) {
@@ -220,7 +220,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
     private synchronized boolean isExpire(long id, long currentTimeMs) {
         long latency = currentTimeMs - idToRecycleTime.get(id);
-        return latency > minEraseLatency && latency > Config.catalog_trash_expire_second * 1000L;
+        return (Config.catalog_trash_ignore_min_erase_latency || latency > minEraseLatency)
+                && latency > Config.catalog_trash_expire_second * 1000L;
     }
 
     private synchronized void eraseDatabase(long currentTimeMs, int keepNum) {
@@ -320,7 +321,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
 
             Table table = tableInfo.getTable();
-            if (table.getType() == TableType.OLAP) {
+            if (table.isManagedTable()) {
                 Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
             }
             iterator.remove();
@@ -351,7 +352,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 long tableId = table.getId();
 
                 if (isExpire(tableId, currentTimeMs)) {
-                    if (table.getType() == TableType.OLAP) {
+                    if (table.isManagedTable()) {
                         Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
                     }
 
@@ -433,7 +434,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 continue;
             }
             Table table = tableInfo.getTable();
-            if (table.getType() == TableType.OLAP) {
+            if (table.isManagedTable()) {
                 Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
             }
 
@@ -454,7 +455,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             return;
         }
         Table table = tableInfo.getTable();
-        if (table.getType() == TableType.OLAP) {
+        if (table.isManagedTable()) {
             Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, true);
         }
         LOG.info("replay erase table[{}]", tableId);
@@ -568,7 +569,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToRecycleTime.remove(partitionId);
 
         if (partitionInfo == null) {
-            LOG.error("replayErasePartition: partitionInfo is null for partitionId[{}]", partitionId);
+            LOG.warn("replayErasePartition: partitionInfo is null for partitionId[{}]", partitionId);
+            return;
         }
 
         Partition partition = partitionInfo.getPartition();
@@ -644,8 +646,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
 
             Table table = tableInfo.getTable();
-            db.createTable(table);
-            LOG.info("recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
+            if (table.getType() == TableType.OLAP) {
+                db.registerTable(table);
+                LOG.info("recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
+            } else {
+                LOG.info("ignore recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
+            }
             iterator.remove();
             idToRecycleTime.remove(table.getId());
             tableNames.remove(table.getName());
@@ -692,6 +698,11 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 + db.getFullName());
         }
 
+        if (table.getType() == TableType.MATERIALIZED_VIEW) {
+            throw new DdlException("Can not recover materialized view '" + tableName + "' or table id '"
+                    + tableId + "' in " + db.getFullName());
+        }
+
         innerRecoverTable(db, table, tableName, newTableName, null, false);
         LOG.info("recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
         return true;
@@ -730,7 +741,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                         throw new DdlException("Table name[" + newTableName + "] is already used");
                     }
 
-                    if (table.getType() == TableType.OLAP) {
+                    if (table.isManagedTable()) {
                         // olap table should also check if any rollup has same name as "newTableName"
                         ((OlapTable) table).checkAndSetName(newTableName, false);
                     } else {
@@ -739,7 +750,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 }
             }
 
-            db.createTable(table);
+            db.registerTable(table);
             if (isReplay) {
                 iterator.remove();
             } else {
@@ -754,7 +765,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 Env.getCurrentEnv().getEditLog().logRecoverTable(recoverInfo);
             }
             // Only olap table need recover dynamic partition, other table like jdbc odbc view.. do not need it
-            if (table.getType() == TableType.OLAP) {
+            if (table.isManagedTable()) {
                 DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), (OlapTable) table, isReplay);
             }
         } finally {
@@ -765,6 +776,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
     public synchronized void recoverPartition(long dbId, OlapTable table, String partitionName,
             long partitionIdToRecover, String newPartitionName) throws DdlException {
+        if (table.getType() == TableType.MATERIALIZED_VIEW) {
+            throw new DdlException("Can not recover partition in materialized view: " + table.getName());
+        }
+
         long recycleTime = -1;
         // make sure to get db write lock
         RecyclePartitionInfo recoverPartitionInfo = null;
@@ -901,7 +916,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         // idToTable
         for (RecycleTableInfo tableInfo : idToTable.values()) {
             Table table = tableInfo.getTable();
-            if (table.getType() != TableType.OLAP) {
+            if (!table.isManagedTable()) {
                 continue;
             }
 
@@ -1414,6 +1429,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             dataProperty.write(out);
             replicaAlloc.write(out);
             out.writeBoolean(isInMemory);
+            if (Config.isCloudMode()) {
+                // HACK: the origin implementation of the cloud mode has code likes:
+                //
+                //     out.writeBoolean(isPersistent);
+                //
+                // keep the compatibility here.
+                out.writeBoolean(false);
+            }
             out.writeBoolean(isMutable);
         }
 
@@ -1431,6 +1454,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 replicaAlloc = ReplicaAllocation.read(in);
             }
             isInMemory = in.readBoolean();
+            if (Config.isCloudMode()) {
+                // HACK: the origin implementation of the cloud mode has code likes:
+                //
+                //     isPersistent = in.readBoolean();
+                //
+                // keep the compatibility here.
+                in.readBoolean();
+            }
             if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
                 isMutable = in.readBoolean();
             }

@@ -100,19 +100,27 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
 
 void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                     arrow::ArrayBuilder* array_builder, int start,
-                                                    int end) const {
-    auto& col_data = static_cast<const ColumnVector<UInt64>&>(column).get_data();
-    auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+                                                    int end, const cctz::time_zone& ctz) const {
+    const auto& col_data = static_cast<const ColumnVector<UInt64>&>(column).get_data();
+    auto& timestamp_builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
-        char buf[64];
-        const DateV2Value<DateTimeV2ValueType>* time_val =
-                (const DateV2Value<DateTimeV2ValueType>*)(&col_data[i]);
-        int len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
-            checkArrowStatus(string_builder.AppendNull(), column.get_name(),
+            checkArrowStatus(timestamp_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {
-            checkArrowStatus(string_builder.Append(buf, len), column.get_name(),
+            int64_t timestamp = 0;
+            DateV2Value<DateTimeV2ValueType> datetime_val =
+                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(col_data[i]);
+            datetime_val.unix_timestamp(&timestamp, ctz);
+
+            if (scale > 3) {
+                uint32_t microsecond = datetime_val.microsecond();
+                timestamp = (timestamp * 1000000) + microsecond;
+            } else if (scale > 0) {
+                uint32_t millisecond = datetime_val.microsecond() / 1000;
+                timestamp = (timestamp * 1000) + millisecond;
+            }
+            checkArrowStatus(timestamp_builder.Append(timestamp), column.get_name(),
                              array_builder->type()->name());
         }
     }
@@ -170,10 +178,8 @@ Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
                                                        int row_idx, bool col_const) const {
     auto& data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
-    char buf[64];
     DateV2Value<DateTimeV2ValueType> date_val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(data[col_index]);
-    char* pos = date_val.to_string(buf, scale);
     // _nesting_level >= 2 means this datetimev2 is in complex type
     // and we should add double quotes
     if (_nesting_level >= 2) {
@@ -181,7 +187,7 @@ Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
             return Status::InternalError("pack mysql buffer failed.");
         }
     }
-    if (UNLIKELY(0 != result.push_string(buf, pos - buf - 1))) {
+    if (UNLIKELY(0 != result.push_vec_datetime(date_val, scale))) {
         return Status::InternalError("pack mysql buffer failed.");
     }
     if (_nesting_level >= 2) {

@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "olap/olap_define.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "util/time.h"
 
@@ -75,21 +76,13 @@ void Rowset::make_visible(Version version) {
     }
 }
 
+void Rowset::set_version(Version version) {
+    _rowset_meta->set_version(version);
+}
+
 bool Rowset::check_rowset_segment() {
     std::lock_guard load_lock(_lock);
     return check_current_rowset_segment();
-}
-
-void Rowset::merge_rowset_meta(const RowsetMetaSharedPtr& other) {
-    _rowset_meta->set_num_segments(num_segments() + other->num_segments());
-    _rowset_meta->set_num_rows(num_rows() + other->num_rows());
-    _rowset_meta->set_data_disk_size(data_disk_size() + other->data_disk_size());
-    _rowset_meta->set_index_disk_size(index_disk_size() + other->index_disk_size());
-    std::vector<KeyBoundsPB> key_bounds;
-    other->get_segments_key_bounds(&key_bounds);
-    for (auto key_bound : key_bounds) {
-        _rowset_meta->add_segment_key_bounds(key_bound);
-    }
 }
 
 std::string Rowset::get_rowset_info_str() {
@@ -99,6 +92,11 @@ std::string Rowset::get_rowset_info_str() {
                        _rowset_meta->has_delete_predicate() ? "DELETE" : "DATA",
                        SegmentsOverlapPB_Name(_rowset_meta->segments_overlap()),
                        rowset_id().to_string(), disk_size);
+}
+
+void Rowset::clear_cache() {
+    SegmentLoader::instance()->erase_segments(rowset_id(), num_segments());
+    clear_inverted_index_cache();
 }
 
 Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {

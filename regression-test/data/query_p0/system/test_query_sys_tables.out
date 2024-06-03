@@ -154,40 +154,12 @@ TABLESPACE_NAME	VARCHAR(268)	Yes	false	\N
 
 -- !select_partitions --
 
--- !desc_rowsets --
-BACKEND_ID	BIGINT	Yes	false	\N	
-ROWSET_ID	VARCHAR(64)	Yes	false	\N	
-TABLET_ID	BIGINT	Yes	false	\N	
-ROWSET_NUM_ROWS	BIGINT	Yes	false	\N	
-TXN_ID	BIGINT	Yes	false	\N	
-NUM_SEGMENTS	BIGINT	Yes	false	\N	
-START_VERSION	BIGINT	Yes	false	\N	
-END_VERSION	BIGINT	Yes	false	\N	
-INDEX_DISK_SIZE	BIGINT	Yes	false	\N	
-DATA_DISK_SIZE	BIGINT	Yes	false	\N	
-CREATION_TIME	BIGINT	Yes	false	\N	
-NEWEST_WRITE_TIMESTAMP	BIGINT	Yes	false	\N	
-
--- !rowsets1 --
-0	1
-
--- !rowsets2 --
-0	1
-2	2
-
--- !rowsets3 --
-0	1
-2	2
-3	3
-4	4
-
 -- !schemata --
 internal	test_query_sys_db_1	\N
 internal	test_query_sys_db_2	\N
 internal	test_query_sys_db_3	\N
 
 -- !tables --
-internal	test_query_rowset	BASE TABLE	0	\N	\N
 internal	test_query_sys_tb_1	BASE TABLE	0	\N	\N
 internal	test_query_sys_tb_2	BASE TABLE	0	\N	\N
 internal	test_query_sys_tb_3	BASE TABLE	0	\N	\N

@@ -71,7 +71,7 @@ import java.util.stream.Collectors;
 
 public class FederationBackendPolicy {
     private static final Logger LOG = LogManager.getLogger(FederationBackendPolicy.class);
-    private final List<Backend> backends = Lists.newArrayList();
+    protected final List<Backend> backends = Lists.newArrayList();
     private final Map<String, List<Backend>> backendMap = Maps.newHashMap();
 
     public Map<Backend, Long> getAssignedWeightPerBackend() {
@@ -80,7 +80,7 @@ public class FederationBackendPolicy {
 
     private Map<Backend, Long> assignedWeightPerBackend = Maps.newHashMap();
 
-    private ConsistentHash<Split, Backend> consistentHash;
+    protected ConsistentHash<Split, Backend> consistentHash;
 
     private int nextBe = 0;
     private boolean initialized = false;
@@ -184,7 +184,7 @@ public class FederationBackendPolicy {
     }
 
     public void init(BeSelectionPolicy policy) throws UserException {
-        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo().getIdToBackend().values()));
+        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo().getBackendsByCurrentCluster()));
         if (backends.isEmpty()) {
             throw new UserException("No available backends");
         }
@@ -211,24 +211,18 @@ public class FederationBackendPolicy {
         this.enableSplitsRedistribution = enableSplitsRedistribution;
     }
 
+    /**
+     * Assign splits to each backend. Ensure that each backend receives a similar amount of data.
+     * In order to make sure backends utilize the os page cache as much as possible, and all backends read splits
+     * in the order of partitions(reading data in partition order can reduce the memory usage of backends),
+     * splits should be sorted by path.
+     * Fortunately, the process of obtaining splits ensures that the splits have been sorted according to the path.
+     * If the splits are unordered, it is strongly recommended to sort them before calling this function.
+     */
     public Multimap<Backend, Split> computeScanRangeAssignment(List<Split> splits) throws UserException {
-        // Sorting splits is to ensure that the same query utilizes the os page cache as much as possible.
-        splits.sort((split1, split2) -> {
-            int pathComparison = split1.getPathString().compareTo(split2.getPathString());
-            if (pathComparison != 0) {
-                return pathComparison;
-            }
-
-            int startComparison = Long.compare(split1.getStart(), split2.getStart());
-            if (startComparison != 0) {
-                return startComparison;
-            }
-            return Long.compare(split1.getLength(), split2.getLength());
-        });
-
         ListMultimap<Backend, Split> assignment = ArrayListMultimap.create();
 
-        List<Split> remainingSplits = null;
+        List<Split> remainingSplits;
 
         List<Backend> backends = new ArrayList<>();
         for (List<Backend> backendList : backendMap.values()) {
@@ -242,8 +236,7 @@ public class FederationBackendPolicy {
         // locality information
         if (Config.split_assigner_optimized_local_scheduling) {
             remainingSplits = new ArrayList<>(splits.size());
-            for (int i = 0; i < splits.size(); ++i) {
-                Split split = splits.get(i);
+            for (Split split : splits) {
                 if (split.isRemotelyAccessible() && (split.getHosts() != null && split.getHosts().length > 0)) {
                     List<Backend> candidateNodes = selectExactNodes(backendMap, split.getHosts());
 

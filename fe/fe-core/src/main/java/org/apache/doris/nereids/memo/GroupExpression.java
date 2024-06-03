@@ -35,6 +35,7 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -318,6 +319,10 @@ public class GroupExpression {
         this.estOutputRowCount = estOutputRowCount;
     }
 
+    public Map<PhysicalProperties, PhysicalProperties> getRequestPropertiesMap() {
+        return ImmutableMap.copyOf(requestPropertiesMap);
+    }
+
     @Override
     public String toString() {
         DecimalFormat format = new DecimalFormat("#,###.##");
@@ -343,5 +348,29 @@ public class GroupExpression {
 
     public ObjectId getId() {
         return id;
+    }
+
+    /**
+     * the first child plan of clazz
+     * @param clazz the operator type, like join/aggregate
+     * @return child operator of type clazz, if not found, return null
+     */
+    public Plan getFirstChildPlan(Class clazz) {
+        for (Group childGroup : children) {
+            for (GroupExpression logical : childGroup.getLogicalExpressions()) {
+                if (clazz.isInstance(logical.getPlan())) {
+                    return logical.getPlan();
+                }
+            }
+        }
+        // for dphyp
+        for (Group childGroup : children) {
+            for (GroupExpression physical : childGroup.getPhysicalExpressions()) {
+                if (clazz.isInstance(physical.getPlan())) {
+                    return physical.getPlan();
+                }
+            }
+        }
+        return null;
     }
 }

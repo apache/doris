@@ -20,7 +20,7 @@ suite("right_anti_join_list_str_increment_create") {
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
+    sql "SET enable_materialized_view_rewrite=false"
     sql "SET enable_nereids_timeout = false"
 
     sql """
@@ -133,7 +133,7 @@ suite("right_anti_join_list_str_increment_create") {
         """
     }
     def refresh_mv = {
-        sql """refresh MATERIALIZED VIEW ${mv_name}"""
+        sql """refresh MATERIALIZED VIEW ${mv_name} AUTO"""
     }
     def delete_mv = {
         sql """DROP MATERIALIZED VIEW ${mv_name};"""

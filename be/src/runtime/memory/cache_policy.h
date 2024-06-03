@@ -17,11 +17,14 @@
 
 #pragma once
 
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
 static constexpr int32_t CACHE_MIN_FREE_SIZE = 67108864; // 64M
+static constexpr int32_t CACHE_MIN_FREE_NUMBER = 1024;
 
 // Base of all caches. register to CacheManager when cache is constructed.
 class CachePolicy {
@@ -44,6 +47,7 @@ public:
         TABLET_SCHEMA_CACHE = 14,
         CREATE_TABLET_RR_IDX_CACHE = 15,
         CLOUD_TABLET_CACHE = 16,
+        CLOUD_TXN_DELETE_BITMAP_CACHE = 17,
     };
 
     static std::string type_string(CacheType type) {
@@ -82,6 +86,8 @@ public:
             return "CreateTabletRRIdxCache";
         case CacheType::CLOUD_TABLET_CACHE:
             return "CloudTabletCache";
+        case CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE:
+            return "CloudTxnDeleteBitmapCache";
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }
@@ -96,6 +102,30 @@ public:
     virtual void prune_all(bool force) = 0;
 
     CacheType type() { return _type; }
+    void init_mem_tracker(const std::string& type_name) {
+        _mem_tracker =
+                std::make_unique<MemTracker>(fmt::format("{}[{}]", type_string(_type), type_name),
+                                             ExecEnv::GetInstance()->details_mem_tracker_set());
+    }
+    MemTracker* mem_tracker() { return _mem_tracker.get(); }
+    void init_mem_tracker_by_allocator(const std::string& type_name) {
+        _mem_tracker_by_allocator = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::GLOBAL,
+                fmt::format("{}[{}](AllocByAllocator)", type_string(_type), type_name));
+    }
+    std::shared_ptr<MemTrackerLimiter> mem_tracker_by_allocator() const {
+        DCHECK(_mem_tracker_by_allocator != nullptr);
+        return _mem_tracker_by_allocator;
+    }
+    int64_t mem_consumption() {
+        if (_mem_tracker_by_allocator != nullptr) {
+            return _mem_tracker_by_allocator->consumption();
+        } else if (_mem_tracker != nullptr) {
+            return _mem_tracker->consumption();
+        }
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }
     bool enable_prune() const { return _enable_prune; }
     RuntimeProfile* profile() { return _profile.get(); }
 
@@ -111,7 +141,9 @@ protected:
     }
 
     CacheType _type;
-    std::list<CachePolicy*>::iterator _it;
+
+    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker_by_allocator;
 
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile::Counter* _prune_stale_number_counter = nullptr;

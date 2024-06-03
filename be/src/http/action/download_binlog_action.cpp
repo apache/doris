@@ -47,6 +47,7 @@ const std::string kTabletIdParameter = "tablet_id";
 const std::string kBinlogVersionParameter = "binlog_version";
 const std::string kRowsetIdParameter = "rowset_id";
 const std::string kSegmentIndexParameter = "segment_index";
+const std::string kSegmentIndexIdParameter = "segment_index_id";
 
 // get http param, if no value throw exception
 const auto& get_http_param(HttpRequest* req, const std::string& param_name) {
@@ -131,6 +132,42 @@ void handle_get_segment_file(StorageEngine& engine, HttpRequest* req,
     do_file_response(segment_file_path, req, rate_limit_group);
 }
 
+/// handle get segment index file, need tablet_id, rowset_id, segment_index && segment_index_id
+void handle_get_segment_index_file(StorageEngine& engine, HttpRequest* req,
+                                   bufferevent_rate_limit_group* rate_limit_group) {
+    // Step 1: get download file path
+    std::string segment_index_file_path;
+    try {
+        const auto& tablet_id = get_http_param(req, kTabletIdParameter);
+        auto tablet = get_tablet(engine, tablet_id);
+        const auto& rowset_id = get_http_param(req, kRowsetIdParameter);
+        const auto& segment_index = get_http_param(req, kSegmentIndexParameter);
+        const auto& segment_index_id = req->param(kSegmentIndexIdParameter);
+        segment_index_file_path =
+                tablet->get_segment_index_filepath(rowset_id, segment_index, segment_index_id);
+    } catch (const std::exception& e) {
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());
+        LOG(WARNING) << "get download file path failed, error: " << e.what();
+        return;
+    }
+
+    // Step 2: handle download
+    // check file exists
+    bool exists = false;
+    Status status = io::global_local_filesystem()->exists(segment_index_file_path, &exists);
+    if (!status.ok()) {
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status.to_string());
+        LOG(WARNING) << "check file exists failed, error: " << status.to_string();
+        return;
+    }
+    if (!exists) {
+        HttpChannel::send_reply(req, HttpStatus::NOT_FOUND, "file not exist.");
+        LOG(WARNING) << "file not exist, file path: " << segment_index_file_path;
+        return;
+    }
+    do_file_response(segment_index_file_path, req, rate_limit_group);
+}
+
 void handle_get_rowset_meta(StorageEngine& engine, HttpRequest* req) {
     try {
         const auto& tablet_id = get_http_param(req, kTabletIdParameter);
@@ -185,6 +222,8 @@ void DownloadBinlogAction::handle(HttpRequest* req) {
         handle_get_binlog_info(_engine, req);
     } else if (method == "get_segment_file") {
         handle_get_segment_file(_engine, req, _rate_limit_group.get());
+    } else if (method == "get_segment_index_file") {
+        handle_get_segment_index_file(_engine, req, _rate_limit_group.get());
     } else if (method == "get_rowset_meta") {
         handle_get_rowset_meta(_engine, req);
     } else {

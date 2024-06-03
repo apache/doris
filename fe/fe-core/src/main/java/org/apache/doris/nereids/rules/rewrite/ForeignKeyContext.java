@@ -171,7 +171,7 @@ public class ForeignKeyContext {
                 return true;
             }
             // There are some predicates in primary key but there is no predicate in foreign key
-            if (slotWithPredicates.containsKey(pf.getValue()) && slotWithPredicates.get(pf.getValue()).isEmpty()) {
+            if (!slotWithPredicates.containsKey(pf.getValue()) || slotWithPredicates.get(pf.getValue()).isEmpty()) {
                 return false;
             }
             Set<Expression> primaryPredicates = slotWithPredicates.get(pf.getKey()).stream()

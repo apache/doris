@@ -48,6 +48,7 @@ suite("test_external_catalog_glue_table", "p2,external,hive,external_remote,exte
             qt_q15 """ select count(1) from iceberg_glue_types """
             qt_q16 """ select glue_timstamp from iceberg_glue_types where glue_timstamp > '2023-03-07 20:35:59' order by glue_timstamp limit 5 """
             qt_q17 """ select * from iceberg_glue_types order by glue_decimal limit 5 """
+            qt_q18 """ select glue_int, glue_varchar from iceberg_glue_types where glue_varchar > date '2023-03-07' """
         }
         sql """ use `iceberg_catalog`; """
         q01()

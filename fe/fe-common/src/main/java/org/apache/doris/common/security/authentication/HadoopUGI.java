@@ -19,11 +19,13 @@ package org.apache.doris.common.security.authentication;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 
 public class HadoopUGI {
     private static final Logger LOG = LogManager.getLogger(HadoopUGI.class);
@@ -33,12 +35,16 @@ public class HadoopUGI {
      * @param config auth config
      * @return ugi
      */
-    public static UserGroupInformation loginWithUGI(AuthenticationConfig config) {
+    private static UserGroupInformation loginWithUGI(AuthenticationConfig config) {
+        if (config == null || !config.isValid()) {
+            return null;
+        }
         UserGroupInformation ugi;
         if (config instanceof KerberosAuthenticationConfig) {
             KerberosAuthenticationConfig krbConfig = (KerberosAuthenticationConfig) config;
             Configuration hadoopConf = krbConfig.getConf();
-            hadoopConf.set(AuthenticationConfig.HADOOP_KERBEROS_AUTHORIZATION, "true");
+            hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHORIZATION, "true");
+            hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_KERBEROS_KEYTAB_LOGIN_AUTORENEWAL_ENABLED, "true");
             UserGroupInformation.setConfiguration(hadoopConf);
             String principal = krbConfig.getKerberosPrincipal();
             try {
@@ -84,6 +90,10 @@ public class HadoopUGI {
         if (config instanceof KerberosAuthenticationConfig) {
             KerberosAuthenticationConfig krbConfig = (KerberosAuthenticationConfig) config;
             try {
+                Configuration hadoopConf = krbConfig.getConf();
+                hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHORIZATION, "true");
+                hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_KERBEROS_KEYTAB_LOGIN_AUTORENEWAL_ENABLED, "true");
+                UserGroupInformation.setConfiguration(hadoopConf);
                 /**
                  * Because metastore client is created by using
                  * {@link org.apache.hadoop.hive.metastore.RetryingMetaStoreClient#getProxy}
@@ -94,6 +104,20 @@ public class HadoopUGI {
             } catch (IOException e) {
                 throw new RuntimeException("login with kerberos auth failed for catalog: " + catalogName, e);
             }
+        }
+    }
+
+    public static <T> T ugiDoAs(AuthenticationConfig authConf, PrivilegedExceptionAction<T> action) {
+        UserGroupInformation ugi = HadoopUGI.loginWithUGI(authConf);
+        try {
+            if (ugi != null) {
+                ugi.checkTGTAndReloginFromKeytab();
+                return ugi.doAs(action);
+            } else {
+                return action.run();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
         }
     }
 }

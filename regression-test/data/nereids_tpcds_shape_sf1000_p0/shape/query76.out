@@ -10,43 +10,45 @@ PhysicalResultSink
 --------------PhysicalUnion
 ----------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[ss_item_sk]
-----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
-------------------------PhysicalProject
---------------------------filter(ss_customer_sk IS NULL)
-----------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
-------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[date_dim]
+----------------------------filter(ss_customer_sk IS NULL)
+------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
+--------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[item]
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[item]
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 ws_item_sk->[i_item_sk]
+--------------------------PhysicalOlapScan[date_dim]
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[ws_sold_date_sk]
+--------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[item] apply RFs: RF3
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ws_sold_date_sk]
+------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 ws_item_sk->[i_item_sk]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[item] apply RFs: RF2
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject
 ------------------------------filter(ws_promo_sk IS NULL)
---------------------------------PhysicalOlapScan[web_sales] apply RFs: RF2
---------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[date_dim]
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF5 i_item_sk->[cs_item_sk]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF4 d_date_sk->[cs_sold_date_sk]
-------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------PhysicalProject
-----------------------------filter(cs_bill_customer_sk IS NULL)
-------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5
-------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalOlapScan[web_sales] apply RFs: RF3
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[item]
+------------------------PhysicalOlapScan[date_dim]
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->[cs_sold_date_sk]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF4 i_item_sk->[cs_item_sk]
+--------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------PhysicalProject
+------------------------------filter(cs_bill_customer_sk IS NULL)
+--------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5
+--------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[item]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[date_dim]
 

@@ -27,8 +27,8 @@ import com.google.common.collect.ImmutableMap;
 import java.util.Map;
 
 /**
- * Change functio name to function class name on nereids
- * alias list: catalog/BuiltinScalarFunctions.java
+ * Change functio name to function class name on nereids alias list:
+ * catalog/BuiltinScalarFunctions.java
  */
 public final class FunctionAlias implements ExprRewriteRule {
     public static ExprRewriteRule INSTANCE = new FunctionAlias();
@@ -40,8 +40,9 @@ public final class FunctionAlias implements ExprRewriteRule {
             .put("date_sub", "days_sub").put("subdate", "days_sub").put("inet_ntoa", "ipv4_num_to_string")
             .put("inet_aton", "ipv4_string_to_num_or_null").put("inet6_ntoa", "ipv6_num_to_string")
             .put("inet6_aton", "ipv6_string_to_num_or_null").put("lcase", "lower").put("add_months", "months_add")
-            .put("current_timestamp", "now").put("localtime", "now").put("localtimestamp", "now").put("ifnull", "nvl")
-            .put("rand", "random").put("sha", "sha1").put("substr", "substring").put("ucase", "upper").build();
+            .put("current_timestamp", "now").put("localtime", "now").put("localtimestamp", "now").put("nvl", "ifnull")
+            .put("rand", "random").put("sha", "sha1").put("substr", "substring").put("ucase", "upper")
+            .put("approx_count_distinct", "ndv").build();
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {

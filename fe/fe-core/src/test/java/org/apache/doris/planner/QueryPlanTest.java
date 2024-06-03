@@ -67,6 +67,7 @@ public class QueryPlanTest extends TestWithFeService {
         // create database
         createDatabase("test");
         connectContext.getSessionVariable().setEnableNereidsPlanner(false);
+        connectContext.getSessionVariable().setEnableFoldConstantByBe(false);
         Config.enable_odbc_mysql_broker_table = true;
 
         createTable("create table test.test1\n"
@@ -458,7 +459,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(id2) from test.bitmap_table;",
-                Type.OnlyMetricTypeErrorMsg
+                "No matching function with signature"
         );
 
         assertSQLPlanOrErrorMsgContains(
@@ -507,7 +508,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(id2) from test.hll_table;",
-                Type.OnlyMetricTypeErrorMsg
+                "No matching function with signature"
         );
 
         assertSQLPlanOrErrorMsgContains(
@@ -650,7 +651,7 @@ public class QueryPlanTest extends TestWithFeService {
         ConnectContext.get().getSessionVariable().setRewriteCountDistinct(false);
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ count(distinct id2) from test.bitmap_table";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains(Type.OnlyMetricTypeErrorMsg));
+        Assert.assertTrue(explainString.contains("No matching function with signature"));
     }
 
     @Test
@@ -1100,7 +1101,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1114,7 +1115,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1198,7 +1199,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1228,7 +1229,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(0);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 0, 0);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1248,7 +1249,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1277,7 +1278,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(0);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 0, 0);
+                        replica.updateVersion(2);
                     }
                 }
             }

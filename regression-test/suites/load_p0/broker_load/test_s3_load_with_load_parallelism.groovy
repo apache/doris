@@ -45,8 +45,10 @@ suite("test_s3_load_with_load_parallelism", "load_p0") {
     // attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_not_trim_quotes.csv",
     //     "${tableName}", "", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
     //     "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\")").addProperties("trim_double_quotes", "false"))
+
+    def bucket = getS3BucketName()
     
-    attributesList.add(new LoadAttributes("s3://test-for-student-1308700295/regression/segcompaction/segcompaction.orc",
+    attributesList.add(new LoadAttributes("s3://${bucket}/regression/segcompaction/segcompaction.orc",
         "${tableName}", "", "", "FORMAT AS \"ORC\"", "(col_0, col_1, col_2, col_3, col_4, col_5, col_6, col_7, col_8, col_9, col_10, col_11, col_12, col_13, col_14, col_15, col_16, col_17, col_18, col_19, col_20, col_21, col_22, col_23, col_24, col_25, col_26, col_27, col_28, col_29, col_30, col_31, col_32, col_33, col_34, col_35, col_36, col_37, col_38, col_39, col_40, col_41, col_42, col_43, col_44, col_45, col_46, col_47, col_48, col_49)", "").addProperties("load_parallelism", "3"))
 
     def ak = getS3AK()

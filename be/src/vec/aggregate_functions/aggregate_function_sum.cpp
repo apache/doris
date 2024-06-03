@@ -31,4 +31,8 @@ void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {
             "sum_decimal256", creator_with_type::creator<AggregateFunctionSumSimpleDecimal256>);
 }
 
+void register_aggregate_function_sum0(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function_both("sum0", creator_with_type::creator<AggregateFunctionSumSimple>);
+}
+
 } // namespace doris::vectorized

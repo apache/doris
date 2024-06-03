@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -59,7 +60,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadTaskInfo;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -69,6 +69,7 @@ import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.aliyuncs.utils.StringUtils;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -116,6 +117,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final boolean DEFAULT_LOAD_TO_SINGLE_TABLET = false;
 
     protected static final String STAR_STRING = "*";
+
+    public static final String WORKLOAD_GROUP = "workload_group";
 
     @Getter
     @Setter
@@ -259,9 +262,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     protected boolean isTypeRead = false;
 
+    private String cloudClusterId;
+
     protected byte enclose = 0;
 
     protected byte escape = 0;
+
+    // use for cloud cluster mode
+    protected String qualifiedUser;
+    protected String cloudCluster;
 
     public void setTypeRead(boolean isTypeRead) {
         this.isTypeRead = isTypeRead;
@@ -311,6 +320,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
+            this.qualifiedUser = ConnectContext.get().getQualifiedUser();
+            this.cloudCluster = ConnectContext.get().getCloudCluster();
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -393,6 +404,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
         if (stmt.getEscape() != null) {
             jobProperties.put(LoadStmt.KEY_ESCAPE, stmt.getEscape());
+        }
+        if (stmt.getWorkloadGroupId() > 0) {
+            jobProperties.put(WORKLOAD_GROUP, String.valueOf(stmt.getWorkloadGroupId()));
         }
     }
 
@@ -477,6 +491,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             return null;
         }
         return database.getTableOrMetaException(tableId).getName();
+    }
+
+    public long getWorkloadId() {
+        String workloadIdStr = jobProperties.get(WORKLOAD_GROUP);
+        if (!StringUtils.isEmpty(workloadIdStr)) {
+            return Long.parseLong(workloadIdStr);
+        }
+        return -1;
     }
 
     public JobState getState() {
@@ -706,6 +728,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         this.comment = comment;
     }
 
+    public String getQualifiedUser() {
+        return qualifiedUser;
+    }
+
+    public String getCloudCluster() {
+        return cloudCluster;
+    }
+
     public int getSizeOfRoutineLoadTaskInfoList() {
         readLock();
         try {
@@ -727,6 +757,18 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     // and after renew, the previous task is removed from routineLoadTaskInfoList,
                     // so task can no longer be committed successfully.
                     // the already committed task will not be handled here.
+                    int timeoutBackOffCount = routineLoadTaskInfo.getTimeoutBackOffCount();
+                    if (timeoutBackOffCount > RoutineLoadTaskInfo.MAX_TIMEOUT_BACK_OFF_COUNT) {
+                        try {
+                            updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TIMEOUT_TOO_MUCH,
+                                        "task " + routineLoadTaskInfo.getId() + " timeout too much"), false);
+                        } catch (UserException e) {
+                            LOG.warn("update job state to pause failed", e);
+                        }
+                        return;
+                    }
+                    routineLoadTaskInfo.setTimeoutBackOffCount(timeoutBackOffCount + 1);
+                    routineLoadTaskInfo.setTimeoutMs((routineLoadTaskInfo.getTimeoutMs() << 1));
                     RoutineLoadTaskInfo newTask = unprotectRenewTask(routineLoadTaskInfo);
                     Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
                 }
@@ -735,6 +777,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             writeUnlock();
         }
     }
+
+    abstract void updateCloudProgress() throws UserException;
 
     abstract void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException;
 
@@ -898,13 +942,33 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 (OlapTable) db.getTableOrMetaException(this.tableId, Table.TableType.OLAP), this);
     }
 
-    public TExecPlanFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
+    public TPipelineFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        boolean needCleanCtx = false;
         table.readLock();
         try {
-            TExecPlanFragmentParams planParams = planner.plan(loadId);
+            if (Config.isCloudMode()) {
+                String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getClusterNameByClusterId(cloudClusterId);
+                if (Strings.isNullOrEmpty(clusterName)) {
+                    String err = String.format("cluster name is empty, cluster id is %s", cloudClusterId);
+                    LOG.warn(err);
+                    throw new UserException(err);
+                }
+
+                if (ConnectContext.get() == null) {
+                    ConnectContext ctx = new ConnectContext();
+                    ctx.setThreadLocalInfo();
+                    ctx.setCloudCluster(clusterName);
+                    needCleanCtx = true;
+                } else {
+                    ConnectContext.get().setCloudCluster(clusterName);
+                }
+            }
+
+            TPipelineFragmentParams planParams = planner.plan(loadId);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
             if (txnState == null) {
@@ -917,6 +981,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
             return planParams;
         } finally {
+            if (needCleanCtx) {
+                ConnectContext.remove();
+            }
             table.readUnlock();
         }
     }
@@ -925,8 +992,26 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        boolean needCleanCtx = false;
         table.readLock();
         try {
+            if (Config.isCloudMode()) {
+                String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getClusterNameByClusterId(cloudClusterId);
+                if (Strings.isNullOrEmpty(clusterName)) {
+                    String err = String.format("cluster name is empty, cluster id is %s", cloudClusterId);
+                    LOG.warn(err);
+                    throw new UserException(err);
+                }
+                if (ConnectContext.get() == null) {
+                    ConnectContext ctx = new ConnectContext();
+                    ctx.setThreadLocalInfo();
+                    ctx.setCloudCluster(clusterName);
+                    needCleanCtx = true;
+                } else {
+                    ConnectContext.get().setCloudCluster(clusterName);
+                }
+            }
             TPipelineFragmentParams planParams = planner.planForPipeline(loadId);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
@@ -940,6 +1025,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
             return planParams;
         } finally {
+            if (needCleanCtx) {
+                ConnectContext.remove();
+            }
             table.readUnlock();
         }
     }
@@ -1013,6 +1101,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
         long taskBeId = -1L;
+        if (Config.isCloudMode()) {
+            writeLock();
+        }
         try {
             if (txnOperated) {
                 // find task in job
@@ -1100,7 +1191,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 return;
             }
             RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
-            if (routineLoadTaskInfo.getTxnStatus() != TransactionStatus.COMMITTED) {
+            if (routineLoadTaskInfo.getTxnStatus() != TransactionStatus.COMMITTED
+                        && routineLoadTaskInfo.getTxnStatus() != TransactionStatus.VISIBLE) {
                 // TODO(cmy): Normally, this should not happen. But for safe reason, just pause the job
                 String msg = String.format(
                         "should not happen, we find that task %s is not COMMITTED when handling afterVisble."
@@ -1169,7 +1261,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                         + " with reason: " + txnStatusChangeReasonString
                                         + " please check the jsonpaths";
                                 updateState(JobState.PAUSED,
-                                        new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
+                                        new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR, msg),
                                         false /* not replay */);
                                 return;
                             case OFFSET_OUT_OF_RANGE:
@@ -1182,14 +1274,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                         + " using the Alter ROUTINE LOAD command to modify it,"
                                         + " and resume the job";
                                 updateState(JobState.PAUSED,
-                                        new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
+                                        new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR, msg),
                                         false /* not replay */);
                                 return;
                             case PAUSE:
                                 msg = "be " + taskBeId + " abort task "
                                         + "with reason: " + txnStatusChangeReasonString;
                                 updateState(JobState.PAUSED,
-                                        new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
+                                        new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR, msg),
                                         false /* not replay */);
                                 return;
                             default:
@@ -1223,7 +1315,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @Override
     public void replayOnAborted(TransactionState txnState) {
         // attachment may be null if this task is aborted by FE
-        if (txnState.getTxnCommitAttachment() != null) {
+        // it need check commit info before update progress
+        // for follower FE node progress may exceed correct progress
+        // the data will lost if FE leader change at this moment
+        if (txnState.getTxnCommitAttachment() != null
+                && checkCommitInfo((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment(),
+                        txnState,
+                        TransactionState.TxnStatusChangeReason.fromString(txnState.getReason()))) {
             replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
         }
         this.jobStatistic.abortedTaskNum++;
@@ -1252,6 +1350,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState, txnStatusChangeReason)) {
             // step2: update job progress
             updateProgress(rlTaskTxnCommitAttachment);
+            routineLoadTaskInfo.selfAdaptTimeout(rlTaskTxnCommitAttachment);
         }
 
         if (rlTaskTxnCommitAttachment != null && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
@@ -1470,6 +1569,24 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public void setOrigStmt(OriginStatement origStmt) {
         this.origStmt = origStmt;
+    }
+
+    public void setCloudCluster(String cloudClusterName) throws UserException {
+        if (Strings.isNullOrEmpty(cloudClusterName)) {
+            LOG.warn("cluster name is empty");
+            throw new UserException("cluster name is empty");
+        }
+
+        this.cloudClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterIdByName(cloudClusterName);
+        if (Strings.isNullOrEmpty(this.cloudClusterId)) {
+            LOG.warn("cluster id is empty, cluster name {}", cloudClusterName);
+            throw new UserException("cluster id is empty, cluster name: " + cloudClusterName);
+        }
+    }
+
+    public String getCloudClusterId() {
+        return cloudClusterId;
     }
 
     // check the correctness of commit info
@@ -1783,6 +1900,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             out.writeBoolean(true);
             userIdentity.write(out);
         }
+        if (Config.isCloudMode()) {
+            Text.writeString(out, cloudClusterId);
+        }
         Text.writeString(out, comment);
     }
 
@@ -1874,6 +1994,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             } else {
                 userIdentity = UserIdentity.UNKNOWN;
             }
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_123 && Config.isCloudMode()) {
+            cloudClusterId = Text.readString(in);
         }
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_117) {
             comment = Text.readString(in);

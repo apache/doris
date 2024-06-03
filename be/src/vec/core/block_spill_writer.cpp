@@ -42,8 +42,12 @@ void BlockSpillWriter::_init_profile() {
 }
 
 Status BlockSpillWriter::open() {
-    RETURN_IF_ERROR(FileFactory::create_file_writer(TFileType::FILE_LOCAL, ExecEnv::GetInstance(),
-                                                    {}, {}, file_path_, 0, file_writer_));
+    file_writer_ = DORIS_TRY(FileFactory::create_file_writer(
+            TFileType::FILE_LOCAL, ExecEnv::GetInstance(), {}, {}, file_path_,
+            {
+                    .write_file_cache = false,
+                    .sync_file_data = false,
+            }));
     is_open_ = true;
     return Status::OK();
 }

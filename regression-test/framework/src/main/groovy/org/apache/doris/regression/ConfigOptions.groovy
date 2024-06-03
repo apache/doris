@@ -40,7 +40,13 @@ class ConfigOptions {
     static Option feHttpAddressOpt
     static Option feHttpUserOpt
     static Option feHttpPasswordOpt
+    static Option feCloudHttpAddressOpt
+    static Option feCloudHttpUserOpt
+    static Option feCloudHttpPasswordOpt
+    static Option instanceIdOpt
+    static Option cloudUniqueIdOpt
     static Option metaServiceHttpAddressOpt
+    static Option recycleServiceHttpAddressOpt
     static Option pathOpt
     static Option dataOpt
     static Option realDataOpt
@@ -49,6 +55,7 @@ class ConfigOptions {
     static Option pluginOpt
     static Option sslCertificateOpt
     static Option imageOpt
+    static Option noKillDockerOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
     static Option groupsOpt
@@ -65,7 +72,28 @@ class ConfigOptions {
     static Option stopWhenFailOpt
     static Option timesOpt
     static Option withOutLoadDataOpt
+    static Option caseNamePrefixOpt
     static Option dryRunOpt
+    static Option isSmokeTestOpt
+    static Option multiClusterBesOpt
+    static Option metaServiceTokenOpt
+    static Option multiClusterInstanceOpt
+    static Option upgradeNewBeIpOpt
+    static Option upgradeNewBeHbPortOpt
+    static Option upgradeNewBeHttpPortOpt
+    static Option upgradeNewBeUniqueIdOpt
+    static Option stageIamEndpointOpt
+    static Option stageIamRegionOpt
+    static Option stageIamBucketOpt
+    static Option stageIamPolicyOpt
+    static Option stageIamRoleOpt
+    static Option stageIamArnOpt
+    static Option stageIamAkOpt
+    static Option stageIamSkOpt
+    static Option stageIamUserIdOpt
+    static Option clusterDirOpt
+    static Option kafkaBrokerListOpt
+    static Option cloudVersionOpt
 
     static CommandLine initCommands(String[] args) {
         helpOption = Option.builder("h")
@@ -180,6 +208,12 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("image")
                 .desc("the docker image")
+                .build()
+
+        noKillDockerOpt = Option.builder("noKillDocker")
+                .required(false)
+                .hasArg(false)
+                .desc("don't kill docker containers")
                 .build()
 
         suiteOpt = Option.builder("s")
@@ -300,13 +334,61 @@ class ConfigOptions {
                 .longOpt("feHttpPassword")
                 .desc("the password of fe http server")
                 .build()
-        metaServiceHttpAddressOpt = Option.builder("hm")
+        feCloudHttpAddressOpt = Option.builder("cha")
                 .argName("address")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("feCloudHttpAddress")
+                .desc("the fe cloud http address, format is ip:port")
+                .build()
+        feCloudHttpUserOpt = Option.builder("chu")
+                .argName("userName")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("feCloudHttpUser")
+                .desc("the user of fe cloud http server")
+                .build()
+        feCloudHttpPasswordOpt = Option.builder("chp")
+                .argName("password")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("feCloudHttpPassword")
+                .desc("the password of fe cloud http server")
+                .build()
+        instanceIdOpt = Option.builder("ii")
+                .argName("instanceId")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("instanceId")
+                .desc("the instance id")
+                .build()
+        cloudUniqueIdOpt = Option.builder("cui")
+                .argName("cloudUniqueId")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("cloudUniqueId")
+                .desc("the cloudUniqueId")
+                .build()
+        metaServiceHttpAddressOpt = Option.builder("hm")
+                .argName("metaServiceHttpAddress")
                 .required(false)
                 .hasArg(true)
                 .type(String.class)
                 .longOpt("metaServiceHttpAddress")
                 .desc("the meta service http address, format is ip:port")
+                .build()
+        recycleServiceHttpAddressOpt = Option.builder("hr")
+                .argName("recycleServiceHttpAddress")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("recycleServiceHttpAddress")
+                .desc("the recycle service http address, format is ip:port")
                 .build()
         genOutOpt = Option.builder("genOut")
                 .required(false)
@@ -376,10 +458,117 @@ class ConfigOptions {
                 .longOpt("withOutLoadData")
                 .desc("do not run load.groovy to reload data to Doris.")
                 .build()
+        caseNamePrefixOpt = Option.builder("cnp")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("caseNamePrefix")
+                .desc("add prefix to each case name")
+                .build()
         dryRunOpt = Option.builder("dryRun")
                 .required(false)
                 .hasArg(false)
                 .desc("just print cases and does not run")
+                .build()
+        isSmokeTestOpt = Option.builder("isSmokeTest")
+                .required(false)
+                .hasArg(false)
+                .desc("is smoke test")
+                .build()
+        multiClusterBesOpt = Option.builder("multiClusterBes")
+                .required(false)
+                .hasArg(false)
+                .desc("multi cluster backend info")
+                .build()
+        metaServiceTokenOpt = Option.builder("metaServiceToken")
+                .required(false)
+                .hasArg(false)
+                .desc("meta service token")
+                .build()
+        multiClusterInstanceOpt = Option.builder("multiClusterInstance")
+                .required(false)
+                .hasArg(false)
+                .desc("multi cluster instance")
+                .build()
+        upgradeNewBeIpOpt = Option.builder("upgradeNewBeIp")
+                .required(false)
+                .hasArg(false)
+                .desc("new BE ip")
+                .build()
+        upgradeNewBeHbPortOpt = Option.builder("upgradeNewBeHbPort")
+                .required(false)
+                .hasArg(false)
+                .desc("new BE heartbeat port")
+                .build()
+        upgradeNewBeHttpPortOpt = Option.builder("upgradeNewBeHttpPort")
+                .required(false)
+                .hasArg(false)
+                .desc("new BE http port")
+                .build()
+        upgradeNewBeUniqueIdOpt = Option.builder("upgradeNewBeUniqueId")
+                .required(false)
+                .hasArg(false)
+                .desc("new BE cloud unique id")
+                .build()
+        stageIamEndpointOpt = Option.builder("stageIamEndpoint")
+                .required(false)
+                .hasArg(false)
+                .desc("stage iam endpoint")
+                .build()
+        stageIamRegionOpt = Option.builder("stageIamRegion")
+                .required(false)
+                .hasArg(false)
+                .desc("stage iam region")
+                .build()
+        stageIamBucketOpt = Option.builder("stageIamBucket")
+                .required(false)
+                .hasArg(false)
+                .desc("stage iam bucket")
+                .build()
+        stageIamPolicyOpt = Option.builder("stageIamPolicy")
+                .required(false)
+                .hasArg(false)
+                .desc("stage iam policy")
+                .build()
+        stageIamRoleOpt = Option.builder("stageIamRole")
+                .required(false)
+                .hasArg(false)
+                .desc("stage iam role")
+                .build()
+        stageIamArnOpt = Option.builder("stageIamArn")
+                .required(false)
+                .hasArg(false)
+                .desc("stage iam arn")
+                .build()
+        stageIamAkOpt = Option.builder("stageIamAk")
+                .required(false)
+                .hasArg(false)
+                .desc("stage iam ak")
+                .build()
+        stageIamSkOpt = Option.builder("stageIamSk")
+                .required(false)
+                .hasArg(false)
+                .desc("stage iam sk")
+                .build()
+        stageIamUserIdOpt = Option.builder("stageIamUserId")
+                .required(false)
+                .hasArg(false)
+                .desc("stage iam user id")
+                .build()
+        clusterDirOpt = Option.builder("clusterDir")
+                .required(false)
+                .hasArg(false)
+                .desc("cloud cluster deploy dir")
+                .build()
+        kafkaBrokerListOpt = Option.builder("kafkaBrokerList")
+                .required(false)
+                .hasArg(false)
+                .desc("kafka broker list")
+                .build()
+        cloudVersionOpt = Option.builder("cloudVersion")
+                .required(false)
+                .hasArg(false)
+                .desc("selectdb cloud version")
                 .build()
 
         Options options = new Options()
@@ -392,6 +581,7 @@ class ConfigOptions {
                 .addOption(pluginOpt)
                 .addOption(sslCertificateOpt)
                 .addOption(imageOpt)
+                .addOption(noKillDockerOpt)
                 .addOption(confOpt)
                 .addOption(suiteOpt)
                 .addOption(excludeSuiteOpt)
@@ -407,7 +597,11 @@ class ConfigOptions {
                 .addOption(feHttpAddressOpt)
                 .addOption(feHttpUserOpt)
                 .addOption(feHttpPasswordOpt)
+                .addOption(feCloudHttpAddressOpt)
+                .addOption(feCloudHttpUserOpt)
+                .addOption(feCloudHttpPasswordOpt)
                 .addOption(metaServiceHttpAddressOpt)
+                .addOption(recycleServiceHttpAddressOpt)
                 .addOption(genOutOpt)
                 .addOption(confFileOpt)
                 .addOption(forceGenOutOpt)
@@ -418,7 +612,28 @@ class ConfigOptions {
                 .addOption(stopWhenFailOpt)
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
+                .addOption(caseNamePrefixOpt)
                 .addOption(dryRunOpt)
+                .addOption(isSmokeTestOpt)
+                .addOption(multiClusterBesOpt)
+                .addOption(metaServiceTokenOpt)
+                .addOption(multiClusterInstanceOpt)
+                .addOption(upgradeNewBeIpOpt)
+                .addOption(upgradeNewBeHbPortOpt)
+                .addOption(upgradeNewBeHttpPortOpt)
+                .addOption(upgradeNewBeUniqueIdOpt)
+                .addOption(stageIamEndpointOpt)
+                .addOption(stageIamRegionOpt)
+                .addOption(stageIamBucketOpt)
+                .addOption(stageIamPolicyOpt)
+                .addOption(stageIamRoleOpt)
+                .addOption(stageIamArnOpt)
+                .addOption(stageIamAkOpt)
+                .addOption(stageIamSkOpt)
+                .addOption(stageIamUserIdOpt)
+                .addOption(clusterDirOpt)
+                .addOption(kafkaBrokerListOpt)
+                .addOption(cloudVersionOpt)
 
         CommandLine cmd = new DefaultParser().parse(options, args, true)
         if (cmd.hasOption(helpOption)) {

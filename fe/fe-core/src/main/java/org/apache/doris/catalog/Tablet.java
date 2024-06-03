@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -83,7 +84,7 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     @SerializedName(value = "id")
-    private long id;
+    protected long id;
     @SerializedName(value = "replicas")
     protected List<Replica> replicas;
     @SerializedName(value = "checkedVersion")
@@ -222,13 +223,17 @@ public class Tablet extends MetaObject implements Writable {
         }
     }
 
-    // return map of (BE id -> path hash) of normal replicas
-    // for load plan.
-    public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
+    @FunctionalInterface
+    interface BackendIdGetter {
+        long get(Replica rep, String be);
+    }
+
+    private Multimap<Long, Long> getNormalReplicaBackendPathMapImpl(String beEndpoint, BackendIdGetter idGetter)
+            throws UserException {
         Multimap<Long, Long> map = HashMultimap.create();
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         for (Replica replica : replicas) {
-            long backendId = replica.getBackendId();
+            long backendId = idGetter.get(replica, beEndpoint);
             if (!infoService.checkBackendAlive(backendId)) {
                 continue;
             }
@@ -244,6 +249,18 @@ public class Tablet extends MetaObject implements Writable {
             }
         }
         return map;
+    }
+
+    // return map of (BE id -> path hash) of normal replicas
+    // for load plan.
+    public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
+        return getNormalReplicaBackendPathMapImpl(null, (rep, be) -> rep.getBackendId());
+    }
+
+    // for cloud mode without ConnectContext. use BE IP to find replica
+    protected Multimap<Long, Long> getNormalReplicaBackendPathMapCloud(String beEndpoint) throws UserException {
+        return getNormalReplicaBackendPathMapImpl(beEndpoint,
+                (rep, be) -> ((CloudReplica) rep).getBackendId(be));
     }
 
     // for query
@@ -277,16 +294,16 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
-            long minVersionCount = Long.MAX_VALUE;
-            for (Replica replica : allQueryableReplica) {
-                if (replica.getVersionCount() != -1 && replica.getVersionCount() < minVersionCount) {
-                    minVersionCount = replica.getVersionCount();
-                }
+            long minVersionCount = allQueryableReplica.stream().mapToLong(Replica::getVisibleVersionCount)
+                    .filter(count -> count != -1).min().orElse(Long.MAX_VALUE);
+            long maxVersionCount = Config.min_version_count_indicate_replica_compaction_too_slow;
+            if (minVersionCount != Long.MAX_VALUE) {
+                maxVersionCount = Math.max(maxVersionCount, minVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT);
             }
-            final long finalMinVersionCount = minVersionCount;
-            return allQueryableReplica.stream().filter(replica -> replica.getVersionCount() == -1
-                            || replica.getVersionCount() < Config.min_version_count_indicate_replica_compaction_too_slow
-                            || replica.getVersionCount() < finalMinVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT)
+
+            final long finalMaxVersionCount = maxVersionCount;
+            return allQueryableReplica.stream()
+                    .filter(replica -> replica.getVisibleVersionCount() < finalMaxVersionCount)
                     .collect(Collectors.toList());
         }
         return allQueryableReplica;
@@ -516,7 +533,7 @@ public class Tablet extends MetaObject implements Writable {
 
                 if (versionCompleted) {
                     stable++;
-                    versions.add(replica.getVersionCount());
+                    versions.add(replica.getVisibleVersionCount());
 
                     allocNum = stableVersionCompleteAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
                     stableVersionCompleteAllocMap.put(backend.getLocationTag(), (short) (allocNum + 1));
@@ -607,7 +624,7 @@ public class Tablet extends MetaObject implements Writable {
             // get the max version diff
             long delta = versions.get(versions.size() - 1) - versions.get(0);
             double ratio = (double) delta / versions.get(versions.size() - 1);
-            if (versions.get(versions.size() - 1) > Config.min_version_count_indicate_replica_compaction_too_slow
+            if (versions.get(versions.size() - 1) >= Config.min_version_count_indicate_replica_compaction_too_slow
                     && ratio > Config.valid_version_count_delta_ratio_between_replicas) {
                 return Pair.of(TabletStatus.REPLICA_COMPACTION_TOO_SLOW, Priority.HIGH);
             }

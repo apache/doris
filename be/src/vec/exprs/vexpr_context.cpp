@@ -42,7 +42,11 @@ VExprContext::~VExprContext() {
     if (!_prepared || !_opened) {
         return;
     }
-    close();
+    try {
+        close();
+    } catch (const Exception& e) {
+        LOG(WARNING) << "Exception occurs when expr context deconstruct: " << e.to_string();
+    }
 }
 
 Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
@@ -114,6 +118,13 @@ int VExprContext::register_function_context(RuntimeState* state, const TypeDescr
     _fn_contexts.push_back(FunctionContext::create_context(state, return_type, arg_types));
     _fn_contexts.back()->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
     return _fn_contexts.size() - 1;
+}
+Status VExprContext::eval_inverted_index(
+        const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
+                                                     segment_v2::InvertedIndexIterator*>>&
+                colid_to_inverted_index_iter,
+        uint32_t num_rows, roaring::Roaring* bitmap) {
+    return _root->eval_inverted_index(this, colid_to_inverted_index_iter, num_rows, bitmap);
 }
 
 Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int column_to_keep) {

@@ -17,22 +17,31 @@
 
 package org.apache.doris.nereids.cost;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
@@ -49,8 +58,11 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 
 import java.util.Collections;
+import java.util.List;
+import java.util.Set;
 
 class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
@@ -97,8 +109,70 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, PlanContext context) {
+        OlapTable table = physicalOlapScan.getTable();
         Statistics statistics = context.getStatisticsWithCheck();
-        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
+        double rows = statistics.getRowCount();
+        double aggMvBonus = 0.0;
+        if (table.getBaseIndexId() != physicalOlapScan.getSelectedIndexId()) {
+            if (table.getIndexMetaByIndexId(physicalOlapScan.getSelectedIndexId())
+                    .getKeysType().equals(KeysType.AGG_KEYS)) {
+                aggMvBonus = rows > 1.0 ? 1.0 : rows * 0.5;
+            }
+        }
+        return CostV1.ofCpu(context.getSessionVariable(), rows - aggMvBonus);
+    }
+
+    private Set<Column> getColumnForRangePredicate(Set<Expression> expressions) {
+        Set<Column> columns = Sets.newHashSet();
+        for (Expression expr : expressions) {
+            if (expr instanceof ComparisonPredicate) {
+                ComparisonPredicate compare = (ComparisonPredicate) expr;
+                boolean hasLiteral = compare.left() instanceof Literal || compare.right() instanceof Literal;
+                boolean hasSlot = compare.left() instanceof SlotReference || compare.right() instanceof SlotReference;
+                if (hasSlot && hasLiteral) {
+                    if (compare.left() instanceof SlotReference) {
+                        if (((SlotReference) compare.left()).getColumn().isPresent()) {
+                            columns.add(((SlotReference) compare.left()).getColumn().get());
+                        }
+                    } else {
+                        if (((SlotReference) compare.right()).getColumn().isPresent()) {
+                            columns.add(((SlotReference) compare.right()).getColumn().get());
+                        }
+                    }
+                }
+            }
+        }
+        return columns;
+    }
+
+    @Override
+    public Cost visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanContext context) {
+        if (context.getStatementContext() == null || context.getStatementContext().isDpHyp()) {
+            return CostV1.zero();
+        }
+        double filterCostFactor = 0.0001;
+        if (ConnectContext.get() != null) {
+            filterCostFactor = ConnectContext.get().getSessionVariable().filterCostFactor;
+        }
+        int prefixIndexMatched = 0;
+        if (filter.getGroupExpression().isPresent()) {
+            OlapScan olapScan = (OlapScan) filter.getGroupExpression().get().getFirstChildPlan(OlapScan.class);
+            if (olapScan != null) {
+                // check prefix index
+                long idxId = olapScan.getSelectedIndexId();
+                List<Column> keyColumns = olapScan.getTable().getIndexMetaByIndexId(idxId).getPrefixKeyColumns();
+                Set<Column> predicateColumns = getColumnForRangePredicate(filter.getConjuncts());
+                for (Column col : keyColumns) {
+                    if (predicateColumns.contains(col)) {
+                        prefixIndexMatched++;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        return CostV1.ofCpu(context.getSessionVariable(),
+                (filter.getConjuncts().size() - prefixIndexMatched) * filterCostFactor);
     }
 
     @Override
@@ -176,7 +250,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         double rowCount = statistics.getRowCount();
         if (topN.getSortPhase().isGather()) {
             // Now we do more like two-phase sort, so penalise one-phase sort
-            rowCount *= 100;
+            rowCount = rowCount * 100 + 100;
         }
         return CostV1.of(context.getSessionVariable(), childRowCount, rowCount, childRowCount);
     }
@@ -277,13 +351,17 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         double leftRowCount = probeStats.getRowCount();
         double rightRowCount = buildStats.getRowCount();
-        if (leftRowCount == rightRowCount
-                && physicalHashJoin.getGroupExpression().isPresent()
-                && physicalHashJoin.getGroupExpression().get().getOwnerGroup() != null
-                && !physicalHashJoin.getGroupExpression().get().getOwnerGroup().isStatsReliable()) {
-            int leftConnectivity = computeConnectivity(physicalHashJoin.left(), context);
-            int rightConnectivity = computeConnectivity(physicalHashJoin.right(), context);
-            if (rightConnectivity < leftConnectivity) {
+        if (leftRowCount == rightRowCount) {
+            // reorder by connectivity to be friendly to runtime filter.
+            if (physicalHashJoin.getGroupExpression().isPresent()
+                    && physicalHashJoin.getGroupExpression().get().getOwnerGroup() != null
+                    && !physicalHashJoin.getGroupExpression().get().getOwnerGroup().isStatsReliable()) {
+                int leftConnectivity = computeConnectivity(physicalHashJoin.left(), context);
+                int rightConnectivity = computeConnectivity(physicalHashJoin.right(), context);
+                if (rightConnectivity < leftConnectivity) {
+                    leftRowCount += 1;
+                }
+            } else if (probeStats.getWidthInJoinCluster() < buildStats.getWidthInJoinCluster()) {
                 leftRowCount += 1;
             }
         }
@@ -371,6 +449,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
                 0
         );
+    }
+
+    @Override
+    public Cost visitPhysicalIntersect(PhysicalIntersect physicalIntersect, PlanContext context) {
+        double cpuCost = 0.0;
+        for (int i = 0; i < physicalIntersect.children().size(); i++) {
+            cpuCost += context.getChildStatistics(i).getRowCount();
+        }
+        double memoryCost = context.getChildStatistics(0).computeSize();
+        return CostV1.of(context.getSessionVariable(), cpuCost, memoryCost, 0);
     }
 
     @Override

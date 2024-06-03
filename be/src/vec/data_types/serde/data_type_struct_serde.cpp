@@ -31,9 +31,9 @@ namespace vectorized {
 class Arena;
 
 std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String& name) const {
-    size_t size = elemSerDeSPtrs.size();
+    size_t size = elem_serdes_ptrs.size();
     for (size_t i = 0; i < size; ++i) {
-        if (elemNames[i] == name) {
+        if (elem_names[i] == name) {
             return std::optional<size_t>(i);
         }
     }
@@ -60,10 +60,10 @@ Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, in
             bw.write(',');
             bw.write(' ');
         }
-        std::string col_name = "\"" + elemNames[i] + "\": ";
+        std::string col_name = "\"" + elem_names[i] + "\": ";
         bw.write(col_name.c_str(), col_name.length());
-        RETURN_IF_ERROR(elemSerDeSPtrs[i]->serialize_one_cell_to_json(struct_column.get_column(i),
-                                                                      row_num, bw, options));
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->serialize_one_cell_to_json(struct_column.get_column(i),
+                                                                        row_num, bw, options));
     }
     bw.write('}');
     return Status::OK();
@@ -109,7 +109,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     int idx = 0;
     char quote_char = 0;
 
-    auto elem_size = elemSerDeSPtrs.size();
+    auto elem_size = elem_serdes_ptrs.size();
     int field_pos = 0;
 
     for (; idx < slice_size; ++idx) {
@@ -137,7 +137,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             next.trim_prefix();
             next.trim_quote();
             // check field_name
-            if (elemNames[field_pos] != next) {
+            if (elem_names[field_pos] != next) {
                 // we should do column revert if error
                 for (size_t j = 0; j < field_pos; j++) {
                     struct_column.get_column(j).pop_back(1);
@@ -166,7 +166,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
                         "Actual struct field number is more than schema field number {}.",
                         field_pos, elem_size);
             }
-            if (Status st = elemSerDeSPtrs[field_pos]->deserialize_one_cell_from_json(
+            if (Status st = elem_serdes_ptrs[field_pos]->deserialize_one_cell_from_json(
                         struct_column.get_column(field_pos), next, options);
                 st != Status::OK()) {
                 // we should do column revert if error
@@ -196,7 +196,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
                     "Actual struct field number is more than schema field number {}.", field_pos,
                     elem_size);
         }
-        if (Status st = elemSerDeSPtrs[field_pos]->deserialize_one_cell_from_json(
+        if (Status st = elem_serdes_ptrs[field_pos]->deserialize_one_cell_from_json(
                     struct_column.get_column(field_pos), next, options);
             st != Status::OK()) {
             // we should do column revert if error
@@ -255,7 +255,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(
     }
     auto& struct_column = static_cast<ColumnStruct&>(column);
     for (size_t loc = 0; loc < struct_column.get_columns().size(); loc++) {
-        Status st = elemSerDeSPtrs[loc]->deserialize_one_cell_from_hive_text(
+        Status st = elem_serdes_ptrs[loc]->deserialize_one_cell_from_hive_text(
                 struct_column.get_column(loc), slices[loc], options,
                 hive_text_complex_type_delimiter_level + 1);
         if (st != Status::OK()) {
@@ -287,7 +287,7 @@ void DataTypeStructSerDe::serialize_one_cell_to_hive_text(
         if (i != 0) {
             bw.write(collection_delimiter);
         }
-        elemSerDeSPtrs[i]->serialize_one_cell_to_hive_text(
+        elem_serdes_ptrs[i]->serialize_one_cell_to_hive_text(
                 struct_column.get_column(i), row_num, bw, options,
                 hive_text_complex_type_delimiter_level + 1);
     }
@@ -300,7 +300,7 @@ void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
 
 void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
-                                                int end) const {
+                                                int end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
     auto& struct_column = assert_cast<const ColumnStruct&>(column);
     for (int r = start; r < end; ++r) {
@@ -312,8 +312,8 @@ void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const Nul
         checkArrowStatus(builder.Append(), struct_column.get_name(), builder.type()->name());
         for (size_t ei = 0; ei < struct_column.tuple_size(); ++ei) {
             auto elem_builder = builder.field_builder(ei);
-            elemSerDeSPtrs[ei]->write_column_to_arrow(struct_column.get_column(ei), nullptr,
-                                                      elem_builder, r, r + 1);
+            elem_serdes_ptrs[ei]->write_column_to_arrow(struct_column.get_column(ei), nullptr,
+                                                        elem_builder, r, r + 1, ctz);
         }
     }
 }
@@ -325,8 +325,8 @@ void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::A
     auto concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
     DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
     for (size_t i = 0; i < struct_column.tuple_size(); ++i) {
-        elemSerDeSPtrs[i]->read_column_from_arrow(struct_column.get_column(i),
-                                                  concrete_struct->field(i).get(), start, end, ctz);
+        elem_serdes_ptrs[i]->read_column_from_arrow(
+                struct_column.get_column(i), concrete_struct->field(i).get(), start, end, ctz);
     }
 }
 
@@ -341,14 +341,14 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
         return Status::InternalError("pack mysql buffer failed.");
     }
     bool begin = true;
-    for (size_t j = 0; j < elemSerDeSPtrs.size(); ++j) {
+    for (size_t j = 0; j < elem_serdes_ptrs.size(); ++j) {
         if (!begin) {
             if (0 != result.push_string(", ", 2)) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         }
 
-        std::string col_name = "\"" + elemNames[j] + "\": ";
+        std::string col_name = "\"" + elem_names[j] + "\": ";
         if (0 != result.push_string(col_name.c_str(), col_name.length())) {
             return Status::InternalError("pack mysql buffer failed.");
         }
@@ -363,14 +363,14 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
                 if (0 != result.push_string("\"", 1)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
-                RETURN_IF_ERROR(elemSerDeSPtrs[j]->write_column_to_mysql(col.get_column(j), result,
-                                                                         col_index, false));
+                RETURN_IF_ERROR(elem_serdes_ptrs[j]->write_column_to_mysql(
+                        col.get_column(j), result, col_index, false));
                 if (0 != result.push_string("\"", 1)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
             } else {
-                RETURN_IF_ERROR(elemSerDeSPtrs[j]->write_column_to_mysql(col.get_column(j), result,
-                                                                         col_index, false));
+                RETURN_IF_ERROR(elem_serdes_ptrs[j]->write_column_to_mysql(
+                        col.get_column(j), result, col_index, false));
             }
         }
         begin = false;
@@ -399,17 +399,44 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
                                                 orc::ColumnVectorBatch* orc_col_batch, int start,
                                                 int end,
                                                 std::vector<StringRef>& buffer_list) const {
-    orc::StructVectorBatch* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
-    const ColumnStruct& struct_col = assert_cast<const ColumnStruct&>(column);
+    auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
+    const auto& struct_col = assert_cast<const ColumnStruct&>(column);
     for (size_t row_id = start; row_id < end; row_id++) {
         for (int i = 0; i < struct_col.tuple_size(); ++i) {
-            RETURN_IF_ERROR(elemSerDeSPtrs[i]->write_column_to_orc(
+            RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(
                     timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
                     row_id + 1, buffer_list));
         }
     }
 
     cur_batch->numElements = end - start;
+    return Status::OK();
+}
+
+Status DataTypeStructSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                               int end) const {
+    const auto& struct_col = assert_cast<const ColumnStruct&>(column);
+    auto* ptype = result.mutable_type();
+    ptype->set_id(PGenericType::STRUCT);
+    auto tuple_size = struct_col.tuple_size();
+    std::vector<PValues*> child_elements(tuple_size);
+    for (int i = 0; i < tuple_size; ++i) {
+        child_elements[i] = result.add_child_element();
+    }
+    for (int i = 0; i < tuple_size; ++i) {
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_pb(struct_col.get_column(i),
+                                                                *child_elements[i], start, end));
+    }
+    return Status::OK();
+}
+
+Status DataTypeStructSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto& struct_column = assert_cast<ColumnStruct&>(column);
+    DCHECK_EQ(struct_column.tuple_size(), arg.child_element_size());
+    for (size_t i = 0; i < struct_column.tuple_size(); ++i) {
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->read_column_from_pb(struct_column.get_column(i),
+                                                                 arg.child_element(i)));
+    }
     return Status::OK();
 }
 

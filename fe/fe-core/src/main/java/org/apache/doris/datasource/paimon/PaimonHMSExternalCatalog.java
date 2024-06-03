@@ -43,6 +43,7 @@ public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
+        super.initLocalObjectsImpl();
         catalogType = PAIMON_HMS;
         catalog = createCatalog();
     }

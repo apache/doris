@@ -24,8 +24,7 @@ namespace doris {
 void WorkloadActionCancelQuery::exec(WorkloadQueryInfo* query_info) {
     LOG(INFO) << "[workload_schedule]workload scheduler cancel query " << query_info->query_id;
     ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
-            query_info->tquery_id, PPlanFragmentCancelReason::INTERNAL_ERROR,
-            std::string("query canceled by workload scheduler"));
+            query_info->tquery_id, Status::InternalError("query canceled by workload scheduler"));
 }
 
 void WorkloadActionMoveQuery::exec(WorkloadQueryInfo* query_info) {

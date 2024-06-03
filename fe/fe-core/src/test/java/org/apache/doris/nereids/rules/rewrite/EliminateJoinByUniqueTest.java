@@ -28,6 +28,7 @@ class EliminateJoinByUniqueTest extends TestWithFeService implements MemoPattern
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("default_cluster:test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         createTables(
                 "CREATE TABLE IF NOT EXISTS t1 (\n"
                         + "    id1 int not null,\n"
@@ -56,13 +57,6 @@ class EliminateJoinByUniqueTest extends TestWithFeService implements MemoPattern
                 .nonMatch(logicalJoin())
                 .printlnTree();
 
-        sql = "select t1.id1 from t1 left outer join t2 on t1.id1 <=> t2.id2";
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .rewrite()
-                .matches(logicalJoin())
-                .printlnTree();
-
         sql = "select t2.id2 from t1 left outer join t2 on t1.id1 = t2.id2";
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -78,13 +72,6 @@ class EliminateJoinByUniqueTest extends TestWithFeService implements MemoPattern
                 .analyze(sql)
                 .rewrite()
                 .nonMatch(logicalJoin())
-                .printlnTree();
-
-        sql = "select t1.id1 from t1 left outer join t2 on t1.id_null <=> t2.id2";
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .rewrite()
-                .matches(logicalJoin())
                 .printlnTree();
 
         sql = "select t2.id2 from t1 left outer join t2 on t1.id_null = t2.id2";

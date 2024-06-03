@@ -36,8 +36,8 @@ struct RowsetReaderContext {
     ReaderType reader_type = ReaderType::READER_QUERY;
     Version version {-1, -1};
     TabletSchemaSPtr tablet_schema = nullptr;
-    // flag for enable topn opt
-    bool use_topn_opt = false;
+    std::vector<int> topn_filter_source_node_ids;
+    int topn_filter_target_node_id = -1;
     // whether rowset should return ordered rows.
     bool need_ordered_result = true;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
@@ -82,6 +82,8 @@ struct RowsetReaderContext {
     RowsetId rowset_id;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+    int64_t ttl_seconds = 0;
+    size_t topn_limit = 0;
 };
 
 } // namespace doris

@@ -88,15 +88,20 @@ Status VResultSink::prepare(RuntimeState* state) {
 
     // create sender
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-            state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec(),
-            state->execution_timeout()));
+            state->fragment_instance_id(), _buf_size, &_sender, false, state->execution_timeout()));
 
     // create writer based on sink type
     switch (_sink_type) {
-    case TResultSinkType::MYSQL_PROTOCAL:
-        _writer.reset(new (std::nothrow)
-                              VMysqlResultWriter(_sender.get(), _output_vexpr_ctxs, _profile));
+    case TResultSinkType::MYSQL_PROTOCAL: {
+        if (state->mysql_row_binary_format()) {
+            _writer.reset(new (std::nothrow) VMysqlResultWriter<true>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
+        } else {
+            _writer.reset(new (std::nothrow) VMysqlResultWriter<false>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
+        }
         break;
+    }
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
         std::shared_ptr<arrow::Schema> arrow_schema;
         RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema));
@@ -170,11 +175,11 @@ Status VResultSink::close(RuntimeState* state, Status exec_status) {
         if (_writer) {
             _sender->update_return_rows(_writer->get_written_rows());
         }
-        static_cast<void>(_sender->close(final_status));
+        RETURN_IF_ERROR(_sender->close(final_status));
     }
-    static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
+    state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
-            state->fragment_instance_id()));
+            state->fragment_instance_id());
     return DataSink::close(state, exec_status);
 }
 

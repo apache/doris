@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.NetUtils;
@@ -130,6 +131,9 @@ public class TableQueryPlanAction extends RestBaseController {
                     // Disable some optimizations, since it's not fully supported
                     // TODO support it
                     ConnectContext.get().getSessionVariable().setEnableTwoPhaseReadOpt(false);
+                }
+                if (Config.isCloudMode()) { // Choose a cluster to for this query
+                    ConnectContext.get().getCurrentCloudCluster();
                 }
                 // parse/analysis/plan the sql and acquire tablet distributions
                 handleQuery(ConnectContext.get(), fullDbName, tblName, sql, resultMap);

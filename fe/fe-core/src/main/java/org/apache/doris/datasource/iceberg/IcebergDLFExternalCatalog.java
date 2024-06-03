@@ -37,7 +37,7 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
     }
 
     @Override
-    protected void initLocalObjectsImpl() {
+    protected void initCatalog() {
         icebergCatalogType = ICEBERG_DLF;
         DLFCatalog dlfCatalog = new DLFCatalog();
         dlfCatalog.setConf(getConfiguration());

@@ -35,21 +35,13 @@ public:
     PendingRowsetGuard(const PendingRowsetGuard&) = delete;
     PendingRowsetGuard& operator=(const PendingRowsetGuard&) = delete;
 
-    PendingRowsetGuard(PendingRowsetGuard&& other) noexcept {
-        CHECK(!_pending_rowset_set ||
-              (_rowset_id == other._rowset_id && _pending_rowset_set == other._pending_rowset_set));
-        _rowset_id = other._rowset_id;
-        _pending_rowset_set = other._pending_rowset_set;
-        other._pending_rowset_set = nullptr;
-    }
-    PendingRowsetGuard& operator=(PendingRowsetGuard&& other) noexcept {
-        CHECK(!_pending_rowset_set ||
-              (_rowset_id == other._rowset_id && _pending_rowset_set == other._pending_rowset_set));
-        _rowset_id = other._rowset_id;
-        _pending_rowset_set = other._pending_rowset_set;
-        other._pending_rowset_set = nullptr;
-        return *this;
-    }
+    PendingRowsetGuard(PendingRowsetGuard&& other) noexcept;
+    PendingRowsetGuard& operator=(PendingRowsetGuard&& other) noexcept;
+
+    // Remove guarded rowset id from `PendingRowsetSet` if it's initialized and reset the guard to
+    // uninitialized state. This be used to manually release the pending rowset, ensure that the
+    // guarded rowset is indeed no longer in use.
+    void drop();
 
 private:
     friend class PendingRowsetSet;

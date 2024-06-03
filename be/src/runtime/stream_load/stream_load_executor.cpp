@@ -69,7 +69,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
 #ifndef BE_TEST
     ctx->start_write_data_nanos = MonotonicNanos();
     LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
-              << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
+              << ", query_id=" << ctx->id;
     Status st;
     auto exec_fragment = [ctx, this](RuntimeState* state, Status* status) {
         if (ctx->group_commit) {
@@ -78,40 +78,26 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
         }
         ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
         ctx->commit_infos = std::move(state->tablet_commit_infos());
+        ctx->number_total_rows = state->num_rows_load_total();
+        ctx->number_loaded_rows = state->num_rows_load_success();
+        ctx->number_filtered_rows = state->num_rows_load_filtered();
+        ctx->number_unselected_rows = state->num_rows_load_unselected();
+        int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
+        if (!ctx->group_commit && num_selected_rows > 0 &&
+            (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
+            // NOTE: Do not modify the error message here, for historical reasons,
+            // some users may rely on this error message.
+            *status = Status::DataQualityError("too many filtered rows");
+        }
+        if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
+            ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
+        }
+
         if (status->ok()) {
-            ctx->number_total_rows = state->num_rows_load_total();
-            ctx->number_loaded_rows = state->num_rows_load_success();
-            ctx->number_filtered_rows = state->num_rows_load_filtered();
-            ctx->number_unselected_rows = state->num_rows_load_unselected();
-
-            int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
-            if (!ctx->group_commit && num_selected_rows > 0 &&
-                (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
-                // NOTE: Do not modify the error message here, for historical reasons,
-                // some users may rely on this error message.
-                *status = Status::DataQualityError("too many filtered rows");
-            }
-            if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
-                ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-            }
-
-            if (status->ok()) {
-                DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
-                DorisMetrics::instance()->stream_load_rows_total->increment(
-                        ctx->number_loaded_rows);
-            }
+            DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
+            DorisMetrics::instance()->stream_load_rows_total->increment(ctx->number_loaded_rows);
         } else {
-            if (ctx->group_commit) {
-                ctx->number_total_rows = state->num_rows_load_total();
-                ctx->number_loaded_rows = state->num_rows_load_success();
-                ctx->number_filtered_rows = state->num_rows_load_filtered();
-                ctx->number_unselected_rows = state->num_rows_load_unselected();
-                if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
-                    ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-                }
-            }
             LOG(WARNING) << "fragment execute failed"
-                         << ", query_id=" << UniqueId(ctx->put_result.params.params.query_id)
                          << ", err_msg=" << status->to_string() << ", " << ctx->brief();
             // cancel body_sink, make sender known it
             if (ctx->body_sink != nullptr) {
@@ -150,8 +136,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
         }
 
         LOG(INFO) << "finished to execute stream load. label=" << ctx->label
-                  << ", txn_id=" << ctx->txn_id
-                  << ", query_id=" << print_id(ctx->put_result.params.params.query_id)
+                  << ", txn_id=" << ctx->txn_id << ", query_id=" << ctx->id
                   << ", receive_data_cost_ms="
                   << (ctx->receive_and_read_data_cost_nanos - ctx->read_data_cost_nanos) / 1000000
                   << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000

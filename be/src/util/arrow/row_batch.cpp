@@ -72,18 +72,36 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_TIME:
         *result = arrow::float64();
         break;
+    case TYPE_IPV4:
+        // ipv4 is uint32, but parquet not uint32, it's will be convert to int64
+        // so use int32 directly
+        *result = arrow::int32();
+        break;
+    case TYPE_IPV6:
+        *result = arrow::utf8();
+        break;
     case TYPE_LARGEINT:
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_HLL:
     case TYPE_DATE:
     case TYPE_DATETIME:
-    case TYPE_DATEV2:
-    case TYPE_DATETIMEV2:
     case TYPE_STRING:
     case TYPE_JSONB:
     case TYPE_OBJECT:
         *result = arrow::utf8();
+        break;
+    case TYPE_DATEV2:
+        *result = std::make_shared<arrow::Date32Type>();
+        break;
+    case TYPE_DATETIMEV2:
+        if (type.scale > 3) {
+            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO);
+        } else if (type.scale > 0) {
+            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MILLI);
+        } else {
+            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::SECOND);
+        }
         break;
     case TYPE_DECIMALV2:
         *result = std::make_shared<arrow::Decimal128Type>(27, 9);
@@ -92,12 +110,6 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
         *result = std::make_shared<arrow::Decimal128Type>(type.precision, type.scale);
-        break;
-    case TYPE_IPV4:
-        *result = arrow::uint32();
-        break;
-    case TYPE_IPV6:
-        *result = arrow::utf8();
         break;
     case TYPE_DECIMAL256:
         *result = std::make_shared<arrow::Decimal256Type>(type.precision, type.scale);
@@ -186,8 +198,8 @@ Status convert_expr_ctxs_arrow_schema(const vectorized::VExprContextSPtrs& outpu
         std::shared_ptr<arrow::DataType> arrow_type;
         auto root_expr = output_vexpr_ctxs.at(i)->root();
         RETURN_IF_ERROR(convert_to_arrow_type(root_expr->type(), &arrow_type));
-        auto field_name = root_expr->is_slot_ref() && !root_expr->expr_name().empty()
-                                  ? root_expr->expr_name()
+        auto field_name = root_expr->is_slot_ref() && !root_expr->expr_label().empty()
+                                  ? root_expr->expr_label()
                                   : fmt::format("{}_{}", root_expr->data_type()->get_name(), i);
         fields.push_back(
                 std::make_shared<arrow::Field>(field_name, arrow_type, root_expr->is_nullable()));

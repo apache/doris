@@ -62,7 +62,7 @@ Status VNumbersTVF::get_next(RuntimeState* state, vectorized::Block* block, bool
         auto* column_res = assert_cast<ColumnInt64*>(columns[i].get()); //BIGINT
         int64_t end_value = std::min((int64_t)(_next_number + batch_size), _total_numbers);
         if (_use_const) {
-            column_res->insert_raw_integers(_const_value, end_value - _next_number);
+            column_res->insert_many_vals(_const_value, end_value - _next_number);
         } else {
             column_res->insert_range_of_integer(_next_number, end_value);
         }

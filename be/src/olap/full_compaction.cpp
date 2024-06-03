@@ -46,7 +46,9 @@ FullCompaction::FullCompaction(StorageEngine& engine, const TabletSharedPtr& tab
         : CompactionMixin(engine, tablet, "FullCompaction:" + std::to_string(tablet->tablet_id())) {
 }
 
-FullCompaction::~FullCompaction() = default;
+FullCompaction::~FullCompaction() {
+    tablet()->set_is_full_compaction_running(false);
+}
 
 Status FullCompaction::prepare_compact() {
     if (!tablet()->init_succeeded()) {
@@ -55,6 +57,7 @@ Status FullCompaction::prepare_compact() {
 
     std::unique_lock base_lock(tablet()->get_base_compaction_lock());
     std::unique_lock cumu_lock(tablet()->get_cumulative_compaction_lock());
+    tablet()->set_is_full_compaction_running(true);
 
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
@@ -69,6 +72,9 @@ Status FullCompaction::execute_compact() {
     SCOPED_ATTACH_TASK(_mem_tracker);
 
     RETURN_IF_ERROR(CompactionMixin::execute_compact());
+
+    tablet()->cumulative_compaction_policy()->update_compaction_level(tablet(), _input_rowsets,
+                                                                      _output_rowset);
 
     Version last_version = _input_rowsets.back()->version();
     tablet()->cumulative_compaction_policy()->update_cumulative_point(tablet(), _input_rowsets,
@@ -109,6 +115,7 @@ Status FullCompaction::modify_rowsets() {
         std::lock_guard<std::mutex> rowset_update_wlock(tablet()->get_rowset_update_lock());
         std::lock_guard<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
         RETURN_IF_ERROR(tablet()->modify_rowsets(output_rowsets, _input_rowsets, true));
+        DBUG_EXECUTE_IF("FullCompaction.modify_rowsets.sleep", { sleep(5); })
         tablet()->save_meta();
     }
     return Status::OK();
@@ -127,7 +134,7 @@ Status FullCompaction::_check_all_version(const std::vector<RowsetSharedPtr>& ro
                 "Full compaction rowsets' versions not equal to all exist rowsets' versions. "
                 "full compaction rowsets max version={}-{}"
                 ", current rowsets max version={}-{}"
-                "full compaction rowsets min version={}-{}, current rowsets min version=0-1",
+                ", full compaction rowsets min version={}-{}, current rowsets min version=0-1",
                 last_rowset->start_version(), last_rowset->end_version(), max_version.first,
                 max_version.second, first_rowset->start_version(), first_rowset->end_version());
     }

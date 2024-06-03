@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_array_functions_array_with_const", "p0") {
-
-    sql "set enable_nereids_planner=false;"
-
     //array_with_constant
     qt_old_sql "SELECT 'array_with_constant';"
     order_qt_old_sql "SELECT array_with_constant(3, number) FROM numbers limit 10;"

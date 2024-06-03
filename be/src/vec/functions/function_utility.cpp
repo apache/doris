@@ -70,13 +70,23 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
+    bool use_default_implementation_for_constants() const override { return false; }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
 
         auto res_column = ColumnUInt8::create();
 
-        if (auto* nullable_column = check_and_get_column<ColumnNullable>(*argument_column)) {
+        if (is_column_const(*argument_column)) {
+            Int64 seconds = argument_column->get_int(0);
+            for (int i = 0; i < input_rows_count; i++) {
+                std::this_thread::sleep_for(std::chrono::seconds(seconds));
+                res_column->insert(1);
+            }
+
+            block.replace_by_position(result, std::move(res_column));
+        } else if (auto* nullable_column = check_and_get_column<ColumnNullable>(*argument_column)) {
             auto null_map_column = ColumnUInt8::create();
 
             auto nested_column = nullable_column->get_nested_column_ptr();

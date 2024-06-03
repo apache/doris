@@ -53,8 +53,8 @@ Status EsScanLocalState::_init_profile() {
     return Status::OK();
 }
 
-Status EsScanLocalState::_process_conjuncts() {
-    RETURN_IF_ERROR(Base::_process_conjuncts());
+Status EsScanLocalState::_process_conjuncts(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::_process_conjuncts(state));
     if (Base::_eos) {
         return Status::OK();
     }
@@ -67,7 +67,7 @@ Status EsScanLocalState::_process_conjuncts() {
 Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
-        _dependency->set_ready();
+        _scan_dependency->set_ready();
         return Status::OK();
     }
 

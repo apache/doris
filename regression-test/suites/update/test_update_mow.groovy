@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_update_mow", "p0") {
+    sql "set enable_nereids_planner=true"
+    sql "set enable_fallback_to_original_planner=false"
     def tbName1 = "test_update_mow_1"
     def tbName2 = "test_update_mow_2"
     def tbName3 = "test_update_mow_3"
@@ -98,7 +100,7 @@ suite("test_update_mow", "p0") {
     sql "DROP TABLE IF EXISTS ${tbName4}"
 
 
-    sql "set experimental_enable_nereids_planner=false;"
+    // test legacy planner
     sql "set enable_nereids_planner=false"
     sql "sync"
     def tableName5 = "test_update_mow_5"
@@ -127,4 +129,35 @@ suite("test_update_mow", "p0") {
     qt_sql "select * from ${tableName5} order by k1,k2" 
 
     sql "DROP TABLE IF EXISTS ${tableName5}"
+
+    // test nereids planner
+    sql "set enable_nereids_planner=true"
+    sql "set enable_fallback_to_original_planner=false"
+    sql "sync"
+    def tableName6 = "test_update_mow_6"
+    sql "DROP TABLE IF EXISTS ${tableName6}"
+    sql """ CREATE TABLE ${tableName6} (
+            k1 varchar(100) NOT NULL,
+            k2 int(11) NOT NULL,
+            v1 datetime NULL,
+            v2 varchar(100) NULL,
+            v3 int NULL) ENGINE=OLAP UNIQUE KEY(k1, k2) COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(k1, k2) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "true",
+            "store_row_column" = "true",
+            "enable_single_replica_compaction" = "false");"""
+    sql """insert into ${tableName6} values
+        ("a",1,"2023-11-12 00:00:00","test1",1),
+        ("b",2,"2023-11-12 00:00:00","test2",2),
+        ("c",3,"2023-11-12 00:00:00","test3",3);"""
+    qt_sql "select * from ${tableName6} order by k1,k2"
+    sql """update ${tableName6} set v3=999 where k1="a" and k2=1;"""
+    qt_sql "select * from ${tableName6} order by k1,k2" 
+    sql """update ${tableName6} set v2="update value", v1="2022-01-01 00:00:00" where k1="c" and k2=3;"""
+    qt_sql "select * from ${tableName6} order by k1,k2" 
+
+    sql "DROP TABLE IF EXISTS ${tableName6}"
 }

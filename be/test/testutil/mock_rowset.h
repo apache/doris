@@ -30,7 +30,7 @@ class MockRowset : public Rowset {
     Status remove() override { return Status::NotSupported("MockRowset not support this method."); }
 
     Status link_files_to(const std::string& dir, RowsetId new_rowset_id, size_t start_seg_id,
-                         std::set<int32_t>* without_index_uids) override {
+                         std::set<int64_t>* without_index_uids) override {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
@@ -49,6 +49,8 @@ class MockRowset : public Rowset {
     bool check_file_exist() override {
         return Status::NotSupported("MockRowset not support this method.");
     }
+
+    std::string segment_file_path(int segment_id) const override { return ""; }
 
     Status get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) override {
         // TODO(zhangchen): remove this after we implemented memrowset.

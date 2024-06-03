@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "vec/exec/format/format_common.h"
+#include "vec/exec/scan/split_source_connector.h"
 #include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
@@ -58,7 +59,8 @@ protected:
     Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
 
 private:
-    std::vector<TScanRangeParams> _scan_ranges;
+    std::shared_ptr<SplitSourceConnector> _split_source = nullptr;
+    int _max_scanners;
     // A in memory cache to save some common components
     // of the this scan node. eg:
     // 1. iceberg delete file

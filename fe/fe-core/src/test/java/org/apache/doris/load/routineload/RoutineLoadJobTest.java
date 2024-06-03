@@ -24,6 +24,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.InternalErrorCode;
+import org.apache.doris.common.LoadException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
@@ -46,6 +48,7 @@ import org.apache.kafka.common.PartitionInfo;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -271,6 +274,18 @@ public class RoutineLoadJobTest {
             public List<Integer> getAllKafkaPartitions(String brokerList, String topic,
                     Map<String, String> convertedCustomProperties) throws UserException {
                 return Lists.newArrayList(1, 2, 3);
+            }
+        };
+
+        new MockUp<KafkaUtil>() {
+            @Mock
+            public List<Pair<Integer, Long>> getRealOffsets(String brokerList, String topic,
+                                                             Map<String, String> convertedCustomProperties,
+                                                             List<Pair<Integer, Long>> offsetFlags)
+                                                             throws LoadException {
+                List<Pair<Integer, Long>> pairList = new ArrayList<>();
+                pairList.add(Pair.of(1, 0L));
+                return pairList;
             }
         };
 

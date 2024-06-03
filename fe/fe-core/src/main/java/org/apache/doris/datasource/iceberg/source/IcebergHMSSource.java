@@ -26,11 +26,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
-
-import org.apache.iceberg.TableProperties;
 
 import java.util.Map;
 
@@ -59,8 +58,7 @@ public class IcebergHMSSource implements IcebergSource {
 
     @Override
     public String getFileFormat() throws DdlException, MetaNotFoundException {
-        return hmsTable.getRemoteTable().getParameters()
-            .getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
+        return IcebergUtils.getFileFormat(icebergTable);
     }
 
     public org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {

@@ -43,7 +43,11 @@ public:
     void release(Cache::Handle*);
 
 private:
-    struct CacheValue {
+    class CacheValue : public LRUCacheValueBase {
+    public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::TABLET_SCHEMA_CACHE) {}
+        ~CacheValue() override;
+
         TabletSchemaSPtr tablet_schema;
     };
 };

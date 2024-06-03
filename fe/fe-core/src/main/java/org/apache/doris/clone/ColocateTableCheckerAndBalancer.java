@@ -852,6 +852,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
                 int targetSeqIndex = -1;
                 long minDataSizeDiff = Long.MAX_VALUE;
+                boolean destBeContainsAllBuckets = true;
+                boolean theSameHostContainsAllBuckets = true;
                 for (int seqIndex : seqIndexes) {
                     // the bucket index.
                     // eg: 0 / 3 = 0, so that the bucket index of the 4th backend id in flatBackendsPerBucketSeq is 0.
@@ -859,9 +861,15 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     List<Long> backendsSet = backendsPerBucketSeq.get(bucketIndex);
                     List<String> hostsSet = hostsPerBucketSeq.get(bucketIndex);
                     // the replicas of a tablet can not locate in same Backend or same host
-                    if (backendsSet.contains(destBeId) || hostsSet.contains(destBe.getHost())) {
+                    if (backendsSet.contains(destBeId)) {
                         continue;
                     }
+                    destBeContainsAllBuckets = false;
+
+                    if (!Config.allow_replica_on_same_host && hostsSet.contains(destBe.getHost())) {
+                        continue;
+                    }
+                    theSameHostContainsAllBuckets = false;
 
                     Preconditions.checkState(backendsSet.contains(srcBeId), srcBeId);
                     long bucketDataSize =
@@ -890,8 +898,19 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
                 if (targetSeqIndex < 0) {
                     // we use next node as dst node
-                    LOG.info("unable to replace backend {} with backend {} in colocate group {}",
-                            srcBeId, destBeId, groupId);
+                    String failedReason;
+                    if (destBeContainsAllBuckets) {
+                        failedReason = "dest be contains all the same buckets";
+                    } else if (theSameHostContainsAllBuckets) {
+                        failedReason = "dest be's host contains all the same buckets "
+                                + "and Config.allow_replica_on_same_host=false";
+                    } else {
+                        failedReason = "dest be has no fit path, maybe disk usage is exceeds "
+                                + "Config.storage_high_watermark_usage_percent";
+                    }
+                    LOG.info("unable to replace backend {} with dest backend {} in colocate group {}, "
+                            + "failed reason: {}",
+                            srcBeId, destBeId, groupId, failedReason);
                     continue;
                 }
 

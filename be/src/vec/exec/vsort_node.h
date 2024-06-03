@@ -89,7 +89,6 @@ private:
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _sort_blocks_memory_usage = nullptr;
 
-    bool _use_topn_opt = false;
     // topn top value
     Field old_top {Field::Types::Null};
 

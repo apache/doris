@@ -18,25 +18,21 @@
 #pragma once
 
 #include <gen_cpp/parquet_types.h>
-#include <stddef.h>
 
 #include "common/status.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/decoder.h"
-#include "vec/exec/format/parquet/parquet_column_convert.h"
 #include "vec/exec/format/parquet/parquet_common.h"
-namespace doris {
-namespace vectorized {
+
+namespace doris::vectorized {
 class ColumnSelectVector;
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
 
 namespace doris::vectorized {
 
-template <tparquet::Type::type PhysicalType>
 class FixLengthPlainDecoder final : public Decoder {
 public:
-    FixLengthPlainDecoder() {};
+    FixLengthPlainDecoder() = default;
     ~FixLengthPlainDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
@@ -47,17 +43,9 @@ public:
                           ColumnSelectVector& select_vector, bool is_dict_filter);
 
     Status skip_values(size_t num_values) override;
-
-protected:
-    template <bool has_filter>
-    Status _decode_numeric(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
-
-    template <bool has_filter>
-    Status _decode_string(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
 };
 
-template <tparquet::Type::type PhysicalType>
-Status FixLengthPlainDecoder<PhysicalType>::skip_values(size_t num_values) {
+Status FixLengthPlainDecoder::skip_values(size_t num_values) {
     _offset += _type_length * num_values;
     if (UNLIKELY(_offset > _data->size)) {
         return Status::IOError("Out-of-bounds access in parquet data decoder");
@@ -65,11 +53,9 @@ Status FixLengthPlainDecoder<PhysicalType>::skip_values(size_t num_values) {
     return Status::OK();
 }
 
-template <tparquet::Type::type PhysicalType>
-Status FixLengthPlainDecoder<PhysicalType>::decode_values(MutableColumnPtr& doris_column,
-                                                          DataTypePtr& data_type,
-                                                          ColumnSelectVector& select_vector,
-                                                          bool is_dict_filter) {
+Status FixLengthPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                            ColumnSelectVector& select_vector,
+                                            bool is_dict_filter) {
     if (select_vector.has_filter()) {
         return _decode_values<true>(doris_column, data_type, select_vector, is_dict_filter);
     } else {
@@ -77,76 +63,15 @@ Status FixLengthPlainDecoder<PhysicalType>::decode_values(MutableColumnPtr& dori
     }
 }
 
-template <tparquet::Type::type PhysicalType>
 template <bool has_filter>
-Status FixLengthPlainDecoder<PhysicalType>::_decode_values(MutableColumnPtr& doris_column,
-                                                           DataTypePtr& data_type,
-                                                           ColumnSelectVector& select_vector,
-                                                           bool is_dict_filter) {
+Status FixLengthPlainDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                             ColumnSelectVector& select_vector,
+                                             bool is_dict_filter) {
     size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
     if (UNLIKELY(_offset + _type_length * non_null_size > _data->size)) {
         return Status::IOError("Out-of-bounds access in parquet data decoder");
     }
 
-    if constexpr (PhysicalType == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-        return _decode_string<has_filter>(doris_column, select_vector);
-    } else {
-        return _decode_numeric<has_filter>(doris_column, select_vector);
-    }
-}
-
-template <tparquet::Type::type PhysicalType>
-template <bool has_filter>
-Status FixLengthPlainDecoder<PhysicalType>::_decode_string(MutableColumnPtr& doris_column,
-                                                           ColumnSelectVector& select_vector) {
-    ColumnSelectVector::DataReadType read_type;
-    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
-        switch (read_type) {
-        case ColumnSelectVector::CONTENT: {
-            auto* column_string = assert_cast<ColumnString*>(doris_column.get());
-            auto& chars = column_string->get_chars();
-            auto& offsets = column_string->get_offsets();
-            size_t bytes_size = chars.size();
-
-            // copy chars
-            size_t data_size = run_length * _type_length;
-            size_t old_size = chars.size();
-            chars.resize(old_size + data_size);
-            memcpy(chars.data() + old_size, _data->data + _offset, data_size);
-
-            // copy offsets
-            offsets.resize(offsets.size() + run_length);
-            auto* offsets_data = offsets.data() + offsets.size() - run_length;
-
-            for (int i = 0; i < run_length; i++) {
-                bytes_size += _type_length;
-                *(offsets_data++) = bytes_size;
-            }
-
-            _offset += data_size;
-            break;
-        }
-        case ColumnSelectVector::NULL_DATA: {
-            doris_column->insert_many_defaults(run_length);
-            break;
-        }
-        case ColumnSelectVector::FILTERED_CONTENT: {
-            _offset += _type_length * run_length;
-            break;
-        }
-        case ColumnSelectVector::FILTERED_NULL: {
-            // do nothing
-            break;
-        }
-        }
-    }
-    return Status::OK();
-}
-
-template <tparquet::Type::type PhysicalType>
-template <bool has_filter>
-Status FixLengthPlainDecoder<PhysicalType>::_decode_numeric(MutableColumnPtr& doris_column,
-                                                            ColumnSelectVector& select_vector) {
     auto& column_data = reinterpret_cast<ColumnVector<Int8>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
     column_data.resize(data_index +

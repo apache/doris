@@ -32,6 +32,7 @@ sql 'set enable_runtime_filter_prune=true'
 sql 'set enable_stats=true'
 sql 'set enable_left_zig_zag=false'   
     sql 'set parallel_pipeline_task_num=8'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
 
 

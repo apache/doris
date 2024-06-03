@@ -80,11 +80,9 @@ Status VExchangeNode::alloc_resource(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
-        if (!state->enable_pipeline_exec()) {
-            RETURN_IF_ERROR(_stream_recvr->create_merger(_vsort_exec_exprs.lhs_ordering_expr_ctxs(),
-                                                         _is_asc_order, _nulls_first,
-                                                         state->batch_size(), _limit, _offset));
-        }
+        RETURN_IF_ERROR(_stream_recvr->create_merger(_vsort_exec_exprs.lhs_ordering_expr_ctxs(),
+                                                     _is_asc_order, _nulls_first,
+                                                     state->batch_size(), _limit, _offset));
     }
     return Status::OK();
 }
@@ -99,13 +97,6 @@ Status VExchangeNode::open(RuntimeState* state) {
 Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(runtime_profile()->total_time_counter());
-    if (_is_merging && state->enable_pipeline_exec() && !_is_ready) {
-        RETURN_IF_ERROR(_stream_recvr->create_merger(_vsort_exec_exprs.lhs_ordering_expr_ctxs(),
-                                                     _is_asc_order, _nulls_first,
-                                                     state->batch_size(), _limit, _offset));
-        _is_ready = true;
-        return Status::OK();
-    }
     auto status = _stream_recvr->get_next(block, eos);
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
     // In vsortrunmerger, it will set eos=true, and block not empty

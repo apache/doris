@@ -730,7 +730,7 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
-    using CppType = int128_t;
+    using CppType = uint128_t;
     using UnsignedCppType = uint128_t;
 };
 template <>

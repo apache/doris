@@ -23,14 +23,18 @@
 #include <string>
 #include <vector>
 
+#include "cloud/cloud_compaction_action.h"
 #include "cloud/config.h"
+#include "cloud/injection_point_action.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "http/action/adjust_log_level.h"
 #include "http/action/adjust_tracing_dump.h"
+#include "http/action/calc_file_crc_action.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
+#include "http/action/clear_file_cache_action.h"
 #include "http/action/compaction_action.h"
 #include "http/action/config_action.h"
 #include "http/action/debug_point_action.h"
@@ -147,10 +151,20 @@ Status HttpService::start() {
     HealthAction* health_action = _pool.add(new HealthAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
-    // Register BE health action
+    // Dump all running pipeline tasks
     PipelineTaskAction* pipeline_task_action = _pool.add(new PipelineTaskAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/running_pipeline_tasks",
                                       pipeline_task_action);
+
+    // Dump all running pipeline tasks which has been running for more than {duration} seconds
+    LongPipelineTaskAction* long_pipeline_task_action = _pool.add(new LongPipelineTaskAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/running_pipeline_tasks/{duration}",
+                                      long_pipeline_task_action);
+
+    // Dump all running pipeline tasks which has been running for more than {duration} seconds
+    QueryPipelineTaskAction* query_pipeline_task_action = _pool.add(new QueryPipelineTaskAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/query_pipeline_tasks/{query_id}",
+                                      query_pipeline_task_action);
 
     // Register Tablets Info action
     TabletsInfoAction* tablets_info_action =
@@ -266,7 +280,10 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_binlog/_download",
                                       download_binlog_action);
 
-    // Register Tablets Distribution action
+    ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/clear_file_cache",
+                                      clear_file_cache_action);
+
     TabletsDistributionAction* tablets_distribution_action =
             _pool.add(new TabletsDistributionAction(_env, engine, TPrivilegeHier::GLOBAL,
                                                     TPrivilegeType::ADMIN));
@@ -333,10 +350,36 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     ReportAction* report_disk_action = _pool.add(new ReportAction(
             _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_DISK_STATE"));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/disk", report_disk_action);
+
+    CalcFileCrcAction* calc_crc_action = _pool.add(
+            new CalcFileCrcAction(_env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
 }
 
 void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
-    // TODO(plat1ko)
+    CloudCompactionAction* show_compaction_action =
+            _pool.add(new CloudCompactionAction(CompactionActionType::SHOW_INFO, _env, engine,
+                                                TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/show",
+                                      show_compaction_action);
+    CloudCompactionAction* run_compaction_action =
+            _pool.add(new CloudCompactionAction(CompactionActionType::RUN_COMPACTION, _env, engine,
+                                                TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/compaction/run",
+                                      run_compaction_action);
+    CloudCompactionAction* run_status_compaction_action = _pool.add(
+            new CloudCompactionAction(CompactionActionType::RUN_COMPACTION_STATUS, _env, engine,
+                                      TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
+                                      run_status_compaction_action);
+#ifdef ENABLE_INJECTION_POINT
+    InjectionPointAction* injection_point_action = _pool.add(new InjectionPointAction);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}/{name}",
+                                      injection_point_action);
+#endif
+    ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/clear_file_cache",
+                                      clear_file_cache_action);
 }
 // NOLINTEND(readability-function-size)
 

@@ -36,6 +36,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/calc_delete_bitmap_executor.h"
@@ -60,7 +61,6 @@ class BaseCompaction;
 class CumulativeCompaction;
 class SingleReplicaCompaction;
 class CumulativeCompactionPolicy;
-class MemTracker;
 class StreamLoadRecorder;
 class TCloneReq;
 class TCreateTabletReq;
@@ -125,11 +125,16 @@ public:
         return _calc_delete_bitmap_executor.get();
     }
 
-    const std::shared_ptr<MemTracker>& segment_meta_mem_tracker() {
-        return _segment_meta_mem_tracker;
-    }
+    void add_quering_rowset(RowsetSharedPtr rs);
+
+    RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
+
+    int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
 
 protected:
+    void _evict_querying_rowset();
+    void _evict_quring_rowset_thread_callback();
+
     int32_t _effective_cluster_id = -1;
     HeartbeatFlags* _heartbeat_flags = nullptr;
 
@@ -140,13 +145,14 @@ protected:
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
+    CountDownLatch _stop_background_threads_latch;
 
-    // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
-    // The memory consumed by querying is tracked in segment iterator.
-    // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
-    // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
-    // maybe have to use ColumnReader count as segment meta size.
-    std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
+    // Hold reference of quering rowsets
+    std::mutex _quering_rowsets_mutex;
+    std::unordered_map<RowsetId, RowsetSharedPtr> _querying_rowsets;
+    scoped_refptr<Thread> _evict_quering_rowset_thread;
+
+    int64_t _memory_limitation_bytes_for_schema_change;
 };
 
 class StorageEngine final : public BaseStorageEngine {
@@ -169,7 +175,7 @@ public:
     // get all info of root_path
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
-    int64_t get_file_or_directory_size(const std::string& file_path);
+    static int64_t get_file_or_directory_size(const std::string& file_path);
 
     // get root path for creating tablet. The returned vector of root path should be round robin,
     // for avoiding that all the tablet would be deployed one disk.
@@ -242,10 +248,6 @@ public:
 
     Status get_compaction_status_json(std::string* result);
 
-    const std::shared_ptr<MemTracker>& segcompaction_mem_tracker() {
-        return _segcompaction_mem_tracker;
-    }
-
     // check cumulative compaction config
     void check_cumulative_compaction_config();
 
@@ -265,12 +267,6 @@ public:
     void add_async_publish_task(int64_t partition_id, int64_t tablet_id, int64_t publish_version,
                                 int64_t transaction_id, bool is_recover);
     int64_t get_pending_publish_min_version(int64_t tablet_id);
-
-    void add_quering_rowset(RowsetSharedPtr rs);
-
-    RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
-
-    void evict_querying_rowset(RowsetId rs_id);
 
     bool add_broken_path(std::string path);
     bool remove_broken_path(std::string path);
@@ -387,6 +383,8 @@ private:
 
     int _get_and_set_next_disk_index(int64 partition_id, TStorageMedium::type storage_medium);
 
+    int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
+
 private:
     EngineOptions _options;
     std::mutex _store_lock;
@@ -402,18 +400,10 @@ private:
     std::atomic_bool _stopped {false};
 
     std::mutex _gc_mutex;
-    std::unordered_map<RowsetId, RowsetSharedPtr, HashOfRowsetId> _unused_rowsets;
+    std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
     PendingRowsetSet _pending_local_rowsets;
     PendingRowsetSet _pending_remote_rowsets;
 
-    // Hold reference of quering rowsets
-    std::mutex _quering_rowsets_mutex;
-    std::unordered_map<RowsetId, RowsetSharedPtr, HashOfRowsetId> _querying_rowsets;
-
-    // Count the memory consumption of segment compaction tasks.
-    std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
-
-    CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;
     // thread to monitor snapshot expiry
     scoped_refptr<Thread> _garbage_sweeper_thread;
@@ -425,8 +415,6 @@ private:
     scoped_refptr<Thread> _cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<scoped_refptr<Thread>> _path_gc_threads;
-    // threads to scan disk paths
-    std::vector<scoped_refptr<Thread>> _path_scan_threads;
     // thread to produce tablet checkpoint tasks
     scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
     // thread to check tablet path
@@ -446,6 +434,7 @@ private:
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _single_replica_compaction_thread_pool;
+
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
 
@@ -460,6 +449,7 @@ private:
     // a tablet can do base and cumulative compaction at same time
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
+    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_full_compaction;
 
     std::mutex _low_priority_task_nums_mutex;
     std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;
@@ -490,6 +480,9 @@ private:
 
     std::mutex _running_cooldown_mutex;
     std::unordered_set<int64_t> _running_cooldown_tablets;
+
+    std::mutex _cold_compaction_tablet_submitted_mtx;
+    std::unordered_set<int64_t> _cold_compaction_tablet_submitted;
 
     // tablet_id, publish_version, transaction_id, partition_id
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
@@ -525,7 +518,10 @@ public:
 
     void set_index(const std::string& key, int next_idx);
 
-    struct CacheValue {
+    class CacheValue : public LRUCacheValueBase {
+    public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE) {}
+
         int idx = 0;
     };
 

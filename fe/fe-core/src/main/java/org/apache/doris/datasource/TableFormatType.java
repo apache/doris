@@ -23,7 +23,9 @@ public enum TableFormatType {
     HUDI("hudi"),
     PAIMON("paimon"),
     MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive");
+    TRANSACTIONAL_HIVE("transactional_hive"),
+    LAKESOUL("lakesoul"),
+    TRINO_CONNECTOR("trino_connector");
 
     private final String tableFormatType;
 

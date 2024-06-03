@@ -19,6 +19,7 @@
 #include <list>
 
 #include "common/config.h"
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "util/threadpool.h"
 
@@ -52,6 +53,7 @@ struct AutoIncIDAllocator {
 };
 
 class AutoIncIDBuffer {
+    ENABLE_FACTORY_CREATOR(AutoIncIDBuffer);
     // GenericReader::_MIN_BATCH_SIZE = 4064
     static constexpr size_t MIN_BATCH_SIZE = 4064;
 
@@ -62,7 +64,7 @@ public:
     Status sync_request_ids(size_t length, std::vector<std::pair<int64_t, size_t>>* result);
 
 private:
-    void _prefetch_ids(size_t length);
+    Status _prefetch_ids(size_t length);
     [[nodiscard]] size_t _prefetch_size() const {
         return _batch_size * config::auto_inc_prefetch_size_ratio;
     }
@@ -101,29 +103,27 @@ public:
                                   .set_max_queue_size(std::numeric_limits<int>::max())
                                   .build(&_fetch_autoinc_id_executor));
     }
-    ~GlobalAutoIncBuffers() {
-        for (auto [_, buffer] : _buffers) {
-            delete buffer;
-        }
-    }
+    ~GlobalAutoIncBuffers() = default;
 
     std::unique_ptr<ThreadPoolToken> create_token() {
         return _fetch_autoinc_id_executor->new_token(ThreadPool::ExecutionMode::CONCURRENT);
     }
 
-    AutoIncIDBuffer* get_auto_inc_buffer(int64_t db_id, int64_t table_id, int64_t column_id) {
+    std::shared_ptr<AutoIncIDBuffer> get_auto_inc_buffer(int64_t db_id, int64_t table_id,
+                                                         int64_t column_id) {
         std::lock_guard<std::mutex> lock(_mutex);
         auto key = std::make_tuple(db_id, table_id, column_id);
         auto it = _buffers.find(key);
         if (it == _buffers.end()) {
-            _buffers.emplace(std::make_pair(key, new AutoIncIDBuffer(db_id, table_id, column_id)));
+            _buffers.emplace(std::make_pair(
+                    key, AutoIncIDBuffer::create_shared(db_id, table_id, column_id)));
         }
         return _buffers[{db_id, table_id, column_id}];
     }
 
 private:
     std::unique_ptr<ThreadPool> _fetch_autoinc_id_executor;
-    std::map<std::tuple<int64_t, int64_t, int64_t>, AutoIncIDBuffer*> _buffers;
+    std::map<std::tuple<int64_t, int64_t, int64_t>, std::shared_ptr<AutoIncIDBuffer>> _buffers;
     std::mutex _mutex;
 };
 

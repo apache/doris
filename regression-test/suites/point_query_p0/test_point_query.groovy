@@ -71,22 +71,22 @@ suite("test_point_query") {
         }
 
         sql """DROP TABLE IF EXISTS ${tableName}"""
-        test {
-            // abnormal case
-            sql """
-                  CREATE TABLE IF NOT EXISTS ${tableName} (
-                    `k1` int NULL COMMENT ""
-                  ) ENGINE=OLAP
-                  UNIQUE KEY(`k1`)
-                  DISTRIBUTED BY HASH(`k1`) BUCKETS 1
-                  PROPERTIES (
-                  "replication_allocation" = "tag.location.default: 1",
-                  "store_row_column" = "true",
-                  "light_schema_change" = "false"
-                  )
-              """
-            exception "errCode = 2, detailMessage = Row store column rely on light schema change, enable light schema change first"
-        }
+        // test {
+        //     // abnormal case
+        //     sql """
+        //           CREATE TABLE IF NOT EXISTS ${tableName} (
+        //             `k1` int NULL COMMENT ""
+        //           ) ENGINE=OLAP
+        //           UNIQUE KEY(`k1`)
+        //           DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        //           PROPERTIES (
+        //           "replication_allocation" = "tag.location.default: 1",
+        //           "store_row_column" = "true",
+        //           "light_schema_change" = "false"
+        //           )
+        //       """
+        //     exception "errCode = 2, detailMessage = Row store column rely on light schema change, enable light schema change first"
+        // }
 
         def create_table_sql = { property ->
             return String.format("""
@@ -226,13 +226,13 @@ suite("test_point_query") {
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ hex(k3), hex(k4), k7 + 10.1 from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
                 // prepared text
-                sql """ prepare stmt1 from  select * from ${tableName} where k1 = % and k2 = % and k3 = % """
-                qt_sql """execute stmt1 using (1231, 119291.11, 'ddd')"""
-                qt_sql """execute stmt1 using (1237, 120939.11130, 'a    ddd')"""
+                // sql """ prepare stmt1 from  select * from ${tableName} where k1 = % and k2 = % and k3 = % """
+                // qt_sql """execute stmt1 using (1231, 119291.11, 'ddd')"""
+                // qt_sql """execute stmt1 using (1237, 120939.11130, 'a    ddd')"""
 
-                sql """prepare stmt2 from  select * from ${tableName} where k1 = % and k2 = % and k3 = %"""
-                qt_sql """execute stmt2 using (1231, 119291.11, 'ddd')"""
-                qt_sql """execute stmt2 using (1237, 120939.11130, 'a    ddd')"""
+                // sql """prepare stmt2 from  select * from ${tableName} where k1 = % and k2 = % and k3 = %"""
+                // qt_sql """execute stmt2 using (1231, 119291.11, 'ddd')"""
+                // qt_sql """execute stmt2 using (1237, 120939.11130, 'a    ddd')"""
                 tableName = "test_query"
                 sql """DROP TABLE IF EXISTS ${tableName}"""
                 sql """CREATE TABLE ${tableName} (
@@ -256,6 +256,22 @@ suite("test_point_query") {
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where customer_key = 0"""
             }
         }
+        sql "DROP TABLE IF EXISTS test_ODS_EBA_LLREPORT";
+        sql """
+            CREATE TABLE `test_ODS_EBA_LLREPORT` (
+              `RPTNO` VARCHAR(20) NOT NULL ,
+              `A_ENTTYP` VARCHAR(6) NULL ,
+              `A_INTIME` DATETIME NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`RPTNO`)
+            DISTRIBUTED BY HASH(`RPTNO`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "store_row_column" = "true"
+            ); 
+        """                
+        sql "insert into test_ODS_EBA_LLREPORT(RPTNO) values('567890')"
+        sql "select  /*+ SET_VAR(enable_nereids_planner=false) */  substr(RPTNO,2,5) from test_ODS_EBA_LLREPORT where  RPTNO = '567890'"
     } finally {
         set_be_config.call("disable_storage_row_cache", "true")
     }

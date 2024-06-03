@@ -12,7 +12,6 @@
 #include <string>
 
 #include "gutil/bits.h"
-#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/time.h"
 
@@ -350,34 +349,23 @@ bool LRUCache::_check_element_count_limit() {
 }
 
 Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
-                                void (*deleter)(const CacheKey& key, void* value),
-                                MemTrackerLimiter* tracker, CachePriority priority, size_t bytes) {
+                                CachePriority priority) {
     size_t handle_size = sizeof(LRUHandle) - 1 + key.size();
-    LRUHandle* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
+    auto* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
     e->value = value;
-    e->deleter = deleter;
     e->charge = charge;
     e->key_length = key.size();
     // if LRUCacheType::NUMBER, charge not add handle_size,
     // because charge at this time is no longer the memory size, but an weight.
     e->total_size = (_type == LRUCacheType::SIZE ? handle_size + charge : charge);
-    DCHECK(_type == LRUCacheType::SIZE || bytes != -1) << " _type " << _type;
-    // if LRUCacheType::NUMBER and bytes equals 0, such as some caches cannot accurately track memory size.
-    // cache mem tracker value divided by handle_size(106) will get the number of cache entries.
-    e->bytes = (_type == LRUCacheType::SIZE ? handle_size + charge : handle_size + bytes);
     e->hash = hash;
     e->refs = 2; // one for the returned handle, one for LRUCache.
     e->next = e->prev = nullptr;
     e->in_cache = true;
     e->priority = priority;
-    e->mem_tracker = tracker;
     e->type = _type;
     memcpy(e->key_data, key.data(), key.size());
     e->last_visit_time = UnixMillis();
-    // The memory of the parameter value should be recorded in the tls mem tracker,
-    // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
-    THREAD_MEM_TRACKER_TRANSFER_TO(e->bytes, tracker);
-    DorisMetrics::instance()->lru_cache_memory_bytes->increment(e->bytes);
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
@@ -464,7 +452,7 @@ PrunedInfo LRUCache::prune() {
     int64_t pruned_size = 0;
     while (to_remove_head != nullptr) {
         ++pruned_count;
-        pruned_size += to_remove_head->bytes;
+        pruned_size += to_remove_head->total_size;
         LRUHandle* next = to_remove_head->next;
         to_remove_head->free();
         to_remove_head = next;
@@ -506,7 +494,7 @@ PrunedInfo LRUCache::prune_if(CachePrunePredicate pred, bool lazy_mode) {
     int64_t pruned_size = 0;
     while (to_remove_head != nullptr) {
         ++pruned_count;
-        pruned_size += to_remove_head->bytes;
+        pruned_size += to_remove_head->total_size;
         LRUHandle* next = to_remove_head->next;
         to_remove_head->free();
         to_remove_head = next;
@@ -534,9 +522,6 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
           _shards(nullptr),
           _last_id(1),
           _total_capacity(total_capacity) {
-    _mem_tracker = std::make_unique<MemTrackerLimiter>(
-            MemTrackerLimiter::Type::GLOBAL,
-            fmt::format("{}[{}]", name, lru_cache_type_string(type)));
     CHECK(num_shards > 0) << "num_shards cannot be 0";
     CHECK_EQ((num_shards & (num_shards - 1)), 0)
             << "num_shards should be power of two, but got " << num_shards;
@@ -594,11 +579,9 @@ ShardedLRUCache::~ShardedLRUCache() {
 }
 
 Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t charge,
-                                       void (*deleter)(const CacheKey& key, void* value),
-                                       CachePriority priority, size_t bytes) {
+                                       CachePriority priority) {
     const uint32_t hash = _hash_slice(key);
-    return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, _mem_tracker.get(),
-                                         priority, bytes);
+    return _shards[_shard(hash)]->insert(key, hash, value, charge, priority);
 }
 
 Cache::Handle* ShardedLRUCache::lookup(const CacheKey& key) {
@@ -618,11 +601,6 @@ void ShardedLRUCache::erase(const CacheKey& key) {
 
 void* ShardedLRUCache::value(Handle* handle) {
     return reinterpret_cast<LRUHandle*>(handle)->value;
-}
-
-Slice ShardedLRUCache::value_slice(Handle* handle) {
-    auto lru_handle = reinterpret_cast<LRUHandle*>(handle);
-    return Slice((char*)lru_handle->value, lru_handle->charge);
 }
 
 uint64_t ShardedLRUCache::new_id() {
@@ -647,10 +625,6 @@ PrunedInfo ShardedLRUCache::prune_if(CachePrunePredicate pred, bool lazy_mode) {
         pruned_info.pruned_size += info.pruned_size;
     }
     return pruned_info;
-}
-
-int64_t ShardedLRUCache::mem_consumption() {
-    return _mem_tracker->consumption();
 }
 
 int64_t ShardedLRUCache::get_usage() {
@@ -683,16 +657,13 @@ void ShardedLRUCache::update_cache_metrics() const {
 }
 
 Cache::Handle* DummyLRUCache::insert(const CacheKey& key, void* value, size_t charge,
-                                     void (*deleter)(const CacheKey& key, void* value),
-                                     CachePriority priority, size_t bytes) {
+                                     CachePriority priority) {
     size_t handle_size = sizeof(LRUHandle);
     auto* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
     e->value = value;
-    e->deleter = deleter;
     e->charge = charge;
     e->key_length = 0;
     e->total_size = 0;
-    e->bytes = 0;
     e->hash = 0;
     e->refs = 1; // only one for the returned handle
     e->next = e->prev = nullptr;
@@ -710,11 +681,6 @@ void DummyLRUCache::release(Cache::Handle* handle) {
 
 void* DummyLRUCache::value(Handle* handle) {
     return reinterpret_cast<LRUHandle*>(handle)->value;
-}
-
-Slice DummyLRUCache::value_slice(Handle* handle) {
-    auto* lru_handle = reinterpret_cast<LRUHandle*>(handle);
-    return Slice((char*)lru_handle->value, lru_handle->charge);
 }
 
 } // namespace doris

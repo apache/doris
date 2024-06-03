@@ -41,5 +41,6 @@ suite("version_p0", "p0") {
 
     // check written partition version is higher
     assertEquals(res[0][2].toString(), "2")
-    assertEquals(res[1][2].toString(), "1")
+    assert res[1][2].toString() == "1" || \
+        res[1][2].toString() == "0"  // Cloud will returns zero.
 }

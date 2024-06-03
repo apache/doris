@@ -40,12 +40,14 @@ void TopicSubscriber::handle_topic_info(const TPublishTopicRequest& topic_reques
     // eg, update workload info may delay other listener, then we need add a thread here
     // to handle_topic_info asynchronous
     std::shared_lock lock(_listener_mtx);
-    LOG(INFO) << "begin handle topic info";
+    LOG(INFO) << "[topic_publish]begin handle topic info";
     for (auto& listener_pair : _registered_listeners) {
         if (topic_request.topic_map.find(listener_pair.first) != topic_request.topic_map.end()) {
+            LOG(INFO) << "[topic_publish]begin handle topic " << listener_pair.first
+                      << ", size=" << topic_request.topic_map.at(listener_pair.first).size();
             listener_pair.second->handle_topic_info(
                     topic_request.topic_map.at(listener_pair.first));
-            LOG(INFO) << "handle topic " << listener_pair.first << " succ";
+            LOG(INFO) << "[topic_publish]finish handle topic " << listener_pair.first;
         }
     }
 }

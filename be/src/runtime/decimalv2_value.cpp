@@ -328,7 +328,7 @@ static double sqrt_fractional(int128_t sqrt_int, int128_t remainder) {
 
 const int128_t DecimalV2Value::SQRT_MOLECULAR_MAGNIFICATION = get_scale_base(PRECISION / 2);
 const int128_t DecimalV2Value::SQRT_DENOMINATOR =
-        std::sqrt(ONE_BILLION) * get_scale_base(PRECISION / 2 - SCALE);
+        int128_t(std::sqrt(ONE_BILLION) * get_scale_base(PRECISION / 2 - SCALE));
 
 DecimalV2Value DecimalV2Value::sqrt(const DecimalV2Value& v) {
     int128_t x = v.value();

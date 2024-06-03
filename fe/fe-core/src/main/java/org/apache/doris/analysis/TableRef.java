@@ -140,6 +140,8 @@ public class TableRef implements ParseNode, Writable {
 
     private TableSnapshot tableSnapshot;
 
+    private TableScanParams scanParams;
+
     // END: Members that need to be reset()
     // ///////////////////////////////////////
 
@@ -169,6 +171,12 @@ public class TableRef implements ParseNode, Writable {
 
     public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<Long> sampleTabletIds,
                     TableSample tableSample, ArrayList<String> commonHints, TableSnapshot tableSnapshot) {
+        this(name, alias, partitionNames, sampleTabletIds, tableSample, commonHints, tableSnapshot, null);
+    }
+
+    public TableRef(TableName name, String alias, PartitionNames partitionNames,
+                    ArrayList<Long> sampleTabletIds, TableSample tableSample, ArrayList<String> commonHints,
+                    TableSnapshot tableSnapshot, TableScanParams scanParams) {
         this.name = name;
         if (alias != null) {
             if (Env.isStoredTableNamesLowerCase()) {
@@ -184,6 +192,7 @@ public class TableRef implements ParseNode, Writable {
         this.tableSample = tableSample;
         this.commonHints = commonHints;
         this.tableSnapshot = tableSnapshot;
+        this.scanParams = scanParams;
         isAnalyzed = false;
     }
 
@@ -204,6 +213,7 @@ public class TableRef implements ParseNode, Writable {
         onClause = (other.onClause != null) ? other.onClause.clone().reset() : null;
         partitionNames = (other.partitionNames != null) ? new PartitionNames(other.partitionNames) : null;
         tableSnapshot = (other.tableSnapshot != null) ? new TableSnapshot(other.tableSnapshot) : null;
+        scanParams = other.scanParams;
         tableSample = (other.tableSample != null) ? new TableSample(other.tableSample) : null;
         commonHints = other.commonHints;
 
@@ -331,6 +341,10 @@ public class TableRef implements ParseNode, Writable {
 
     public Boolean haveDesc() {
         return desc != null;
+    }
+
+    public TableScanParams getScanParams() {
+        return scanParams;
     }
 
     /**

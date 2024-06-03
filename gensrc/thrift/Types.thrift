@@ -223,6 +223,8 @@ enum TTaskType {
     PUSH_STORAGE_POLICY,
     ALTER_INVERTED_INDEX,
     GC_BINLOG,
+    CLEAN_TRASH,
+    UPDATE_VISIBLE_VERSION,
 
     // CLOUD
     CALCULATE_DELETE_BITMAP = 1000
@@ -381,6 +383,7 @@ struct TFunction {
   11: optional i64 id
   12: optional string checksum
   13: optional bool vectorized = false
+  14: optional bool is_udtf_function = false
 }
 
 enum TJdbcOperation {
@@ -401,7 +404,8 @@ enum TOdbcTableType {
     PRESTO,
     OCEANBASE,
     OCEANBASE_ORACLE,
-    NEBULA
+    NEBULA, // Deprecated
+    DB2
 }
 
 struct TJdbcExecutorCtorParams {
@@ -614,6 +618,8 @@ enum TTableType {
     JDBC_TABLE,
     TEST_EXTERNAL_TABLE,
     MAX_COMPUTE_TABLE,
+    LAKESOUL_TABLE,
+    TRINO_CONNECTOR_TABLE
 }
 
 enum TKeysType {
@@ -705,14 +711,12 @@ enum TSortType {
 enum TMetadataType {
   ICEBERG,
   BACKENDS,
-  WORKLOAD_GROUPS,
   FRONTENDS,
   CATALOGS,
   FRONTENDS_DISKS,
   MATERIALIZED_VIEWS,
   JOBS,
   TASKS,
-  QUERIES,
   WORKLOAD_SCHED_POLICY
 }
 

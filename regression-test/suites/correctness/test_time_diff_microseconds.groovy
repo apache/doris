@@ -42,7 +42,7 @@ suite("test_time_diff_microseconds") {
         INSERT INTO tbl_time VALUES(3,'0001-01-03 19:00:00.123123','0001-01-22 00:00:00.891312');
     """
 
-    sql """set enable_nereids_planner=false"""
+    sql """set enable_fold_constant_by_be=false"""
 
     qt_select1 """
         select timediff(t1,t2) from tbl_time order by id
@@ -67,9 +67,8 @@ suite("test_time_diff_microseconds") {
         cast('0001-01-01 00:00:00.000000' as Datetimev2(5) ));
     """
 
-    sql """set enable_nereids_planner=true """
-    sql """set enable_fallback_to_original_planner=false"""
-    
+    sql """set enable_fold_constant_by_be=true"""
+
     qt_select5 """
         select timediff(t1,t2) from tbl_time order by id
     """

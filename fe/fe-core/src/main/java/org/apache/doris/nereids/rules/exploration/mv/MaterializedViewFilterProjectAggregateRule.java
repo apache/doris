@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
@@ -39,9 +40,10 @@ public class MaterializedViewFilterProjectAggregateRule extends AbstractMaterial
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalFilter(logicalProject(logicalAggregate(any()))).thenApplyMultiNoThrow(ctx -> {
-                    LogicalFilter<LogicalProject<LogicalAggregate<Plan>>> root = ctx.root;
-                    return rewrite(root, ctx.cascadesContext);
-                }).toRule(RuleType.MATERIALIZED_VIEW_FILTER_AGGREGATE));
+                logicalFilter(logicalProject(logicalAggregate(any().when(LogicalPlan.class::isInstance))))
+                        .thenApplyMultiNoThrow(ctx -> {
+                            LogicalFilter<LogicalProject<LogicalAggregate<Plan>>> root = ctx.root;
+                            return rewrite(root, ctx.cascadesContext);
+                        }).toRule(RuleType.MATERIALIZED_VIEW_FILTER_AGGREGATE));
     }
 }

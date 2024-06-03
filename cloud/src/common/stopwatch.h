@@ -52,7 +52,7 @@ public:
 
     void reset() {
         start_ = std::chrono::steady_clock::now();
-        elapsed_ = std::chrono::steady_clock::duration{0};
+        elapsed_ = std::chrono::steady_clock::duration {0};
         running_ = true;
     }
 
@@ -62,13 +62,14 @@ public:
         }
 
         auto end = std::chrono::steady_clock::now();
-        return std::chrono::duration_cast<std::chrono::microseconds>(elapsed_ + (end - start_)).count();
+        return std::chrono::duration_cast<std::chrono::microseconds>(elapsed_ + (end - start_))
+                .count();
     }
 
 private:
     std::chrono::steady_clock::time_point start_;
-    std::chrono::steady_clock::duration elapsed_{0};
-    bool running_{false};
+    std::chrono::steady_clock::duration elapsed_ {0};
+    bool running_ {false};
 };
 
 } // namespace doris::cloud

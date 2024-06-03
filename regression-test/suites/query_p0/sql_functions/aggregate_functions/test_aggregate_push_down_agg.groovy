@@ -26,7 +26,6 @@ suite("test_aggregate_push_down_agg") {
         properties("replication_num"="1");
     """
     sql """ insert into test_aggregate_push_down_agg values(1, "aaa"), (1, "bbb"), (2, "ccc") """
-    sql 'set enable_nereids_planner=false'
     qt_sql """
         SELECT
            count(*)

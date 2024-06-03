@@ -94,7 +94,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     }
 
     @Override
-    public PhysicalNestedLoopJoin visitPhysicalNestedLoopJoin(
+    public PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> visitPhysicalNestedLoopJoin(
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
             CascadesContext context) {
         join.right().accept(this, context);
@@ -108,28 +108,32 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     }
 
     @Override
-    public PhysicalCTEAnchor visitPhysicalCTEAnchor(PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
-                                                    CascadesContext context) {
+    public PhysicalCTEAnchor<? extends Plan, ? extends Plan> visitPhysicalCTEAnchor(
+            PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
+            CascadesContext context) {
         cteAnchor.child(0).accept(this, context);
         cteAnchor.child(1).accept(this, context);
         return cteAnchor;
     }
 
     @Override
-    public PhysicalTopN visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext context) {
+    public PhysicalTopN<? extends Plan> visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext context) {
         topN.child().accept(this, context);
         context.getRuntimeFilterContext().addEffectiveSrcNode(topN, RuntimeFilterContext.EffectiveSrcType.NATIVE);
         return topN;
     }
 
-    public PhysicalLimit visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, CascadesContext context) {
+    public PhysicalLimit<? extends Plan> visitPhysicalLimit(
+            PhysicalLimit<? extends Plan> limit,
+            CascadesContext context) {
         limit.child().accept(this, context);
         context.getRuntimeFilterContext().addEffectiveSrcNode(limit, RuntimeFilterContext.EffectiveSrcType.NATIVE);
         return limit;
     }
 
     @Override
-    public PhysicalHashJoin visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
+    public PhysicalHashJoin<? extends Plan, ? extends Plan> visitPhysicalHashJoin(
+            PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             CascadesContext context) {
         join.right().accept(this, context);
         RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
@@ -195,9 +199,20 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     @Override
     public PhysicalFilter visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         filter.child().accept(this, context);
-        boolean visibleFilter = filter.getExpressions().stream()
-                .flatMap(expression -> expression.getInputSlots().stream())
-                .anyMatch(slot -> isVisibleColumn(slot));
+
+        boolean visibleFilter = false;
+
+        for (Expression expr : filter.getExpressions()) {
+            for (Slot inputSlot : expr.getInputSlots()) {
+                if (isVisibleColumn(inputSlot)) {
+                    visibleFilter = true;
+                    break;
+                }
+            }
+            if (visibleFilter) {
+                break;
+            }
+        }
         if (visibleFilter) {
             // skip filters like: __DORIS_DELETE_SIGN__ = 0
             context.getRuntimeFilterContext().addEffectiveSrcNode(filter, RuntimeFilterContext.EffectiveSrcType.NATIVE);

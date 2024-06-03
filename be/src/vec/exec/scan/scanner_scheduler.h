@@ -65,6 +65,10 @@ public:
 
     int remote_thread_pool_max_size() const { return _remote_thread_pool_max_size; }
 
+    static int get_remote_scan_thread_num();
+
+    static int get_remote_scan_thread_queue_size();
+
 private:
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
                               std::shared_ptr<ScanTask> scan_task);
@@ -101,15 +105,15 @@ struct SimplifiedScanTask {
 
 class SimplifiedScanScheduler {
 public:
-    SimplifiedScanScheduler(std::string wg_name, CgroupCpuCtl* cgroup_cpu_ctl) {
+    SimplifiedScanScheduler(std::string sched_name, CgroupCpuCtl* cgroup_cpu_ctl) {
         _is_stop.store(false);
         _cgroup_cpu_ctl = cgroup_cpu_ctl;
-        _wg_name = wg_name;
+        _sched_name = sched_name;
     }
 
     ~SimplifiedScanScheduler() {
         stop();
-        LOG(INFO) << "Scanner sche " << _wg_name << " shutdown";
+        LOG(INFO) << "Scanner sche " << _sched_name << " shutdown";
     }
 
     void stop() {
@@ -118,10 +122,11 @@ public:
         _scan_thread_pool->wait();
     }
 
-    Status start() {
-        RETURN_IF_ERROR(ThreadPoolBuilder("Scan_" + _wg_name)
-                                .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-                                .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+    Status start(int max_thread_num, int min_thread_num, int queue_size) {
+        RETURN_IF_ERROR(ThreadPoolBuilder(_sched_name)
+                                .set_min_threads(min_thread_num)
+                                .set_max_threads(max_thread_num)
+                                .set_max_queue_size(queue_size)
                                 .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
                                 .build(&_scan_thread_pool));
         return Status::OK();
@@ -131,19 +136,59 @@ public:
         if (!_is_stop) {
             return _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
         } else {
-            return Status::InternalError<false>("scanner pool {} is shutdown.", _wg_name);
+            return Status::InternalError<false>("scanner pool {} is shutdown.", _sched_name);
         }
     }
 
-    void reset_thread_num(int thread_num) {
+    void reset_thread_num(int new_max_thread_num, int new_min_thread_num) {
+        int cur_max_thread_num = _scan_thread_pool->max_threads();
+        int cur_min_thread_num = _scan_thread_pool->min_threads();
+        if (cur_max_thread_num == new_max_thread_num && cur_min_thread_num == new_min_thread_num) {
+            return;
+        }
+        if (new_max_thread_num >= cur_max_thread_num) {
+            Status st_max = _scan_thread_pool->set_max_threads(new_max_thread_num);
+            if (!st_max.ok()) {
+                LOG(WARNING) << "Failed to set max threads for scan thread pool: "
+                             << st_max.to_string();
+            }
+            Status st_min = _scan_thread_pool->set_min_threads(new_min_thread_num);
+            if (!st_min.ok()) {
+                LOG(WARNING) << "Failed to set min threads for scan thread pool: "
+                             << st_min.to_string();
+            }
+        } else {
+            Status st_min = _scan_thread_pool->set_min_threads(new_min_thread_num);
+            if (!st_min.ok()) {
+                LOG(WARNING) << "Failed to set min threads for scan thread pool: "
+                             << st_min.to_string();
+            }
+            Status st_max = _scan_thread_pool->set_max_threads(new_max_thread_num);
+            if (!st_max.ok()) {
+                LOG(WARNING) << "Failed to set max threads for scan thread pool: "
+                             << st_max.to_string();
+            }
+        }
+    }
+
+    void reset_max_thread_num(int thread_num) {
         int max_thread_num = _scan_thread_pool->max_threads();
+
         if (max_thread_num != thread_num) {
-            if (thread_num > max_thread_num) {
-                static_cast<void>(_scan_thread_pool->set_max_threads(thread_num));
-                static_cast<void>(_scan_thread_pool->set_min_threads(thread_num));
-            } else {
-                static_cast<void>(_scan_thread_pool->set_min_threads(thread_num));
-                static_cast<void>(_scan_thread_pool->set_max_threads(thread_num));
+            Status st = _scan_thread_pool->set_max_threads(thread_num);
+            if (!st.ok()) {
+                LOG(INFO) << "reset max thread num failed, sche name=" << _sched_name;
+            }
+        }
+    }
+
+    void reset_min_thread_num(int thread_num) {
+        int min_thread_num = _scan_thread_pool->min_threads();
+
+        if (min_thread_num != thread_num) {
+            Status st = _scan_thread_pool->set_min_threads(thread_num);
+            if (!st.ok()) {
+                LOG(INFO) << "reset min thread num failed, sche name=" << _sched_name;
             }
         }
     }
@@ -152,7 +197,7 @@ private:
     std::unique_ptr<ThreadPool> _scan_thread_pool;
     std::atomic<bool> _is_stop;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
-    std::string _wg_name;
+    std::string _sched_name;
 };
 
 } // namespace doris::vectorized

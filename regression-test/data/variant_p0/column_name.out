@@ -20,3 +20,15 @@
 \N	\N
 UPPER CASE	lower case
 
+-- !sql --
+1	{"tag_key1":123456}
+
+-- !sql --
+1	{"tag_key1":123456}
+
+-- !sql --
+1	{"tag_key1":123456}
+
+-- !sql --
+1	{"tag_key1":123456}
+

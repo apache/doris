@@ -18,22 +18,27 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.DataTrait.Builder;
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
+import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Assert num rows node is used to determine whether the number of rows is less than desired num of rows.
@@ -41,8 +46,7 @@ import java.util.Optional;
  * If the number of rows is more than the desired num of rows, the query will be cancelled.
  * The cancelled reason will be reported by Backend and displayed back to the user.
  */
-public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements
-        PropagateFuncDeps {
+public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
 
     private final AssertNumRowsElement assertNumRowsElement;
 
@@ -91,7 +95,7 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return ImmutableList.of(assertNumRowsElement);
+        return ImmutableList.of();
     }
 
     @Override
@@ -115,8 +119,41 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public List<Slot> computeOutput() {
-        return ImmutableList.<Slot>builder()
-                .addAll(child().getOutput())
-                .build();
+        return child().getOutput().stream().map(o -> o.withNullable(true)).collect(Collectors.toList());
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems() {
+        return ImmutableSet.of();
+    }
+
+    @Override
+    public void computeUnique(Builder builder) {
+        if (assertNumRowsElement.getDesiredNumOfRows() == 1
+                && (assertNumRowsElement.getAssertion() == Assertion.EQ
+                || assertNumRowsElement.getAssertion() == Assertion.LT
+                || assertNumRowsElement.getAssertion() == Assertion.LE)) {
+            getOutput().forEach(builder::addUniqueSlot);
+        }
+    }
+
+    @Override
+    public void computeUniform(Builder builder) {
+        if (assertNumRowsElement.getDesiredNumOfRows() == 1
+                && (assertNumRowsElement.getAssertion() == Assertion.EQ
+                || assertNumRowsElement.getAssertion() == Assertion.LT
+                || assertNumRowsElement.getAssertion() == Assertion.LE)) {
+            getOutput().forEach(builder::addUniformSlot);
+        }
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
     }
 }

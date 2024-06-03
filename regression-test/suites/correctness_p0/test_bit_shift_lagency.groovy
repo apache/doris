@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_bit_shift_lagency") {
-    sql "SET enable_nereids_planner=false;"
-
+suite("test_bit_shift") {
     qt_comment """
         select "testing big_shift_left";
     """

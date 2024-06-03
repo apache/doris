@@ -21,6 +21,7 @@
 #pragma once
 
 #include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
@@ -110,15 +111,21 @@ public:
 
     Status execute();
 
-    const VecDateTimeValue& start_time() const { return _start_time; }
+    std::string elapsed_time_debug_string(timespec now) const {
+        auto start_time = _fragment_watcher.start_time();
+        char buffer[80];
+        strftime(buffer, 80, "%Y-%m-%d %H:%M:%S", localtime(&start_time.tv_sec));
+
+        return std::string(buffer) + "\t" +
+               std::to_string(_fragment_watcher.elapsed_time_seconds(now)) + "\n";
+    }
 
     // Closes the underlying plan fragment and frees up all resources allocated
     // in open()/get_next().
     void close();
 
     // Initiate cancellation. Must not be called until after prepare() returned.
-    void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
-                const std::string& msg = "");
+    void cancel(const Status& reason);
 
     // call these only after prepare()
     RuntimeState* runtime_state() { return _runtime_state.get(); }
@@ -140,11 +147,14 @@ public:
 
     TUniqueId query_id() const { return _query_ctx->query_id(); }
 
-    bool is_timeout(const VecDateTimeValue& now) const;
+    bool is_timeout(timespec now) const;
 
     bool is_canceled() { return _runtime_state->is_cancelled(); }
 
     Status update_status(Status status);
+
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_query_profile() const;
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile() const;
 
 private:
     ExecEnv* _exec_env = nullptr; // not owned
@@ -215,17 +225,18 @@ private:
 
     RuntimeProfile::Counter* _fragment_cpu_timer = nullptr;
 
+    QueryThreadContext _query_thread_context;
+
     // If set the true, this plan fragment will be executed only after FE send execution start rpc.
     bool _need_wait_execution_trigger = false;
 
     // Timeout of this instance, it is inited from query options
     int _timeout_second = -1;
 
-    VecDateTimeValue _start_time;
+    MonotonicStopWatch _fragment_watcher;
 
     // Record the cancel information when calling the cancel() method, return it to FE
-    PPlanFragmentCancelReason _cancel_reason;
-    std::string _cancel_msg;
+    Status _cancel_reason;
 
     DescriptorTbl* _desc_tbl = nullptr;
 

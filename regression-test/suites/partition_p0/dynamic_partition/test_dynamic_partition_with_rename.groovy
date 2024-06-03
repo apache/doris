@@ -16,10 +16,9 @@
 // under the License.
 
 suite("test_dynamic_partition_with_rename") {
-    def tbl = "test_dynamic_partition_with_rename"
-    sql "drop table if exists ${tbl}"
+    sql "drop table if exists test_dynamic_partition_with_rename"
     sql """
-        CREATE TABLE IF NOT EXISTS ${tbl}
+        CREATE TABLE IF NOT EXISTS test_dynamic_partition_with_rename
         ( k1 date NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL )
         AGGREGATE KEY(k1,k2)
         PARTITION BY RANGE(k1) ( )
@@ -34,21 +33,21 @@ suite("test_dynamic_partition_with_rename") {
             "dynamic_partition.create_history_partition"="true",
             "dynamic_partition.replication_allocation" = "tag.location.default: 1")
         """
-    def result = sql "show partitions from ${tbl}"
+    def result = sql "show partitions from test_dynamic_partition_with_rename"
     assertEquals(7, result.size())
 
     // rename distributed column, then try to add too more dynamic partition
-    sql "alter table ${tbl} rename column k1 renamed_k1"
+    sql "alter table test_dynamic_partition_with_rename rename column k1 renamed_k1"
     sql """ ADMIN SET FRONTEND CONFIG ('dynamic_partition_check_interval_seconds' = '1') """
-    sql """ alter table ${tbl} set('dynamic_partition.end'='5') """
-    result = sql "show partitions from ${tbl}"
+    sql """ alter table test_dynamic_partition_with_rename set('dynamic_partition.end'='5') """
+    result = sql "show partitions from test_dynamic_partition_with_rename"
     for (def retry = 0; retry < 120; retry++) { // at most wait 120s
         if (result.size() == 9) {
             break;
         }
         logger.info("wait dynamic partition scheduler, sleep 1s")
         sleep(1000); // sleep 1s
-        result = sql "show partitions from ${tbl}"
+        result = sql "show partitions from test_dynamic_partition_with_rename"
     }
     assertEquals(9, result.size())
     for (def line = 0; line < result.size(); line++) {
@@ -56,5 +55,5 @@ suite("test_dynamic_partition_with_rename") {
         assertEquals("renamed_k1", result.get(line).get(7))
     }
 
-    sql "drop table ${tbl}"
+    sql "drop table test_dynamic_partition_with_rename"
 }

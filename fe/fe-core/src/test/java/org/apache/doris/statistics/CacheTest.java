@@ -200,9 +200,9 @@ public class CacheTest extends TestWithFeService {
         };
 
         StatisticsCache statisticsCache = new StatisticsCache();
-        statisticsCache.refreshHistogramSync(0, -1, "col");
+        statisticsCache.refreshHistogramSync(0, 0, 0, -1, "col");
         Thread.sleep(10000);
-        Histogram histogram = statisticsCache.getHistogram(0, "col");
+        Histogram histogram = statisticsCache.getHistogram(0, 0, 0, "col");
         Assertions.assertNotNull(histogram);
     }
 
@@ -266,7 +266,7 @@ public class CacheTest extends TestWithFeService {
                 Assertions.assertEquals(6, columnStatistic.minValue);
                 Assertions.assertEquals(7, columnStatistic.maxValue);
             } else {
-                System.out.println("Cached is not loaded, skip test.");
+                System.out.println("Cache is not loaded, skip test.");
             }
         } catch (Throwable t) {
             t.printStackTrace();

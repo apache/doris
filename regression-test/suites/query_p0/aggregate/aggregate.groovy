@@ -304,4 +304,8 @@ suite("aggregate") {
     qt_subquery_without_inner_predicate """
         select count(*) from (select t2.c_bigint, t2.c_double, t2.c_string from (select c_bigint, c_double, c_string, c_date,c_timestamp, c_short_decimal from regression_test_query_p0_aggregate.${tableName} where c_bigint > 5000) t2)t1
     """
+
+    qt_aggregate_limit_contain_null """
+    select count(), cast(k12 as int) as t from baseall group by t limit 1;
+	"""
 }

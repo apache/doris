@@ -55,6 +55,7 @@ VDataGenFunctionScanNode::VDataGenFunctionScanNode(ObjectPool* pool, const TPlan
         break;
     default:
         LOG(FATAL) << "Unsupported function type";
+        __builtin_unreachable();
     }
 }
 

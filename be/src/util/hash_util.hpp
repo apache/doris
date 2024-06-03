@@ -41,7 +41,7 @@ public:
     template <typename T>
     static uint32_t fixed_len_to_uint32(T value) {
         if constexpr (sizeof(T) <= sizeof(uint32_t)) {
-            return value;
+            return (uint32_t)value;
         }
         return std::hash<T>()(value);
     }

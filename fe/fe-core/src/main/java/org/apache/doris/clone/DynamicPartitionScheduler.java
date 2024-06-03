@@ -185,7 +185,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
     }
 
-    private static int getBucketsNum(DynamicPartitionProperty property, OlapTable table, boolean executeFirstTime) {
+    private static int getBucketsNum(DynamicPartitionProperty property, OlapTable table,
+            String nowPartitionName, boolean executeFirstTime) {
         // if execute first time, all partitions no contain data
         if (!table.isAutoBucket() || executeFirstTime) {
             return property.getBuckets();
@@ -193,31 +194,21 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
         // auto bucket
         // get all history partitions
-        List<Partition> partitions = Lists.newArrayList();
+        ArrayList<Long> partitionSizeArray = Lists.newArrayList();
         RangePartitionInfo info = (RangePartitionInfo) (table.getPartitionInfo());
         List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
         idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
         for (Map.Entry<Long, PartitionItem> idToItem : idToItems) {
             Partition partition = table.getPartition(idToItem.getKey());
-            if (partition != null) {
-                partitions.add(partition);
-            }
-        }
-
-        // no exist history partition
-        if (partitions.size() == 0) {
-            return property.getBuckets();
-        }
-
-        ArrayList<Long> partitionSizeArray = Lists.newArrayList();
-        for (Partition partition : partitions) {
-            if (partition.getVisibleVersion() >= 2) {
+            // exclude current partition because its data isn't enough one week/day/hour.
+            if (partition != null && !partition.getName().equals(nowPartitionName)
+                    && partition.getVisibleVersion() >= 2) {
                 partitionSizeArray.add(partition.getAllDataSize(true));
             }
         }
 
         // no exist history partition data
-        if (partitionSizeArray.size() == 0) {
+        if (partitionSizeArray.isEmpty()) {
             return property.getBuckets();
         }
 
@@ -249,6 +240,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
         int hotPartitionNum = dynamicPartitionProperty.getHotPartitionNum();
         String storagePolicyName = dynamicPartitionProperty.getStoragePolicy();
+
+        String nowPartitionPrevBorder = DynamicPartitionUtil.getPartitionRangeString(
+                dynamicPartitionProperty, now, 0, partitionFormat);
+        String nowPartitionName = dynamicPartitionProperty.getPrefix()
+                + DynamicPartitionUtil.getFormattedPartitionName(dynamicPartitionProperty.getTimeZone(),
+                nowPartitionPrevBorder, dynamicPartitionProperty.getTimeUnit());
 
         for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
             String prevBorder = DynamicPartitionUtil.getPartitionRangeString(
@@ -323,7 +320,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             DistributionDesc distributionDesc = null;
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-            int bucketsNum = getBucketsNum(dynamicPartitionProperty, olapTable, executeFirstTime);
+            int bucketsNum = getBucketsNum(dynamicPartitionProperty, olapTable, nowPartitionName, executeFirstTime);
             if (distributionInfo.getType() == DistributionInfo.DistributionInfoType.HASH) {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<String> distColumnNames = new ArrayList<>();
@@ -422,18 +419,13 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         ZonedDateTime now = ZonedDateTime.now(dynamicPartitionProperty.getTimeZone().toZoneId());
         String lowerBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
                 now, dynamicPartitionProperty.getStart(), partitionFormat);
-        String upperBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
-                now, dynamicPartitionProperty.getEnd() + 1, partitionFormat);
         PartitionValue lowerPartitionValue = new PartitionValue(lowerBorder);
-        PartitionValue upperPartitionValue = new PartitionValue(upperBorder);
         List<Range<PartitionKey>> reservedHistoryPartitionKeyRangeList = new ArrayList<Range<PartitionKey>>();
         Range<PartitionKey> reservePartitionKeyRange;
         try {
             PartitionKey lowerBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerPartitionValue),
                     Collections.singletonList(partitionColumn));
-            PartitionKey upperBound = PartitionKey.createPartitionKey(Collections.singletonList(upperPartitionValue),
-                    Collections.singletonList(partitionColumn));
-            reservePartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
+            reservePartitionKeyRange = Range.atLeast(lowerBound);
             reservedHistoryPartitionKeyRangeList.add(reservePartitionKeyRange);
         } catch (AnalysisException | IllegalArgumentException e) {
             // AnalysisException: keys.size is always equal to column.size, cannot reach this exception

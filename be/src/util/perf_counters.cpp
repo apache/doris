@@ -585,7 +585,11 @@ void PerfCounters::refresh_proc_status() {
     _vm_size = parse_bytes("status/VmSize");
     _vm_peak = parse_bytes("status/VmPeak");
     _vm_rss = parse_bytes("status/VmRSS");
+#ifdef ADDRESS_SANITIZER
+    _vm_rss_str = "[ASAN]" + PrettyPrinter::print(_vm_rss, TUnit::BYTES);
+#else
     _vm_rss_str = PrettyPrinter::print(_vm_rss, TUnit::BYTES);
+#endif
     _vm_hwm = parse_bytes("status/VmHWM");
 }
 

@@ -58,9 +58,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class BinlogManager {
     private static final int BUFFER_SIZE = 16 * 1024;
     private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("Name")
-            .add("Type").add("Id").add("Dropped").add("BinlogLength").add("FirstBinlogCommittedTime")
+            .add("Type").add("Id").add("Dropped").add("BinlogLength").add("BinlogSize").add("FirstBinlogCommittedTime")
             .add("ReadableFirstBinlogCommittedTime").add("LastBinlogCommittedTime")
-            .add("ReadableLastBinlogCommittedTime").add("BinlogTtlSeconds")
+            .add("ReadableLastBinlogCommittedTime").add("BinlogTtlSeconds").add("BinlogMaxBytes")
+            .add("BinlogMaxHistoryNums")
             .build();
 
     private static final Logger LOG = LogManager.getLogger(BinlogManager.class);
@@ -397,6 +398,10 @@ public class BinlogManager {
         for (BinlogTombstone tombstone : binlogGcInfo.getTombstones()) {
             long dbId = tombstone.getDbId();
             DBBinlog dbBinlog = gcDbBinlogMap.get(dbId);
+            if (dbBinlog == null) {
+                LOG.warn("dbBinlog not found. dbId: {}", dbId);
+                continue;
+            }
             dbBinlog.replayGc(tombstone);
         }
     }

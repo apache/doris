@@ -92,7 +92,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
         // details see issue https://github.com/apache/doris/issues/16203
         // add extra 5s for avoid corner case
         int64_t max_timeout = time(nullptr) + exec_timout + 5;
-        static_cast<void>(cancel_at_time(max_timeout, query_id));
+        cancel_at_time(max_timeout, query_id);
     }
     *sender = control_block;
     return Status::OK();
@@ -150,13 +150,13 @@ Status ResultBufferMgr::fetch_arrow_data(const TUniqueId& finst_id,
     return Status::OK();
 }
 
-Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
+void ResultBufferMgr::cancel(const TUniqueId& query_id) {
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
         BufferMap::iterator iter = _buffer_map.find(query_id);
 
         if (_buffer_map.end() != iter) {
-            static_cast<void>(iter->second->cancel());
+            iter->second->cancel();
             _buffer_map.erase(iter);
         }
     }
@@ -169,11 +169,9 @@ Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
             _arrow_schema_map.erase(arrow_schema_iter);
         }
     }
-
-    return Status::OK();
 }
 
-Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& query_id) {
+void ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& query_id) {
     std::lock_guard<std::mutex> l(_timeout_lock);
     TimeoutMap::iterator iter = _timeout_map.find(cancel_time);
 
@@ -184,7 +182,6 @@ Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& quer
     }
 
     iter->second.push_back(query_id);
-    return Status::OK();
 }
 
 void ResultBufferMgr::cancel_thread() {
@@ -209,7 +206,7 @@ void ResultBufferMgr::cancel_thread() {
 
         // cancel query
         for (int i = 0; i < query_to_cancel.size(); ++i) {
-            static_cast<void>(cancel(query_to_cancel[i]));
+            cancel(query_to_cancel[i]);
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 

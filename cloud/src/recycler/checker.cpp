@@ -43,6 +43,8 @@
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
+#include "recycler/hdfs_accessor.h"
+#include "recycler/obj_store_accessor.h"
 #include "recycler/s3_accessor.h"
 #ifdef UNIT_TEST
 #include "../test/mock_accessor.h"
@@ -252,6 +254,7 @@ void Checker::do_inspect(const InstanceInfoPB& instance) {
                                  << instance.instance_id();
         return;
     }
+
     int64_t bucket_lifecycle_days = 0;
     if (checker.get_bucket_lifecycle(&bucket_lifecycle_days) != 0) {
         LOG_CHECK_INTERVAL_ALARM << "failed to get bucket lifecycle, instance_id="
@@ -259,6 +262,12 @@ void Checker::do_inspect(const InstanceInfoPB& instance) {
         return;
     }
     DCHECK(bucket_lifecycle_days > 0);
+
+    if (bucket_lifecycle_days == INT64_MAX) {
+        // No s3 bucket (may all accessors are HdfsAccessor), skip inspect
+        return;
+    }
+
     int64_t last_ctime_ms = -1;
     auto job_status = JobRecyclePB::IDLE;
     auto has_last_ctime = [&]() {
@@ -339,6 +348,15 @@ InstanceChecker::InstanceChecker(std::shared_ptr<TxnKv> txn_kv, const std::strin
         : txn_kv_(std::move(txn_kv)), instance_id_(instance_id) {}
 
 int InstanceChecker::init(const InstanceInfoPB& instance) {
+    int ret = init_obj_store_accessors(instance);
+    if (ret != 0) {
+        return ret;
+    }
+
+    return init_storage_vault_accessors(instance);
+}
+
+int InstanceChecker::init_obj_store_accessors(const InstanceInfoPB& instance) {
     for (const auto& obj_info : instance.obj_info()) {
         S3Conf s3_conf;
         s3_conf.ak = obj_info.ak();
@@ -360,7 +378,7 @@ int InstanceChecker::init(const InstanceInfoPB& instance) {
         s3_conf.bucket = obj_info.bucket();
         s3_conf.prefix = obj_info.prefix();
 #ifdef UNIT_TEST
-        auto accessor = std::make_shared<MockAccessor>(s3_conf);
+        auto accessor = std::make_shared<MockS3Accessor>(s3_conf);
 #else
         auto accessor = std::make_shared<S3Accessor>(std::move(s3_conf));
 #endif
@@ -370,6 +388,60 @@ int InstanceChecker::init(const InstanceInfoPB& instance) {
         }
         accessor_map_.emplace(obj_info.id(), std::move(accessor));
     }
+    return 0;
+}
+
+int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance) {
+    if (instance.resource_ids().empty()) {
+        return 0;
+    }
+
+    std::string storage_vault_start = storage_vault_key({instance_id_, ""});
+    std::string storage_vault_end = storage_vault_key({instance_id_, "\xff"});
+    std::unique_ptr<RangeGetIterator> it;
+
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn. instance_id=" << instance.instance_id();
+            return -1;
+        }
+        err = txn->get(storage_vault_start, storage_vault_end, &it, true);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get storage vault, instance_id=" << instance_id_;
+            return -1;
+        }
+
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            StorageVaultPB vault;
+            if (!vault.ParseFromArray(v.data(), v.size())) {
+                LOG(WARNING) << "malformed storage vault, unable to deserialize key=" << hex(k);
+                return -1;
+            }
+
+            if (vault.has_hdfs_info()) {
+                auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
+                int ret = accessor->init();
+                if (ret != 0) {
+                    LOG(WARNING) << "failed to init hdfs accessor. instance_id=" << instance_id_
+                                 << " resource_id=" << vault.id() << " name=" << vault.name();
+                    return ret;
+                }
+
+                accessor_map_.emplace(vault.id(), std::move(accessor));
+            }
+            // TODO: more vault type
+
+            if (!it->has_next()) {
+                storage_vault_start = k;
+            }
+        }
+        storage_vault_start.push_back('\x00'); // Update to next smallest key for iteration
+
+    } while (it->more());
+
     return 0;
 }
 
@@ -481,11 +553,16 @@ int InstanceChecker::do_check() {
 
 int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
     // If there are multiple buckets, return the minimum lifecycle.
-    int64_t min_lifecycle_days = std::numeric_limits<int64_t>::max();
+    int64_t min_lifecycle_days = INT64_MAX;
     int64_t tmp_liefcycle_days = 0;
     for (const auto& [obj_info, accessor] : accessor_map_) {
-        if (accessor->check_bucket_versioning() != 0) return -1;
-        if (accessor->get_bucket_lifecycle(&tmp_liefcycle_days) != 0) return -1;
+        if (accessor->type() != AccessorType::S3) {
+            continue;
+        }
+
+        auto* s3_accessor = static_cast<S3Accessor*>(accessor.get());
+        if (s3_accessor->check_bucket_versioning() != 0) return -1;
+        if (s3_accessor->get_bucket_lifecycle(&tmp_liefcycle_days) != 0) return -1;
         if (tmp_liefcycle_days < min_lifecycle_days) min_lifecycle_days = tmp_liefcycle_days;
     }
     *lifecycle_days = min_lifecycle_days;
@@ -493,6 +570,12 @@ int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
 }
 
 int InstanceChecker::do_inverted_check() {
+    if (accessor_map_.size() > 1) {
+        LOG(INFO) << "currently not support inverted check for multi accessor. instance_id="
+                  << instance_id_;
+        return 0;
+    }
+
     LOG(INFO) << "begin to inverted check objects instance_id=" << instance_id_;
     long num_scanned = 0;
     long num_check_failed = 0;
@@ -591,6 +674,13 @@ int InstanceChecker::do_inverted_check() {
         TEST_SYNC_POINT_RETURN_WITH_VALUE("InstanceChecker::do_inverted_check", &tmp_ret);
     }
     for (auto& [_, accessor] : accessor_map_) {
+        if (accessor->type() != AccessorType::S3) {
+            // FIXME(plat1ko): List hdfs accessor in current path style (i.e.
+            // data/{tablet_id}/{rowset_id}_{seg_num}.dat ) will consume too much memory if there
+            // are huge number of tablets.
+            continue;
+        }
+
         auto* s3_accessor = static_cast<S3Accessor*>(accessor.get());
         auto client = s3_accessor->s3_client();
         const auto& conf = s3_accessor->conf();

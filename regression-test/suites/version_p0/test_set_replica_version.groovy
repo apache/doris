@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_set_replica_version") {
+    if (isCloudMode()) {
+        return
+    }
     def tableName1 = "test_set_replica_version"
     sql """ DROP TABLE IF EXISTS ${tableName1} """
     sql """

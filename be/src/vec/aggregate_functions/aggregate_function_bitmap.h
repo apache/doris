@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/bitmap_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -159,7 +160,7 @@ public:
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena* arena) const override {
-        if (version >= 3) {
+        if (version >= BITMAP_SERDE) {
             auto& col = assert_cast<ColumnBitmap&>(*dst);
             char place[sizeof(Data)];
             col.resize(num_rows);
@@ -177,7 +178,7 @@ public:
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
-        if (version >= 3) {
+        if (version >= BITMAP_SERDE) {
             auto& col = assert_cast<ColumnBitmap&>(*dst);
             col.resize(num_rows);
             auto* data = col.get_data().data();
@@ -191,7 +192,7 @@ public:
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
                                            Arena* arena) const override {
-        if (version >= 3) {
+        if (version >= BITMAP_SERDE) {
             auto& col = assert_cast<const ColumnBitmap&>(column);
             const size_t num_rows = column.size();
             auto* data = col.get_data().data();
@@ -209,7 +210,7 @@ public:
                                                  Arena* arena) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
-        if (version >= 3) {
+        if (version >= BITMAP_SERDE) {
             auto& col = assert_cast<const ColumnBitmap&>(column);
             auto* data = col.get_data().data();
             for (size_t i = begin; i <= end; ++i) {
@@ -221,11 +222,11 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
                                    const size_t num_rows) const override {
-        if (version >= 3) {
-            auto& col = assert_cast<const ColumnBitmap&>(*assert_cast<const IColumn*>(column));
-            auto* data = col.get_data().data();
+        if (version >= BITMAP_SERDE) {
+            const auto& col = assert_cast<const ColumnBitmap&>(*column);
+            const auto* data = col.get_data().data();
             for (size_t i = 0; i != num_rows; ++i) {
                 this->data(places[i] + offset).merge(data[i]);
             }
@@ -235,11 +236,11 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
-        if (version >= 3) {
-            auto& col = assert_cast<const ColumnBitmap&>(*assert_cast<const IColumn*>(column));
-            auto* data = col.get_data().data();
+        if (version >= BITMAP_SERDE) {
+            const auto& col = assert_cast<const ColumnBitmap&>(*column);
+            const auto* data = col.get_data().data();
             for (size_t i = 0; i != num_rows; ++i) {
                 if (places[i]) {
                     this->data(places[i] + offset).merge(data[i]);
@@ -253,7 +254,7 @@ public:
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          IColumn& to) const override {
-        if (version >= 3) {
+        if (version >= BITMAP_SERDE) {
             auto& col = assert_cast<ColumnBitmap&>(to);
             size_t old_size = col.size();
             col.resize(old_size + 1);
@@ -264,7 +265,7 @@ public:
     }
 
     [[nodiscard]] MutableColumnPtr create_serialize_column() const override {
-        if (version >= 3) {
+        if (version >= BITMAP_SERDE) {
             return ColumnBitmap::create();
         } else {
             return ColumnString::create();
@@ -272,7 +273,7 @@ public:
     }
 
     [[nodiscard]] DataTypePtr get_serialized_type() const override {
-        if (version >= 3) {
+        if (version >= BITMAP_SERDE) {
             return std::make_shared<DataTypeBitMap>();
         } else {
             return IAggregateFunction::get_serialized_type();
@@ -301,7 +302,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeBitMap>(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& column = assert_cast<const ColVecType&>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
@@ -361,7 +362,7 @@ public:
     String get_name() const override { return "count"; }
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (arg_is_nullable) {
             auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);

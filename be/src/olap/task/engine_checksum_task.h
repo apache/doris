@@ -26,7 +26,6 @@
 #include "olap/task/engine_task.h"
 
 namespace doris {
-class MemTrackerLimiter;
 class StorageEngine;
 
 // base class for storage engine
@@ -48,7 +47,6 @@ private:
     TSchemaHash _schema_hash;
     TVersion _version;
     uint32_t* _checksum;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // EngineTask
 
 } // namespace doris

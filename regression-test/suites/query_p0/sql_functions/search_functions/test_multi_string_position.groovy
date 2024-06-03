@@ -54,4 +54,28 @@ suite("test_multi_string_position") {
     qt_select3 "select multi_search_all_positions('mpswgtljbbrmivkcglamemayfn', ['', 'm', 'saejhpnfgfq', 'rzanrkdssmmkanqjpfi', 'oputeneprgoowg', 'mp', '', '', 'wgtljbbrmivkcglamemay', 'cbpthtrgrmgfypizi', 'tl', 'tlj', 'xuhs', 'brmivkcglamemayfn', '', 'gtljb'])"
     qt_select4 "select multi_search_all_positions('arbphzbbecypbzsqsljurtddve', ['arbphzb', 'mnrboimjfijnti', 'cikcrd', 'becypbz', 'z', 'uocmqgnczhdcrvtqrnaxdxjjlhakoszuwc', 'bbe', '', 'bp', 'yhltnexlpdijkdzt', 'jkwjmrckvgmccmmrolqvy', 'vdxmicjmfbtsbqqmqcgtnrvdgaucsgspwg', 'witlfqwvhmmyjrnrzttrikhhsrd', 'pbzsqsljurt'])"
     qt_select5 "select multi_search_all_positions('aizovxqpzcbbxuhwtiaaqhdqjdei', ['qpzcbbxuhw', 'jugrpglqbm', 'dspwhzpyjohhtizegrnswhjfpdz', 'pzcbbxuh', 'vayzeszlycke', 'i', 'gvrontcpqavsjxtjwzgwxugiyhkhmhq', 'gyzmeroxztgaurmrqwtmsxcqnxaezuoapatvu', 'xqpzc', 'mjiswsvlvlpqrhhptqq', 'iz', 'hmzjxxfjsvcvdpqwtrdrp', 'zovxqpzcbbxuhwtia', 'ai'])"
+
+    try {
+        sql "select multi_search_all_positions(content, 'hello') from ${table_name} order by col1"
+    } catch (Exception ex) {
+        assert("${ex}".contains("multi_search_all_positions"))
+    }
+
+    try {
+        sql "select multi_search_all_positions(content, 'hello, !, world, Hello, World') from ${table_name} order by col1"
+    } catch (Exception ex) {
+        assert("${ex}".contains("multi_search_all_positions"))
+    }
+
+    try {
+        sql "select multi_search_all_positions(content, '[hello]') from ${table_name} order by col1"
+    } catch (Exception ex) {
+        assert("${ex}".contains("multi_search_all_positions"))
+    }
+
+    try {
+        sql "select multi_search_all_positions(content, '[hello, !, world, Hello, World]') from ${table_name} order by col1"
+    } catch (Exception ex) {
+        assert("${ex}".contains("multi_search_all_positions"))
+    }
 }

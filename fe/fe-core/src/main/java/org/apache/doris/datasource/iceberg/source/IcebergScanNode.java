@@ -40,6 +40,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
@@ -50,6 +51,7 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CombinedScanTask;
@@ -87,12 +89,10 @@ import java.util.stream.Collectors;
 public class IcebergScanNode extends FileQueryScanNode {
 
     public static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
-    private static final String TOTAL_RECORDS = "total-records";
-    private static final String TOTAL_POSITION_DELETES = "total-position-deletes";
-    private static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
 
     private IcebergSource source;
     private Table icebergTable;
+    private List<String> pushdownIcebergPredicates = Lists.newArrayList();
 
     /**
      * External file scan node for Query iceberg table
@@ -150,10 +150,9 @@ public class IcebergScanNode extends FileQueryScanNode {
                 TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
                 String deleteFilePath = filter.getDeleteFilePath();
                 LocationPath locationPath = new LocationPath(deleteFilePath, icebergSplit.getConfig());
-                Path splitDeletePath = locationPath.toScanRangeLocation();
+                Path splitDeletePath = locationPath.toStorageLocation();
                 deleteFileDesc.setPath(splitDeletePath.toString());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
-                    fileDesc.setContent(FileContent.POSITION_DELETES.id());
                     IcebergDeleteFileFilter.PositionDelete positionDelete =
                             (IcebergDeleteFileFilter.PositionDelete) filter;
                     OptionalLong lowerBound = positionDelete.getPositionLowerBound();
@@ -164,11 +163,12 @@ public class IcebergScanNode extends FileQueryScanNode {
                     if (upperBound.isPresent()) {
                         deleteFileDesc.setPositionUpperBound(upperBound.getAsLong());
                     }
+                    deleteFileDesc.setContent(FileContent.POSITION_DELETES.id());
                 } else {
-                    fileDesc.setContent(FileContent.EQUALITY_DELETES.id());
                     IcebergDeleteFileFilter.EqualityDelete equalityDelete =
                             (IcebergDeleteFileFilter.EqualityDelete) filter;
                     deleteFileDesc.setFieldIds(equalityDelete.getFieldIds());
+                    deleteFileDesc.setContent(FileContent.EQUALITY_DELETES.id());
                 }
                 fileDesc.addToDeleteFiles(deleteFileDesc);
             }
@@ -183,7 +183,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private List<Split> doGetSplits() throws UserException {
-
         TableScan scan = icebergTable.newScan();
 
         // set snapshot
@@ -202,6 +201,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         for (Expression predicate : expressions) {
             scan = scan.filter(predicate);
+            this.pushdownIcebergPredicates.add(predicate.toString());
         }
 
         // get splits
@@ -212,6 +212,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         HashSet<String> partitionPathSet = new HashSet<>();
         boolean isPartitionedTable = icebergTable.spec().isPartitioned();
 
+        long rowCount = getCountFromSnapshot();
+        if (getPushDownAggNoGroupingOp().equals(TPushAggOp.COUNT) && rowCount > 0) {
+            this.rowCount = rowCount;
+            return new ArrayList<>();
+        }
         CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), splitSize);
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
                 TableScanUtil.planTasks(fileScanTasks, splitSize, 1, 0)) {
@@ -244,7 +249,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                     partitionPathSet.add(structLike.toString());
                 }
                 LocationPath locationPath = new LocationPath(dataFilePath, source.getCatalog().getProperties());
-                Path finalDataFilePath = locationPath.toScanRangeLocation();
+                Path finalDataFilePath = locationPath.toStorageLocation();
                 IcebergSplit split = new IcebergSplit(
                         finalDataFilePath,
                         splitTask.start(),
@@ -264,6 +269,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new UserException(e.getMessage(), e.getCause());
         }
 
+        // TODO: Need to delete this as we can handle count pushdown in fe side
         TPushAggOp aggOp = getPushDownAggNoGroupingOp();
         if (aggOp.equals(TPushAggOp.COUNT) && getCountFromSnapshot() > 0) {
             // we can create a special empty split and skip the plan process
@@ -277,6 +283,9 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public Long getSpecifiedSnapshot() throws UserException {
         TableSnapshot tableSnapshot = source.getDesc().getRef().getTableSnapshot();
+        if (tableSnapshot == null) {
+            tableSnapshot = this.tableSnapshot;
+        }
         if (tableSnapshot != null) {
             TableSnapshot.VersionType type = tableSnapshot.getType();
             try {
@@ -327,8 +336,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                 filters.add(IcebergDeleteFileFilter.createPositionDelete(delete.path().toString(),
                         positionLowerBound.orElse(-1L), positionUpperBound.orElse(-1L)));
             } else if (delete.content() == FileContent.EQUALITY_DELETES) {
-                // todo: filters.add(IcebergDeleteFileFilter.createEqualityDelete(delete.path().toString(),
-                throw new IllegalStateException("Don't support equality delete file");
+                filters.add(IcebergDeleteFileFilter.createEqualityDelete(
+                        delete.path().toString(), delete.equalityFieldIds()));
             } else {
                 throw new IllegalStateException("Unknown delete content: " + delete.content());
             }
@@ -424,8 +433,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         Map<String, String> summary = snapshot.summary();
-        if (summary.get(TOTAL_EQUALITY_DELETES).equals("0")) {
-            return Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
+        if (summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")) {
+            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS))
+                - Long.parseLong(summary.get(IcebergUtils.TOTAL_POSITION_DELETES));
         } else {
             return -1;
         }
@@ -440,5 +450,22 @@ public class IcebergScanNode extends FileQueryScanNode {
                 planNode.setPushDownCount(countFromSnapshot);
             }
         }
+    }
+
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        if (pushdownIcebergPredicates.isEmpty()) {
+            return super.getNodeExplainString(prefix, detailLevel);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String predicate : pushdownIcebergPredicates) {
+            sb.append(prefix).append(prefix).append(predicate).append("\n");
+        }
+        return super.getNodeExplainString(prefix, detailLevel)
+                + String.format("%sicebergPredicatePushdown=\n%s\n", prefix, sb);
+    }
+
+    public void setTableSnapshot(TableSnapshot tableSnapshot) {
+        this.tableSnapshot = tableSnapshot;
     }
 }

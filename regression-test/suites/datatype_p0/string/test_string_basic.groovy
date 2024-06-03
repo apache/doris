@@ -129,7 +129,10 @@ suite("test_string_basic") {
          (2, repeat("test1111", 131072))
         """
     order_qt_select_str_tb "select k1, md5(v1), length(v1) from ${tbName}"
-
+    test {
+        sql """SELECT repeat("test1111", 131073 + 100);"""
+        exception "repeat function exceeded maximum default value"
+    }
     sql """drop table if exists test_string_cmp;"""
 
     sql """

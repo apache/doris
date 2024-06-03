@@ -36,7 +36,7 @@ def run(args, disable_log, help):
         if args.command == cmd.name:
             timer = utils.Timer()
             result = cmd.run(args)
-            if not disable_log:
+            if cmd.print_use_time() and not disable_log:
                 timer.show()
             return result
     print(help)

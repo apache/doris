@@ -31,6 +31,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -42,18 +43,21 @@ import java.util.stream.Collectors;
 public class KafkaUtil {
     private static final Logger LOG = LogManager.getLogger(KafkaUtil.class);
     private static final int MAX_KAFKA_PARTITION_TIMEOUT_SECOND = 60;
+    private static final int MAX_GET_OFFSET_TIMEOUT_SECOND = 5;
 
     public static List<Integer> getAllKafkaPartitions(String brokerList, String topic,
             Map<String, String> convertedCustomProperties) throws UserException {
         TNetworkAddress address = null;
         Backend be = null;
+        long beId = -1L;
         try {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get all partitions. No alive backends");
             }
             Collections.shuffle(backendIds);
-            be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            beId = backendIds.get(0);
+            be = Env.getCurrentSystemInfo().getBackend(beId);
             address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             // create request
@@ -79,9 +83,9 @@ public class KafkaUtil {
                 return result.getKafkaMetaResult().getPartitionIdsList();
             }
         } catch (Exception e) {
-            LOG.warn("failed to get partitions from backend[{}].", be.getId(), e);
+            LOG.warn("failed to get partitions from backend[{}].", beId, e);
             throw new LoadException(
-                    "Failed to get all partitions of kafka topic: " + topic + " from backend[" + be.getId()
+                    "Failed to get all partitions of kafka topic: " + topic + " from backend[" + beId
                         + "]. error: " + e.getMessage());
         }
     }
@@ -126,11 +130,11 @@ public class KafkaUtil {
             }
 
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
-                    metaRequestBuilder).build();
+                    metaRequestBuilder).setTimeoutSecs(MAX_GET_OFFSET_TIMEOUT_SECOND).build();
 
             // get info
             Future<InternalService.PProxyResult> future = BackendServiceProxy.getInstance().getInfo(address, request);
-            InternalService.PProxyResult result = future.get(5, TimeUnit.SECONDS);
+            InternalService.PProxyResult result = future.get(MAX_GET_OFFSET_TIMEOUT_SECOND, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 throw new UserException("failed to get offsets for times: " + result.getStatus().getErrorMsgsList());
@@ -188,11 +192,11 @@ public class KafkaUtil {
                 metaRequestBuilder.addPartitionIdForLatestOffsets(partitionId);
             }
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
-                    metaRequestBuilder).build();
+                    metaRequestBuilder).setTimeoutSecs(MAX_GET_OFFSET_TIMEOUT_SECOND).build();
 
             // get info
             Future<InternalService.PProxyResult> future = BackendServiceProxy.getInstance().getInfo(address, request);
-            InternalService.PProxyResult result = future.get(5, TimeUnit.SECONDS);
+            InternalService.PProxyResult result = future.get(MAX_GET_OFFSET_TIMEOUT_SECOND, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 throw new UserException("failed to get latest offsets: " + result.getStatus().getErrorMsgsList());
@@ -212,6 +216,81 @@ public class KafkaUtil {
             LOG.warn("failed to get latest offsets.", e);
             throw new LoadException(
                     "Failed to get latest offsets of kafka topic: " + topic + ". error: " + e.getMessage());
+        }
+    }
+
+    public static List<Pair<Integer, Long>> getRealOffsets(String brokerList, String topic,
+                                                             Map<String, String> convertedCustomProperties,
+                                                             List<Pair<Integer, Long>> offsets)
+                                                             throws LoadException {
+        // filter values greater than 0 as these offsets is real offset
+        // only update offset like OFFSET_BEGINNING or OFFSET_END
+        List<Pair<Integer, Long>> offsetFlags = new ArrayList<>();
+        List<Pair<Integer, Long>> realOffsets = new ArrayList<>();
+        for (Pair<Integer, Long> pair : offsets) {
+            if (pair.second < 0) {
+                offsetFlags.add(pair);
+            } else {
+                realOffsets.add(pair);
+            }
+        }
+        if (offsetFlags.size() == 0) {
+            LOG.info("do not need update and directly return offsets for partitions {} in topic: {}", offsets, topic);
+            return offsets;
+        }
+
+        TNetworkAddress address = null;
+        try {
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+            if (backendIds.isEmpty()) {
+                throw new LoadException("Failed to get real offsets. No alive backends");
+            }
+            Collections.shuffle(backendIds);
+            Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+
+            // create request
+            InternalService.PKafkaMetaProxyRequest.Builder metaRequestBuilder =
+                    InternalService.PKafkaMetaProxyRequest.newBuilder()
+                            .setKafkaInfo(InternalService.PKafkaLoadInfo.newBuilder()
+                                    .setBrokers(brokerList)
+                                    .setTopic(topic)
+                                    .addAllProperties(
+                                            convertedCustomProperties.entrySet().stream().map(
+                                                    e -> InternalService.PStringPair.newBuilder()
+                                                            .setKey(e.getKey())
+                                                            .setVal(e.getValue())
+                                                            .build()
+                                            ).collect(Collectors.toList())
+                                    )
+                            );
+            for (Pair<Integer, Long> pair : offsetFlags) {
+                metaRequestBuilder.addOffsetFlags(InternalService.PIntegerPair.newBuilder().setKey(pair.first)
+                        .setVal(pair.second).build());
+            }
+            InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
+                    metaRequestBuilder).setTimeoutSecs(MAX_GET_OFFSET_TIMEOUT_SECOND).build();
+
+            // get info
+            Future<InternalService.PProxyResult> future = BackendServiceProxy.getInstance().getInfo(address, request);
+            InternalService.PProxyResult result = future.get(MAX_GET_OFFSET_TIMEOUT_SECOND, TimeUnit.SECONDS);
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            if (code != TStatusCode.OK) {
+                throw new UserException("failed to get real offsets: " + result.getStatus().getErrorMsgsList());
+            } else {
+                List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
+                List<Pair<Integer, Long>> partitionOffsets = Lists.newArrayList();
+                for (InternalService.PIntegerPair pair : pairs) {
+                    partitionOffsets.add(Pair.of(pair.getKey(), pair.getVal()));
+                }
+                realOffsets.addAll(partitionOffsets);
+                LOG.info("finish to get real offsets for partitions {} in topic: {}", realOffsets, topic);
+                return realOffsets;
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to get real offsets.", e);
+            throw new LoadException(
+                    "Failed to get real offsets of kafka topic: " + topic + ". error: " + e.getMessage());
         }
     }
 }

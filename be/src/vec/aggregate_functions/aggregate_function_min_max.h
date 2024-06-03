@@ -526,7 +526,7 @@ public:
 
     DataTypePtr get_return_type() const override { return type; }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         this->data(place).change_if_better(*columns[0], row_num, arena);
     }
@@ -624,7 +624,7 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
                                    const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });
@@ -632,7 +632,7 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });

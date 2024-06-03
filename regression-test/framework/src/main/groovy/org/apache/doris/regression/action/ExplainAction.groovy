@@ -32,6 +32,7 @@ class ExplainAction implements SuiteAction {
     private SuiteContext context
     private Set<String> containsStrings = new LinkedHashSet<>()
     private Set<String> notContainsStrings = new LinkedHashSet<>()
+    private Map<String, Integer> multiContainsStrings = new HashMap<>()
     private String coonType
     private Closure checkFunction
 
@@ -54,6 +55,10 @@ class ExplainAction implements SuiteAction {
 
     void contains(String subString) {
         containsStrings.add(subString)
+    }
+
+    void multiContains(String subString, int n) {
+        multiContainsStrings.put(subString, n);
     }
 
     void notContains(String subString) {
@@ -97,7 +102,7 @@ class ExplainAction implements SuiteAction {
             for (String string : containsStrings) {
                 if (!explainString.contains(string)) {
                     String msg = ("Explain and check failed, expect contains '${string}',"
-                            + "but actual explain string is:\n${explainString}").toString()
+                            + " but actual explain string is:\n${explainString}").toString()
                     log.info(msg)
                     def t = new IllegalStateException(msg)
                     throw t
@@ -106,7 +111,17 @@ class ExplainAction implements SuiteAction {
             for (String string : notContainsStrings) {
                 if (explainString.contains(string)) {
                     String msg = ("Explain and check failed, expect not contains '${string}',"
-                            + "but actual explain string is:\n${explainString}").toString()
+                            + " but actual explain string is:\n${explainString}").toString()
+                    log.info(msg)
+                    def t = new IllegalStateException(msg)
+                    throw t
+                }
+            }
+            for (Map.Entry entry : multiContainsStrings) {
+                int count = explainString.count(entry.key);
+                if (count != entry.value) {
+                    String msg = ("Explain and check failed, expect multiContains '${string}' , '${entry.value}' times, actural '${count}' times."
+                            + "Actual explain string is:\n${explainString}").toString()
                     log.info(msg)
                     def t = new IllegalStateException(msg)
                     throw t

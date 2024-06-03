@@ -20,28 +20,9 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vresult_file_sink.h"
 
-namespace doris {
-class DataSink;
-
-namespace pipeline {
-
-class ResultFileSinkOperatorBuilder final
-        : public DataSinkOperatorBuilder<vectorized::VResultFileSink> {
-public:
-    ResultFileSinkOperatorBuilder(int32_t id, DataSink* sink);
-
-    OperatorPtr build_operator() override;
-};
-
-class ResultFileSinkOperator final : public DataSinkOperator<vectorized::VResultFileSink> {
-public:
-    ResultFileSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink);
-
-    bool can_write() override { return true; }
-};
+namespace doris::pipeline {
 
 class ResultFileSinkOperatorX;
 class ResultFileSinkLocalState final
@@ -100,8 +81,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
 private:
     friend class ResultFileSinkLocalState;
@@ -128,5 +108,4 @@ private:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

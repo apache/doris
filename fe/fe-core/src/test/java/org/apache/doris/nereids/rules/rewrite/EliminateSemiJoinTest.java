@@ -42,12 +42,12 @@ class EliminateSemiJoinTest extends TestWithFeService implements MemoPatternMatc
     }
 
     @Test
-    void semiTrue() {
+    void leftSemiTrue() {
         String sql = "select * from t t1 left semi join t t2 on true";
 
         PlanChecker.from(connectContext)
                 .analyze(sql)
-                .rewrite()
+                .applyBottomUp(new EliminateSemiJoin())
                 .matches(
                         logicalResultSink(
                                 logicalProject(logicalJoin())
@@ -56,41 +56,92 @@ class EliminateSemiJoinTest extends TestWithFeService implements MemoPatternMatc
     }
 
     @Test
-    void semiFalse() {
+    void leftSemiFalse() {
         String sql = "select * from t t1 left semi join t t2 on false";
 
         PlanChecker.from(connectContext)
                 .analyze(sql)
-                .rewrite()
+                .applyBottomUp(new EliminateSemiJoin())
                 .matches(
                         logicalEmptyRelation()
                 );
     }
 
     @Test
-    void antiTrue() {
+    void leftAntiTrue() {
         String sql = "select * from t t1 left anti join t t2 on true";
 
         PlanChecker.from(connectContext)
                 .analyze(sql)
-                .rewrite()
+                .applyBottomUp(new EliminateSemiJoin())
+                .matches(
+                        logicalJoin(logicalSubQueryAlias(), logicalSubQueryAlias())
+                );
+    }
+
+    @Test
+    void leftAntiFalse() {
+        String sql = "select * from t t1 left anti join t t2 on false";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyBottomUp(new EliminateSemiJoin())
+                .matches(
+                        logicalResultSink(
+                                logicalProject(logicalSubQueryAlias(logicalOlapScan()))
+                        )
+                );
+    }
+
+    @Test
+    void rightSemiTrue() {
+        String sql = "select * from t t1 right semi join t t2 on true";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyBottomUp(new EliminateSemiJoin())
+                .matches(
+                        logicalResultSink(
+                                logicalProject(logicalJoin())
+                        )
+                );
+    }
+
+    @Test
+    void rightSemiFalse() {
+        String sql = "select * from t t1 right semi join t t2 on false";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyBottomUp(new EliminateSemiJoin())
                 .matches(
                         logicalEmptyRelation()
                 );
     }
 
     @Test
-    void antiFalse() {
-        String sql = "select * from t t1 left anti join t t2 on false";
+    void rightAntiTrue() {
+        String sql = "select * from t t1 right anti join t t2 on true";
 
         PlanChecker.from(connectContext)
                 .analyze(sql)
-                .rewrite()
+                .applyBottomUp(new EliminateSemiJoin())
                 .matches(
-                        logicalResultSink(
-                                logicalOlapScan()
-                        )
+                        logicalJoin(logicalSubQueryAlias(), logicalSubQueryAlias())
                 );
     }
 
+    @Test
+    void rightAntiFalse() {
+        String sql = "select * from t t1 right anti join t t2 on false";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyBottomUp(new EliminateSemiJoin())
+                .matches(
+                        logicalResultSink(
+                                logicalProject(logicalSubQueryAlias(logicalOlapScan()))
+                        )
+                );
+    }
 }

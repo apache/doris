@@ -18,6 +18,7 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
@@ -78,6 +79,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJobLifeCycle {
@@ -95,8 +97,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
 
     // jobId(listenerId). use in beginTransaction to callback function
     private final long id;
-    private long transactionId;
-    private final String label;
+    protected static final long INVALID_TXN_ID = -1L;
+    protected long transactionId = INVALID_TXN_ID;
+    protected String label;
     private final Set<Long> totalTablets;
     private final Set<Long> quorumTablets;
     private final Set<Long> finishedTablets;
@@ -108,7 +111,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
 
     private Database targetDb;
 
-    private OlapTable targetTbl;
+    protected OlapTable targetTbl;
 
     private List<Partition> partitions;
 
@@ -292,6 +295,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
     public void dispatch() throws Exception {
         // task sent to be
         AgentBatchTask batchTask = new AgentBatchTask();
+        String vaultId = targetTbl.getStorageVaultId();
         for (Partition partition : partitions) {
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
                 long indexId = index.getId();
@@ -301,6 +305,23 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 // using to update schema of the rowset, so full columns should be included
                 for (Column column : targetTbl.getSchemaByIndexId(indexId, true)) {
                     columnsDesc.add(column.toThrift());
+                }
+
+                Map<String, TColumn> colNameToColDesc = columnsDesc.stream()
+                        .collect(Collectors.toMap(c -> c.getColumnName(), Function.identity(), (v1, v2) -> v1,
+                                () -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER)));
+                for (Predicate condition : deleteConditions) {
+                    SlotRef slotRef = (SlotRef) condition.getChild(0);
+                    String columnName = new String(slotRef.getColumnName());
+                    TColumn column = colNameToColDesc.get(slotRef.getColumnName());
+                    if (column == null) {
+                        columnName = CreateMaterializedViewStmt.mvColumnBuilder(columnName);
+                        column = colNameToColDesc.get(columnName);
+                    }
+                    if (column == null) {
+                        throw new AnalysisException(
+                                "condition's column not founded in index, column=" + columnName + " , index=" + index);
+                    }
                 }
 
                 for (Tablet tablet : index.getTablets()) {
@@ -328,7 +349,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                                 TTaskType.REALTIME_PUSH,
                                 transactionId,
                                 Env.getCurrentEnv().getNextId() + 10000000000L,
-                                columnsDesc);
+                                columnsDesc,
+                                vaultId);
                         pushTask.setIsSchemaChanging(false);
                         pushTask.setCountDownLatch(countDownLatch);
 
@@ -392,8 +414,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         }
     }
 
-    @Override
-    public String commit() throws Exception {
+    protected List<TabletCommitInfo> generateTabletCommitInfos() {
         TabletInvertedIndex currentInvertedIndex = Env.getCurrentInvertedIndex();
         List<TabletCommitInfo> tabletCommitInfos = Lists.newArrayList();
         tabletDeleteInfoMap.forEach((tabletId, deleteInfo) -> deleteInfo.getFinishedReplicas()
@@ -404,6 +425,12 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     }
                     tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
                 }));
+        return tabletCommitInfos;
+    }
+
+    @Override
+    public String commit() throws Exception {
+        List<TabletCommitInfo> tabletCommitInfos = generateTabletCommitInfos();
         boolean visible = Env.getCurrentGlobalTransactionMgr()
                 .commitAndPublishTransaction(targetDb, Lists.newArrayList(targetTbl),
                         transactionId, tabletCommitInfos, getTimeoutMs());
@@ -513,7 +540,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             DeleteInfo deleteInfo = new DeleteInfo(params.getDb().getId(), params.getTable().getId(),
                     params.getTable().getName(), getDeleteCondString(params.getDeleteConditions()),
                     noPartitionSpecified, partitionIds, partitionNames);
-            DeleteJob deleteJob = new DeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo);
+            DeleteJob deleteJob = ConnectContext.get() != null && ConnectContext.get().isTxnModel()
+                    ? new TxnDeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo)
+                    : new DeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo);
             long replicaNum = partitions.stream().mapToLong(Partition::getAllReplicaCount).sum();
             deleteJob.setPartitions(partitions);
             deleteJob.setDeleteConditions(params.getDeleteConditions());
@@ -710,5 +739,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             }
             return deleteConditions;
         }
+    }
+
+    protected void addTableIndexes(TransactionState state) {
+        state.addTableIndexes(targetTbl);
     }
 }

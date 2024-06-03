@@ -77,6 +77,10 @@ public class EsResource extends Resource {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
+    public EsResource() {
+        super();
+    }
+
     public EsResource(String name) {
         super(name, Resource.ResourceType.ES);
         properties = Maps.newHashMap();

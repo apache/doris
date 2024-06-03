@@ -19,8 +19,12 @@
 
 #include <fmt/format.h>
 
+#include <memory>
+
 #include "olap/lru_cache.h"
 #include "runtime/memory/cache_policy.h"
+#include "runtime/memory/lru_cache_value_base.h"
+#include "runtime/thread_context.h"
 #include "util/time.h"
 
 namespace doris {
@@ -32,7 +36,7 @@ public:
                    uint32_t stale_sweep_time_s, uint32_t num_shards = DEFAULT_LRU_CACHE_NUM_SHARDS,
                    uint32_t element_count_capacity = DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY,
                    bool enable_prune = true)
-            : CachePolicy(type, stale_sweep_time_s, enable_prune) {
+            : CachePolicy(type, stale_sweep_time_s, enable_prune), _lru_cache_type(lru_cache_type) {
         if (check_capacity(capacity, num_shards)) {
             _cache = std::shared_ptr<ShardedLRUCache>(
                     new ShardedLRUCache(type_string(type), capacity, lru_cache_type, num_shards,
@@ -41,6 +45,7 @@ public:
             CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
             _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
         }
+        init_mem_tracker(lru_cache_type_string(_lru_cache_type));
     }
 
     LRUCachePolicy(CacheType type, size_t capacity, LRUCacheType lru_cache_type,
@@ -48,7 +53,7 @@ public:
                    uint32_t element_count_capacity,
                    CacheValueTimeExtractor cache_value_time_extractor,
                    bool cache_value_check_timestamp, bool enable_prune = true)
-            : CachePolicy(type, stale_sweep_time_s, enable_prune) {
+            : CachePolicy(type, stale_sweep_time_s, enable_prune), _lru_cache_type(lru_cache_type) {
         if (check_capacity(capacity, num_shards)) {
             _cache = std::shared_ptr<ShardedLRUCache>(
                     new ShardedLRUCache(type_string(type), capacity, lru_cache_type, num_shards,
@@ -58,7 +63,10 @@ public:
             CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
             _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
         }
+        init_mem_tracker(lru_cache_type_string(_lru_cache_type));
     }
+
+    ~LRUCachePolicy() override { _cache.reset(); }
 
     bool check_capacity(size_t capacity, uint32_t num_shards) {
         if (capacity < num_shards) {
@@ -72,7 +80,54 @@ public:
         return true;
     }
 
-    ~LRUCachePolicy() override = default;
+    static std::string lru_cache_type_string(LRUCacheType type) {
+        switch (type) {
+        case LRUCacheType::SIZE:
+            return "size";
+        case LRUCacheType::NUMBER:
+            return "number";
+        default:
+            LOG(FATAL) << "not match type of lru cache:" << static_cast<int>(type);
+        }
+    }
+
+    // Insert and cache value destroy will be manually consume tracking_bytes to mem tracker.
+    // If lru cache is LRUCacheType::SIZE, tracking_bytes usually equal to charge.
+    Cache::Handle* insert(const CacheKey& key, void* value, size_t charge, size_t tracking_bytes,
+                          CachePriority priority = CachePriority::NORMAL) {
+        size_t bytes_with_handle = _get_bytes_with_handle(key, charge, tracking_bytes);
+        if (value != nullptr) { // if tracking_bytes = 0, only tracking handle size.
+            ((LRUCacheValueBase*)value)->mem_tracker()->consume(bytes_with_handle);
+            ((LRUCacheValueBase*)value)->set_tracking_bytes(bytes_with_handle);
+        }
+        return _cache->insert(key, value, charge, priority);
+    }
+
+    Cache::Handle* insert_no_tracking(const CacheKey& key, void* value, size_t charge,
+                                      CachePriority priority = CachePriority::NORMAL) {
+        DCHECK(_mem_tracker_by_allocator != nullptr); // must be tracking in Allcator.
+        return _cache->insert(key, value, charge, priority);
+    }
+
+    Cache::Handle* lookup(const CacheKey& key) { return _cache->lookup(key); }
+
+    void release(Cache::Handle* handle) { _cache->release(handle); }
+
+    void* value(Cache::Handle* handle) { return _cache->value(handle); }
+
+    void erase(const CacheKey& key) { _cache->erase(key); }
+
+    int64_t get_usage() { return _cache->get_usage(); }
+
+    size_t get_total_capacity() { return _cache->get_total_capacity(); }
+
+    uint64_t new_id() { return _cache->new_id(); };
+
+    // Subclass can override this method to determine whether to do the minor or full gc
+    virtual bool exceed_prune_limit() {
+        return _lru_cache_type == LRUCacheType::SIZE ? mem_consumption() > CACHE_MIN_FREE_SIZE
+                                                     : get_usage() > CACHE_MIN_FREE_NUMBER;
+    }
 
     // Try to prune the cache if expired.
     void prune_stale() override {
@@ -81,7 +136,7 @@ public:
         if (_stale_sweep_time_s <= 0 && _cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
             return;
         }
-        if (_cache->mem_consumption() > CACHE_MIN_FREE_SIZE) {
+        if (exceed_prune_limit()) {
             COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
             const int64_t curtime = UnixMillis();
@@ -90,8 +145,8 @@ public:
                                          curtime);
             };
 
-            LOG(INFO) << fmt::format("[MemoryGC] {} prune stale start, consumption {}",
-                                     type_string(_type), _cache->mem_consumption());
+            LOG(INFO) << fmt::format("[MemoryGC] {} prune stale start, consumption {}, usage {}",
+                                     type_string(_type), mem_consumption(), get_usage());
             // Prune cache in lazy mode to save cpu and minimize the time holding write lock
             PrunedInfo pruned_info = _cache->prune_if(pred, true);
             COUNTER_SET(_freed_entrys_counter, pruned_info.pruned_count);
@@ -102,10 +157,19 @@ public:
                     type_string(_type), _freed_entrys_counter->value(),
                     _freed_memory_counter->value(), _prune_stale_number_counter->value());
         } else {
-            LOG(INFO) << fmt::format(
-                    "[MemoryGC] {} not need prune stale, consumption {} less than "
-                    "CACHE_MIN_FREE_SIZE {}",
-                    type_string(_type), _cache->mem_consumption(), CACHE_MIN_FREE_SIZE);
+            if (_lru_cache_type == LRUCacheType::SIZE) {
+                LOG(INFO) << fmt::format(
+                        "[MemoryGC] {} not need prune stale, LRUCacheType::SIZE consumption {} "
+                        "less "
+                        "than CACHE_MIN_FREE_SIZE {}",
+                        type_string(_type), mem_consumption(), CACHE_MIN_FREE_SIZE);
+            } else if (_lru_cache_type == LRUCacheType::NUMBER) {
+                LOG(INFO) << fmt::format(
+                        "[MemoryGC] {} not need prune stale, LRUCacheType::NUMBER usage {} less "
+                        "than "
+                        "CACHE_MIN_FREE_NUMBER {}",
+                        type_string(_type), get_usage(), CACHE_MIN_FREE_NUMBER);
+            }
         }
     }
 
@@ -115,12 +179,11 @@ public:
         if (_cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
             return;
         }
-        if ((force && _cache->mem_consumption() != 0) ||
-            _cache->mem_consumption() > CACHE_MIN_FREE_SIZE) {
+        if ((force && mem_consumption() != 0) || exceed_prune_limit()) {
             COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
-            LOG(INFO) << fmt::format("[MemoryGC] {} prune all start, consumption {}",
-                                     type_string(_type), _cache->mem_consumption());
+            LOG(INFO) << fmt::format("[MemoryGC] {} prune all start, consumption {}, usage {}",
+                                     type_string(_type), mem_consumption(), get_usage());
             PrunedInfo pruned_info = _cache->prune();
             COUNTER_SET(_freed_entrys_counter, pruned_info.pruned_count);
             COUNTER_SET(_freed_memory_counter, pruned_info.pruned_size);
@@ -130,19 +193,36 @@ public:
                     type_string(_type), _freed_entrys_counter->value(),
                     _freed_memory_counter->value(), _prune_all_number_counter->value(), force);
         } else {
-            LOG(INFO) << fmt::format(
-                    "[MemoryGC] {} not need prune all, force is {}, consumption {}, "
-                    "CACHE_MIN_FREE_SIZE {}",
-                    type_string(_type), force, _cache->mem_consumption(), CACHE_MIN_FREE_SIZE);
+            if (_lru_cache_type == LRUCacheType::SIZE) {
+                LOG(INFO) << fmt::format(
+                        "[MemoryGC] {} not need prune all, force is {}, LRUCacheType::SIZE "
+                        "consumption {}, "
+                        "CACHE_MIN_FREE_SIZE {}",
+                        type_string(_type), force, mem_consumption(), CACHE_MIN_FREE_SIZE);
+            } else if (_lru_cache_type == LRUCacheType::NUMBER) {
+                LOG(INFO) << fmt::format(
+                        "[MemoryGC] {} not need prune all, force is {}, LRUCacheType::NUMBER "
+                        "usage {}, CACHE_MIN_FREE_NUMBER {}",
+                        type_string(_type), force, get_usage(), CACHE_MIN_FREE_NUMBER);
+            }
         }
+    }
+
+private:
+    // LRUCacheType::SIZE equal to total_size.
+    size_t _get_bytes_with_handle(const CacheKey& key, size_t charge, size_t bytes) {
+        size_t handle_size = sizeof(LRUHandle) - 1 + key.size();
+        DCHECK(_lru_cache_type == LRUCacheType::SIZE || bytes != -1)
+                << " _type " << type_string(_type);
+        // if LRUCacheType::NUMBER and bytes equals 0, such as some caches cannot accurately track memory size.
+        // cache mem tracker value and _usage divided by handle_size(106) will get the number of cache entries.
+        return _lru_cache_type == LRUCacheType::SIZE ? handle_size + charge : handle_size + bytes;
     }
 
     // if check_capacity failed, will return dummy lru cache,
     // compatible with ShardedLRUCache usage, but will not actually cache.
-    Cache* cache() const { return _cache.get(); }
-
-private:
     std::shared_ptr<Cache> _cache;
+    LRUCacheType _lru_cache_type;
 };
 
 } // namespace doris

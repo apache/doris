@@ -32,6 +32,20 @@ suite ("where_invalid") {
         properties("replication_num" = "1");
         """
 
+    sql "insert into a_table select 1,1,1,1,to_bitmap(1),hll_hash(1);"
+
+    createMV("create materialized view ma1 as select k1,bitmap_union(k5) from a_table group by k1;")
+
+    sql "insert into a_table select 2,2,2,2,to_bitmap(2),hll_hash(2);"
+
+    test {
+        sql "delete from a_table where k2=1;"
+        exception "errCode = 2,"
+    }
+    sql "delete from a_table where k1=1;"
+
+    qt_test "select k1,bitmap_count(bitmap_union(k5)) from a_table group by k1;"
+
     test {
         sql "create materialized view where_1 as select k1,k4 from a_table where k4 =1;"
         exception "errCode = 2,"

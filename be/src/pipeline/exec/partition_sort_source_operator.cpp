@@ -20,14 +20,9 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-OperatorPtr PartitionSortSourceOperatorBuilder::build_operator() {
-    return std::make_shared<PartitionSortSourceOperator>(this, _node);
-}
 
 Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<PartitionSortNodeSharedState>::init(state, info));
@@ -38,7 +33,7 @@ Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
 }
 
 Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* output_block,
-                                               SourceState& source_state) {
+                                               bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -60,6 +55,10 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
                     local_state._dependency->block();
                 }
             }
+            if (!output_block->empty()) {
+                COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
+                COUNTER_UPDATE(local_state.rows_returned_counter(), output_block->rows());
+            }
             return Status::OK();
         }
     }
@@ -74,10 +73,13 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
                                                            output_block->columns()));
     {
         std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
-        if (local_state._shared_state->blocks_buffer.empty() &&
-            local_state._sort_idx >= local_state._shared_state->partition_sorts.size()) {
-            source_state = SourceState::FINISHED;
-        }
+
+        *eos = local_state._shared_state->blocks_buffer.empty() &&
+               local_state._sort_idx >= local_state._shared_state->partition_sorts.size();
+    }
+    if (!output_block->empty()) {
+        COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
+        COUNTER_UPDATE(local_state.rows_returned_counter(), output_block->rows());
     }
     return Status::OK();
 }

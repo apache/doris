@@ -30,13 +30,15 @@
 #include <set>
 #include <shared_mutex>
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
 #include "exec/olap_utils.h"
 #include "exprs/function_filter.h"
-#include "io/cache/block/block_file_cache_profile.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "io/io_common.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
@@ -50,6 +52,7 @@
 #include "olap/tablet_schema_cache.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
@@ -95,7 +98,7 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
         if (it != read_columns.cbegin()) {
             read_columns_string += ", ";
         }
-        read_columns_string += tablet_schema->columns().at(*it).name();
+        read_columns_string += tablet_schema->columns().at(*it)->name();
         if (i >= col_per_line) {
             read_columns_string += "\n";
             i = 0;
@@ -183,6 +186,12 @@ Status NewOlapScanner::init() {
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             ReadSource read_source;
+
+            if (config::is_cloud_mode()) {
+                // FIXME(plat1ko): Avoid pointer cast
+                ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
+            }
+
             auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
                                                  &read_source.rs_splits,
                                                  _state->skip_missing_version());
@@ -218,6 +227,9 @@ Status NewOlapScanner::init() {
 
 Status NewOlapScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
+    auto* timer = _parent ? ((NewOlapScanNode*)_parent)->_reader_init_timer
+                          : ((pipeline::OlapScanLocalState*)_local_state)->_reader_init_timer;
+    SCOPED_TIMER(timer);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
@@ -389,25 +401,30 @@ Status NewOlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.filter_block_conjuncts = _conjuncts;
         }
 
-        // runtime predicate push down optimization for topn
-        _tablet_reader_params.use_topn_opt = olap_scan_node.use_topn_opt;
+        if (!_parent) {
+            // set push down topn filter
+            _tablet_reader_params.topn_filter_source_node_ids =
+                    ((pipeline::OlapScanLocalState*)_local_state)
+                            ->get_topn_filter_source_node_ids(_state, true);
+            if (!_tablet_reader_params.topn_filter_source_node_ids.empty()) {
+                _tablet_reader_params.topn_filter_target_node_id =
+                        ((pipeline::OlapScanLocalState*)_local_state)->parent()->node_id();
+            }
+        }
     }
 
     // If this is a Two-Phase read query, and we need to delay the release of Rowset
     // by rowset->update_delayed_expired_timestamp().This could expand the lifespan of Rowset
-    // TODO(plat1ko): CloudStorageEngine
-    if (!config::is_cloud_mode()) {
-        if (tablet_schema->field_index(BeConsts::ROWID_COL) >= 0) {
-            constexpr static int delayed_s = 60;
-            for (auto rs_reader : _tablet_reader_params.rs_splits) {
-                uint64_t delayed_expired_timestamp =
-                        UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
-                        delayed_s;
-                rs_reader.rs_reader->rowset()->update_delayed_expired_timestamp(
-                        delayed_expired_timestamp);
-                ExecEnv::GetInstance()->storage_engine().to_local().add_quering_rowset(
-                        rs_reader.rs_reader->rowset());
-            }
+    if (tablet_schema->field_index(BeConsts::ROWID_COL) >= 0) {
+        constexpr static int delayed_s = 60;
+        for (auto rs_reader : _tablet_reader_params.rs_splits) {
+            uint64_t delayed_expired_timestamp =
+                    UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
+                    delayed_s;
+            rs_reader.rs_reader->rowset()->update_delayed_expired_timestamp(
+                    delayed_expired_timestamp);
+            ExecEnv::GetInstance()->storage_engine().add_quering_rowset(
+                    rs_reader.rs_reader->rowset());
         }
     }
 
@@ -416,6 +433,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
 Status NewOlapScanner::_init_variant_columns() {
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
+    if (tablet_schema->num_variant_columns() == 0) {
+        return Status::OK();
+    }
     // Parent column has path info to distinction from each other
     for (auto slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
@@ -430,12 +450,12 @@ Status NewOlapScanner::_init_variant_columns() {
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths(), slot->col_unique_id());
-            if (tablet_schema->field_index(subcol.path_info()) < 0) {
+            if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }
         }
-        schema_util::inherit_tablet_index(tablet_schema);
     }
+    schema_util::inherit_root_attributes(tablet_schema);
     return Status::OK();
 }
 
@@ -548,14 +568,14 @@ void NewOlapScanner::_update_realtime_counters() {
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
 }
 
-void NewOlapScanner::_update_counters_before_close() {
+void NewOlapScanner::_collect_profile_before_close() {
     //  Please don't directly enable the profile here, we need to set QueryStatistics using the counter inside.
     if (_has_updated_counter) {
         return;
     }
     _has_updated_counter = true;
 
-    VScanner::_update_counters_before_close();
+    VScanner::_collect_profile_before_close();
 
 #ifndef INCR_COUNTER
 #define INCR_COUNTER(Parent)                                                                      \
@@ -567,6 +587,7 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(Parent->_block_load_timer, stats.block_load_ns);                               \
     COUNTER_UPDATE(Parent->_block_load_counter, stats.blocks_load);                               \
     COUNTER_UPDATE(Parent->_block_fetch_timer, stats.block_fetch_ns);                             \
+    COUNTER_UPDATE(Parent->_delete_bitmap_get_agg_timer, stats.delete_bitmap_get_agg_ns);         \
     COUNTER_UPDATE(Parent->_block_convert_timer, stats.block_convert_ns);                         \
     COUNTER_UPDATE(Parent->_raw_rows_counter, stats.raw_rows_read);                               \
     _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;                             \
@@ -579,6 +600,8 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(Parent->_block_conditions_filtered_timer, stats.block_conditions_filtered_ns); \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_bf_timer,                                   \
                    stats.block_conditions_filtered_bf_ns);                                        \
+    COUNTER_UPDATE(Parent->_collect_iterator_merge_next_timer,                                    \
+                   stats.collect_iterator_merge_next_timer);                                      \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_timer,                              \
                    stats.block_conditions_filtered_zonemap_ns);                                   \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_rp_timer,                           \
@@ -660,6 +683,12 @@ void NewOlapScanner::_update_counters_before_close() {
     tablet->query_scan_bytes->increment(_compressed_bytes_read);
     tablet->query_scan_rows->increment(_raw_rows_read);
     tablet->query_scan_count->increment(1);
+    if (_query_statistics) {
+        _query_statistics->add_scan_bytes_from_local_storage(
+                stats.file_cache_stats.bytes_read_from_local);
+        _query_statistics->add_scan_bytes_from_remote_storage(
+                stats.file_cache_stats.bytes_read_from_remote);
+    }
 }
 
 } // namespace doris::vectorized

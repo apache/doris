@@ -22,33 +22,32 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.TableFdItem;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * abstract class catalog relation for logical relation
@@ -56,7 +55,7 @@ import java.util.function.Supplier;
 public abstract class LogicalCatalogRelation extends LogicalRelation implements CatalogRelation {
 
     protected final TableIf table;
-    // [catalogName, databaseName, tableName]
+    // [catalogName, databaseName]
     protected final ImmutableList<String> qualifier;
 
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier) {
@@ -81,13 +80,20 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     public DatabaseIf getDatabase() throws AnalysisException {
         Preconditions.checkArgument(!qualifier.isEmpty(), "qualifier can not be empty");
         try {
-            CatalogIf catalog = qualifier.size() == 3
-                    ? Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(qualifier.get(0),
-                        s -> new Exception("Catalog [" + qualifier.get(0) + "] does not exist."))
-                    : Env.getCurrentEnv().getCurrentCatalog();
-            return catalog.getDbOrException(qualifier.size() == 3 ? qualifier.get(1) : qualifier.get(0),
-                    s -> new Exception("Database [" + qualifier.get(1) + "] does not exist in catalog ["
-                        + qualifier.get(0) + "]."));
+            int len = qualifier.size();
+            if (2 == len) {
+                CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr()
+                        .getCatalogOrAnalysisException(qualifier.get(0));
+                return catalog.getDbOrAnalysisException(qualifier.get(1));
+            } else if (1 == len) {
+                CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCurrentCatalog();
+                return catalog.getDbOrAnalysisException(qualifier.get(0));
+            } else if (0 == len) {
+                CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCurrentCatalog();
+                ConnectContext ctx = ConnectContext.get();
+                return catalog.getDb(ctx.getDatabase()).get();
+            }
+            return null;
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
@@ -109,9 +115,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      * Full qualified name parts, i.e., concat qualifier and name into a list.
      */
     public List<String> qualified() {
-        if (qualifier.size() == 3) {
-            return qualifier;
-        }
         return Utils.qualifiedNameParts(qualifier, table.getName());
     }
 
@@ -119,94 +122,98 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      * Full qualified table name, concat qualifier and name with `.` as separator.
      */
     public String qualifiedName() {
-        if (qualifier.size() == 3) {
-            return StringUtils.join(qualifier, ".");
-        }
         return Utils.qualifiedName(qualifier, table.getName());
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        Builder fdBuilder = new Builder();
-        Set<Slot> output = ImmutableSet.copyOf(outputSupplier.get());
+    public void computeUnique(DataTrait.Builder builder) {
+        Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
-            ImmutableSet<Slot> slotSet = output.stream()
-                    .filter(SlotReference.class::isInstance)
-                    .map(SlotReference.class::cast)
-                    .filter(s -> s.getColumn().isPresent()
-                            && s.getColumn().get().isKey())
-                    .collect(ImmutableSet.toImmutableSet());
-            fdBuilder.addUniqueSlot(slotSet);
+            ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
+            for (Slot slot : outputSet) {
+                if (!(slot instanceof SlotReference)) {
+                    continue;
+                }
+                SlotReference slotRef = (SlotReference) slot;
+                if (slotRef.getColumn().isPresent() && slotRef.getColumn().get().isKey()) {
+                    uniqSlots.add(slot);
+                }
+            }
+            builder.addUniqueSlot(uniqSlots.build());
         }
-        table.getPrimaryKeyConstraints().forEach(c -> {
-            Set<Column> columns = c.getPrimaryKeys(this.getTable());
-            ImmutableSet<Slot> slotSet = output.stream()
-                    .filter(SlotReference.class::isInstance)
-                    .map(SlotReference.class::cast)
-                    .filter(s -> s.getColumn().isPresent()
-                            && columns.contains(s.getColumn().get()))
-                    .collect(ImmutableSet.toImmutableSet());
-            fdBuilder.addUniqueSlot(slotSet);
-        });
-        table.getUniqueConstraints().forEach(c -> {
-            Set<Column> columns = c.getUniqueKeys(this.getTable());
-            ImmutableSet<Slot> slotSet = output.stream()
-                    .filter(SlotReference.class::isInstance)
-                    .map(SlotReference.class::cast)
-                    .filter(s -> s.getColumn().isPresent()
-                            && columns.contains(s.getColumn().get()))
-                    .collect(ImmutableSet.toImmutableSet());
-            fdBuilder.addUniqueSlot(slotSet);
-        });
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        fdBuilder.addFdItems(fdItems);
-        return fdBuilder.build();
+
+        for (PrimaryKeyConstraint c : table.getPrimaryKeyConstraints()) {
+            Set<Column> columns = c.getPrimaryKeys(table);
+            builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
+        }
+
+        for (UniqueConstraint c : table.getUniqueConstraints()) {
+            Set<Column> columns = c.getUniqueKeys(table);
+            builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
+        }
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
+    public void computeUniform(DataTrait.Builder builder) {
+        // No uniform slot for catalog relation
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems() {
+        return computeFdItems(Utils.fastToImmutableSet(getOutputSet()));
+    }
+
+    private ImmutableSet<FdItem> computeFdItems(Set<Slot> outputSet) {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-        table.getPrimaryKeyConstraints().forEach(c -> {
+
+        for (PrimaryKeyConstraint c : table.getPrimaryKeyConstraints()) {
             Set<Column> columns = c.getPrimaryKeys(this.getTable());
-            ImmutableSet<SlotReference> slotSet = output.stream()
-                    .filter(SlotReference.class::isInstance)
-                    .map(SlotReference.class::cast)
-                    .filter(s -> s.getColumn().isPresent()
-                            && columns.contains(s.getColumn().get()))
-                    .collect(ImmutableSet.toImmutableSet());
-            TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(slotSet, true,
-                    false, ImmutableSet.of(table));
+            ImmutableSet<SlotReference> slotSet = findSlotsByColumn(outputSet, columns);
+            TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(
+                    slotSet, true, false, ImmutableSet.of(table));
             builder.add(tableFdItem);
-        });
-        table.getUniqueConstraints().forEach(c -> {
+        }
+
+        for (UniqueConstraint c : table.getUniqueConstraints()) {
             Set<Column> columns = c.getUniqueKeys(this.getTable());
-            boolean allNotNull = columns.stream()
-                    .filter(SlotReference.class::isInstance)
-                    .map(SlotReference.class::cast)
-                    .allMatch(s -> !s.nullable());
-            if (allNotNull) {
-                ImmutableSet<SlotReference> slotSet = output.stream()
-                        .filter(SlotReference.class::isInstance)
-                        .map(SlotReference.class::cast)
-                        .filter(s -> s.getColumn().isPresent()
-                                && columns.contains(s.getColumn().get()))
-                        .collect(ImmutableSet.toImmutableSet());
-                TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(slotSet,
-                        true, false, ImmutableSet.of(table));
-                builder.add(tableFdItem);
-            } else {
-                ImmutableSet<SlotReference> slotSet = output.stream()
-                        .filter(SlotReference.class::isInstance)
-                        .map(SlotReference.class::cast)
-                        .filter(s -> s.getColumn().isPresent()
-                                && columns.contains(s.getColumn().get()))
-                        .collect(ImmutableSet.toImmutableSet());
-                TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(slotSet,
-                        true, true, ImmutableSet.of(table));
-                builder.add(tableFdItem);
+            boolean allNotNull = true;
+
+            for (Column column : columns) {
+                if (column.isAllowNull()) {
+                    allNotNull = false;
+                    break;
+                }
             }
-        });
+
+            ImmutableSet<SlotReference> slotSet = findSlotsByColumn(outputSet, columns);
+            TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(
+                    slotSet, true, !allNotNull, ImmutableSet.of(table));
+            builder.add(tableFdItem);
+        }
         return builder.build();
+    }
+
+    private ImmutableSet<SlotReference> findSlotsByColumn(Set<Slot> outputSet, Set<Column> columns) {
+        ImmutableSet.Builder<SlotReference> slotSet = ImmutableSet.builderWithExpectedSize(columns.size());
+        for (Slot slot : outputSet) {
+            if (!(slot instanceof SlotReference)) {
+                continue;
+            }
+            SlotReference slotRef = (SlotReference) slot;
+            if (slotRef.getColumn().isPresent() && columns.contains(slotRef.getColumn().get())) {
+                slotSet.add(slotRef);
+            }
+        }
+        return slotSet.build();
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        // don't generate any equal pair
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        // don't generate any equal pair
     }
 }

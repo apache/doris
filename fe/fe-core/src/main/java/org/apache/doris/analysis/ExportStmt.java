@@ -63,6 +63,7 @@ import java.util.stream.Collectors;
 public class ExportStmt extends StatementBase {
     public static final String PARALLELISM = "parallelism";
     public static final String LABEL = "label";
+    public static final String DATA_CONSISTENCY = "data_consistency";
 
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
@@ -72,6 +73,7 @@ public class ExportStmt extends StatementBase {
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(LABEL)
             .add(PARALLELISM)
+            .add(DATA_CONSISTENCY)
             .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
@@ -104,6 +106,7 @@ public class ExportStmt extends StatementBase {
     private String maxFileSize;
     private String deleteExistingFiles;
     private String withBom;
+    private String dataConsistency = ExportJob.CONSISTENT_PARTITION;
     private SessionVariable sessionVariables;
 
     private String qualifiedUser;
@@ -162,13 +165,13 @@ public class ExportStmt extends StatementBase {
         }
 
         // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
-                                                                tblName.getDb(), tblName.getTbl(),
-                                                                PrivPredicate.SELECT)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tblName.getCtl(),
+                tblName.getDb(), tblName.getTbl(),
+                PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "EXPORT",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                tblName.getDb() + ": " + tblName.getTbl());
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    tblName.getDb() + ": " + tblName.getTbl());
         }
         qualifiedUser = ConnectContext.get().getQualifiedUser();
         userIdentity = ConnectContext.get().getCurrentUserIdentity();
@@ -230,6 +233,7 @@ public class ExportStmt extends StatementBase {
         exportJob.setMaxFileSize(this.maxFileSize);
         exportJob.setDeleteExistingFiles(this.deleteExistingFiles);
         exportJob.setWithBom(this.withBom);
+        exportJob.setDataConsistency(this.dataConsistency);
 
         if (columns != null) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
@@ -359,6 +363,19 @@ public class ExportStmt extends StatementBase {
 
         // with bom
         this.withBom = properties.getOrDefault(OutFileClause.PROP_WITH_BOM, "false");
+
+        // data consistency
+        if (properties.containsKey(DATA_CONSISTENCY)) {
+            String dataConsistencyStr = properties.get(DATA_CONSISTENCY);
+            if (ExportJob.CONSISTENT_NONE.equalsIgnoreCase(dataConsistencyStr)) {
+                this.dataConsistency = ExportJob.CONSISTENT_NONE;
+            } else if (ExportJob.CONSISTENT_PARTITION.equalsIgnoreCase(dataConsistencyStr)) {
+                this.dataConsistency = ExportJob.CONSISTENT_PARTITION;
+            } else {
+                throw new AnalysisException("The value of data_consistency is invalid, please use `"
+                        + ExportJob.CONSISTENT_PARTITION + "`/`" + ExportJob.CONSISTENT_NONE + "`");
+            }
+        }
     }
 
     private void checkColumns() throws DdlException {

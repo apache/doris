@@ -20,9 +20,11 @@ package org.apache.doris.nereids.trees.plans.visitor;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
@@ -31,6 +33,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
@@ -54,7 +59,15 @@ public interface RelationVisitor<R, C> {
 
     R visitLogicalRelation(LogicalRelation logicalRelation, C context);
 
+    default R visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation, C context) {
+        return visitLogicalRelation(catalogRelation, context);
+    }
+
     R visitPhysicalRelation(PhysicalRelation physicalRelation, C context);
+
+    default R visitPhysicalCatalogRelation(PhysicalCatalogRelation catalogRelation, C context) {
+        return visitPhysicalRelation(catalogRelation, context);
+    }
 
     // *******************************
     // unbound relations
@@ -80,29 +93,33 @@ public interface RelationVisitor<R, C> {
         return visitLogicalRelation(emptyRelation, context);
     }
 
+    default R visitLogicalExternalRelation(LogicalExternalRelation relation, C context) {
+        return visitLogicalCatalogRelation(relation, context);
+    }
+
     default R visitLogicalEsScan(LogicalEsScan esScan, C context) {
-        return visitLogicalRelation(esScan, context);
+        return visitLogicalExternalRelation(esScan, context);
     }
 
     default R visitLogicalFileScan(LogicalFileScan fileScan, C context) {
-        return visitLogicalRelation(fileScan, context);
+        return visitLogicalExternalRelation(fileScan, context);
     }
 
     default R visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, C context) {
-        return visitLogicalRelation(jdbcScan, context);
+        return visitLogicalExternalRelation(jdbcScan, context);
     }
 
     default R visitLogicalOdbcScan(LogicalOdbcScan odbcScan, C context) {
-        return visitLogicalRelation(odbcScan, context);
+        return visitLogicalExternalRelation(odbcScan, context);
     }
 
     default R visitLogicalOlapScan(LogicalOlapScan olapScan, C context) {
-        return visitLogicalRelation(olapScan, context);
+        return visitLogicalCatalogRelation(olapScan, context);
     }
 
     default R visitLogicalDeferMaterializeOlapScan(
             LogicalDeferMaterializeOlapScan deferMaterializeOlapScan, C context) {
-        return visitLogicalRelation(deferMaterializeOlapScan, context);
+        return visitLogicalCatalogRelation(deferMaterializeOlapScan, context);
     }
 
     default R visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, C context) {
@@ -110,11 +127,15 @@ public interface RelationVisitor<R, C> {
     }
 
     default R visitLogicalSchemaScan(LogicalSchemaScan schemaScan, C context) {
-        return visitLogicalRelation(schemaScan, context);
+        return visitLogicalCatalogRelation(schemaScan, context);
     }
 
     default R visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, C context) {
         return visitLogicalRelation(tvfRelation, context);
+    }
+
+    default R visitLogicalTestScan(LogicalTestScan testScan, C context) {
+        return visitLogicalCatalogRelation(testScan, context);
     }
 
     // *******************************
@@ -126,28 +147,28 @@ public interface RelationVisitor<R, C> {
     }
 
     default R visitPhysicalEsScan(PhysicalEsScan esScan, C context) {
-        return visitPhysicalRelation(esScan, context);
+        return visitPhysicalCatalogRelation(esScan, context);
     }
 
     default R visitPhysicalFileScan(PhysicalFileScan fileScan, C context) {
-        return visitPhysicalRelation(fileScan, context);
+        return visitPhysicalCatalogRelation(fileScan, context);
     }
 
     default R visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, C context) {
-        return visitPhysicalRelation(jdbcScan, context);
+        return visitPhysicalCatalogRelation(jdbcScan, context);
     }
 
     default R visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, C context) {
-        return visitPhysicalRelation(odbcScan, context);
+        return visitPhysicalCatalogRelation(odbcScan, context);
     }
 
     default R visitPhysicalOlapScan(PhysicalOlapScan olapScan, C context) {
-        return visitPhysicalRelation(olapScan, context);
+        return visitPhysicalCatalogRelation(olapScan, context);
     }
 
     default R visitPhysicalDeferMaterializeOlapScan(
             PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan, C context) {
-        return visitPhysicalRelation(deferMaterializeOlapScan, context);
+        return visitPhysicalCatalogRelation(deferMaterializeOlapScan, context);
     }
 
     default R visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation, C context) {
@@ -155,10 +176,14 @@ public interface RelationVisitor<R, C> {
     }
 
     default R visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, C context) {
-        return visitPhysicalRelation(schemaScan, context);
+        return visitPhysicalCatalogRelation(schemaScan, context);
     }
 
     default R visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, C context) {
         return visitPhysicalRelation(tvfRelation, context);
+    }
+
+    default R visitPhysicalCTEConsumer(PhysicalCTEConsumer consumer, C context) {
+        return visitPhysicalRelation(consumer, context);
     }
 }

@@ -192,7 +192,7 @@ private:
             }
         } else {
             for (int i = 0; i < rows; ++i) {
-                result[i] &= (left[i] == right[i]);
+                result[i] = (left[i] == right[i]) & (left[i] | result[i]);
             }
         }
     }

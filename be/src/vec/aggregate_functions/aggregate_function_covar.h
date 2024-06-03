@@ -211,8 +211,8 @@ struct BaseDatadecimal {
 
 template <typename T, typename Data>
 struct PopData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
-                                            ColumnVector<Float64>>;
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColVecResult&>(to);
         if constexpr (IsDecimalNumber<T>) {
@@ -225,8 +225,8 @@ struct PopData : Data {
 
 template <typename T, typename Data>
 struct SampData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
-                                            ColumnVector<Float64>>;
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
         if (this->count == 1 || this->count == 0) {
@@ -273,7 +273,7 @@ public:
         }
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (is_pop) {
             this->data(place).add(columns[0], columns[1], row_num);

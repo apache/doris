@@ -236,6 +236,10 @@ public:
 
     bool memtable_on_sink_node = false;
 
+    // use for cloud cluster mode
+    std::string qualified_user;
+    std::string cloud_cluster;
+
 public:
     ExecEnv* exec_env() { return _exec_env; }
 

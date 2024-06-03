@@ -20,7 +20,6 @@ suite("test_hive_parquet_alter_column", "p2,external,hive,external_remote,extern
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
         String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String hms_port = context.config.otherConfigs.get("hms_port")
 
         String catalog_name = "test_hive_parquet_alter_column"
         sql """drop catalog if exists ${catalog_name};"""
@@ -39,21 +38,20 @@ suite("test_hive_parquet_alter_column", "p2,external,hive,external_remote,extern
         sql """ use multi_catalog """
 
 
-        
+
         types = ["int","smallint","tinyint","bigint","float","double","boolean","string","char","varchar","date","timestamp","decimal"]
-        
+
         for( String type1 in types) {
             qt_desc """ desc parquet_alter_column_to_${type1} ; """
 
             qt_show """ select * from parquet_alter_column_to_${type1} ${Orderby} """
-            
+
             for( String type2 in types) {
 
                 qt_order """ select col_${type2} from  parquet_alter_column_to_${type1} order by col_${type2} limit 3 """
-            
+
             }
         }
-        
         order_qt_int_int """ select col_int from  parquet_alter_column_to_int  where col_int>=2 order by col_int limit 3""" 
         order_qt_int_smallint """ select col_smallint from  parquet_alter_column_to_int  where col_smallint>=3 order by col_smallint limit 3""" 
         order_qt_int_tinyint """ select col_tinyint from  parquet_alter_column_to_int  where col_tinyint>=3 order by col_tinyint limit 3""" 

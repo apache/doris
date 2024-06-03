@@ -73,12 +73,20 @@ public class InsertOverwriteTableStmt extends DdlStmt {
         return target.getPartitionNames().getPartitionNames();
     }
 
+    /*
+     * auto detect which partitions to replace. enable by partition(*) grammer
+     */
+    public boolean isAutoDetectPartition() {
+        return target.getPartitionNames().isStar();
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         target.getTblName().analyze(analyzer);
         InternalDatabaseUtil.checkDatabase(getDb(), ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), getDb(), getTbl(), PrivPredicate.LOAD)) {
+                .checkTblPriv(ConnectContext.get(), target.getTblName().getCtl(), getDb(), getTbl(),
+                        PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     getDb() + ": " + getTbl());

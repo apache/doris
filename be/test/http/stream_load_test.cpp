@@ -63,7 +63,7 @@ TEST_F(StreamLoadTest, TestHeader) {
     {
         auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
         HttpRequest req(evhttp_req);
-        EXPECT_EQ(load_size_smaller_than_wal_limit(&req), false);
+        EXPECT_EQ(req.header(HttpHeaders::CONTENT_LENGTH).empty(), true);
         evhttp_request_free(evhttp_req);
     }
 
@@ -78,7 +78,7 @@ TEST_F(StreamLoadTest, TestHeader) {
         evhttp_add_header(evhttp_req->input_headers, HTTP_GROUP_COMMIT.c_str(), "true");
         HttpRequest req(evhttp_req);
         req.init_from_evhttp();
-        EXPECT_EQ(load_size_smaller_than_wal_limit(&req), false);
+        EXPECT_EQ(req.header(HttpHeaders::CONTENT_LENGTH).empty(), true);
         evhttp_uri_free(evhttp_req->uri_elems);
         evhttp_req->uri = nullptr;
         evhttp_req->uri_elems = nullptr;
@@ -96,7 +96,8 @@ TEST_F(StreamLoadTest, TestHeader) {
         evhttp_add_header(evhttp_req->input_headers, HttpHeaders::CONTENT_LENGTH, "20000");
         HttpRequest req(evhttp_req);
         req.init_from_evhttp();
-        EXPECT_EQ(load_size_smaller_than_wal_limit(&req), true);
+        EXPECT_EQ(req.header(HttpHeaders::CONTENT_LENGTH), "20000");
+        EXPECT_EQ(load_size_smaller_than_wal_limit(20000), true);
         evhttp_uri_free(evhttp_req->uri_elems);
         evhttp_req->uri = nullptr;
         evhttp_req->uri_elems = nullptr;
@@ -114,7 +115,8 @@ TEST_F(StreamLoadTest, TestHeader) {
         evhttp_add_header(evhttp_req->input_headers, HttpHeaders::CONTENT_LENGTH, "1073741824");
         HttpRequest req(evhttp_req);
         req.init_from_evhttp();
-        EXPECT_EQ(load_size_smaller_than_wal_limit(&req), false);
+        EXPECT_EQ(req.header(HttpHeaders::CONTENT_LENGTH), "1073741824");
+        EXPECT_EQ(load_size_smaller_than_wal_limit(1073741824), false);
         evhttp_uri_free(evhttp_req->uri_elems);
         evhttp_req->uri = nullptr;
         evhttp_req->uri_elems = nullptr;

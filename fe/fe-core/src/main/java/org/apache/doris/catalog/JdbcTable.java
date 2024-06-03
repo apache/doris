@@ -92,7 +92,6 @@ public class JdbcTable extends Table {
 
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
-        tempMap.put("nebula", TOdbcTableType.NEBULA);
         tempMap.put("mysql", TOdbcTableType.MYSQL);
         tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         tempMap.put("sqlserver", TOdbcTableType.SQLSERVER);
@@ -103,6 +102,7 @@ public class JdbcTable extends Table {
         tempMap.put("presto", TOdbcTableType.PRESTO);
         tempMap.put("oceanbase", TOdbcTableType.OCEANBASE);
         tempMap.put("oceanbase_oracle", TOdbcTableType.OCEANBASE_ORACLE);
+        tempMap.put("db2", TOdbcTableType.DB2);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
@@ -492,6 +492,7 @@ public class JdbcTable extends Table {
             case SAP_HANA:
                 return formatName(name, "\"", "\"", false, false);
             case ORACLE:
+            case DB2:
                 return formatName(name, "\"", "\"", true, false);
             default:
                 return name;
@@ -512,6 +513,7 @@ public class JdbcTable extends Table {
             case OCEANBASE_ORACLE:
             case ORACLE:
             case SAP_HANA:
+            case DB2:
                 return formatNameWithRemoteName(remoteName, "\"", "\"");
             default:
                 return remoteName;

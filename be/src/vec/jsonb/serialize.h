@@ -16,8 +16,8 @@
 // under the License.
 
 #pragma once
-#include <stddef.h>
 
+#include <cstddef>
 #include <unordered_map>
 
 #include "olap/tablet_schema.h"
@@ -28,10 +28,6 @@
 namespace doris {
 class TabletSchema;
 class TupleDescriptor;
-
-namespace vectorized {
-class ColumnString;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {

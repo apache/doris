@@ -21,6 +21,7 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
+import com.google.common.base.Objects;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -222,5 +223,27 @@ public class PartitionKeyDesc {
             }
         })).append(")");
         return sb.toString();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PartitionKeyDesc that = (PartitionKeyDesc) o;
+        return Objects.equal(lowerValues, that.lowerValues)
+                && Objects.equal(upperValues, that.upperValues)
+                && Objects.equal(inValues, that.inValues)
+                && partitionKeyValueType == that.partitionKeyValueType
+                && Objects.equal(timeInterval, that.timeInterval)
+                && Objects.equal(timeType, that.timeType);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(lowerValues, upperValues, inValues, partitionKeyValueType, timeInterval, timeType);
     }
 }

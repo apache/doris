@@ -103,4 +103,59 @@ suite("test_load") {
         exception "error"
     }
     qt_decimalv3_insert "select * from test_decimalv3_insert order by 1, 2;"
+
+    // fix
+    sql """ set enable_nereids_dml=true; """
+    sql """
+        drop TABLE if exists test_sys_update_basic_test_update_decimal_tb;
+    """
+    sql """
+        CREATE TABLE test_sys_update_basic_test_update_decimal_tb (
+          k1 DECIMAL(10, 5) NULL, 
+          v1 DECIMAL(10, 5) NULL
+        ) UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 5 PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        insert into test_sys_update_basic_test_update_decimal_tb values
+            (1.001, 2.002), (1.002, 0.00000002), (1.003, 0.100000001), (1.004, 0.100044001), (1.005, 0.100045001);
+    """
+    qt_decimalv3_underflow1 """
+        select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
+    """
+    sql """
+        UPDATE test_sys_update_basic_test_update_decimal_tb SET v1="0.00000001" WHERE k1 = 1.001;
+    """
+    qt_decimalv3_underflow2 """
+        select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
+    """
+
+    sql """ set enable_nereids_dml=false; """
+    sql """
+        drop TABLE if exists test_sys_update_basic_test_update_decimal_tb;
+    """
+    sql """
+        CREATE TABLE test_sys_update_basic_test_update_decimal_tb (
+          k1 DECIMAL(10, 5) NULL, 
+          v1 DECIMAL(10, 5) NULL
+        ) UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 5 PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        insert into test_sys_update_basic_test_update_decimal_tb values
+            (1.001, 2.002), (1.002, 0.00000002), (1.003, 0.100000001), (1.004, 0.100044001), (1.005, 0.100045001);
+    """
+    qt_decimalv3_underflow3 """
+        select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
+    """
+    // need to use "1.001"(quoted) because non-nereids dml seems treat 1.001 as double,
+    // which will cause wrong result of decimal comparision
+    sql """
+        UPDATE test_sys_update_basic_test_update_decimal_tb SET v1="0.00000001" WHERE k1 = "1.001";
+    """
+    qt_decimalv3_underflow4 """
+        select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
+    """
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -51,6 +52,11 @@ public class AliasUdfBuilder extends UdfBuilder {
     }
 
     @Override
+    public Class<? extends BoundFunction> functionClass() {
+        return AliasUdf.class;
+    }
+
+    @Override
     public boolean canApply(List<?> arguments) {
         if (arguments.size() != aliasUdf.arity()) {
             return false;
@@ -67,7 +73,7 @@ public class AliasUdfBuilder extends UdfBuilder {
     }
 
     @Override
-    public Expression build(String name, List<?> arguments) {
+    public Pair<Expression, BoundFunction> build(String name, List<?> arguments) {
         // use AliasFunction to process TypeCoercion
         BoundFunction boundAliasFunction = ((BoundFunction) aliasUdf.withChildren(arguments.stream()
                 .map(Expression.class::cast).collect(Collectors.toList())));
@@ -90,7 +96,7 @@ public class AliasUdfBuilder extends UdfBuilder {
             replaceMap.put(slots.get(parameter), inputs.get(i));
         }
 
-        return SlotReplacer.INSTANCE.replace(boundFunction, replaceMap);
+        return Pair.of(SlotReplacer.INSTANCE.replace(boundFunction, replaceMap), boundAliasFunction);
     }
 
     private static class SlotReplacer extends DefaultExpressionRewriter<Map<SlotReference, Expression>> {

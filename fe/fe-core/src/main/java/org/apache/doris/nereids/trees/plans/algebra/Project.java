@@ -74,15 +74,24 @@ public interface Project {
      * And check if contains PushDownToProjectionFunction that can pushed down to project
      */
     default boolean hasPushedDownToProjectionFunctions() {
-        return ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable() != null
-                && ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()
-                && getProjects().stream().allMatch(namedExpr ->
-                namedExpr instanceof SlotReference
-                        || (namedExpr instanceof Alias
-                        && PushDownToProjectionFunction.validToPushDown(((Alias) namedExpr).child())))
-                && getProjects().stream().anyMatch((namedExpr -> namedExpr instanceof Alias
-                && PushDownToProjectionFunction.validToPushDown(((Alias) namedExpr).child())));
+        if ((ConnectContext.get() == null
+                || ConnectContext.get().getSessionVariable() == null
+                || !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot())) {
+            return false;
+        }
+
+        boolean hasValidAlias = false;
+        for (NamedExpression namedExpr : getProjects()) {
+            if (namedExpr instanceof Alias) {
+                if (!PushDownToProjectionFunction.validToPushDown(((Alias) namedExpr).child())) {
+                    return false;
+                }
+                hasValidAlias = true;
+            } else if (!(namedExpr instanceof SlotReference)) {
+                return false;
+            }
+        }
+        return hasValidAlias;
     }
 
     /**
@@ -107,5 +116,15 @@ public interface Project {
                     }
                     return expr;
                 });
+    }
+
+    /** isAllSlots */
+    default boolean isAllSlots() {
+        for (NamedExpression project : getProjects()) {
+            if (!project.isSlot()) {
+                return false;
+            }
+        }
+        return true;
     }
 }

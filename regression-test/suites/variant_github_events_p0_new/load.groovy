@@ -15,7 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_github_events_p0", "variant_type"){
+suite("regression_test_variant_github_events_p0", "nonConcurrent"){
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+    def set_be_config = { key, value ->
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
+    } 
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -43,6 +52,7 @@ suite("regression_test_variant_github_events_p0", "variant_type"){
             }
         }
     }
+    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
 
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
@@ -70,4 +80,21 @@ suite("regression_test_variant_github_events_p0", "variant_type"){
     // TODO fix compaction issue, this case could be stable
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
+
+    sql """DROP TABLE IF EXISTS github_events_2"""
+    sql """
+        CREATE TABLE IF NOT EXISTS `github_events_2` (
+        `k` BIGINT NULL,
+        `v` text NULL,
+        INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
+        ) ENGINE = OLAP DUPLICATE KEY(`k`) COMMENT 'OLAP' DISTRIBUTED BY HASH(`k`) BUCKETS 4 PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        insert into github_events_2 select 1, cast(v["repo"]["name"] as string) FROM github_events;
+    """
+
+    qt_sql_select_count """ select count(*) from github_events_2; """
 }

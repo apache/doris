@@ -114,7 +114,7 @@ public class StructInfoNode extends AbstractNode {
      * get all expressions of nodes
      */
     public @Nullable List<Expression> getExpressions() {
-        return expressions.stream()
+        return expressions == null ? null : expressions.stream()
                 .flatMap(Collection::stream)
                 .collect(Collectors.toList());
     }

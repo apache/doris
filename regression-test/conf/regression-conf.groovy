@@ -86,7 +86,11 @@ excludeGroups = ""
 // this suites will not be executed
 excludeSuites = "test_broker_load"
 // this directories will not be executed
-excludeDirectories = "segcompaction_p2,workload_manager_p1"
+excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "segcompaction_p2," +
+    "workload_manager_p1," +
+    "cloud_p0/cache" +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 
@@ -113,16 +117,25 @@ sqlserver_2022_port=1433
 clickhouse_22_port=8123
 doris_port=9030
 mariadb_10_port=3326
+db2_11_port=50000
 
 // hive catalog test config
 // To enable hive/paimon test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
 enablePaimonTest=false
-hms_port=9183
-hdfs_port=8120
-hiveServerPort=10000
-hive_pg_port=5432
+
+// port of hive2 docker
+hive2HmsPort=9083
+hive2HdfsPort=8020
+hive2ServerPort=10000
+hive2PgPort=5432
+
+// port of hive3 docker
+hive3HmsPort=9383
+hive3HdfsPort=8320
+hive3ServerPort=13000
+hive3PgPort=5732
 
 // kafka test config
 // to enable kafka test, you need firstly to start kafka container
@@ -133,6 +146,7 @@ kafka_port=19193
 // elasticsearch catalog test config
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableEsTest=false
+es_5_port=59200
 es_6_port=19200
 es_7_port=29200
 es_8_port=39200

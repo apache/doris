@@ -26,7 +26,7 @@
 #include <mutex>
 
 #include "common/status.h"
-#include "io/cache/block/block_file_segment.h"
+#include "io/cache/file_block.h"
 #include "util/crc32c.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
@@ -127,20 +127,34 @@ struct FileBuffer {
     size_t _capacity;
 };
 
+struct DownloadFileBuffer final : public FileBuffer {
+    DownloadFileBuffer(std::function<Status(Slice&)> download,
+                       std::function<void(FileBlocksHolderPtr, Slice)> write_to_cache,
+                       std::function<void(Slice, size_t)> write_to_use_buffer, OperationState state,
+                       size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder)
+            : FileBuffer(BufferType::DOWNLOAD, alloc_holder, offset, state),
+              _download(std::move(download)),
+              _write_to_local_file_cache(std::move(write_to_cache)),
+              _write_to_use_buffer(std::move(write_to_use_buffer)) {}
+    ~DownloadFileBuffer() override = default;
+    /**
+    * do the download work, it would write the content into local memory buffer
+    */
+    void on_download();
+    void execute_async() override { on_download(); }
+    Status append_data(const Slice& s) override { return Status::OK(); }
+
+    std::function<Status(Slice&)> _download;
+    std::function<void(FileBlocksHolderPtr, Slice)> _write_to_local_file_cache;
+    std::function<void(Slice, size_t)> _write_to_use_buffer;
+};
+
 struct UploadFileBuffer final : public FileBuffer {
     UploadFileBuffer(std::function<void(UploadFileBuffer&)> upload_cb, OperationState state,
-                     size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder,
-                     size_t index_offset)
+                     size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder)
             : FileBuffer(BufferType::UPLOAD, alloc_holder, offset, state),
-              _upload_to_remote(std::move(upload_cb)),
-              _index_offset(index_offset) {}
+              _upload_to_remote(std::move(upload_cb)) {}
     ~UploadFileBuffer() override = default;
-    /**
-    * set the index offset
-    *
-    * @param offset the index offset
-    */
-    void set_index_offset(size_t offset);
     Status append_data(const Slice& s) override;
     /**
     * read the content from local file cache
@@ -182,9 +196,8 @@ private:
 
     bool _is_cache_allocated {false};
     FileBlocksHolderPtr _holder;
-    decltype(_holder->file_segments.begin()) _cur_file_segment;
+    decltype(_holder->file_blocks.begin()) _cur_file_block;
     size_t _append_offset {0};
-    size_t _index_offset {0};
     uint32_t _crc_value = 0;
 };
 
@@ -233,13 +246,13 @@ struct FileBufferBuilder {
         return *this;
     }
     /**
-    * set the callback which allocate file cache segment holder
+    * set the callback which allocate file cache block holder
     * **Notice**: Because the load file cache workload coule be done
     * asynchronously so you must make sure all the dependencies of this
     * cb could last until this cb is invoked
     * @param cb 
     */
-    FileBufferBuilder& set_allocate_file_segments_holder(std::function<FileBlocksHolderPtr()> cb);
+    FileBufferBuilder& set_allocate_file_blocks_holder(std::function<FileBlocksHolderPtr()> cb);
     /**
     * set the file offset of the file buffer
     *
@@ -247,15 +260,6 @@ struct FileBufferBuilder {
     */
     FileBufferBuilder& set_file_offset(size_t offset) {
         _offset = offset;
-        return *this;
-    }
-    /**
-    * set the index offset of the file buffer
-    *
-    * @param cb 
-    */
-    FileBufferBuilder& set_index_offset(size_t index_offset) {
-        _index_offset = index_offset;
         return *this;
     }
     /**
@@ -287,7 +291,6 @@ struct FileBufferBuilder {
     std::function<Status(Slice&)> _download;
     std::function<void(Slice, size_t)> _write_to_use_buffer;
     size_t _offset;
-    size_t _index_offset;
 };
 } // namespace io
 } // namespace doris

@@ -308,7 +308,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         CatalogLog log = new CatalogLog();
         log.setCatalogId(hmsExternalCatalog.getId());
         log.setInvalidCache(true);
-        Env.getCurrentEnv().getCatalogMgr().replayRefreshCatalog(log);
+        Env.getCurrentEnv().getRefreshManager().replayRefreshCatalog(log);
     }
 
     private void refreshCatalogForSlave(HMSExternalCatalog hmsExternalCatalog) throws Exception {

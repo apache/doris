@@ -31,6 +31,8 @@ suite("query84") {
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
     sql 'set dump_nereids_memo=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     def ds = """select  c_customer_id as customer_id
        , concat(concat(coalesce(c_last_name,''), ','), coalesce(c_first_name,'')) as customername
  from customer

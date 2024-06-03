@@ -22,6 +22,7 @@
 #include <boost/shared_ptr.hpp>
 
 #include "runtime/descriptors.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
@@ -66,12 +67,12 @@ public:
         }
         return MutableBlock(block);
     }
-    static ColumnsWithTypeAndName create_columns_with_type_and_name(
-            const RowDescriptor& row_desc, bool ignore_trivial_slot = true) {
+
+    static ColumnsWithTypeAndName create_columns_with_type_and_name(const RowDescriptor& row_desc) {
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+                if (!slot_desc->need_materialize()) {
                     continue;
                 }
                 columns_with_type_and_name.emplace_back(nullptr, slot_desc->get_data_type_ptr(),
@@ -79,6 +80,19 @@ public:
             }
         }
         return columns_with_type_and_name;
+    }
+
+    static NameAndTypePairs create_name_and_data_types(const RowDescriptor& row_desc) {
+        NameAndTypePairs name_with_types;
+        for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
+            for (const auto& slot_desc : tuple_desc->slots()) {
+                if (!slot_desc->need_materialize()) {
+                    continue;
+                }
+                name_with_types.emplace_back(slot_desc->col_name(), slot_desc->get_data_type_ptr());
+            }
+        }
+        return name_with_types;
     }
 
     static ColumnsWithTypeAndName create_empty_block(const RowDescriptor& row_desc,
@@ -155,6 +169,64 @@ inline std::string remove_suffix(const std::string& name, const std::string& suf
             << ", suffix not match, name=" << name << ", suffix=" << suffix;
     return name.substr(0, name.length() - suffix.length());
 };
+
+inline ColumnPtr create_always_true_column(size_t size, bool is_nullable) {
+    auto res_data_column = ColumnUInt8::create(size, 1);
+    if (is_nullable) {
+        auto null_map = ColumnVector<UInt8>::create(size, 0);
+        return ColumnNullable::create(std::move(res_data_column), std::move(null_map));
+    }
+    return res_data_column;
+}
+
+// change null element to true element
+inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) {
+    size_t rows = column->size();
+    if (is_column_const(*column)) {
+        change_null_to_true(assert_cast<const ColumnConst*>(column.get())->get_data_column_ptr());
+    } else if (column->has_null()) {
+        auto* nullable =
+                const_cast<ColumnNullable*>(assert_cast<const ColumnNullable*>(column.get()));
+        auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())
+                                        ->get_data()
+                                        .data();
+        auto* __restrict null_map = const_cast<uint8_t*>(nullable->get_null_map_data().data());
+        for (size_t i = 0; i < rows; ++i) {
+            data[i] |= null_map[i];
+        }
+        memset(null_map, 0, rows);
+    } else if (argument != nullptr && argument->has_null()) {
+        const auto* __restrict null_map =
+                assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
+        auto* __restrict data =
+                const_cast<ColumnUInt8*>(assert_cast<const ColumnUInt8*>(column.get()))
+                        ->get_data()
+                        .data();
+        for (size_t i = 0; i < rows; ++i) {
+            data[i] |= null_map[i];
+        }
+    }
+}
+
+inline size_t calculate_false_number(ColumnPtr column) {
+    size_t rows = column->size();
+    if (is_column_const(*column)) {
+        return calculate_false_number(
+                       assert_cast<const ColumnConst*>(column.get())->get_data_column_ptr()) *
+               rows;
+    } else if (column->is_nullable()) {
+        const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
+        const auto* data = assert_cast<const ColumnUInt8*>(nullable->get_nested_column_ptr().get())
+                                   ->get_data()
+                                   .data();
+        const auto* __restrict null_map = nullable->get_null_map_data().data();
+        return simd::count_zero_num(reinterpret_cast<const int8_t* __restrict>(data), null_map,
+                                    rows);
+    } else {
+        const auto* data = assert_cast<const ColumnUInt8*>(column.get())->get_data().data();
+        return simd::count_zero_num(reinterpret_cast<const int8_t* __restrict>(data), rows);
+    }
+}
 
 } // namespace doris::vectorized
 

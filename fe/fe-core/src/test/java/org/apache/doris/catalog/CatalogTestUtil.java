@@ -230,7 +230,7 @@ public class CatalogTestUtil {
         table.setBaseIndexId(indexId);
         // db
         Database db = new Database(dbId, testDb1);
-        db.createTable(table);
+        db.registerTable(table);
 
         // add a es table to catalog
         try {
@@ -288,7 +288,7 @@ public class CatalogTestUtil {
                 TStorageType.COLUMN, KeysType.DUP_KEYS);
         table.setBaseIndexId(testIndexId2);
         // db
-        db.createTable(table);
+        db.registerTable(table);
     }
 
     public static void createEsTable(Database db) throws DdlException {
@@ -319,7 +319,7 @@ public class CatalogTestUtil {
         properties.put(EsResource.KEYWORD_SNIFF, "true");
         EsTable esTable = new EsTable(testEsTableId1, testEsTable1,
                 columns, properties, partitionInfo);
-        db.createTable(esTable);
+        db.registerTable(esTable);
     }
 
     public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort) {

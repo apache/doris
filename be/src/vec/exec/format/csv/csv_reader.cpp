@@ -78,9 +78,11 @@ void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>
                            splitted_values);
         value_start_offset = idx + _value_sep_len;
     }
-    // process the last column
-    process_value_func(data, value_start_offset, line.size - value_start_offset, _trimming_char,
-                       splitted_values);
+    if (line.size >= value_start_offset) {
+        // process the last column
+        process_value_func(data, value_start_offset, line.size - value_start_offset, _trimming_char,
+                           splitted_values);
+    }
 }
 
 void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
@@ -181,7 +183,6 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
-          _file_system(nullptr),
           _file_reader(nullptr),
           _line_reader(nullptr),
           _line_reader_eof(false),
@@ -212,8 +213,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
 CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                      const TFileRangeDesc& range,
                      const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
-        : _state(nullptr),
-          _profile(profile),
+        : _profile(profile),
           _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
@@ -269,7 +269,7 @@ Status CsvReader::init_reader(bool is_load) {
     if (start_offset == 0) {
         // check header typer first
         if (_params.__isset.file_attributes && _params.file_attributes.__isset.header_type &&
-            _params.file_attributes.header_type.size() > 0) {
+            !_params.file_attributes.header_type.empty()) {
             std::string header_type = to_lower(_params.file_attributes.header_type);
             if (header_type == BeConsts::CSV_WITH_NAMES) {
                 _skip_lines = 1;
@@ -298,9 +298,9 @@ Status CsvReader::init_reader(bool is_load) {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, reader_options, &_file_system,
-                &_file_reader, io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
+        _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, reader_options,
+                io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
                 io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
@@ -571,72 +571,11 @@ Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
 }
 
 Status CsvReader::_create_decompressor() {
-    CompressType compress_type;
     if (_file_compress_type != TFileCompressType::UNKNOWN) {
-        switch (_file_compress_type) {
-        case TFileCompressType::PLAIN:
-            compress_type = CompressType::UNCOMPRESSED;
-            break;
-        case TFileCompressType::GZ:
-            compress_type = CompressType::GZIP;
-            break;
-        case TFileCompressType::LZO:
-        case TFileCompressType::LZOP:
-            compress_type = CompressType::LZOP;
-            break;
-        case TFileCompressType::BZ2:
-            compress_type = CompressType::BZIP2;
-            break;
-        case TFileCompressType::LZ4FRAME:
-            compress_type = CompressType::LZ4FRAME;
-            break;
-        case TFileCompressType::LZ4BLOCK:
-            compress_type = CompressType::LZ4BLOCK;
-            break;
-        case TFileCompressType::DEFLATE:
-            compress_type = CompressType::DEFLATE;
-            break;
-        case TFileCompressType::SNAPPYBLOCK:
-            compress_type = CompressType::SNAPPYBLOCK;
-            break;
-        default:
-            return Status::InternalError<false>("unknown compress type: {}", _file_compress_type);
-        }
+        RETURN_IF_ERROR(Decompressor::create_decompressor(_file_compress_type, &_decompressor));
     } else {
-        switch (_file_format_type) {
-        case TFileFormatType::FORMAT_PROTO:
-            [[fallthrough]];
-        case TFileFormatType::FORMAT_CSV_PLAIN:
-            compress_type = CompressType::UNCOMPRESSED;
-            break;
-        case TFileFormatType::FORMAT_CSV_GZ:
-            compress_type = CompressType::GZIP;
-            break;
-        case TFileFormatType::FORMAT_CSV_BZ2:
-            compress_type = CompressType::BZIP2;
-            break;
-        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-            compress_type = CompressType::LZ4FRAME;
-            break;
-        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
-            compress_type = CompressType::LZ4BLOCK;
-            break;
-        case TFileFormatType::FORMAT_CSV_LZOP:
-            compress_type = CompressType::LZOP;
-            break;
-        case TFileFormatType::FORMAT_CSV_DEFLATE:
-            compress_type = CompressType::DEFLATE;
-            break;
-        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
-            compress_type = CompressType::SNAPPYBLOCK;
-            break;
-        default:
-            return Status::InternalError<false>("unknown format type: {}", _file_format_type);
-        }
+        RETURN_IF_ERROR(Decompressor::create_decompressor(_file_format_type, &_decompressor));
     }
-    Decompressor* decompressor;
-    RETURN_IF_ERROR(Decompressor::create_decompressor(compress_type, &decompressor));
-    _decompressor.reset(decompressor);
 
     return Status::OK();
 }
@@ -751,7 +690,13 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
         // Only check for load task. For query task, the non exist column will be filled "null".
         // if actual column number in csv file is not equal to _file_slot_descs.size()
         // then filter this line.
-        if (_split_values.size() != _file_slot_descs.size()) {
+        bool ignore_col = false;
+        ignore_col = _params.__isset.file_attributes &&
+                     _params.file_attributes.__isset.ignore_csv_redundant_col &&
+                     _params.file_attributes.ignore_csv_redundant_col;
+
+        if ((!ignore_col && _split_values.size() != _file_slot_descs.size()) ||
+            (ignore_col && _split_values.size() < _file_slot_descs.size())) {
             std::string cmp_str =
                     _split_values.size() > _file_slot_descs.size() ? "more than" : "less than";
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
@@ -846,7 +791,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     *is_parse_name = false;
 
     if (_params.__isset.file_attributes && _params.file_attributes.__isset.header_type &&
-        _params.file_attributes.header_type.size() > 0) {
+        !_params.file_attributes.header_type.empty()) {
         std::string header_type = to_lower(_params.file_attributes.header_type);
         if (header_type == BeConsts::CSV_WITH_NAMES) {
             *is_parse_name = true;
@@ -864,9 +809,8 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         RETURN_IF_ERROR(
                 FileFactory::create_pipe_reader(_params.load_id, &_file_reader, _state, true));
     } else {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_system_properties, _file_description,
-                                                        reader_options, &_file_system,
-                                                        &_file_reader));
+        _file_reader = DORIS_TRY(FileFactory::create_file_reader(
+                _system_properties, _file_description, reader_options));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {

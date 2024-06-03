@@ -58,6 +58,10 @@ public class QueryResult {
         return metadata != null ? metadata().columnCount() : 0;
     }
 
+    public boolean isHandleQueryInFe() {
+        return processor.isHandleQueryInFe();
+    }
+
     /**
      * Get the nth column from the row result.
      * The index is 0 based unlike in JDBC.

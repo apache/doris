@@ -28,42 +28,24 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/sink/vmysql_result_writer.h"
-#include "vec/sink/vresult_sink.h"
-
-namespace doris {
-class DataSink;
-} // namespace doris
 
 namespace doris::pipeline {
-
-ResultSinkOperatorBuilder::ResultSinkOperatorBuilder(int32_t id, DataSink* sink)
-        : DataSinkOperatorBuilder(id, "ResultSinkOperator", sink) {};
-
-OperatorPtr ResultSinkOperatorBuilder::build_operator() {
-    return std::make_shared<ResultSinkOperator>(this, _sink);
-}
-
-ResultSinkOperator::ResultSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
-        : DataSinkOperator(operator_builder, sink) {};
-
-bool ResultSinkOperator::can_write() {
-    return _sink->_sender->can_sink();
-}
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_profile, timer_name, 1);
     auto fragment_instance_id = state->fragment_instance_id();
+
+    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
+    _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
+
     // create sender
-    std::shared_ptr<BufferControlBlock> sender = nullptr;
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
             state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
             state->execution_timeout()));
-    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
-    _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
     ((PipBufferControlBlock*)_sender.get())->set_dependency(_dependency->shared_from_this());
     return Status::OK();
 }
@@ -80,8 +62,13 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     // create writer based on sink type
     switch (p._sink_type) {
     case TResultSinkType::MYSQL_PROTOCAL:
-        _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter(
-                _sender.get(), _output_vexpr_ctxs, _profile));
+        if (state->mysql_row_binary_format()) {
+            _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<true>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
+        } else {
+            _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<false>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
+        }
         break;
     default:
         return Status::InternalError("Unknown result sink type");
@@ -126,8 +113,7 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
-                                 SourceState source_state) {
+Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_sent_counter(), (int64_t)block->rows());
@@ -181,11 +167,11 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
         if (_writer) {
             _sender->update_return_rows(_writer->get_written_rows());
         }
-        static_cast<void>(_sender->close(final_status));
+        RETURN_IF_ERROR(_sender->close(final_status));
     }
-    static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
+    state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
-            state->fragment_instance_id()));
+            state->fragment_instance_id());
     RETURN_IF_ERROR(Base::close(state, exec_status));
     return final_status;
 }

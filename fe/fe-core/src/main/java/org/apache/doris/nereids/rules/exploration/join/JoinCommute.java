@@ -25,8 +25,11 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.planner.NestedLoopJoinNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -59,10 +62,20 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 .when(join -> check(swapType, join))
                 .whenNot(LogicalJoin::hasDistributeHint)
                 .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))
-                .whenNot(LogicalJoin::isMarkJoin)
+                // null aware mark join will be translated to null aware left semi/anti join
+                // we don't support null aware right semi/anti join, so should not commute
+                .whenNot(join -> JoinUtils.isNullAwareMarkJoin(join))
+                // commuting nest loop mark join or left anti mark join is not supported by be
+                .whenNot(join -> join.isMarkJoin() && (join.getHashJoinConjuncts().isEmpty()
+                        || join.getJoinType().isLeftAntiJoin()))
+                // For a nested loop join, if commutativity causes a join that could originally be executed
+                // in parallel to become non-parallelizable, then we reject this swap.
+                .whenNot(join -> JoinUtils.shouldNestedLoopJoin(join)
+                        && NestedLoopJoinNode.canParallelize(JoinType.toJoinOperator(join.getJoinType()))
+                        && !NestedLoopJoinNode.canParallelize(JoinType.toJoinOperator(join.getJoinType().swap())))
                 .then(join -> {
                     LogicalJoin<Plan, Plan> newJoin = join.withTypeChildren(join.getJoinType().swap(),
-                            join.right(), join.left());
+                            join.right(), join.left(), null);
                     newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);
                     if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
@@ -100,6 +113,9 @@ public class JoinCommute extends OneExplorationRuleFactory {
     }
 
     private boolean checkReorder(LogicalJoin<GroupPlan, GroupPlan> join) {
+        if (join.isLeadingJoin()) {
+            return false;
+        }
         return !join.getJoinReorderContext().hasCommute()
                 && !join.getJoinReorderContext().hasExchange();
     }

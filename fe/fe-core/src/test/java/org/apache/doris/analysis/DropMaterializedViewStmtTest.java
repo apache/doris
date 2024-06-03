@@ -50,8 +50,8 @@ public class DropMaterializedViewStmtTest {
     public void testNoPermission(@Injectable TableName tableName) {
         new Expectations() {
             {
-                accessManager.checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                        tableName.getTbl(), PrivPredicate.DROP);
+                accessManager.checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
+                        tableName.getTbl(), PrivPredicate.ALTER);
                 result = false;
             }
         };

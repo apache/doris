@@ -20,29 +20,11 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris {
-class DataSink;
 class PipBufferControlBlock;
 
 namespace pipeline {
-
-class ResultSinkOperatorBuilder final : public DataSinkOperatorBuilder<vectorized::VResultSink> {
-public:
-    ResultSinkOperatorBuilder(int32_t id, DataSink* sink);
-
-    OperatorPtr build_operator() override;
-};
-
-class ResultSinkOperator final : public DataSinkOperator<vectorized::VResultSink> {
-public:
-    ResultSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink);
-
-    bool can_write() override;
-};
 
 class ResultSinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
@@ -63,8 +45,8 @@ private:
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
-    std::shared_ptr<BufferControlBlock> _sender;
-    std::shared_ptr<ResultWriter> _writer;
+    std::shared_ptr<BufferControlBlock> _sender = nullptr;
+    std::shared_ptr<ResultWriter> _writer = nullptr;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
     RuntimeProfile::Counter* _rows_sent_counter = nullptr;
 };
@@ -76,8 +58,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
 private:
     friend class ResultSinkLocalState;

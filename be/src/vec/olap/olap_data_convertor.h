@@ -443,6 +443,7 @@ private:
         const void* get_data() const override { return _results.data(); };
         const void* get_data_at(size_t offset) const override {
             LOG(FATAL) << "now not support get_data_at for OlapColumnDataConvertorArray";
+            __builtin_unreachable();
         };
         Status convert_to_olap() override;
 
@@ -472,6 +473,7 @@ private:
         const void* get_data() const override { return _results.data(); };
         const void* get_data_at(size_t offset) const override {
             LOG(FATAL) << "now not support get_data_at for OlapColumnDataConvertorMap";
+            __builtin_unreachable();
         };
 
     private:

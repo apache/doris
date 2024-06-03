@@ -31,25 +31,23 @@
 namespace doris::pipeline {
 
 Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
-    if (_scan_ranges.empty()) {
+    if (_split_source->num_scan_ranges() == 0) {
         _eos = true;
-        _dependency->set_ready();
         return Status::OK();
     }
 
     auto& p = _parent->cast<FileScanOperatorX>();
     size_t shard_num = std::min<size_t>(
             config::doris_scanner_thread_pool_thread_num / state()->query_parallel_instance_num(),
-            _scan_ranges.size());
+            _max_scanners);
     shard_num = std::max(shard_num, (size_t)1);
     _kv_cache.reset(new vectorized::ShardedKVCache(shard_num));
-    for (auto& scan_range : _scan_ranges) {
+    for (int i = 0; i < _max_scanners; ++i) {
         std::unique_ptr<vectorized::VFileScanner> scanner = vectorized::VFileScanner::create_unique(
-                state(), this, p._limit_per_scanner,
-                scan_range.scan_range.ext_scan_range.file_scan_range, _scanner_profile.get(),
+                state(), this, p._limit_per_scanner, _split_source, _scanner_profile.get(),
                 _kv_cache.get());
         RETURN_IF_ERROR(
-                scanner->prepare(_conjuncts, &_colname_to_value_range, &_colname_to_slot_id));
+                scanner->prepare(_conjuncts, &_colname_to_value_range, &p._colname_to_slot_id));
         scanners->push_back(std::move(scanner));
     }
     return Status::OK();
@@ -62,33 +60,25 @@ std::string FileScanLocalState::name_suffix() const {
 
 void FileScanLocalState::set_scan_ranges(RuntimeState* state,
                                          const std::vector<TScanRangeParams>& scan_ranges) {
-    int max_scanners =
+    _max_scanners =
             config::doris_scanner_thread_pool_thread_num / state->query_parallel_instance_num();
-    max_scanners = std::max(std::max(max_scanners, state->parallel_scan_max_scanners_count()), 1);
+    _max_scanners = std::max(std::max(_max_scanners, state->parallel_scan_max_scanners_count()), 1);
     // For select * from table limit 10; should just use one thread.
     if (should_run_serial()) {
-        max_scanners = 1;
+        _max_scanners = 1;
     }
-    if (scan_ranges.size() <= max_scanners) {
-        _scan_ranges = scan_ranges;
-    } else {
-        // There is no need for the number of scanners to exceed the number of threads in thread pool.
-        _scan_ranges.clear();
-        auto range_iter = scan_ranges.begin();
-        for (int i = 0; i < max_scanners && range_iter != scan_ranges.end(); ++i, ++range_iter) {
-            _scan_ranges.push_back(*range_iter);
+    if (scan_ranges.size() == 1) {
+        auto scan_range = scan_ranges[0].scan_range.ext_scan_range.file_scan_range;
+        if (scan_range.__isset.split_source) {
+            auto split_source = scan_range.split_source;
+            _split_source = std::make_shared<vectorized::RemoteSplitSourceConnector>(
+                    state, split_source.split_source_id, split_source.num_splits);
         }
-        for (int i = 0; range_iter != scan_ranges.end(); ++i, ++range_iter) {
-            if (i == max_scanners) {
-                i = 0;
-            }
-            auto& ranges = _scan_ranges[i].scan_range.ext_scan_range.file_scan_range.ranges;
-            auto& merged_ranges = range_iter->scan_range.ext_scan_range.file_scan_range.ranges;
-            ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
-        }
-        _scan_ranges.shrink_to_fit();
-        LOG(INFO) << "Merge " << scan_ranges.size() << " scan ranges to " << _scan_ranges.size();
     }
+    if (_split_source == nullptr) {
+        _split_source = std::make_shared<vectorized::LocalSplitSourceConnector>(scan_ranges);
+    }
+    _max_scanners = std::min(_max_scanners, _split_source->num_scan_ranges());
     if (scan_ranges.size() > 0 &&
         scan_ranges[0].scan_range.ext_scan_range.file_scan_range.__isset.params) {
         // for compatibility.
@@ -105,8 +95,8 @@ Status FileScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     return Status::OK();
 }
 
-Status FileScanLocalState::_process_conjuncts() {
-    RETURN_IF_ERROR(ScanLocalState<FileScanLocalState>::_process_conjuncts());
+Status FileScanLocalState::_process_conjuncts(RuntimeState* state) {
+    RETURN_IF_ERROR(ScanLocalState<FileScanLocalState>::_process_conjuncts(state));
     if (Base::_eos) {
         return Status::OK();
     }

@@ -39,7 +39,7 @@ public abstract class Cache {
     }
 
     protected TUniqueId queryId;
-    protected SelectStmt selectStmt;
+    protected final SelectStmt selectStmt;
     protected RowBatchBuilder rowBatchBuilder;
     protected boolean disableCache = false;
     protected CacheAnalyzer.CacheTable latestTable;
@@ -50,14 +50,15 @@ public abstract class Cache {
     protected Cache(TUniqueId queryId, SelectStmt selectStmt) {
         this.queryId = queryId;
         this.selectStmt = selectStmt;
-        proxy = CacheProxy.getCacheProxy(CacheProxy.CacheProxyType.BE);
-        hitRange = HitRange.None;
+        this.proxy = CacheProxy.getCacheProxy(CacheProxy.CacheProxyType.BE);
+        this.hitRange = HitRange.None;
     }
 
     protected Cache(TUniqueId queryId) {
         this.queryId = queryId;
-        proxy = CacheProxy.getCacheProxy(CacheProxy.CacheProxyType.BE);
-        hitRange = HitRange.None;
+        this.selectStmt = null;
+        this.proxy = CacheProxy.getCacheProxy(CacheProxy.CacheProxyType.BE);
+        this.hitRange = HitRange.None;
     }
 
     public abstract InternalService.PFetchCacheResult getCacheData(Status status);
@@ -80,6 +81,10 @@ public abstract class Cache {
      * Update rowset to cache of be
      */
     public abstract void updateCache();
+
+    public boolean isDisableCache() {
+        return disableCache;
+    }
 
     protected boolean checkRowLimit() {
         if (disableCache || rowBatchBuilder == null) {
@@ -104,5 +109,9 @@ public abstract class Cache {
         } else {
             return true;
         }
+    }
+
+    public CacheProxy getProxy() {
+        return proxy;
     }
 }

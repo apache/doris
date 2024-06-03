@@ -22,9 +22,6 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_outfile_expr_generate_col_name", "p0") {
-    // close nereids
-    sql """ set enable_nereids_planner=false """
-
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()

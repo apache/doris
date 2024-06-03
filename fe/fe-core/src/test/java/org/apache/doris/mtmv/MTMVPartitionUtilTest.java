@@ -71,9 +71,13 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = Lists.newArrayList(p1);
 
-                p1.getId();
+                mtmv.getPartitionNames();
                 minTimes = 0;
-                result = 1L;
+                result = Sets.newHashSet("name1");
+
+                p1.getName();
+                minTimes = 0;
+                result = "name1";
 
                 mtmv.getMvPartitionInfo();
                 minTimes = 0;
@@ -97,7 +101,7 @@ public class MTMVPartitionUtilTest {
 
                 mtmv.getPartitionName(anyLong);
                 minTimes = 0;
-                result = "p1";
+                result = "name1";
 
                 mtmv.getRefreshSnapshot();
                 minTimes = 0;
@@ -115,13 +119,13 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = true;
 
-                baseOlapTable.getPartitionSnapshot(anyLong);
+                baseOlapTable.getPartitionSnapshot(anyString);
                 minTimes = 0;
                 result = baseSnapshotIf;
 
                 baseOlapTable.getPartitionName(anyLong);
                 minTimes = 0;
-                result = "p1";
+                result = "name1";
 
                 refreshSnapshot.equalsWithRelatedPartition(anyString, anyString, (MTMVSnapshotIf) any);
                 minTimes = 0;
@@ -151,7 +155,8 @@ public class MTMVPartitionUtilTest {
 
     @Test
     public void testIsSyncWithPartition() throws AnalysisException {
-        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartition(mtmv, 1L, baseOlapTable, 2L);
+        boolean isSyncWithPartition = MTMVPartitionUtil
+                .isSyncWithPartitions(mtmv, "name1", baseOlapTable, Sets.newHashSet("name2"));
         Assert.assertTrue(isSyncWithPartition);
     }
 
@@ -164,7 +169,8 @@ public class MTMVPartitionUtilTest {
                 result = false;
             }
         };
-        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartition(mtmv, 1L, baseOlapTable, 2L);
+        boolean isSyncWithPartition = MTMVPartitionUtil
+                .isSyncWithPartitions(mtmv, "name1", baseOlapTable, Sets.newHashSet("name2"));
         Assert.assertFalse(isSyncWithPartition);
     }
 

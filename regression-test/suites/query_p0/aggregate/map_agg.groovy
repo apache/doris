@@ -63,7 +63,7 @@ suite("map_agg") {
           ) ENGINE=OLAP
           DUPLICATE KEY(`id`)
           COMMENT 'OLAP'
-          DISTRIBUTED BY HASH(`id`) BUCKETS 2
+          DISTRIBUTED BY HASH(`id`) BUCKETS 10
           PROPERTIES (
           "replication_allocation" = "tag.location.default: 1",
           "storage_format" = "V2",
@@ -278,5 +278,48 @@ suite("map_agg") {
         from (
             select userid, map_agg(subject,score) as map from test_map_agg_score group by userid
         ) a order by userid;
+    """
+
+    sql "DROP TABLE IF EXISTS test_map_agg_multi;"
+    sql """
+        create table test_map_agg_multi (
+            data_time bigint,
+            mil int,
+            vin string,
+            car_type string,
+            month string,
+            day string
+        ) engine=olap
+        distributed by hash(data_time) buckets 10
+        properties("replication_num" = "1");
+    """
+    sql """
+        insert into test_map_agg_multi values (1, 1, 'abc', 'bc', '01', '01'), (2, 2, 'abc', 'bc', '01', '01');
+    """
+
+    qt_multi """
+        select
+            m1['1']
+            , m2['2']
+        from (
+            select
+                vin
+                , car_type
+                , map_agg(ts, mile) m1
+                , map_agg(mile, ts) m2
+            from (
+                 select
+                    vin
+                    , car_type
+                    , data_time as ts
+                    , mil as mile, month
+                    , day from test_map_agg_multi
+            )a
+            group by
+               car_type
+               , vin
+               , month
+               , day
+        ) t order by 1, 2;
     """
  }

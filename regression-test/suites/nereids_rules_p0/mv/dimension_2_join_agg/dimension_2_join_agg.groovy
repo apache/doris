@@ -43,7 +43,7 @@ suite("dimension_2_join_agg_replenish") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    AUTO PARTITION BY range date_trunc(`o_orderdate`, 'day') ()
+    auto partition by range (date_trunc(`o_orderdate`, 'day')) ()
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -73,7 +73,7 @@ suite("dimension_2_join_agg_replenish") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    AUTO PARTITION BY range date_trunc(`l_shipdate`, 'day') ()
+    auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -883,17 +883,21 @@ suite("dimension_2_join_agg_replenish") {
             t1.sum_total, col3, count_all
             """
 
-    def sql_list = [left_mv_stmt_1,left_mv_stmt_2,left_mv_stmt_3,left_mv_stmt_4,left_mv_stmt_5,left_mv_stmt_6,left_mv_stmt_7,left_mv_stmt_8,left_mv_stmt_9,left_mv_stmt_10,
-                    right_mv_stmt_1,right_mv_stmt_2,right_mv_stmt_3,right_mv_stmt_4,right_mv_stmt_5,right_mv_stmt_6,right_mv_stmt_7,right_mv_stmt_8,right_mv_stmt_9,right_mv_stmt_10,
-                    inner_mv_stmt_1,inner_mv_stmt_2,inner_mv_stmt_3,inner_mv_stmt_4,inner_mv_stmt_5,inner_mv_stmt_6,inner_mv_stmt_7,inner_mv_stmt_8,inner_mv_stmt_9,inner_mv_stmt_10]
-// query rewrite by materialzied view only support inner join, left outer join and right outer join(which can be converted to left outer join)
-//                    full_mv_stmt_1,full_mv_stmt_2,full_mv_stmt_3,full_mv_stmt_4,full_mv_stmt_5,full_mv_stmt_6,full_mv_stmt_7,full_mv_stmt_8,full_mv_stmt_9,full_mv_stmt_10,
-//                    cross_mv_stmt_1,cross_mv_stmt_2,cross_mv_stmt_3,cross_mv_stmt_4,cross_mv_stmt_5,cross_mv_stmt_6,cross_mv_stmt_7,cross_mv_stmt_8,cross_mv_stmt_9,cross_mv_stmt_10,
-//                    left_semi_mv_stmt_1,left_semi_mv_stmt_2,left_semi_mv_stmt_3,left_semi_mv_stmt_4,left_semi_mv_stmt_5,left_semi_mv_stmt_6,left_semi_mv_stmt_7,left_semi_mv_stmt_8,left_semi_mv_stmt_9,left_semi_mv_stmt_10,
-//                    left_anti_mv_stmt_1,left_anti_mv_stmt_2,left_anti_mv_stmt_3,left_anti_mv_stmt_4,left_anti_mv_stmt_5,left_anti_mv_stmt_6,left_anti_mv_stmt_7,left_anti_mv_stmt_8,left_anti_mv_stmt_9,left_anti_mv_stmt_10,
-//                    right_semi_mv_stmt_1,right_semi_mv_stmt_2,right_semi_mv_stmt_3,right_semi_mv_stmt_4,right_semi_mv_stmt_5,right_semi_mv_stmt_6,right_semi_mv_stmt_7,right_semi_mv_stmt_8,right_semi_mv_stmt_9,right_semi_mv_stmt_10,
-//                    right_anti_mv_stmt_1,right_anti_mv_stmt_2,right_anti_mv_stmt_3,right_anti_mv_stmt_4,right_anti_mv_stmt_5,right_anti_mv_stmt_6,right_anti_mv_stmt_7,right_anti_mv_stmt_8,right_anti_mv_stmt_9,right_anti_mv_stmt_10]
+    def sql_list = [
+            left_mv_stmt_1,left_mv_stmt_2,left_mv_stmt_3,left_mv_stmt_4,left_mv_stmt_5,left_mv_stmt_6,left_mv_stmt_7,left_mv_stmt_8,left_mv_stmt_9,left_mv_stmt_10,
+                     right_mv_stmt_1,right_mv_stmt_2,right_mv_stmt_3,right_mv_stmt_4,right_mv_stmt_5,right_mv_stmt_6,right_mv_stmt_7,right_mv_stmt_8,right_mv_stmt_9,right_mv_stmt_10,
+                     inner_mv_stmt_1,inner_mv_stmt_2,inner_mv_stmt_3,inner_mv_stmt_4,inner_mv_stmt_5,inner_mv_stmt_6,inner_mv_stmt_7,inner_mv_stmt_8,inner_mv_stmt_9,inner_mv_stmt_10,
+                     full_mv_stmt_1,full_mv_stmt_2,full_mv_stmt_3,full_mv_stmt_4,full_mv_stmt_5,full_mv_stmt_6,full_mv_stmt_7,full_mv_stmt_8,full_mv_stmt_9,full_mv_stmt_10,
 
+                    // agg pulled up, and the struct info is invalid. need to support aggregate merge then support following query rewriting
+                    // left_semi_mv_stmt_1,left_semi_mv_stmt_2,left_semi_mv_stmt_3,left_semi_mv_stmt_4,left_semi_mv_stmt_5,left_semi_mv_stmt_6,left_semi_mv_stmt_7,left_semi_mv_stmt_8,left_semi_mv_stmt_9,left_semi_mv_stmt_10,
+                    // left_anti_mv_stmt_1,left_anti_mv_stmt_2,left_anti_mv_stmt_3,left_anti_mv_stmt_4,left_anti_mv_stmt_5,left_anti_mv_stmt_6,left_anti_mv_stmt_7,left_anti_mv_stmt_8,left_anti_mv_stmt_9,left_anti_mv_stmt_10,
+                    // right_semi_mv_stmt_1,right_semi_mv_stmt_2,right_semi_mv_stmt_3,right_semi_mv_stmt_4,right_semi_mv_stmt_5,right_semi_mv_stmt_6,right_semi_mv_stmt_7,right_semi_mv_stmt_8,right_semi_mv_stmt_9,right_semi_mv_stmt_10,
+                    // right_anti_mv_stmt_1,right_anti_mv_stmt_2,right_anti_mv_stmt_3,right_anti_mv_stmt_4,right_anti_mv_stmt_5,right_anti_mv_stmt_6,right_anti_mv_stmt_7,right_anti_mv_stmt_8,right_anti_mv_stmt_9,right_anti_mv_stmt_10
+
+                    // query rewrite by materialized view doesn't support cross join currently
+                    // cross_mv_stmt_1,cross_mv_stmt_2,cross_mv_stmt_3,cross_mv_stmt_4,cross_mv_stmt_5,cross_mv_stmt_6,cross_mv_stmt_7,cross_mv_stmt_8,cross_mv_stmt_9,cross_mv_stmt_10,
+    ]
     for (int i = 0; i < sql_list.size(); i++) {
         def origin_res = sql sql_list[i]
         assert (origin_res.size() > 0)

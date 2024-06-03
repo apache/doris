@@ -16,10 +16,8 @@
 // under the License.
 
 suite("test_bit_functions") {
-    sql "SET enable_nereids_planner=false"
     qt_select 'select bitand(123456, 321.0), bitor(123456, 321.0), bitxor(123456, 321.0), bitnot(321.0);'
 
-    sql "SET enable_nereids_planner=false;"
     qt_bit_count 'select bit_count(number) from numbers("number"="10");'
     qt_bit_count 'select bit_count(0);'
     qt_bit_count 'select bit_count(-1);'
@@ -81,4 +79,13 @@ suite("test_bit_functions") {
 
     qt_select "select bit_count(bit_shift_right(-1, 63)), bit_count(bit_shift_right(-1, 63));"
 
+    qt_bitxor """
+        select 2^127, -2^127;
+    """
+    qt_bitxor """
+        select number, number^127, -number, (-number)^127 from numbers("number"="5") order by number;
+    """
+    qt_bitxor """
+        select number, number^number, -number, (-number)^(-number) from numbers("number"="5") order by number
+    """
 }

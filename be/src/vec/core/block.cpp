@@ -414,6 +414,25 @@ size_t Block::bytes() const {
     return res;
 }
 
+std::string Block::columns_bytes() const {
+    std::stringstream res;
+    res << "column bytes: [";
+    for (const auto& elem : data) {
+        if (!elem.column) {
+            std::stringstream ss;
+            for (const auto& e : data) {
+                ss << e.name + " ";
+            }
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
+                            elem.name, ss.str());
+        }
+        res << ", " << elem.column->byte_size();
+    }
+    res << "]";
+    return res.str();
+}
+
 size_t Block::allocated_bytes() const {
     size_t res = 0;
     for (const auto& elem : data) {
@@ -692,6 +711,7 @@ std::string Block::print_use_count() {
 }
 
 void Block::clear_column_data(int column_size) noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here
     if (column_size != -1 and data.size() > column_size) {
@@ -700,23 +720,34 @@ void Block::clear_column_data(int column_size) noexcept {
         }
     }
     for (auto& d : data) {
-        DCHECK_EQ(d.column->use_count(), 1);
+        DCHECK_EQ(d.column->use_count(), 1) << " " << print_use_count();
         (*std::move(d.column)).assume_mutable()->clear();
     }
     row_same_bit.clear();
 }
 
 void Block::swap(Block& other) noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     data.swap(other.data);
     index_by_name.swap(other.index_by_name);
     row_same_bit.swap(other.row_same_bit);
 }
 
 void Block::swap(Block&& other) noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     clear();
     data = std::move(other.data);
     index_by_name = std::move(other.index_by_name);
     row_same_bit = std::move(other.row_same_bit);
+}
+
+void Block::shuffle_columns(const std::vector<int>& result_column_ids) {
+    Container tmp_data;
+    tmp_data.reserve(result_column_ids.size());
+    for (const int result_column_id : result_column_ids) {
+        tmp_data.push_back(data[result_column_id]);
+    }
+    swap(Block {tmp_data});
 }
 
 void Block::update_hash(SipHash& hash) const {
@@ -746,7 +777,6 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
                                         "filter_size={}",
                                         result_size, count);
                     }
-                    CHECK_EQ(result_size, count);
                 } else {
                     column = column->filter(filter, count);
                 }
@@ -868,9 +898,9 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
         buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
     }
     *uncompressed_bytes = content_uncompressed_size;
-    const size_t serialize_bytes = buf - column_values.data();
+    const size_t serialize_bytes = buf - column_values.data() + STREAMVBYTE_PADDING;
     *compressed_bytes = serialize_bytes;
-    column_values.resize(serialize_bytes + STREAMVBYTE_PADDING);
+    column_values.resize(serialize_bytes);
 
     // compress
     if (compression_type != segment_v2::NO_COMPRESSION && content_uncompressed_size > 0) {
@@ -935,6 +965,7 @@ size_t MutableBlock::rows() const {
 }
 
 void MutableBlock::swap(MutableBlock& another) noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     _columns.swap(another._columns);
     _data_types.swap(another._data_types);
     _names.swap(another._names);
@@ -942,6 +973,7 @@ void MutableBlock::swap(MutableBlock& another) noexcept {
 }
 
 void MutableBlock::swap(MutableBlock&& another) noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     clear();
     _columns = std::move(another._columns);
     _data_types = std::move(another._data_types);
@@ -956,43 +988,53 @@ void MutableBlock::add_row(const Block* block, int row) {
     }
 }
 
-void MutableBlock::add_rows(const Block* block, const uint32_t* row_begin,
-                            const uint32_t* row_end) {
-    DCHECK_LE(columns(), block->columns());
-    const auto& block_data = block->get_columns_with_type_and_name();
-    for (size_t i = 0; i < _columns.size(); ++i) {
-        DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
-        auto& dst = _columns[i];
-        const auto& src = *block_data[i].column.get();
-        dst->insert_indices_from(src, row_begin, row_end);
-    }
-}
-
-void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
-    DCHECK_LE(columns(), block->columns());
-    const auto& block_data = block->get_columns_with_type_and_name();
-    for (size_t i = 0; i < _columns.size(); ++i) {
-        DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
-        auto& dst = _columns[i];
-        const auto& src = *block_data[i].column.get();
-        dst->insert_range_from(src, row_begin, length);
-    }
-}
-
-void MutableBlock::add_rows(const Block* block, std::vector<int64_t> rows) {
-    DCHECK_LE(columns(), block->columns());
-    const auto& block_data = block->get_columns_with_type_and_name();
-    const size_t length = std::ranges::distance(rows);
-    for (size_t i = 0; i < _columns.size(); ++i) {
-        DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
-        auto& dst = _columns[i];
-        const auto& src = *block_data[i].column.get();
-        dst->reserve(dst->size() + length);
-        for (size_t row : rows) {
-            // we can introduce a new function like `insert_assume_reserved` for IColumn.
-            dst->insert_from(src, row);
+Status MutableBlock::add_rows(const Block* block, const uint32_t* row_begin,
+                              const uint32_t* row_end) {
+    RETURN_IF_CATCH_EXCEPTION({
+        DCHECK_LE(columns(), block->columns());
+        const auto& block_data = block->get_columns_with_type_and_name();
+        for (size_t i = 0; i < _columns.size(); ++i) {
+            DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
+            auto& dst = _columns[i];
+            const auto& src = *block_data[i].column.get();
+            DCHECK_GE(src.size(), row_end - row_begin);
+            dst->insert_indices_from(src, row_begin, row_end);
         }
-    }
+    });
+    return Status::OK();
+}
+
+Status MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
+    RETURN_IF_CATCH_EXCEPTION({
+        DCHECK_LE(columns(), block->columns());
+        const auto& block_data = block->get_columns_with_type_and_name();
+        for (size_t i = 0; i < _columns.size(); ++i) {
+            DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
+            auto& dst = _columns[i];
+            const auto& src = *block_data[i].column.get();
+            dst->insert_range_from(src, row_begin, length);
+        }
+    });
+    return Status::OK();
+}
+
+Status MutableBlock::add_rows(const Block* block, std::vector<int64_t> rows) {
+    RETURN_IF_CATCH_EXCEPTION({
+        DCHECK_LE(columns(), block->columns());
+        const auto& block_data = block->get_columns_with_type_and_name();
+        const size_t length = std::ranges::distance(rows);
+        for (size_t i = 0; i < _columns.size(); ++i) {
+            DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
+            auto& dst = _columns[i];
+            const auto& src = *block_data[i].column.get();
+            dst->reserve(dst->size() + length);
+            for (size_t row : rows) {
+                // we can introduce a new function like `insert_assume_reserved` for IColumn.
+                dst->insert_from(src, row);
+            }
+        }
+    });
+    return Status::OK();
 }
 
 void MutableBlock::erase(const String& name) {
@@ -1125,6 +1167,7 @@ size_t MutableBlock::allocated_bytes() const {
 }
 
 void MutableBlock::clear_column_data() noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     for (auto& col : _columns) {
         if (col) {
             col->clear();
@@ -1133,6 +1176,7 @@ void MutableBlock::clear_column_data() noexcept {
 }
 
 void MutableBlock::reset_column_data() noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     _columns.clear();
     for (int i = 0; i < _names.size(); i++) {
         _columns.emplace_back(_data_types[i]->create_column());

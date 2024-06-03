@@ -19,7 +19,6 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.paimon.PaimonTableCache.PaimonTableCacheKey;
 import org.apache.doris.paimon.PaimonTableCache.TableExt;
@@ -82,7 +81,7 @@ public class PaimonJniScanner extends JniScanner {
         dbId = Long.parseLong(params.get("db_id"));
         tblId = Long.parseLong(params.get("tbl_id"));
         lastUpdateTime = Long.parseLong(params.get("last_update_time"));
-        initTableInfo(columnTypes, requiredFields, new ScanPredicate[0], batchSize);
+        initTableInfo(columnTypes, requiredFields, batchSize);
         paimonOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(PAIMON_OPTION_PREFIX))
                 .collect(Collectors
@@ -108,6 +107,13 @@ public class PaimonJniScanner extends JniScanner {
 
     private void initReader() throws IOException {
         ReadBuilder readBuilder = table.newReadBuilder();
+        if (this.fields.length != this.paimonAllFieldNames.size()) {
+            throw new IOException(
+                    String.format(
+                            "The jni reader fields' size {%s} is not matched with paimon fields' size {%s}."
+                                    + " Please refresh table and try again",
+                            fields.length, paimonAllFieldNames.size()));
+        }
         readBuilder.withProjection(getProjected());
         readBuilder.withFilter(getPredicates());
         reader = readBuilder.newRead().createReader(getSplit());
@@ -183,7 +189,7 @@ public class PaimonJniScanner extends JniScanner {
         } catch (Exception e) {
             close();
             LOG.warn("Failed to get the next batch of paimon. "
-                            + "split: {}, requiredFieldNames: {}, paimonAllFieldNames: {}",
+                    + "split: {}, requiredFieldNames: {}, paimonAllFieldNames: {}",
                     getSplit(), params.get("required_fields"), paimonAllFieldNames, e);
             throw new IOException(e);
         }
