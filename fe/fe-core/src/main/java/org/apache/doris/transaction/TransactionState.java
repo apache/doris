@@ -694,7 +694,7 @@ public class TransactionState implements Writable {
         sb.append(", error replicas num: ").append(errorReplicas.size());
         sb.append(", replica ids: ").append(Joiner.on(",").join(errorReplicas.stream().limit(5).toArray()));
         sb.append(", prepare time: ").append(prepareTime);
-	sb.append(", pre-commit time: ").append(preCommitTime);
+        sb.append(", pre-commit time: ").append(preCommitTime);
         sb.append(", commit time: ").append(commitTime);
         sb.append(", finish time: ").append(finishTime);
         sb.append(", reason: ").append(reason);
