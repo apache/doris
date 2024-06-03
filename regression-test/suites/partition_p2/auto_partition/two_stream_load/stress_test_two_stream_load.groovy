@@ -102,6 +102,7 @@ suite("stress_test_two_stream_load", "p2,nonConcurrent") {
                     throw exception
                 }
                 log.info("Stream load result: ${result}".toString())
+                log.info("stress_test_two_stream_load file load finished.")
                 def json = parseJson(result)
                 if (json.Status.toLowerCase() != "success" || 0 != json.NumberFilteredRows) {
                     load_result = result
