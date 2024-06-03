@@ -44,4 +44,14 @@ suite("grouping_normalize_test"){
             sql("SELECT col_int_undef_signed, col_int_undef_signed2, SUM(pk) FROM grouping_normalize_test GROUP BY GROUPING SETS ((col_int_undef_signed, col_int_undef_signed2));")
             notContains("VREPEAT_NODE")
     }
+
+    explain {
+            sql("SELECT col_int_undef_signed, col_int_undef_signed2, SUM(pk), grouping_id(col_int_undef_signed2) FROM grouping_normalize_test GROUP BY GROUPING SETS ((col_int_undef_signed, col_int_undef_signed2),());")
+            contains("VREPEAT_NODE")
+    }
+
+    explain {
+            sql("SELECT col_int_undef_signed, col_int_undef_signed2, SUM(pk) FROM grouping_normalize_test GROUP BY GROUPING SETS ((col_int_undef_signed, col_int_undef_signed2));")
+            notContains("VREPEAT_NODE")
+    }
 }
