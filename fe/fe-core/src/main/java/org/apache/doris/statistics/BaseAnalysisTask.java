@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AuditLogHelper;
@@ -162,6 +163,7 @@ public abstract class BaseAnalysisTask {
             + "${dbId} AS `db_id`, "
             + "${tblId} AS `tbl_id`, "
             + "${idxId} AS `idx_id`, "
+            + "${partName} AS `part_name`, "
             + "${partId} AS `part_id`, "
             + "'${colId}' AS `col_id`, "
             + "COUNT(1) AS `row_count`, "
@@ -346,11 +348,13 @@ public abstract class BaseAnalysisTask {
     }
 
     /**
-     * 1. Get stats of each partition
-     * 2. insert partition in batch
-     * 3. calculate column stats based on partition stats
+     * 1. Remove not exist partition stats
+     * 2. Get stats of each partition
+     * 3. insert partition in batch
+     * 4. calculate column stats based on partition stats
      */
     protected void doPartitionTable() throws Exception {
+        deleteNotExistPartitionStats();
         Map<String, String> params = buildSqlParams();
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         Set<String> partitionNames = tbl.getPartitionNames();
@@ -359,6 +363,7 @@ public abstract class BaseAnalysisTask {
         TableStatsMeta tableStatsStatus = Env.getServingEnv().getAnalysisManager().findTableStatsStatus(tbl.getId());
         for (String part : partitionNames) {
             Partition partition = tbl.getPartition(part);
+            params.put("partId", partition == null ? "-1" : String.valueOf(partition.getId()));
             // Skip partitions that not changed after last analyze.
             // External table getPartition always return null. So external table doesn't skip any partitions.
             if (partition != null && tableStatsStatus != null && tableStatsStatus.partitionUpdateRows != null) {
@@ -375,7 +380,7 @@ public abstract class BaseAnalysisTask {
                     }
                 }
             }
-            params.put("partId", "'" + StatisticsUtil.escapeColumnName(part) + "'");
+            params.put("partName", "'" + StatisticsUtil.escapeColumnName(part) + "'");
             params.put("partitionInfo", getPartitionInfo(part));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             sqls.add(stringSubstitutor.replace(PARTITION_ANALYZE_TEMPLATE));
@@ -399,6 +404,8 @@ public abstract class BaseAnalysisTask {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
     }
+
+    protected abstract void deleteNotExistPartitionStats() throws DdlException;
 
     protected String getPartitionInfo(String partitionName) {
         return "";

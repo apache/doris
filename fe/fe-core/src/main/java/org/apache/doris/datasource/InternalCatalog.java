@@ -155,6 +155,7 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
@@ -1894,6 +1895,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             // but in order to avoid bugs affecting the original logic, all exceptions are caught
             LOG.warn("produceEvent failed: ", t);
         }
+        // Set new partition loaded flag for statistics. This will trigger auto analyzing to update dropped partition.
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(olapTable.getId());
+        if (tableStats != null && tableStats.partitionChanged != null) {
+            tableStats.partitionChanged.set(true);
+        }
         // log
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition,
                 clause.isForceDrop(), recycleTime, version, versionTime);
@@ -1917,6 +1923,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
             olapTable.updateVisibleVersionAndTime(info.getVersion(), info.getVersionTime());
+            // Replay set new partition loaded flag to true for auto analyze.
+            TableStatsMeta stats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(olapTable.getId());
+            if (stats != null && stats.partitionChanged != null) {
+                stats.partitionChanged.set(true);
+            }
         } finally {
             olapTable.writeUnlock();
         }

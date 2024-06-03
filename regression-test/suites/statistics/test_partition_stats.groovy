@@ -145,6 +145,7 @@ suite("test_partition_stats") {
     sql """Insert into part1 values (1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1), (2, 2, 2, 2, 2, 2, 2.2, 2.2, 2.2), (3, 3, 3, 3, 3, 3, 3.3, 3.3, 3.3),(4, 4, 4, 4, 4, 4, 4.4, 4.4, 4.4),(5, 5, 5, 5, 5, 5, 5.5, 5.5, 5.5),(6, 6, 6, 6, 6, 6, 6.6, 6.6, 6.6),(10001, 10001, 10001, 10001, 10001, 10001, 10001.10001, 10001.10001, 10001.10001),(10002, 10002, 10002, 10002, 10002, 10002, 10002.10002, 10002.10002, 10002.10002),(10003, 10003, 10003, 10003, 10003, 10003, 10003.10003, 10003.10003, 10003.10003),(10004, 10004, 10004, 10004, 10004, 10004, 10004.10004, 10004.10004, 10004.10004),(10005, 10005, 10005, 10005, 10005, 10005, 10005.10005, 10005.10005, 10005.10005),(10006, 10006, 10006, 10006, 10006, 10006, 10006.10006, 10006.10006, 10006.10006),(20001, 20001, 20001, 20001, 20001, 20001, 20001.20001, 20001.20001, 20001.20001),(20002, 20002, 20002, 20002, 20002, 20002, 20002.20002, 20002.20002, 20002.20002),(20003, 20003, 20003, 20003, 20003, 20003, 20003.20003, 20003.20003, 20003.20003),(20004, 20004, 20004, 20004, 20004, 20004, 20004.20004, 20004.20004, 20004.20004),(20005, 20005, 20005, 20005, 20005, 20005, 20005.20005, 20005.20005, 20005.20005),(20006, 20006, 20006, 20006, 20006, 20006, 20006.20006, 20006.20006, 20006.20006)"""
     sql """analyze table part1 with sync;"""
 
+    // Test drop expired stats.
     def dbId
     def tblIdPart
     def tblIdPart1
@@ -181,5 +182,76 @@ suite("test_partition_stats") {
     result = sql """select * from internal.__internal_schema.partition_statistics where tbl_id = ${tblIdPart1}"""
     assertEquals(0, result.size())
 
+    // Test analyze table after drop partition
+    sql """drop database if exists test_partition_stats"""
+    sql """create database test_partition_stats"""
+    sql """use test_partition_stats"""
+    sql """CREATE TABLE `part` (
+        `id` INT NULL,
+        `colint` INT NULL,
+        `coltinyint` tinyint NULL,
+        `colsmallint` smallINT NULL,
+        `colbigint` bigINT NULL,
+        `collargeint` largeINT NULL,
+        `colfloat` float NULL,
+        `coldouble` double NULL,
+        `coldecimal` decimal(27, 9) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT 'OLAP'
+    PARTITION BY RANGE(`id`)
+    (
+        PARTITION p1 VALUES [("-2147483648"), ("10000")),
+        PARTITION p2 VALUES [("10000"), ("20000")),
+        PARTITION p3 VALUES [("20000"), ("30000"))
+    )
+    DISTRIBUTED BY HASH(`id`) BUCKETS 3
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    )
+    """
+    sql """analyze table part with sync;"""
+    sql """Insert into part values (1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1), (2, 2, 2, 2, 2, 2, 2.2, 2.2, 2.2), (3, 3, 3, 3, 3, 3, 3.3, 3.3, 3.3),(4, 4, 4, 4, 4, 4, 4.4, 4.4, 4.4),(5, 5, 5, 5, 5, 5, 5.5, 5.5, 5.5),(6, 6, 6, 6, 6, 6, 6.6, 6.6, 6.6),(10001, 10001, 10001, 10001, 10001, 10001, 10001.10001, 10001.10001, 10001.10001),(10002, 10002, 10002, 10002, 10002, 10002, 10002.10002, 10002.10002, 10002.10002),(10003, 10003, 10003, 10003, 10003, 10003, 10003.10003, 10003.10003, 10003.10003),(10004, 10004, 10004, 10004, 10004, 10004, 10004.10004, 10004.10004, 10004.10004),(10005, 10005, 10005, 10005, 10005, 10005, 10005.10005, 10005.10005, 10005.10005),(10006, 10006, 10006, 10006, 10006, 10006, 10006.10006, 10006.10006, 10006.10006),(20001, 20001, 20001, 20001, 20001, 20001, 20001.20001, 20001.20001, 20001.20001),(20002, 20002, 20002, 20002, 20002, 20002, 20002.20002, 20002.20002, 20002.20002),(20003, 20003, 20003, 20003, 20003, 20003, 20003.20003, 20003.20003, 20003.20003),(20004, 20004, 20004, 20004, 20004, 20004, 20004.20004, 20004.20004, 20004.20004),(20005, 20005, 20005, 20005, 20005, 20005, 20005.20005, 20005.20005, 20005.20005),(20006, 20006, 20006, 20006, 20006, 20006, 20006.20006, 20006.20006, 20006.20006)"""
+    sql """analyze table part with sync;"""
+    result = sql """show column stats part"""
+    assertEquals(9, result.size())
+    assertEquals("18.0", result[0][2])
+    assertEquals("18.0", result[1][2])
+    assertEquals("18.0", result[2][2])
+    assertEquals("18.0", result[3][2])
+    assertEquals("18.0", result[4][2])
+    assertEquals("18.0", result[5][2])
+    assertEquals("18.0", result[6][2])
+    assertEquals("18.0", result[7][2])
+    assertEquals("18.0", result[8][2])
+    result = sql """show column stats part partition(*)"""
+    assertEquals(27, result.size())
+    sql """alter table part drop partition p3"""
+    result = sql """show table stats part"""
+    assertEquals("true", result[0][6])
+    sql """analyze table part with sync;"""
+    result = sql """show table stats part"""
+    assertEquals("false", result[0][6])
+    result = sql """show column stats part partition(*)"""
+    assertEquals(18, result.size())
+    result = sql """show column stats part partition(p3)"""
+    assertEquals(0, result.size())
+    result = sql """show column stats part partition(p1)"""
+    assertEquals(9, result.size())
+    result = sql """show column stats part partition(p2)"""
+    assertEquals(9, result.size())
+    result = sql """show column stats part"""
+    assertEquals(9, result.size())
+    assertEquals("12.0", result[0][2])
+    assertEquals("12.0", result[1][2])
+    assertEquals("12.0", result[2][2])
+    assertEquals("12.0", result[3][2])
+    assertEquals("12.0", result[4][2])
+    assertEquals("12.0", result[5][2])
+    assertEquals("12.0", result[6][2])
+    assertEquals("12.0", result[7][2])
+    assertEquals("12.0", result[8][2])
+
+    sql """drop database test_partition_stats"""
 }
 

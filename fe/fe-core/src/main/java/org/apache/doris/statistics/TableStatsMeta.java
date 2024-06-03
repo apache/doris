@@ -74,7 +74,7 @@ public class TableStatsMeta implements Writable {
     public JobType jobType;
 
     @SerializedName("newPartitionLoaded")
-    public AtomicBoolean newPartitionLoaded = new AtomicBoolean(false);
+    public AtomicBoolean partitionChanged = new AtomicBoolean(false);
 
     @SerializedName("userInjected")
     public boolean userInjected;
@@ -163,14 +163,14 @@ public class TableStatsMeta implements Writable {
                     tableIf.getSchemaAllIndexes(false).stream()
                             .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                             .map(Column::getName).collect(Collectors.toSet())))) {
-                newPartitionLoaded.set(false);
+                partitionChanged.set(false);
                 userInjected = false;
             } else if (tableIf instanceof OlapTable) {
                 PartitionInfo partitionInfo = ((OlapTable) tableIf).getPartitionInfo();
                 if (partitionInfo != null && analyzedJob.jobColumns
                         .containsAll(tableIf.getColumnIndexPairs(partitionInfo.getPartitionColumns().stream()
                             .map(Column::getName).collect(Collectors.toSet())))) {
-                    newPartitionLoaded.set(false);
+                    partitionChanged.set(false);
                 }
             }
         }
