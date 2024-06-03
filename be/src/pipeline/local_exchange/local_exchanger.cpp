@@ -39,6 +39,16 @@ Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, 
     return Status::OK();
 }
 
+void ShuffleExchanger::close(LocalExchangeSourceLocalState& local_state) {
+    PartitionedBlock partitioned_block;
+    while (_data_queue[local_state._channel_id].try_dequeue(partitioned_block)) {
+        auto block_wrapper = partitioned_block.first;
+        local_state._shared_state->sub_mem_usage(
+                local_state._channel_id, block_wrapper->data_block.allocated_bytes(), false);
+        block_wrapper->unref(local_state._shared_state);
+    }
+}
+
 Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                                    LocalExchangeSourceLocalState& local_state) {
     PartitionedBlock partitioned_block;
@@ -182,6 +192,14 @@ Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_blo
     return Status::OK();
 }
 
+void PassthroughExchanger::close(LocalExchangeSourceLocalState& local_state) {
+    vectorized::Block next_block;
+    while (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
+        local_state._shared_state->sub_mem_usage(local_state._channel_id,
+                                                 next_block.allocated_bytes());
+    }
+}
+
 Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                                        LocalExchangeSourceLocalState& local_state) {
     vectorized::Block next_block;
@@ -253,6 +271,13 @@ Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block
     }
 
     return Status::OK();
+}
+
+void BroadcastExchanger::close(LocalExchangeSourceLocalState& local_state) {
+    vectorized::Block next_block;
+    while (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
+        // do nothing
+    }
 }
 
 Status BroadcastExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,

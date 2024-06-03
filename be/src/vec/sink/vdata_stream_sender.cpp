@@ -909,38 +909,6 @@ void VDataStreamSender::_roll_pb_block() {
     _cur_pb_block = (_cur_pb_block == &_pb_block1 ? &_pb_block2 : &_pb_block1);
 }
 
-Status VDataStreamSender::_get_next_available_buffer(
-        std::shared_ptr<BroadcastPBlockHolder>* holder) {
-    if (_broadcast_pb_blocks->empty()) {
-        return Status::InternalError("No broadcast buffer left!");
-    } else {
-        *holder = _broadcast_pb_blocks->pop();
-        return Status::OK();
-    }
-}
-
-void VDataStreamSender::register_pipeline_channels(pipeline::ExchangeSinkBuffer* buffer) {
-    for (auto channel : _channels) {
-        ((PipChannel*)channel)->register_exchange_buffer(buffer);
-    }
-}
-
-bool VDataStreamSender::channel_all_can_write() {
-    if ((_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) &&
-        !_only_local_exchange) {
-        // This condition means we need use broadcast buffer, so we should make sure
-        // there are available buffer before running pipeline
-        return !_broadcast_pb_blocks->empty();
-    } else {
-        for (auto channel : _channels) {
-            if (!channel->can_write()) {
-                return false;
-            }
-        }
-        return true;
-    }
-}
-
 template class Channel<pipeline::ExchangeSinkLocalState>;
 template class Channel<VDataStreamSender>;
 template class Channel<pipeline::ResultFileSinkLocalState>;

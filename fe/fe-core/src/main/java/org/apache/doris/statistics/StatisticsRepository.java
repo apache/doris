@@ -35,10 +35,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -66,6 +64,12 @@ public class StatisticsRepository {
     private static final String FETCH_COLUMN_STATISTIC_TEMPLATE = "SELECT * FROM "
             + FULL_QUALIFIED_COLUMN_STATISTICS_NAME
             + " WHERE `id` = '${id}' AND `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}'";
+
+    private static final String FETCH_PARTITION_STATISTIC_TEMPLATE = "SELECT `catalog_id`, `db_id`, `tbl_id`, `idx_id`,"
+            + "`col_id`, `count`, hll_to_base64(`ndv`) as ndv, `null_count`, `min`, `max`, `data_size_in_bytes`, "
+            + "`update_time` FROM " + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
+            + " WHERE `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}' AND `tbl_id` = ${tableId}"
+            + " AND `idx_id` = '${indexId}' AND `part_id` = '${partId}' AND `col_id` = '${columnId}'";
 
     private static final String FETCH_PARTITIONS_STATISTIC_TEMPLATE = "SELECT col_id, part_id, idx_id, count, "
             + "hll_cardinality(ndv) as ndv, null_count, min, max, data_size_in_bytes, update_time FROM "
@@ -102,21 +106,17 @@ public class StatisticsRepository {
                     + " ORDER BY update_time DESC LIMIT "
                     + Config.stats_cache_size;
 
-    private static final String FETCH_STATS_FULL_NAME =
+    private static final String FETCH_TABLE_STATS_FULL_NAME =
             "SELECT id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id FROM "
                     + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.TABLE_STATISTIC_TBL_NAME
                     + " ORDER BY update_time "
                     + "LIMIT ${limit} OFFSET ${offset}";
 
-    private static final String FETCH_STATS_PART_ID = "SELECT * FROM "
-            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.TABLE_STATISTIC_TBL_NAME
-            + " WHERE tbl_id = ${tblId} AND `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}'"
-            + " AND part_id IS NOT NULL";
-
-    private static final String QUERY_PARTITION_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
-            + "." + StatisticConstants.TABLE_STATISTIC_TBL_NAME + " WHERE "
-            + " ${inPredicate} AND `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}'"
-            + " AND part_id IS NOT NULL";
+    private static final String FETCH_PARTITION_STATS_FULL_NAME =
+            "SELECT \"\" as id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id FROM "
+                    + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.PARTITION_STATISTIC_TBL_NAME
+                    + " ORDER BY update_time "
+                    + "LIMIT ${limit} OFFSET ${offset}";
 
     private static final String FETCH_TABLE_STATISTICS = "SELECT * FROM "
             + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.TABLE_STATISTIC_TBL_NAME
@@ -366,38 +366,12 @@ public class StatisticsRepository {
         return StatisticsUtil.execStatisticQuery(FETCH_RECENT_STATS_UPDATED_COL);
     }
 
-    public static List<ResultRow> fetchStatsFullName(long limit, long offset) {
+    public static List<ResultRow> fetchStatsFullName(long limit, long offset, boolean isTableStats) {
         Map<String, String> params = new HashMap<>();
         params.put("limit", String.valueOf(limit));
         params.put("offset", String.valueOf(offset));
-        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FETCH_STATS_FULL_NAME));
-    }
-
-    public static Map<String, Set<String>> fetchColAndPartsForStats(long ctlId, long dbId, long tblId) {
-        Map<String, String> params = Maps.newHashMap();
-        params.put("tblId", String.valueOf(tblId));
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        generateCtlDbIdParams(ctlId, dbId, params);
-        String partSql = stringSubstitutor.replace(FETCH_STATS_PART_ID);
-        List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(partSql);
-
-        Map<String, Set<String>> columnToPartitions = Maps.newHashMap();
-
-        resultRows.forEach(row -> {
-            try {
-                StatsId statsId = new StatsId(row);
-                if (statsId.partId == null) {
-                    return;
-                }
-                columnToPartitions.computeIfAbsent(String.valueOf(statsId.colId),
-                        k -> new HashSet<>()).add(statsId.partId);
-            } catch (NumberFormatException e) {
-                LOG.warn("Failed to obtain the column and partition for statistics.",
-                        e);
-            }
-        });
-
-        return columnToPartitions;
+        String template = isTableStats ? FETCH_TABLE_STATS_FULL_NAME : FETCH_PARTITION_STATS_FULL_NAME;
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(template));
     }
 
     public static List<ResultRow> loadColStats(long ctlId, long dbId, long tableId, long idxId, String colName) {
@@ -409,22 +383,16 @@ public class StatisticsRepository {
                 .replace(FETCH_COLUMN_STATISTIC_TEMPLATE));
     }
 
-    public static List<ResultRow> loadPartStats(Collection<StatisticsCacheKey> keys) {
-        String inPredicate = "CONCAT(tbl_id, '-', idx_id, '-', col_id) in (%s)";
-        StringJoiner sj = new StringJoiner(",");
-        long ctlId = -1;
-        long dbId = -1;
-        // ATTN: ctlId and dbId should be same in all keys
-        for (StatisticsCacheKey statisticsCacheKey : keys) {
-            sj.add("'" + statisticsCacheKey.toString() + "'");
-            ctlId = statisticsCacheKey.catalogId;
-            dbId = statisticsCacheKey.dbId;
-        }
+    public static List<ResultRow> loadPartitionColumnStats(long ctlId, long dbId, long tableId, long idxId,
+                                                     String partName, String colName) {
         Map<String, String> params = new HashMap<>();
-        params.put("inPredicate", String.format(inPredicate, sj.toString()));
         generateCtlDbIdParams(ctlId, dbId, params);
+        params.put("tableId", String.valueOf(tableId));
+        params.put("indexId", String.valueOf(idxId));
+        params.put("partId", partName);
+        params.put("columnId", colName);
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                .replace(QUERY_PARTITION_STATISTICS));
+            .replace(FETCH_PARTITION_STATISTIC_TEMPLATE));
     }
 
     private static void generateCtlDbIdParams(long ctdId, long dbId, Map<String, String> params) {

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/QueryPlanExtra_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 #include <stdint.h>
@@ -101,9 +102,6 @@ public:
 
     // Cancel instance (pipeline or nonpipeline).
     void cancel_instance(const TUniqueId instance_id, const Status reason);
-    // Cancel fragment (only pipelineX).
-    // {query id fragment} -> PipelineFragmentContext
-    void cancel_fragment(const TUniqueId query_id, int32_t fragment_id, const Status reason);
 
     // Can be used in both version.
     void cancel_query(const TUniqueId query_id, const Status reason);
@@ -112,10 +110,11 @@ public:
 
     void debug(std::stringstream& ss) override;
 
-    // input: TScanOpenParams fragment_instance_id
+    // input: TQueryPlanInfo fragment_instance_id
     // output: selected_columns
     // execute external query, all query info are packed in TScanOpenParams
     Status exec_external_plan_fragment(const TScanOpenParams& params,
+                                       const TQueryPlanInfo& t_query_plan_info,
                                        const TUniqueId& fragment_instance_id,
                                        std::vector<TScanColumnDesc>* selected_columns);
 
@@ -146,6 +145,7 @@ public:
     }
 
     std::string dump_pipeline_tasks(int64_t duration = 0);
+    std::string dump_pipeline_tasks(TUniqueId& query_id);
 
     void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
 
@@ -153,9 +153,6 @@ public:
                                     TReportExecStatusParams* exec_status);
 
 private:
-    void cancel_unlocked_impl(const TUniqueId& id, const Status& reason,
-                              const std::unique_lock<std::mutex>& state_lock, bool is_pipeline);
-
     void _exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                       const FinishCallback& cb);
 

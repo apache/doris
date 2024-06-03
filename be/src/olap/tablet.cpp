@@ -909,6 +909,39 @@ Status Tablet::capture_rs_readers(const Version& spec_version, std::vector<RowSe
     return Status::OK();
 }
 
+Versions Tablet::calc_missed_versions(int64_t spec_version, Versions existing_versions) const {
+    DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
+
+    // sort the existing versions in ascending order
+    std::sort(existing_versions.begin(), existing_versions.end(),
+              [](const Version& a, const Version& b) {
+                  // simple because 2 versions are certainly not overlapping
+                  return a.first < b.first;
+              });
+
+    // From the first version(=0),  find the missing version until spec_version
+    int64_t last_version = -1;
+    Versions missed_versions;
+    for (const Version& version : existing_versions) {
+        if (version.first > last_version + 1) {
+            for (int64_t i = last_version + 1; i < version.first && i <= spec_version; ++i) {
+                // Don't merge missed_versions because clone & snapshot use single version.
+                // For example, if miss 4 ~ 6, clone need [4, 4], [5, 5], [6, 6], but not [4, 6].
+                missed_versions.emplace_back(i, i);
+            }
+        }
+        last_version = version.second;
+        if (last_version >= spec_version) {
+            break;
+        }
+    }
+    for (int64_t i = last_version + 1; i <= spec_version; ++i) {
+        missed_versions.emplace_back(i, i);
+    }
+
+    return missed_versions;
+}
+
 bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type) {
     if (compaction_type == CompactionType::BASE_COMPACTION && tablet_state() != TABLET_RUNNING) {
         // base compaction can only be done for tablet in TABLET_RUNNING state.

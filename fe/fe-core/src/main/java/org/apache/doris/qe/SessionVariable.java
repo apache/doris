@@ -135,6 +135,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
+    public static final String DEBUG_SKIP_FOLD_CONSTANT = "debug_skip_fold_constant";
 
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
@@ -584,6 +585,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
 
+    public static final String FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS = "fetch_remote_schema_timeout_seconds";
+
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
@@ -997,6 +1000,8 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
     public boolean enableFoldConstantByBe = true;
+    @VariableMgr.VarAttr(name = DEBUG_SKIP_FOLD_CONSTANT)
+    public boolean debugSkipFoldConstant = false;
 
     @VariableMgr.VarAttr(name = ENABLE_REWRITE_ELEMENT_AT_TO_SLOT, fuzzy = true)
     private boolean enableRewriteElementAtToSlot = true;
@@ -1724,7 +1729,7 @@ public class SessionVariable implements Serializable, Writable {
                     "When the materialized view is not enough to provide all the data for the query, "
                             + "whether to allow the union of the base table and the materialized view to "
                             + "respond to the query"})
-    public boolean enableMaterializedViewUnionRewrite = false;
+    public boolean enableMaterializedViewUnionRewrite = true;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_NEST_REWRITE, needForward = true,
             description = {"是否允许嵌套物化视图改写",
@@ -1822,6 +1827,10 @@ public class SessionVariable implements Serializable, Writable {
     // for spill to disk
     @VariableMgr.VarAttr(name = MIN_REVOCABLE_MEM, fuzzy = true)
     public long minRevocableMem = 32 * 1024 * 1024;
+
+    // fetch remote schema rpc timeout
+    @VariableMgr.VarAttr(name = FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS, fuzzy = true)
+    public long fetchRemoteSchemaTimeoutSeconds = 120;
 
     @VariableMgr.VarAttr(
             name = ENABLE_JOIN_SPILL,
@@ -2485,6 +2494,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableFoldConstantByBe;
     }
 
+    public boolean isDebugSkipFoldConstant() {
+        return debugSkipFoldConstant;
+    }
+
     public boolean isEnableRewriteElementAtToSlot() {
         return enableRewriteElementAtToSlot;
     }
@@ -2499,6 +2512,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableFoldConstantByBe(boolean foldConstantByBe) {
         this.enableFoldConstantByBe = foldConstantByBe;
+    }
+
+    public void setDebugSkipFoldConstant(boolean debugSkipFoldConstant) {
+        this.debugSkipFoldConstant = debugSkipFoldConstant;
     }
 
     public int getParallelExecInstanceNum() {
@@ -3356,7 +3373,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
         tResult.setInvertedIndexMaxExpansions(invertedIndexMaxExpansions);
 
-        tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
+        tResult.setEnableDecimal256(getEnableDecimal256());
 
         tResult.setSkipMissingVersion(skipMissingVersion);
 
@@ -3752,7 +3769,7 @@ public class SessionVariable implements Serializable, Writable {
             return false;
         }
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        return sessionVariable.isEnableNereidsPlanner() && sessionVariable.isEnableDecimal256();
+        return connectContext.getState().isNereids() && sessionVariable.isEnableDecimal256();
     }
 
     public boolean isEnableDecimal256() {

@@ -28,6 +28,7 @@ import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.ShowAutoAnalyzeJobsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -703,7 +704,7 @@ public class AnalysisManager implements Writable {
                     }
                 }
                 tableStats.removeColumn(indexName, column);
-                statisticsCache.invalidate(catalogId, dbId, tableId, indexId, column);
+                statisticsCache.invalidate(catalogId, dbId, tableId, indexId, null, column);
             }
         }
         tableStats.updatedTime = 0;
@@ -969,8 +970,12 @@ public class AnalysisManager implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        writeJobInfo(out, analysisJobInfoMap);
-        writeJobInfo(out, analysisTaskInfoMap);
+        synchronized (analysisJobInfoMap) {
+            writeJobInfo(out, analysisJobInfoMap);
+        }
+        synchronized (analysisTaskInfoMap) {
+            writeJobInfo(out, analysisTaskInfoMap);
+        }
         writeTableStats(out);
     }
 
@@ -982,9 +987,11 @@ public class AnalysisManager implements Writable {
     }
 
     private void writeTableStats(DataOutput out) throws IOException {
-        out.writeInt(idToTblStats.size());
-        for (Entry<Long, TableStatsMeta> entry : idToTblStats.entrySet()) {
-            entry.getValue().write(out);
+        synchronized (idToTblStats) {
+            out.writeInt(idToTblStats.size());
+            for (Entry<Long, TableStatsMeta> entry : idToTblStats.entrySet()) {
+                entry.getValue().write(out);
+            }
         }
     }
 
@@ -999,32 +1006,44 @@ public class AnalysisManager implements Writable {
 
     // Invoke this when load transaction finished.
     public void updateUpdatedRows(Map<Long, Map<Long, Long>> tabletRecords, long dbId) {
-        if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
-            return;
+        try {
+            if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
+                return;
+            }
+            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(tabletRecords, dbId);
+            replayUpdateRowsRecord(updateRowsEvent);
+            logUpdateRowsRecord(updateRowsEvent);
+        } catch (Throwable t) {
+            LOG.warn("Failed to record update rows.", t);
         }
-        UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(tabletRecords, dbId);
-        replayUpdateRowsRecord(updateRowsEvent);
-        logUpdateRowsRecord(updateRowsEvent);
     }
 
     // Invoke this when load truncate table finished.
     public void updateUpdatedRows(Map<Long, Long> partitionToUpdateRows, long dbId, long tableId) {
-        if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
-            return;
+        try {
+            if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
+                return;
+            }
+            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(partitionToUpdateRows, dbId, tableId);
+            replayUpdateRowsRecord(updateRowsEvent);
+            logUpdateRowsRecord(updateRowsEvent);
+        } catch (Throwable t) {
+            LOG.warn("Failed to record update rows.", t);
         }
-        UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(partitionToUpdateRows, dbId, tableId);
-        replayUpdateRowsRecord(updateRowsEvent);
-        logUpdateRowsRecord(updateRowsEvent);
     }
 
     // Invoke this for cloud version load.
     public void updateUpdatedRows(Map<Long, Long> updatedRows) {
-        if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
-            return;
+        try {
+            if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
+                return;
+            }
+            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(updatedRows);
+            replayUpdateRowsRecord(updateRowsEvent);
+            logUpdateRowsRecord(updateRowsEvent);
+        } catch (Throwable t) {
+            LOG.warn("Failed to record update rows.", t);
         }
-        UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(updatedRows);
-        replayUpdateRowsRecord(updateRowsEvent);
-        logUpdateRowsRecord(updateRowsEvent);
     }
 
     // Set to true means new partition loaded data
@@ -1047,7 +1066,9 @@ public class AnalysisManager implements Writable {
     }
 
     public void replayUpdateTableStatsStatus(TableStatsMeta tableStats) {
-        idToTblStats.put(tableStats.tblId, tableStats);
+        synchronized (idToTblStats) {
+            idToTblStats.put(tableStats.tblId, tableStats);
+        }
     }
 
     public void logCreateTableStats(TableStatsMeta tableStats) {
@@ -1080,7 +1101,18 @@ public class AnalysisManager implements Writable {
             for (Entry<Long, Map<Long, Long>> record : event.getTabletRecords().entrySet()) {
                 TableStatsMeta statsStatus = idToTblStats.get(record.getKey());
                 if (statsStatus != null) {
-                    Table table = catalog.getDb(event.getDbId()).get().getTable(record.getKey()).get();
+                    Optional<Database> dbOption = catalog.getDb(event.getDbId());
+                    if (!dbOption.isPresent()) {
+                        LOG.warn("Database {} does not exist.", event.getDbId());
+                        continue;
+                    }
+                    Database database = dbOption.get();
+                    Optional<Table> tableOption = database.getTable(record.getKey());
+                    if (!tableOption.isPresent()) {
+                        LOG.warn("Table {} does not exist in DB {}.", record.getKey(), event.getDbId());
+                        continue;
+                    }
+                    Table table = tableOption.get();
                     if (!(table instanceof OlapTable)) {
                         continue;
                     }
@@ -1168,7 +1200,9 @@ public class AnalysisManager implements Writable {
     }
 
     public void removeTableStats(long tableId) {
-        idToTblStats.remove(tableId);
+        synchronized (idToTblStats) {
+            idToTblStats.remove(tableId);
+        }
     }
 
     public ColStatsMeta findColStatsMeta(long tblId, String indexName, String colName) {
