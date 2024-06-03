@@ -84,7 +84,6 @@ public class IcebergUtils {
             return 0;
         }
     };
-    static long MILLIS_TO_NANO_TIME = 1000;
     // https://iceberg.apache.org/spec/#schemas-and-data-types
     // All time and timestamp values are stored with microsecond precision
     private static final int ICEBERG_DATETIME_SCALE_MS = 6;
@@ -320,7 +319,7 @@ public class IcebergUtils {
                 case DATE:
                     return dateLiteral.getStringValue();
                 case TIMESTAMP:
-                    return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
+                    return dateLiteral.getUnixTimestampWithMicroseconds(TimeUtils.getTimeZone());
                 default:
                     return null;
             }

@@ -56,14 +56,6 @@ public:
 
     Status push(RuntimeState* state, vectorized::Block* block, bool eos);
 
-    // use sink to check can_write, now always true after we support spill to disk
-    bool can_write() { return true; }
-
-    bool can_read(int sender_idx) {
-        std::lock_guard l(_mutex);
-        return _sender_pos_to_read[sender_idx] != _multi_cast_blocks.end() || _eos;
-    }
-
     const RowDescriptor& row_desc() { return _row_desc; }
 
     RuntimeProfile* profile() { return _profile; }

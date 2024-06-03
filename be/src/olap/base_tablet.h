@@ -210,7 +210,7 @@ public:
             const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
             int64_t txn_expiration = 0) = 0;
 
-    static Status update_delete_bitmap(const BaseTabletSPtr& self, const TabletTxnInfo* txn_info,
+    static Status update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
                                        int64_t txn_id, int64_t txn_expiration = 0);
 
     virtual Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
@@ -299,6 +299,9 @@ public:
     IntCounter* flush_bytes = nullptr;
     IntCounter* flush_finish_count = nullptr;
     std::atomic<int64_t> published_count = 0;
+    std::atomic<int64_t> read_block_count = 0;
+    std::atomic<int64_t> write_count = 0;
+    std::atomic<int64_t> compaction_count = 0;
 };
 
 } /* namespace doris */
