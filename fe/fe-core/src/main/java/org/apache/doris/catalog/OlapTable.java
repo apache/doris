@@ -246,6 +246,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return getOrCreatTableProperty().isBeingSynced();
     }
 
+    public boolean isTemporaryPartition(long partitionId) {
+        return tempPartitions.hasPartition(partitionId);
+    }
+
     public void setTableProperty(TableProperty tableProperty) {
         this.tableProperty = tableProperty;
     }
