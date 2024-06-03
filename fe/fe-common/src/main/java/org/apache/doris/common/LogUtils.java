@@ -19,6 +19,14 @@
 
 package org.apache.doris.common;
 
+import org.apache.logging.log4j.core.Layout;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.layout.AbstractStringLayout;
+import org.apache.logging.log4j.core.layout.PatternLayout;
+import org.apache.logging.log4j.core.util.StringBuilderWriter;
+
+import java.io.PrintWriter;
+import java.nio.charset.Charset;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -40,5 +48,37 @@ public class LogUtils {
 
     public static void stderr(String message) {
         System.err.println(STDERR_LOG_MARKER + formattedTime() + " " + message);
+    }
+
+    public static class SingleLineExceptionLayout extends AbstractStringLayout {
+
+        private final PatternLayout patternLayout;
+
+        protected SingleLineExceptionLayout(PatternLayout patternLayout, Charset charset) {
+            super(charset);
+            this.patternLayout = patternLayout;
+        }
+
+        @Override
+        public String toSerializable(LogEvent event) {
+            StringBuilder result = new StringBuilder(patternLayout.toSerializable(event));
+
+            if (event.getThrown() != null) {
+                StringBuilderWriter sw = new StringBuilderWriter();
+                event.getThrown().printStackTrace(new PrintWriter(sw));
+                String stackTrace = sw.toString().replace("\n", " ").replace("\r", " ");
+                result.append(stackTrace);
+            }
+
+            return result.toString();
+        }
+
+        public static Layout<String> createLayout(String pattern, Charset charset) {
+            PatternLayout patternLayout = PatternLayout.newBuilder()
+                    .withPattern(pattern)
+                    .withCharset(charset)
+                    .build();
+            return new SingleLineExceptionLayout(patternLayout, charset);
+        }
     }
 }
