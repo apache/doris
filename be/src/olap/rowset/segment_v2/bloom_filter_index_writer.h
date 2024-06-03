@@ -50,7 +50,7 @@ public:
     BloomFilterIndexWriter() = default;
     virtual ~BloomFilterIndexWriter() = default;
 
-    virtual void add_values(const void* values, size_t count) = 0;
+    virtual Status add_values(const void* values, size_t count) = 0;
 
     virtual void add_nulls(uint32_t count) = 0;
 
