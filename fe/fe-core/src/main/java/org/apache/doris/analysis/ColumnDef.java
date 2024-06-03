@@ -484,7 +484,7 @@ public class ColumnDef {
         // if not check it first, some literal constructor will throw AnalysisException,
         // and it is not intuitive to users.
         PrimitiveType primitiveType = scalarType.getPrimitiveType();
-        if (null != defaultValueExprDef && defaultValueExprDef.getExprName().equals("now")) {
+        if (null != defaultValueExprDef && defaultValueExprDef.getExprName().equalsIgnoreCase("now")) {
             switch (primitiveType) {
                 case DATETIME:
                 case DATETIMEV2:
@@ -494,7 +494,7 @@ public class ColumnDef {
                             + "cannot use current_timestamp as the default value");
             }
         } else if (null != defaultValueExprDef
-                && defaultValueExprDef.getExprName().equals(DefaultValue.CURRENT_DATE.toLowerCase())) {
+                && defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.CURRENT_DATE)) {
             switch (primitiveType) {
                 case DATE:
                 case DATEV2:
