@@ -493,17 +493,17 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "unix_timestamp", argTypes = {"DATE"}, returnType = "INT")
     public static Expression unixTimestamp(DateLiteral date) {
-        return new IntegerLiteral(getTimestamp(date.toJavaDateType()));
+        return new IntegerLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
     }
 
     @ExecFunction(name = "unix_timestamp", argTypes = {"DATETIME"}, returnType = "INT")
     public static Expression unixTimestamp(DateTimeLiteral date) {
-        return new IntegerLiteral(getTimestamp(date.toJavaDateType()));
+        return new IntegerLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
     }
 
     @ExecFunction(name = "unix_timestamp", argTypes = {"DATEV2"}, returnType = "INT")
     public static Expression unixTimestamp(DateV2Literal date) {
-        return new IntegerLiteral(getTimestamp(date.toJavaDateType()));
+        return new IntegerLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
     }
 
     /**
@@ -513,18 +513,17 @@ public class DateTimeExtractAndTransform {
     public static Expression unixTimestamp(DateTimeV2Literal date) {
         if (date.getMicroSecond() == 0) {
             return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(10, 0),
-                    new BigDecimal(getTimestamp(date.toJavaDateType()).toString()));
+                    new BigDecimal(getTimestamp(date.toJavaDateType())));
         }
         int scale = date.getDataType().getScale();
-        String val = getTimestamp(date.toJavaDateType()).toString() + "." + date.getMicrosecondString();
         return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(10 + scale, scale),
-                new BigDecimal(val));
+                new BigDecimal(getTimestamp(date.toJavaDateType())));
     }
 
     /**
      * date transformation function: unix_timestamp
      */
-    @ExecFunction(name = "unix_timestamp", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "INT")
+    @ExecFunction(name = "unix_timestamp", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "DECIMALV3")
     public static Expression unixTimestamp(StringLikeLiteral date, StringLikeLiteral format) {
         DateTimeFormatter formatter = DateUtils.formatBuilder(format.getValue()).toFormatter();
         LocalDateTime dateObj;
@@ -534,20 +533,26 @@ public class DateTimeExtractAndTransform {
             // means the date string doesn't contain time fields.
             dateObj = LocalDate.parse(date.getValue(), formatter).atStartOfDay();
         }
-        return new IntegerLiteral(getTimestamp(dateObj));
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(16, 6),
+                new BigDecimal(getTimestamp(dateObj)));
     }
 
-    private static Integer getTimestamp(LocalDateTime dateTime) {
+    private static String getTimestamp(LocalDateTime dateTime) {
         LocalDateTime specialUpperBound = LocalDateTime.of(2038, 1, 19, 3, 14, 7);
         LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
         if (dateTime.isBefore(specialLowerBound) || dateTime.isAfter(specialUpperBound)) {
-            return 0;
+            return "0";
         }
-        return ((int) Duration.between(
+        Duration duration = Duration.between(
                 specialLowerBound,
                 dateTime.atZone(DateUtils.getTimeZone())
                         .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
-                        .toLocalDateTime()).getSeconds());
+                        .toLocalDateTime());
+        if (duration.getNano() == 0) {
+            return String.valueOf(duration.getSeconds());
+        } else {
+            return duration.getSeconds() + "." + (duration.getNano() / 1000);
+        }
     }
 
     /**
