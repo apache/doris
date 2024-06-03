@@ -44,6 +44,8 @@ public class LogUtils {
         return dateTime.format(TIME_FORMATTER);
     }
 
+    // Developer should use `LogUtils.stdout` or `LogUtils.stderr`
+    // instead of `System.out` and `System.err`.
     public static void stdout(String message) {
         System.out.println(STDOUT_LOG_MARKER + formattedTime() + " " + message);
     }

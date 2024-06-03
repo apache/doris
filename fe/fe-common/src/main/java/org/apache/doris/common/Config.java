@@ -127,11 +127,11 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
-    @ConfField(description = {"是否使用文件记录日志。当使用 --console 启动 FE 时，全部日志会写入到标准输出。"
-            + "此时关闭关闭这个选项，不再使用文件记录日志。",
+    @ConfField(description = {"是否使用文件记录日志。当使用 --console 启动 FE 时，全部日志同时写入到标准输出和文件。"
+            + "如果关闭这个选项，不再使用文件记录日志。",
             "Whether to use file to record log. When starting FE with --console, "
-                    + "all logs will be written to standard output. "
-                    + "At this time, close this option and no longer use file to record log."})
+                    + "all logs will be written to both standard output and file. "
+                    + "Close this option will no longer use file to record log."})
     public static boolean enable_file_logger = true;
 
     @ConfField(mutable = false, masterOnly = false,

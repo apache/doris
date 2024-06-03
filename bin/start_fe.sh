@@ -178,6 +178,7 @@ fi
 
 STDOUT_LOGGER="${LOG_DIR}/fe.out"
 log() {
+    # same datetime format as in fe.log: 2024-06-03 14:54:41,478
     cur_date=$(date +"%Y-%m-%d %H:%M:%S,$(date +%3N)")
     if [[ "${RUN_CONSOLE}" -eq 1 ]]; then
         echo "StdoutLogger ${cur_date} $1"
