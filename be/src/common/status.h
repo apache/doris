@@ -25,6 +25,14 @@
 
 namespace doris {
 
+namespace io {
+struct ObjectStorageStatus;
+}
+
+class Status;
+
+extern io::ObjectStorageStatus convert_to_obj_response(Status st);
+
 class PStatus;
 
 namespace ErrorCode {
@@ -352,11 +360,11 @@ public:
     Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
 
     // used to convert Exception to Status
-    Status(int code, std::string msg, std::string stack) : _code(code) {
+    Status(int code, std::string msg, std::string stack = "") : _code(code) {
         _err_msg = std::make_unique<ErrMsg>();
-        _err_msg->_msg = msg;
+        _err_msg->_msg = std::move(msg);
 #ifdef ENABLE_STACKTRACE
-        _err_msg->_stack = stack;
+        _err_msg->_stack = std::move(stack);
 #endif
     }
 
@@ -528,6 +536,10 @@ public:
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
 
     std::string_view msg() const { return _err_msg ? _err_msg->_msg : std::string_view(""); }
+
+    std::pair<int, std::string> retrieve_error_msg() { return {_code, std::move(_err_msg->_msg)}; }
+
+    friend io::ObjectStorageStatus convert_to_obj_response(Status st);
 
 private:
     int _code;
