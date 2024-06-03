@@ -106,6 +106,30 @@ suite('test_partial_update_delete') {
             sql "set skip_delete_bitmap=true;"
             qt_sql "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__ from ${tableName3} order by k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__;"
             sql "drop table if exists ${tableName3};"
+
+            sql "set skip_delete_sign=false;"
+            sql "set skip_storage_engine_merge=false;"
+            sql "set skip_delete_bitmap=false;"
+            def tableName4 = "test_partial_update_delete4"
+            sql "DROP TABLE IF EXISTS ${tableName4};"
+            sql """ CREATE TABLE IF NOT EXISTS ${tableName4} (
+                    `k1` int,
+                    `c1` int,
+                    `c2` int
+                    )UNIQUE KEY(k1)
+                DISTRIBUTED BY HASH(k1) BUCKETS 1
+                PROPERTIES (
+                    "enable_unique_key_merge_on_write" = "true",
+                    "disable_auto_compaction" = "true",
+                    "replication_num" = "1",
+                    "store_row_column" = "${use_row_store}"); """
+            sql "insert into ${tableName4} values(1,1,1),(2,2,2),(3,3,3),(4,4,4),(5,5,5);"
+            qt_sql "select * from ${tableName4} order by k1;"
+            sql "delete from ${tableName4} where k1=1;"
+            sql "set enable_unique_key_partial_update=true;"
+            sql "set enable_insert_strict=false;"
+            sql "insert into ${tableName4} (k1, c1) values (1,1),(2,2),(3,3);"
+            qt_sql "select * from ${tableName4} order by k1;"
         }
     }
 }
