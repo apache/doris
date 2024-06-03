@@ -39,7 +39,6 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -394,7 +393,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             PartitionKey upperBorderBound = PartitionKey.createPartitionKey(
                     Collections.singletonList(upperBorderPartitionValue), Collections.singletonList(partitionColumn));
             reservedHistoryPartitionKeyRange = Range.closed(lowerBorderBound, upperBorderBound);
-        } catch (AnalysisException | org.apache.doris.nereids.exceptions.AnalysisException e) {
+        } catch (org.apache.doris.common.AnalysisException | org.apache.doris.nereids.exceptions.AnalysisException e) {
             // AnalysisException: keys.size is always equal to column.size, cannot reach this exception
             // IllegalArgumentException: lb is greater than ub
             LOG.warn("Error in gen reservePartitionKeyRange. {}, table: {}",
@@ -455,7 +454,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     reservedHistoryPartitionKeyRangeList.add(reservedHistoryPartitionKeyRange);
                 } catch (IllegalArgumentException e) {
                     return dropPartitionClauses;
-                } catch (AnalysisException | org.apache.doris.nereids.exceptions.AnalysisException e) {
+                } catch (org.apache.doris.common.AnalysisException
+                        | org.apache.doris.nereids.exceptions.AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }
             }
