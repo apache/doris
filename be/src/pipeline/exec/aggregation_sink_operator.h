@@ -85,6 +85,9 @@ protected:
                              vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
     void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                   vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
+    bool _emplace_into_hash_table_limit(vectorized::AggregateDataPtr* places,
+                                        vectorized::Block* block, const std::vector<int>& key_locs,
+                                        vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
     size_t _get_hash_table_size() const;
 
     template <bool limit, bool for_spill = false>
@@ -96,6 +99,7 @@ protected:
 
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_limit_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
@@ -109,7 +113,6 @@ protected:
     RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
 
     bool _should_limit_output = false;
-    bool _reach_limit = false;
 
     vectorized::PODArray<vectorized::AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;
@@ -191,8 +194,12 @@ protected:
     ObjectPool* _pool = nullptr;
     std::vector<size_t> _make_nullable_keys;
     int64_t _limit; // -1: no limit
-    bool _have_conjuncts;
+    // do sort limit and directions
+    bool _do_sort_limit = false;
+    std::vector<int> _order_directions;
+    std::vector<int> _null_directions;
 
+    bool _have_conjuncts;
     const std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
 
