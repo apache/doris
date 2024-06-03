@@ -132,13 +132,14 @@ public class TmpFileMgr {
      * @param fileId
      * @param fileUUID
      */
-    public void deleteFile(Long fileId, String fileUUID) {
+    public synchronized void deleteFile(Long fileId, String fileUUID) {
         Iterator<Map.Entry<Long, TmpFile>> iterator = fileMap.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, TmpFile> entry = iterator.next();
             if (entry.getValue().id == fileId && entry.getValue().uuid.equals(fileUUID)) {
                 entry.getValue().delete();
                 iterator.remove();
+                totalFileSize -= entry.getValue().fileSize;
             }
         }
         return;
