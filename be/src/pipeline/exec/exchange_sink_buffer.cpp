@@ -50,35 +50,38 @@ namespace vectorized {
 BroadcastPBlockHolder::~BroadcastPBlockHolder() {
     // lock the parent queue, if the queue could lock success, then return the block
     // to the queue, to reuse the block
-    std::shared_ptr<BroadcastPBlockHolderQueue> tmp_queue = _parent_creator.lock();
-    if (tmp_queue != nullptr) {
-        tmp_queue->push(BroadcastPBlockHolder::create_shared(std::move(_pblock)));
+    std::shared_ptr<BroadcastPBlockHolderMemLimiter> limiter = _parent_creator.lock();
+    if (limiter != nullptr) {
+        limiter->release(*this);
     }
     // If the queue already deconstruted, then release pblock automatically since it
     // is a unique ptr.
 }
 
-void BroadcastPBlockHolderQueue::push(std::shared_ptr<BroadcastPBlockHolder> holder) {
+void BroadcastPBlockHolderMemLimiter::acquire(BroadcastPBlockHolder& holder) {
     std::unique_lock l(_holders_lock);
-    holder->set_parent_creator(shared_from_this());
-    _holders.push(holder);
-    if (_broadcast_dependency) {
+    DCHECK(_broadcast_dependency != nullptr);
+    holder.set_parent_creator(shared_from_this());
+    auto size = holder._pblock->column_values().size();
+    _total_queue_buffer_size += size;
+    _total_queue_blocks_count++;
+    if (_total_queue_buffer_size >= config::exchg_node_buffer_size_bytes ||
+        _total_queue_blocks_count >= config::num_broadcast_buffer) {
+        _broadcast_dependency->block();
+    }
+}
+
+void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holder) {
+    std::unique_lock l(_holders_lock);
+    DCHECK(_broadcast_dependency != nullptr);
+    auto size = holder._pblock->column_values().size();
+    _total_queue_buffer_size -= size;
+    _total_queue_blocks_count--;
+    if (_total_queue_buffer_size <= 0) {
         _broadcast_dependency->set_ready();
     }
 }
 
-std::shared_ptr<BroadcastPBlockHolder> BroadcastPBlockHolderQueue::pop() {
-    std::unique_lock l(_holders_lock);
-    if (_holders.empty()) {
-        return {};
-    }
-    std::shared_ptr<BroadcastPBlockHolder> res = _holders.top();
-    _holders.pop();
-    if (_holders.empty() && _broadcast_dependency != nullptr) {
-        _broadcast_dependency->block();
-    }
-    return res;
-}
 } // namespace vectorized
 
 namespace pipeline {

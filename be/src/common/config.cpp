@@ -1070,7 +1070,7 @@ DEFINE_mInt32(segment_cache_memory_percentage, "2");
 DEFINE_Bool(enable_feature_binlog, "false");
 
 // enable set in BitmapValue
-DEFINE_Bool(enable_set_in_bitmap_value, "false");
+DEFINE_Bool(enable_set_in_bitmap_value, "true");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "1000");
 DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");
