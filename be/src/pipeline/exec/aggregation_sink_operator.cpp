@@ -464,40 +464,56 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
         _places.resize(rows);
     }
 
-    auto do_aggregate_evaluators = [&] {
-        for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
-            RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_batch_add(
-                    block,
-                    Base::_parent->template cast<AggSinkOperatorX>()
-                            ._offsets_of_aggregate_states[i],
-                    _places.data(), _agg_arena_pool));
-        }
-        return Status::OK();
-    };
+    if (limit && !_shared_state->do_sort_limit) {
+        _find_in_hash_table(_places.data(), key_columns, rows);
 
-    if constexpr (limit) {
-        if (_emplace_into_hash_table_limit(_places.data(), block, key_locs, key_columns, rows)) {
-            RETURN_IF_ERROR(do_aggregate_evaluators());
+        for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
+            RETURN_IF_ERROR(
+                    Base::_shared_state->aggregate_evaluators[i]->execute_batch_add_selected(
+                            block,
+                            Base::_parent->template cast<AggSinkOperatorX>()
+                                    ._offsets_of_aggregate_states[i],
+                            _places.data(), _agg_arena_pool));
         }
     } else {
-        _emplace_into_hash_table(_places.data(), key_columns, rows);
-        RETURN_IF_ERROR(do_aggregate_evaluators());
+        auto do_aggregate_evaluators = [&] {
+            for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
+                RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_batch_add(
+                        block,
+                        Base::_parent->template cast<AggSinkOperatorX>()
+                                ._offsets_of_aggregate_states[i],
+                        _places.data(), _agg_arena_pool));
+            }
+            return Status::OK();
+        };
 
-        if (_should_limit_output && !Base::_shared_state->enable_spill) {
-            const size_t hash_table_size = _get_hash_table_size();
-            if (Base::_parent->template cast<AggSinkOperatorX>()._can_short_circuit) {
-                _shared_state->reach_limit =
-                        hash_table_size >= Base::_parent->template cast<AggSinkOperatorX>()._limit;
-                if (_shared_state->reach_limit) {
-                    Base::_dependency->set_ready_to_read();
-                    return Status::Error<ErrorCode::END_OF_FILE>("");
-                }
-            } else {
-                _shared_state->reach_limit =
-                        hash_table_size >=
-                        Base::_parent->template cast<AggSinkOperatorX>()._limit * 5;
-                if (_shared_state->reach_limit) {
-                    _shared_state->build_limit_heap(hash_table_size);
+        if constexpr (limit) {
+            if (_emplace_into_hash_table_limit(_places.data(), block, key_locs, key_columns,
+                                               rows)) {
+                RETURN_IF_ERROR(do_aggregate_evaluators());
+            }
+        } else {
+            _emplace_into_hash_table(_places.data(), key_columns, rows);
+            RETURN_IF_ERROR(do_aggregate_evaluators());
+
+            if (_should_limit_output && !Base::_shared_state->enable_spill) {
+                const size_t hash_table_size = _get_hash_table_size();
+                if (Base::_parent->template cast<AggSinkOperatorX>()._can_short_circuit) {
+                    _shared_state->reach_limit =
+                            hash_table_size >=
+                            Base::_parent->template cast<AggSinkOperatorX>()._limit;
+                    if (_shared_state->reach_limit) {
+                        Base::_dependency->set_ready_to_read();
+                        return Status::Error<ErrorCode::END_OF_FILE>("");
+                    }
+                } else {
+                    _shared_state->reach_limit =
+                            hash_table_size >= _shared_state->do_sort_limit
+                                    ? Base::_parent->template cast<AggSinkOperatorX>()._limit * 5
+                                    : Base::_parent->template cast<AggSinkOperatorX>()._limit;
+                    if (_shared_state->reach_limit && _shared_state->do_sort_limit) {
+                        _shared_state->build_limit_heap(hash_table_size);
+                    }
                 }
             }
         }
