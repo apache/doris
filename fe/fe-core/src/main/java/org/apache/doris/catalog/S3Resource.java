@@ -23,7 +23,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.remote.S3FileSystem;
 
