@@ -80,6 +80,28 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
                                                       : state->query_parallel_instance_num());
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     _max_thread_num = std::min(_max_thread_num, (int32_t)scanners.size());
+
+    // when user not specify scan_thread_num, so we can try downgrade _max_thread_num.
+    // becaue we found in a table with 5k columns, column reader may ocuppy too much memory.
+    // you can refer https://github.com/apache/doris/issues/35340 for details.
+    int32_t max_column_reader_num = state->query_options().max_column_reader_num;
+    if (_max_thread_num != 1 && max_column_reader_num > 0) {
+        int32_t scan_column_num = _output_tuple_desc->slots().size();
+        int32_t current_column_num = scan_column_num * _max_thread_num;
+        if (current_column_num > max_column_reader_num) {
+            int32_t new_max_thread_num = max_column_reader_num / scan_column_num;
+            new_max_thread_num = new_max_thread_num <= 0 ? 1 : new_max_thread_num;
+            if (new_max_thread_num < _max_thread_num) {
+                int32_t origin_max_thread_num = _max_thread_num;
+                _max_thread_num = new_max_thread_num;
+                LOG(INFO) << "downgrade query:" << print_id(state->query_id())
+                          << " scan's max_thread_num from " << origin_max_thread_num << " to "
+                          << _max_thread_num << ",column num: " << scan_column_num
+                          << ", max_column_reader_num: " << max_column_reader_num;
+            }
+        }
+    }
+
     // 1. Calculate max concurrency
     // For select * from table limit 10; should just use one thread.
     if ((_parent && _parent->should_run_serial()) ||
@@ -161,19 +183,17 @@ std::string ScannerContext::parent_name() {
 }
 
 vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
-    vectorized::BlockUPtr block;
+    vectorized::BlockUPtr block = nullptr;
     if (_free_blocks.try_dequeue(block)) {
         DCHECK(block->mem_reuse());
         _free_blocks_memory_usage -= block->allocated_bytes();
         _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
-        return block;
-    }
-    if (_free_blocks_memory_usage < _max_bytes_in_queue || force) {
-        return vectorized::Block::create_unique(_output_tuple_desc->slots(), _batch_size,
-                                                true /*ignore invalid slots*/);
+    } else if (_free_blocks_memory_usage < _max_bytes_in_queue || force) {
         _newly_create_free_blocks_num->update(1);
+        block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
+                                                 true /*ignore invalid slots*/);
     }
-    return nullptr;
+    return block;
 }
 
 void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
@@ -198,7 +218,7 @@ void ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task) {
 
 void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) {
     if (scan_task->status_ok()) {
-        for (const vectorized::BlockUPtr& block : scan_task->cached_blocks) {
+        for (const auto& [block, _] : scan_task->cached_blocks) {
             if (block->rows() > 0) {
                 Status st = validate_block_schema(block.get());
                 if (!st.ok()) {
@@ -243,21 +263,18 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         _set_scanner_done();
         return _process_status;
     }
-    std::shared_ptr<ScanTask> scan_task = nullptr;
     if (!_blocks_queue.empty() && !done()) {
         _last_fetch_time = UnixMillis();
-        scan_task = _blocks_queue.front();
-    }
+        auto scan_task = _blocks_queue.front();
+        DCHECK(scan_task);
 
-    if (scan_task) {
         if (!scan_task->status_ok()) {
             _set_scanner_done();
             return scan_task->get_status();
         }
         if (!scan_task->cached_blocks.empty()) {
-            vectorized::BlockUPtr current_block = std::move(scan_task->cached_blocks.front());
+            auto [current_block, block_size] = std::move(scan_task->cached_blocks.front());
             scan_task->cached_blocks.pop_front();
-            size_t block_size = current_block->allocated_bytes();
             if (_estimated_block_size > block_size) {
                 _estimated_block_size = block_size;
             }
@@ -266,8 +283,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             // consume current block
             block->swap(*current_block);
             return_free_block(std::move(current_block));
-        }
-        if (scan_task->cached_blocks.empty()) {
+        } else {
             _blocks_queue.pop_front();
             if (scan_task->is_eos()) { // current scanner is finished, and no more data to read
                 _num_finished_scanners++;

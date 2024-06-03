@@ -1846,6 +1846,40 @@ build_base64() {
     "${BUILD_SYSTEM}" install
 }
 
+# azure blob storage
+build_azure() {
+    check_if_source_exist "${AZURE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
+    azure_dir=$(pwd)
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    # We need use openssl 1.1.1n, which is already carried in vcpkg-custom-ports
+    AZURE_PORTS="vcpkg-custom-ports"
+    AZURE_MANIFEST_DIR="."
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# dragonbox
+build_dragonbox() {
+    check_if_source_exist "${DRAGONBOX_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${DRAGONBOX_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DDRAGONBOX_INSTALL_TO_CHARS=ON ..
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         odbc
@@ -1914,6 +1948,8 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         streamvbyte
         ali_sdk
         base64
+        azure
+        dragonbox
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

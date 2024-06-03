@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -51,6 +52,8 @@ import java.util.stream.Stream;
  * show proc "/diagnose/cluster_balance";
  */
 public class DiagnoseClusterBalanceProcDir extends SubProcDir {
+
+    private ForkJoinPool taskPool = new ForkJoinPool();
 
     @Override
     public List<DiagnoseItem> getDiagnoseResult() {
@@ -89,12 +92,14 @@ public class DiagnoseClusterBalanceProcDir extends SubProcDir {
         tabletHealth.status = DiagnoseStatus.OK;
 
         Env env = Env.getCurrentEnv();
-        List<DBTabletStatistic> statistics = env.getInternalCatalog().getDbIds().parallelStream()
-                // skip information_schema database
-                .flatMap(id -> Stream.of(id == 0 ? null : env.getInternalCatalog().getDbNullable(id)))
-                .filter(Objects::nonNull).map(DBTabletStatistic::new)
-                // sort by dbName
-                .sorted(Comparator.comparing(db -> db.db.getFullName())).collect(Collectors.toList());
+        List<DBTabletStatistic> statistics = taskPool.submit(() ->
+                env.getInternalCatalog().getDbIds().parallelStream()
+                    // skip information_schema database
+                    .flatMap(id -> Stream.of(id == 0 ? null : env.getInternalCatalog().getDbNullable(id)))
+                    .filter(Objects::nonNull).map(DBTabletStatistic::new)
+                    // sort by dbName
+                    .sorted(Comparator.comparing(db -> db.db.getFullName())).collect(Collectors.toList())
+        ).join();
 
         DBTabletStatistic total = statistics.stream().reduce(new DBTabletStatistic(), DBTabletStatistic::reduce);
         if (total.tabletNum != total.healthyNum) {

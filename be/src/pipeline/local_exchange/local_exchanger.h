@@ -30,12 +30,14 @@ class Exchanger {
 public:
     Exchanger(int running_sink_operators, int num_partitions, int free_block_limit)
             : _running_sink_operators(running_sink_operators),
+              _running_source_operators(num_partitions),
               _num_partitions(num_partitions),
               _num_senders(running_sink_operators),
               _num_sources(num_partitions),
               _free_block_limit(free_block_limit) {}
     Exchanger(int running_sink_operators, int num_sources, int num_partitions, int free_block_limit)
             : _running_sink_operators(running_sink_operators),
+              _running_source_operators(num_partitions),
               _num_partitions(num_partitions),
               _num_senders(running_sink_operators),
               _num_sources(num_sources),
@@ -46,13 +48,16 @@ public:
     virtual Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                         LocalExchangeSinkLocalState& local_state) = 0;
     virtual ExchangeType get_type() const = 0;
+    virtual void close(LocalExchangeSourceLocalState& local_state) {}
 
 protected:
     friend struct LocalExchangeSharedState;
     friend struct ShuffleBlockWrapper;
     friend class LocalExchangeSourceLocalState;
+    friend class LocalExchangeSinkOperatorX;
     friend class LocalExchangeSinkLocalState;
     std::atomic<int> _running_sink_operators = 0;
+    std::atomic<int> _running_source_operators = 0;
     const int _num_partitions;
     const int _num_senders;
     const int _num_sources;
@@ -104,6 +109,7 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
+    void close(LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::HASH_SHUFFLE; }
 
 protected:
@@ -146,6 +152,7 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::PASSTHROUGH; }
+    void close(LocalExchangeSourceLocalState& local_state) override;
 
 private:
     std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
@@ -184,6 +191,7 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::BROADCAST; }
+    void close(LocalExchangeSourceLocalState& local_state) override;
 
 private:
     std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;

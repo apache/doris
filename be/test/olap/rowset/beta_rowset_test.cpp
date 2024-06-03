@@ -43,6 +43,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
+#include "io/fs/s3_obj_storage_client.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
@@ -244,9 +245,11 @@ TEST_F(BetaRowsetTest, ReadTest) {
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        client.reset(new S3ClientMock(aws_cred, aws_config,
-                                      Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-                                      true));
+        std::shared_ptr<Aws::S3::S3Client> s3_client = std::make_shared<S3ClientMock>(
+                aws_cred, aws_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                true);
+
+        client.reset(new io::S3ObjStorageClient(std::move(s3_client)));
 
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_fs(fs);
@@ -260,7 +263,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        client.reset(new S3ClientMockGetError());
+        client.reset(new io::S3ObjStorageClient(
+                std::make_shared<Aws::S3::S3Client>(S3ClientMockGetError())));
 
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_fs(fs);
@@ -274,7 +278,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        client.reset(new S3ClientMockGetErrorData());
+        client.reset(new io::S3ObjStorageClient(
+                std::make_shared<Aws::S3::S3Client>(S3ClientMockGetErrorData())));
 
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_fs(fs);

@@ -77,6 +77,9 @@
 namespace doris {
 namespace segment_v2 {
 
+static bvar::Adder<size_t> g_column_reader_memory_bytes("doris_column_reader_memory_bytes");
+static bvar::Adder<size_t> g_column_reader_num("doris_column_reader_num");
+
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                             uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                             std::unique_ptr<ColumnReader>* reader) {
@@ -206,9 +209,15 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
     _meta_is_nullable = meta.is_nullable();
     _meta_dict_page = meta.dict_page();
     _meta_compression = meta.compression();
+
+    g_column_reader_memory_bytes << sizeof(*this);
+    g_column_reader_num << 1;
 }
 
-ColumnReader::~ColumnReader() = default;
+ColumnReader::~ColumnReader() {
+    g_column_reader_memory_bytes << -sizeof(*this);
+    g_column_reader_num << -1;
+}
 
 Status ColumnReader::init(const ColumnMetaPB* meta) {
     _type_info = get_type_info(meta);
@@ -880,7 +889,7 @@ Status OffsetFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
         size_t n = 1;
         RETURN_IF_ERROR(offset_page_decoder->peek_next_batch(&n, offset_col)); // not null
         DCHECK(offset_col->size() == 1);
-        *offset = offset_col->get_uint(0);
+        *offset = assert_cast<const vectorized::ColumnUInt64*>(offset_col.get())->get_element(0);
     } else {
         *offset = _offset_iterator->get_current_page()->next_array_item_ordinal;
     }

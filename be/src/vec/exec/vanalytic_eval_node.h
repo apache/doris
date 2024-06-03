@@ -83,8 +83,6 @@ public:
     void release_resource(RuntimeState* state) override;
     Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
-    bool can_read();
-    bool can_write();
 
 protected:
     using ExecNode::debug_string;

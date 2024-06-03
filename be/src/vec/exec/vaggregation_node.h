@@ -224,16 +224,15 @@ using ArenaUPtr = std::unique_ptr<Arena>;
 struct AggregateDataContainer {
 public:
     AggregateDataContainer(size_t size_of_key, size_t size_of_aggregate_states)
-            : _size_of_key(size_of_key), _size_of_aggregate_states(size_of_aggregate_states) {
-        _expand();
-    }
+            : _size_of_key(size_of_key), _size_of_aggregate_states(size_of_aggregate_states) {}
 
     int64_t memory_usage() const { return _arena_pool.size(); }
 
     template <typename KeyType>
     AggregateDataPtr append_data(const KeyType& key) {
         DCHECK_EQ(sizeof(KeyType), _size_of_key);
-        if (UNLIKELY(_index_in_sub_container == SUB_CONTAINER_CAPACITY)) {
+        // SUB_CONTAINER_CAPACITY should add a new sub container, and also expand when it is zero
+        if (UNLIKELY(_index_in_sub_container % SUB_CONTAINER_CAPACITY == 0)) {
             _expand();
         }
 
@@ -351,7 +350,7 @@ private:
     Arena _arena_pool;
     std::vector<char*> _key_containers;
     std::vector<AggregateDataPtr> _value_containers;
-    AggregateDataPtr _current_agg_data;
+    AggregateDataPtr _current_agg_data = nullptr;
     char* _current_keys = nullptr;
     size_t _size_of_key {};
     size_t _size_of_aggregate_states {};
@@ -439,6 +438,7 @@ protected:
     // nullable diff. so we need make nullable of it.
     std::vector<size_t> _make_nullable_keys;
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_limit_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
@@ -492,8 +492,70 @@ private:
     RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
 
     bool _should_expand_hash_table = true;
+
     bool _should_limit_output = false;
     bool _reach_limit = false;
+    bool _do_sort_limit = false;
+    MutableColumns _limit_columns;
+    int _limit_columns_min = -1;
+    PaddedPODArray<uint8_t> _need_computes;
+    std::vector<uint8_t> _cmp_res;
+    std::vector<int> _order_directions;
+    std::vector<int> _null_directions;
+
+    struct HeapLimitCursor {
+        HeapLimitCursor(int row_id, MutableColumns& limit_columns,
+                        std::vector<int>& order_directions, std::vector<int>& null_directions)
+                : _row_id(row_id),
+                  _limit_columns(limit_columns),
+                  _order_directions(order_directions),
+                  _null_directions(null_directions) {}
+
+        HeapLimitCursor(const HeapLimitCursor& other) noexcept
+                : _row_id(other._row_id),
+                  _limit_columns(other._limit_columns),
+                  _order_directions(other._order_directions),
+                  _null_directions(other._null_directions) {}
+
+        HeapLimitCursor(HeapLimitCursor&& other) noexcept
+                : _row_id(other._row_id),
+                  _limit_columns(other._limit_columns),
+                  _order_directions(other._order_directions),
+                  _null_directions(other._null_directions) {}
+
+        HeapLimitCursor& operator=(const HeapLimitCursor& other) noexcept {
+            _row_id = other._row_id;
+            return *this;
+        }
+
+        HeapLimitCursor& operator=(HeapLimitCursor&& other) noexcept {
+            _row_id = other._row_id;
+            return *this;
+        }
+
+        bool operator<(const HeapLimitCursor& rhs) const {
+            for (int i = 0; i < _limit_columns.size(); ++i) {
+                const auto& _limit_column = _limit_columns[i];
+                auto res = _limit_column->compare_at(_row_id, rhs._row_id, *_limit_column,
+                                                     _null_directions[i]) *
+                           _order_directions[i];
+                if (res < 0) {
+                    return true;
+                } else if (res > 0) {
+                    return false;
+                }
+            }
+            return false;
+        }
+
+        int _row_id;
+        MutableColumns& _limit_columns;
+        std::vector<int>& _order_directions;
+        std::vector<int>& _null_directions;
+    };
+
+    std::priority_queue<HeapLimitCursor> _limit_heap;
+
     bool _agg_data_created_without_key = false;
 
     PODArray<AggregateDataPtr> _places;
@@ -536,52 +598,7 @@ private:
     Status _init_hash_method(const VExprContextSPtrs& probe_exprs);
 
     template <bool limit>
-    Status _execute_with_serialized_key_helper(Block* block) {
-        DCHECK(!_probe_expr_ctxs.empty());
-
-        size_t key_size = _probe_expr_ctxs.size();
-        ColumnRawPtrs key_columns(key_size);
-        {
-            SCOPED_TIMER(_expr_timer);
-            for (size_t i = 0; i < key_size; ++i) {
-                int result_column_id = -1;
-                RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
-                block->get_by_position(result_column_id).column =
-                        block->get_by_position(result_column_id)
-                                .column->convert_to_full_column_if_const();
-                key_columns[i] = block->get_by_position(result_column_id).column.get();
-            }
-        }
-
-        int rows = block->rows();
-        if (_places.size() < rows) {
-            _places.resize(rows);
-        }
-
-        if constexpr (limit) {
-            _find_in_hash_table(_places.data(), key_columns, rows);
-
-            for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-                RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add_selected(
-                        block, _offsets_of_aggregate_states[i], _places.data(),
-                        _agg_arena_pool.get()));
-            }
-        } else {
-            _emplace_into_hash_table(_places.data(), key_columns, rows);
-
-            for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-                RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(
-                        block, _offsets_of_aggregate_states[i], _places.data(),
-                        _agg_arena_pool.get()));
-            }
-
-            if (_should_limit_output) {
-                _reach_limit = _get_hash_table_size() >= _limit;
-            }
-        }
-
-        return Status::OK();
-    }
+    Status _execute_with_serialized_key_helper(Block* block);
 
     // We should call this function only at 1st phase.
     // 1st phase: is_merge=true, only have one SlotRef.
@@ -600,15 +617,16 @@ private:
 
         size_t key_size = _probe_expr_ctxs.size();
         ColumnRawPtrs key_columns(key_size);
+        std::vector<int> key_locs(key_size);
 
         for (size_t i = 0; i < key_size; ++i) {
             if constexpr (for_spill) {
                 key_columns[i] = block->get_by_position(i).column.get();
+                key_locs[i] = i;
             } else {
-                int result_column_id = -1;
-                RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
-                block->replace_by_position_if_const(result_column_id);
-                key_columns[i] = block->get_by_position(result_column_id).column.get();
+                RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &key_locs[i]));
+                block->replace_by_position_if_const(key_locs[i]);
+                key_columns[i] = block->get_by_position(key_locs[i]).column.get();
             }
         }
 
@@ -617,7 +635,7 @@ private:
             _places.resize(rows);
         }
 
-        if constexpr (limit) {
+        if (limit && !_do_sort_limit) {
             _find_in_hash_table(_places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -638,8 +656,8 @@ private:
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_and_merge_vec_selected(
                                 _places.data(), _offsets_of_aggregate_states[i],
-                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
-                                _agg_arena_pool.get(), rows);
+                                _deserialize_buffer.data(), column.get(), _agg_arena_pool.get(),
+                                rows);
                     }
                 } else {
                     RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add_selected(
@@ -648,43 +666,55 @@ private:
                 }
             }
         } else {
-            _emplace_into_hash_table(_places.data(), key_columns, rows);
+            bool need_do_agg = true;
+            if (limit) {
+                need_do_agg = _emplace_into_hash_table_limit(_places.data(), block, key_locs,
+                                                             key_columns, rows);
+            } else {
+                _emplace_into_hash_table(_places.data(), key_columns, rows);
+            }
 
-            for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-                if (_aggregate_evaluators[i]->is_merge() || for_spill) {
-                    int col_id;
-                    if constexpr (for_spill) {
-                        col_id = _probe_expr_ctxs.size() + i;
+            if (need_do_agg) {
+                for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+                    if (_aggregate_evaluators[i]->is_merge() || for_spill) {
+                        int col_id;
+                        if constexpr (for_spill) {
+                            col_id = _probe_expr_ctxs.size() + i;
+                        } else {
+                            col_id = _get_slot_column_id(_aggregate_evaluators[i]);
+                        }
+                        auto column = block->get_by_position(col_id).column;
+                        if (column->is_nullable()) {
+                            column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
+                        }
+
+                        size_t buffer_size =
+                                _aggregate_evaluators[i]->function()->size_of_data() * rows;
+                        if (_deserialize_buffer.size() < buffer_size) {
+                            _deserialize_buffer.resize(buffer_size);
+                        }
+
+                        {
+                            SCOPED_TIMER(_deserialize_data_timer);
+                            _aggregate_evaluators[i]->function()->deserialize_and_merge_vec(
+                                    _places.data(), _offsets_of_aggregate_states[i],
+                                    _deserialize_buffer.data(), column.get(), _agg_arena_pool.get(),
+                                    rows);
+                        }
                     } else {
-                        col_id = _get_slot_column_id(_aggregate_evaluators[i]);
+                        RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(
+                                block, _offsets_of_aggregate_states[i], _places.data(),
+                                _agg_arena_pool.get()));
                     }
-                    auto column = block->get_by_position(col_id).column;
-                    if (column->is_nullable()) {
-                        column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
-                    }
-
-                    size_t buffer_size =
-                            _aggregate_evaluators[i]->function()->size_of_data() * rows;
-                    if (_deserialize_buffer.size() < buffer_size) {
-                        _deserialize_buffer.resize(buffer_size);
-                    }
-
-                    {
-                        SCOPED_TIMER(_deserialize_data_timer);
-                        _aggregate_evaluators[i]->function()->deserialize_and_merge_vec(
-                                _places.data(), _offsets_of_aggregate_states[i],
-                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
-                                _agg_arena_pool.get(), rows);
-                    }
-                } else {
-                    RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(
-                            block, _offsets_of_aggregate_states[i], _places.data(),
-                            _agg_arena_pool.get()));
                 }
             }
 
-            if (_should_limit_output) {
-                _reach_limit = _get_hash_table_size() >= _limit;
+            if (!limit && _should_limit_output) {
+                const size_t hash_table_size = _get_hash_table_size();
+                _reach_limit = hash_table_size >= _limit;
+                if (_do_sort_limit && _reach_limit) {
+                    _build_limit_heap(hash_table_size);
+                }
             }
         }
 
@@ -693,6 +723,10 @@ private:
 
     void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                   const size_t num_rows);
+
+    bool _emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,
+                                        const std::vector<int>& key_locs,
+                                        ColumnRawPtrs& key_columns, size_t num_rows);
 
     size_t _memory_usage() const;
 
@@ -737,6 +771,12 @@ private:
     };
 
     MemoryRecord _mem_usage_record;
+
+    MutableColumns _get_keys_hash_table();
+
+    bool _do_limit_filter(Block* block, int key_size, size_t num_rows);
+
+    void _build_limit_heap(size_t hash_table_size);
 };
 } // namespace vectorized
 

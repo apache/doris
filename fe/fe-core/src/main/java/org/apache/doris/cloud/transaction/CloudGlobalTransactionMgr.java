@@ -70,6 +70,8 @@ import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.metric.MetricRepo;
@@ -225,7 +227,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     .setCloudUniqueId(Config.cloud_unique_id)
                     .build();
 
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retryTime:{}, beginTxnRequest:{}", retryTime, beginTxnRequest);
                 }
@@ -455,7 +457,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         int retryTime = 0;
 
         try {
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retryTime:{}, commitTxnRequest:{}", retryTime, commitTxnRequest);
                 }
@@ -512,6 +514,23 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(txnState.getCommitTime() - txnState.getPrepareTime());
         }
         afterCommitTxnResp(commitTxnResponse);
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of transaction
+        try {
+            produceEvent(dbId, tableList);
+        } catch (Throwable t) {
+            // According to normal logic, no exceptions will be thrown,
+            // but in order to avoid bugs affecting the original logic, all exceptions are caught
+            LOG.warn("produceEvent failed: ", t);
+        }
+    }
+
+    private void produceEvent(long dbId, List<Table> tableList) {
+        for (Table table : tableList) {
+            Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new DataChangeEvent(InternalCatalog.INTERNAL_CATALOG_ID, dbId, table.getId()));
+        }
     }
 
     private List<OlapTable> getMowTableList(List<Table> tableList) {
@@ -628,7 +647,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             GetDeleteBitmapUpdateLockResponse response = null;
 
             int retryTime = 0;
-            while (retryTime++ < Config.meta_service_rpc_retry_times) {
+            while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
                 try {
                     response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
                     if (LOG.isDebugEnabled()) {
@@ -811,7 +830,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         AbortTxnResponse abortTxnResponse = null;
         int retryTime = 0;
         try {
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retryTime:{}, abortTxnRequest:{}", retryTime, abortTxnRequest);
                 }
@@ -862,7 +881,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         int retryTime = 0;
 
         try {
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retyTime:{}, abortTxnRequest:{}", retryTime, abortTxnRequest);
                 }

@@ -366,6 +366,7 @@ Status SegmentCreator::add_block(const vectorized::Block* block) {
         if (_buffer_block.allocated_bytes() > config::write_buffer_size) {
             vectorized::Block block = _buffer_block.to_block();
             RETURN_IF_ERROR(flush_single_block(&block));
+            _buffer_block.clear();
         } else {
             RETURN_IF_ERROR(_buffer_block.merge(*block));
         }
@@ -397,6 +398,7 @@ Status SegmentCreator::flush() {
     if (_buffer_block.rows() > 0) {
         vectorized::Block block = _buffer_block.to_block();
         RETURN_IF_ERROR(flush_single_block(&block));
+        _buffer_block.clear();
     }
     if (_flush_writer == nullptr) {
         return Status::OK();

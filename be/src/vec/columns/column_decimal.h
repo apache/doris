@@ -138,6 +138,7 @@ public:
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
 
     void insert_many_raw_data(const char* pos, size_t num) override {
+        DCHECK(pos);
         size_t old_size = data.size();
         data.resize(old_size + num);
         memcpy(data.data() + old_size, pos, num * sizeof(T));
@@ -203,8 +204,6 @@ public:
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
     bool get_bool(size_t n) const override { return bool(data[n]); }
     Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
-    UInt64 get64(size_t n) const override;
-    bool is_default_at(size_t n) const override { return data[n].value == 0; }
 
     void clear() override { data.clear(); }
 
@@ -213,17 +212,6 @@ public:
     size_t filter(const IColumn::Filter& filter) override;
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
-    //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
-
-    template <typename Type>
-    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
-
-    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);
-    }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
@@ -253,11 +241,6 @@ public:
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data[self_row] = assert_cast<const Self&>(rhs).data[row];
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        data[self_row] = T();
     }
 
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
@@ -320,22 +303,5 @@ struct ColumnVectorOrDecimalT<T, true> {
 
 template <typename T>
 using ColumnVectorOrDecimal = typename ColumnVectorOrDecimalT<T, IsDecimalNumber<T>>::Col;
-
-template <typename T>
-template <typename Type>
-ColumnPtr ColumnDecimal<T>::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
-    size_t size = indexes.size();
-
-    if (limit == 0)
-        limit = size;
-    else
-        limit = std::min(size, limit);
-
-    auto res = this->create(limit, scale);
-    typename Self::Container& res_data = res->get_data();
-    for (size_t i = 0; i < limit; ++i) res_data[i] = data[indexes[i]];
-
-    return res;
-}
 
 } // namespace doris::vectorized

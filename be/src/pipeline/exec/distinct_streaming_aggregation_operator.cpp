@@ -323,7 +323,8 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
 
 DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, int operator_id,
                                                              const TPlanNode& tnode,
-                                                             const DescriptorTbl& descs)
+                                                             const DescriptorTbl& descs,
+                                                             bool require_bucket_distribution)
         : StatefulOperatorX<DistinctStreamingAggLocalState>(pool, tnode, operator_id, descs),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
@@ -331,7 +332,8 @@ DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, i
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
           _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
                                                                : std::vector<TExpr> {}),
-          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate) {
+          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate &&
+                       require_bucket_distribution) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {

@@ -311,6 +311,9 @@ public:
 
     Status reset_hash_table();
 
+    bool do_limit_filter(vectorized::Block* block, size_t num_rows);
+    void build_limit_heap(size_t hash_table_size);
+
     // We should call this function only at 1st phase.
     // 1st phase: is_merge=true, only have one SlotRef.
     // 2nd phase: is_merge=false, maybe have multiple exprs.
@@ -346,8 +349,73 @@ public:
     MemoryRecord mem_usage_record;
     bool agg_data_created_without_key = false;
     bool enable_spill = false;
+    bool reach_limit = false;
+
+    int64_t limit = -1;
+    bool do_sort_limit = false;
+    vectorized::MutableColumns limit_columns;
+    int limit_columns_min = -1;
+    vectorized::PaddedPODArray<uint8_t> need_computes;
+    std::vector<uint8_t> cmp_res;
+    std::vector<int> order_directions;
+    std::vector<int> null_directions;
+
+    struct HeapLimitCursor {
+        HeapLimitCursor(int row_id, vectorized::MutableColumns& limit_columns,
+                        std::vector<int>& order_directions, std::vector<int>& null_directions)
+                : _row_id(row_id),
+                  _limit_columns(limit_columns),
+                  _order_directions(order_directions),
+                  _null_directions(null_directions) {}
+
+        HeapLimitCursor(const HeapLimitCursor& other) noexcept
+                : _row_id(other._row_id),
+                  _limit_columns(other._limit_columns),
+                  _order_directions(other._order_directions),
+                  _null_directions(other._null_directions) {}
+
+        HeapLimitCursor(HeapLimitCursor&& other) noexcept
+                : _row_id(other._row_id),
+                  _limit_columns(other._limit_columns),
+                  _order_directions(other._order_directions),
+                  _null_directions(other._null_directions) {}
+
+        HeapLimitCursor& operator=(const HeapLimitCursor& other) noexcept {
+            _row_id = other._row_id;
+            return *this;
+        }
+
+        HeapLimitCursor& operator=(HeapLimitCursor&& other) noexcept {
+            _row_id = other._row_id;
+            return *this;
+        }
+
+        bool operator<(const HeapLimitCursor& rhs) const {
+            for (int i = 0; i < _limit_columns.size(); ++i) {
+                const auto& _limit_column = _limit_columns[i];
+                auto res = _limit_column->compare_at(_row_id, rhs._row_id, *_limit_column,
+                                                     _null_directions[i]) *
+                           _order_directions[i];
+                if (res < 0) {
+                    return true;
+                } else if (res > 0) {
+                    return false;
+                }
+            }
+            return false;
+        }
+
+        int _row_id;
+        vectorized::MutableColumns& _limit_columns;
+        std::vector<int>& _order_directions;
+        std::vector<int>& _null_directions;
+    };
+
+    std::priority_queue<HeapLimitCursor> limit_heap;
 
 private:
+    vectorized::MutableColumns _get_keys_hash_table();
+
     void _close_with_serialized_key() {
         std::visit(vectorized::Overload {[&](std::monostate& arg) -> void {
                                              // Do nothing
@@ -609,8 +677,8 @@ public:
     vectorized::Block build_block; // build to source
     //record element size in hashtable
     int64_t valid_element_in_hash_tbl = 0;
-    //first:column_id, could point to origin column or cast column
-    //second:idx mapped to column types
+    //first: idx mapped to column types
+    //second: column_id, could point to origin column or cast column
     std::unordered_map<int, int> build_col_idx;
 
     //// shared static states (shared, decided in prepare/open...)
@@ -759,8 +827,13 @@ public:
         }
     };
     void sub_running_sink_operators();
+    void sub_running_source_operators();
     void _set_always_ready() {
         for (auto& dep : source_deps) {
+            DCHECK(dep);
+            dep->set_always_ready();
+        }
+        for (auto& dep : sink_deps) {
             DCHECK(dep);
             dep->set_always_ready();
         }

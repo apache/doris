@@ -71,29 +71,6 @@ public class OlapAnalysisTaskTest {
         Assertions.assertFalse(tableSample.isPercent());
     }
 
-    // test auto big table
-    @Test
-    public void testSample2(@Mocked OlapTable tbl) {
-        new MockUp<OlapTable>() {
-
-            @Mock
-            public long getDataSize(boolean singleReplica) {
-                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() + 1;
-            }
-        };
-
-        AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder()
-                .setAnalysisMethod(AnalysisMethod.FULL);
-        analysisInfoBuilder.setJobType(JobType.SYSTEM);
-        OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
-        olapAnalysisTask.info = analysisInfoBuilder.build();
-        olapAnalysisTask.tbl = tbl;
-        TableSample tableSample = olapAnalysisTask.getTableSample();
-        Assertions.assertNotNull(tableSample);
-        Assertions.assertEquals(StatisticsUtil.getHugeTableSampleRows(), tableSample.getSampleValue());
-
-    }
-
     // test auto small table
     @Test
     public void testSample3(@Mocked OlapTable tbl) {

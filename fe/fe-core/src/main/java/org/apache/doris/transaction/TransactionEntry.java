@@ -218,9 +218,9 @@ public class TransactionEntry {
             try {
                 if (Env.getCurrentEnv().isMaster()) {
                     beforeFinishTransaction();
+                    long commitTimeout = Math.min(60000L, Math.max(timeoutTimestamp - System.currentTimeMillis(), 0));
                     if (Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(database, transactionId,
-                            transactionState.getSubTransactionStates(),
-                            ConnectContext.get().getSessionVariable().getInsertVisibleTimeoutMs())) {
+                            transactionState.getSubTransactionStates(), commitTimeout)) {
                         return TransactionStatus.VISIBLE;
                     } else {
                         return TransactionStatus.COMMITTED;

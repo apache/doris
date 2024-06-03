@@ -23,21 +23,6 @@
 
 namespace doris::pipeline {
 
-class PipScannerContext final : public vectorized::ScannerContext {
-    ENABLE_FACTORY_CREATOR(PipScannerContext);
-
-public:
-    PipScannerContext(RuntimeState* state, vectorized::VScanNode* parent,
-                      const TupleDescriptor* output_tuple_desc,
-                      const RowDescriptor* output_row_descriptor,
-                      const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
-                      int64_t limit_, int64_t max_bytes_in_blocks_queue,
-                      const int num_parallel_instances)
-            : vectorized::ScannerContext(state, parent, output_tuple_desc, output_row_descriptor,
-                                         scanners, limit_, max_bytes_in_blocks_queue,
-                                         num_parallel_instances) {}
-};
-
 class PipXScannerContext final : public vectorized::ScannerContext {
     ENABLE_FACTORY_CREATOR(PipXScannerContext);
 
@@ -64,7 +49,7 @@ public:
 
     Status get_block_from_queue(RuntimeState* state, vectorized::Block* block, bool* eos, int id,
                                 bool wait = true) override {
-        Status st = vectorized::ScannerContext::get_block_from_queue(state, block, eos, id, wait);
+        Status st = vectorized::ScannerContext::get_block_from_queue(state, block, eos, id, false);
         std::lock_guard<std::mutex> l(_transfer_lock);
         if (_blocks_queue.empty()) {
             if (_dependency) {

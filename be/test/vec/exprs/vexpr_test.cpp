@@ -40,6 +40,7 @@
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
+#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/exprs/vexpr_context.h"
@@ -376,12 +377,11 @@ TEST(TEST_VEXPR, LITERALTEST) {
     // bool
     {
         VLiteral literal(create_literal<TYPE_BOOLEAN>(true));
-        std::cout << "data type: " << literal.data_type().get()->get_name() << std::endl;
         Block block;
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        bool v = ctn.column->get_bool(0);
+        auto v = (*ctn.column)[0].get<uint8_t>();
         EXPECT_EQ(v, true);
         EXPECT_EQ("1", literal.value());
     }
@@ -392,7 +392,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = ctn.column->get64(0);
+        auto v = (*ctn.column)[0].get<int16_t>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
     }
@@ -403,7 +403,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = ctn.column->get64(0);
+        auto v = (*ctn.column)[0].get<int32_t>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
     }
@@ -414,7 +414,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = ctn.column->get64(0);
+        auto v = (*ctn.column)[0].get<int64_t>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
     }

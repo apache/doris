@@ -78,6 +78,8 @@ DEFINE_String(priority_networks, "");
 // performance or compact
 DEFINE_String(memory_mode, "moderate");
 
+DEFINE_mBool(enable_use_cgroup_memory_info, "true");
+
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
 // or percentage of the physical memory ('<int>%').
@@ -499,6 +501,7 @@ DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
 DEFINE_Int32(brpc_light_work_pool_threads, "-1");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
+DEFINE_mBool(enable_bthread_transmit_block, "true");
 
 // The maximum amount of data that can be processed by a stream load
 DEFINE_mInt64(streaming_load_max_mb, "10240");
@@ -620,6 +623,9 @@ DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 // sync tablet_meta when modifying meta
 DEFINE_mBool(sync_tablet_meta, "false");
 
+// sync when closing a file writer
+DEFINE_mBool(sync_file_on_close, "true");
+
 // default thrift rpc timeout ms
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
 
@@ -694,7 +700,7 @@ DEFINE_Int64(brpc_socket_max_unwritten_bytes, "-1");
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
 // is greater than 1.8G. This is to avoid the error of Request length overflow (2G).
-DEFINE_mBool(transfer_large_data_by_brpc, "false");
+DEFINE_mBool(transfer_large_data_by_brpc, "true");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager
@@ -834,7 +840,7 @@ DEFINE_String(kafka_debug, "disable");
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
-DEFINE_Int32(routine_load_consumer_pool_size, "1024");
+DEFINE_mInt32(routine_load_consumer_pool_size, "1024");
 
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
@@ -1064,7 +1070,7 @@ DEFINE_mInt32(segment_cache_memory_percentage, "2");
 DEFINE_Bool(enable_feature_binlog, "false");
 
 // enable set in BitmapValue
-DEFINE_Bool(enable_set_in_bitmap_value, "false");
+DEFINE_Bool(enable_set_in_bitmap_value, "true");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "1000");
 DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");
@@ -1152,7 +1158,6 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
 // Dir of default timezone files
 DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
-DEFINE_Bool(use_doris_tzfile, "false");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
@@ -1189,9 +1194,9 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 // limit the storage space that query spill files can use
 DEFINE_String(spill_storage_root_path, "");
-DEFINE_String(spill_storage_limit, "20%");   // 20%
-DEFINE_mInt32(spill_gc_interval_ms, "2000"); // 2s
-DEFINE_mInt32(spill_gc_file_count, "2000");
+DEFINE_String(spill_storage_limit, "20%");    // 20%
+DEFINE_mInt32(spill_gc_interval_ms, "2000");  // 2s
+DEFINE_mInt32(spill_gc_work_time_ms, "2000"); // 2s
 DEFINE_Int32(spill_io_thread_pool_thread_num, "-1");
 DEFINE_Validator(spill_io_thread_pool_thread_num, [](const int config) -> bool {
     if (config == -1) {
@@ -1231,6 +1236,9 @@ DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
 
 /** Hive sink configurations **/
 DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
+
+/** Iceberg sink configurations **/
+DEFINE_mInt64(iceberg_sink_max_file_size, "1073741824"); // 1GB
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
@@ -1273,6 +1281,13 @@ DEFINE_Int64(max_nonblock_close_thread_num, "64");
 // The possibility that mem allocator throws an exception during memory allocation
 // This config is for test usage, be careful when changing it.
 DEFINE_mDouble(mem_alloc_fault_probability, "0.0");
+// The time out milliseconds for remote fetch schema RPC, default 60s
+DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
+
+DEFINE_Int64(s3_file_system_local_upload_buffer_size, "5242880");
+
+//JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues. The default setting is off.
+DEFINE_Bool(enable_jvm_monitor, "false");
 
 // clang-format off
 #ifdef BE_TEST

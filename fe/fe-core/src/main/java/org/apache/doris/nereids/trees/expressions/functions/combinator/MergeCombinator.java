@@ -17,12 +17,19 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.combinator;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.AggStateType;
@@ -37,7 +44,7 @@ import java.util.Objects;
  * AggState combinator merge
  */
 public class MergeCombinator extends AggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, ComputeNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, ComputeNullable, Combinator, RollUpTrait {
 
     private final AggregateFunction nested;
     private final AggStateType inputType;
@@ -71,6 +78,7 @@ public class MergeCombinator extends AggregateFunction
         return nested.getDataType();
     }
 
+    @Override
     public AggregateFunction getNestedFunction() {
         return nested;
     }
@@ -83,5 +91,19 @@ public class MergeCombinator extends AggregateFunction
     @Override
     public boolean nullable() {
         return nested.nullable();
+    }
+
+    @Override
+    public Function constructRollUp(Expression param, Expression... varParams) {
+        FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
+        FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(getName(), param);
+        Pair<? extends Expression, ? extends BoundFunction> targetExpressionPair = functionBuilder.build(getName(),
+                param);
+        return (Function) targetExpressionPair.key();
+    }
+
+    @Override
+    public boolean canRollUp() {
+        return false;
     }
 }

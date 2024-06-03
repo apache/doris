@@ -188,13 +188,11 @@ PathInDataBuilder& PathInDataBuilder::append(std::string_view key, bool is_array
     if (parts.empty()) {
         current_anonymous_array_level += is_array;
     }
-    if (!key.empty()) {
-        if (!parts.empty()) {
-            parts.back().is_nested = is_array;
-        }
-        parts.emplace_back(key, false, current_anonymous_array_level);
-        current_anonymous_array_level = 0;
+    if (!parts.empty()) {
+        parts.back().is_nested = is_array;
     }
+    parts.emplace_back(key, false, current_anonymous_array_level);
+    current_anonymous_array_level = 0;
     return *this;
 }
 PathInDataBuilder& PathInDataBuilder::append(const PathInData::Parts& path, bool is_array) {
@@ -215,7 +213,9 @@ PathInDataBuilder& PathInDataBuilder::append(const PathInData::Parts& path, bool
 }
 
 void PathInDataBuilder::pop_back() {
-    parts.pop_back();
+    if (!parts.empty()) {
+        parts.pop_back();
+    }
 }
 
 void PathInDataBuilder::pop_back(size_t n) {

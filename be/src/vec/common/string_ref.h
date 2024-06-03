@@ -270,13 +270,7 @@ struct StringRef {
 
     // ==
     bool eq(const StringRef& other) const {
-        if (this->size != other.size) {
-            return false;
-        }
-#if defined(__SSE2__) || defined(__aarch64__)
-        return memequalSSE2Wide(this->data, other.data, this->size);
-#endif
-        return string_compare(this->data, this->size, other.data, other.size, this->size) == 0;
+        return (size == other.size) && (memcmp(data, other.data, size) == 0);
     }
 
     bool operator==(const StringRef& other) const { return eq(other); }

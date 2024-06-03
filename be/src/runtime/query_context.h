@@ -100,6 +100,7 @@ public:
     [[nodiscard]] bool is_cancelled() const { return !_exec_status.ok(); }
 
     void cancel_all_pipeline_context(const Status& reason);
+    std::string print_all_pipeline_context();
     Status cancel_pipeline_context(const int fragment_id, const Status& reason);
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
@@ -135,17 +136,18 @@ public:
         return _shared_scanner_controller;
     }
 
-    vectorized::RuntimePredicate& get_runtime_predicate(int source_node_id) {
-        DCHECK(_runtime_predicates.contains(source_node_id) || _runtime_predicates.contains(0));
-        if (_runtime_predicates.contains(source_node_id)) {
-            return _runtime_predicates[source_node_id];
-        }
-        return _runtime_predicates[0];
+    bool has_runtime_predicate(int source_node_id) {
+        return _runtime_predicates.contains(source_node_id);
     }
 
-    void init_runtime_predicates(std::vector<int> source_node_ids) {
-        for (int id : source_node_ids) {
-            _runtime_predicates.try_emplace(id);
+    vectorized::RuntimePredicate& get_runtime_predicate(int source_node_id) {
+        DCHECK(has_runtime_predicate(source_node_id));
+        return _runtime_predicates.find(source_node_id)->second;
+    }
+
+    void init_runtime_predicates(const std::vector<TTopnFilterDesc>& topn_filter_descs) {
+        for (auto desc : topn_filter_descs) {
+            _runtime_predicates.try_emplace(desc.source_node_id, desc);
         }
     }
 

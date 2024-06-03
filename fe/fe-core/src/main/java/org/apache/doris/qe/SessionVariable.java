@@ -136,6 +136,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
+    public static final String DEBUG_SKIP_FOLD_CONSTANT = "debug_skip_fold_constant";
 
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
@@ -571,6 +572,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String BYPASS_WORKLOAD_GROUP = "bypass_workload_group";
 
+    public static final String MAX_COLUMN_READER_NUM = "max_column_reader_num";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -582,6 +585,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_STATS = "enable_stats";
 
     public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
+
+    public static final String FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS = "fetch_remote_schema_timeout_seconds";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -700,6 +705,9 @@ public class SessionVariable implements Serializable, Writable {
             "查询是否绕开WorkloadGroup的限制，目前仅支持绕开查询排队的逻辑",
             "whether bypass workload group's limitation, currently only support bypass query queue"})
     public boolean bypassWorkloadGroup = false;
+
+    @VariableMgr.VarAttr(name = MAX_COLUMN_READER_NUM)
+    public int maxColumnReaderNum = 20000;
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "";
@@ -888,8 +896,6 @@ public class SessionVariable implements Serializable, Writable {
     public String defaultStorageEngine = "olap";
     @VariableMgr.VarAttr(name = DEFAULT_TMP_STORAGE_ENGINE)
     public String defaultTmpStorageEngine = "olap";
-    @VariableMgr.VarAttr(name = DIV_PRECISION_INCREMENT)
-    public int divPrecisionIncrement = 4;
 
     // -1 means unset, BE will use its config value
     @VariableMgr.VarAttr(name = MAX_SCAN_KEY_NUM)
@@ -998,6 +1004,8 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
     public boolean enableFoldConstantByBe = true;
+    @VariableMgr.VarAttr(name = DEBUG_SKIP_FOLD_CONSTANT)
+    public boolean debugSkipFoldConstant = false;
 
     @VariableMgr.VarAttr(name = ENABLE_REWRITE_ELEMENT_AT_TO_SLOT, fuzzy = true)
     private boolean enableRewriteElementAtToSlot = true;
@@ -1192,6 +1200,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
     private boolean enableNewCostModel = false;
+
+    @VariableMgr.VarAttr(name = "filter_cost_factor", needForward = true)
+    public double filterCostFactor = 0.0001;
 
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
@@ -1722,7 +1733,7 @@ public class SessionVariable implements Serializable, Writable {
                     "When the materialized view is not enough to provide all the data for the query, "
                             + "whether to allow the union of the base table and the materialized view to "
                             + "respond to the query"})
-    public boolean enableMaterializedViewUnionRewrite = false;
+    public boolean enableMaterializedViewUnionRewrite = true;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_NEST_REWRITE, needForward = true,
             description = {"是否允许嵌套物化视图改写",
@@ -1820,6 +1831,10 @@ public class SessionVariable implements Serializable, Writable {
     // for spill to disk
     @VariableMgr.VarAttr(name = MIN_REVOCABLE_MEM, fuzzy = true)
     public long minRevocableMem = 32 * 1024 * 1024;
+
+    // fetch remote schema rpc timeout
+    @VariableMgr.VarAttr(name = FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS, fuzzy = true)
+    public long fetchRemoteSchemaTimeoutSeconds = 120;
 
     @VariableMgr.VarAttr(
             name = ENABLE_JOIN_SPILL,
@@ -2435,6 +2450,10 @@ public class SessionVariable implements Serializable, Writable {
         return this.bypassWorkloadGroup;
     }
 
+    public int getMaxColumnReaderNum() {
+        return this.maxColumnReaderNum;
+    }
+
     public String getResourceGroup() {
         return resourceGroup;
     }
@@ -2479,6 +2498,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableFoldConstantByBe;
     }
 
+    public boolean isDebugSkipFoldConstant() {
+        return debugSkipFoldConstant;
+    }
+
     public boolean isEnableRewriteElementAtToSlot() {
         return enableRewriteElementAtToSlot;
     }
@@ -2493,6 +2516,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableFoldConstantByBe(boolean foldConstantByBe) {
         this.enableFoldConstantByBe = foldConstantByBe;
+    }
+
+    public void setDebugSkipFoldConstant(boolean debugSkipFoldConstant) {
+        this.debugSkipFoldConstant = debugSkipFoldConstant;
     }
 
     public int getParallelExecInstanceNum() {
@@ -2587,10 +2614,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setStorageEngine(String storageEngine) {
         this.storageEngine = storageEngine;
-    }
-
-    public int getDivPrecisionIncrement() {
-        return divPrecisionIncrement;
     }
 
     public int getMaxScanKeyNum() {
@@ -3261,6 +3284,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setNumScannerThreads(numScannerThreads);
         tResult.setScannerScaleUpRatio(scannerScaleUpRatio);
+        tResult.setMaxColumnReaderNum(maxColumnReaderNum);
 
         // TODO chenhao, reservation will be calculated by cost
         tResult.setMinReservation(0);
@@ -3361,7 +3385,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
         tResult.setInvertedIndexMaxExpansions(invertedIndexMaxExpansions);
 
-        tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
+        tResult.setEnableDecimal256(getEnableDecimal256());
 
         tResult.setSkipMissingVersion(skipMissingVersion);
 
@@ -3757,7 +3781,7 @@ public class SessionVariable implements Serializable, Writable {
             return false;
         }
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        return sessionVariable.isEnableNereidsPlanner() && sessionVariable.isEnableDecimal256();
+        return connectContext.getState().isNereids() && sessionVariable.isEnableDecimal256();
     }
 
     public boolean isEnableDecimal256() {

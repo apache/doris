@@ -125,7 +125,9 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
         for (auto type_pair : arithmetic_scala_field_types) {
             auto type = std::get<0>(type_pair);
             DataTypePtr data_type_ptr;
-            if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
+            if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
+                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 27, 9);
+            } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
                 // decimal32(7, 2)
                 data_type_ptr = DataTypeFactory::instance().create_data_type(type, 9, 2);
             } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL64) {

@@ -258,8 +258,11 @@ public class BackupJob extends AbstractJob {
 
     @Override
     public synchronized void replayRun() {
-        // Backup process does not change any current catalog state,
-        // So nothing need to be done when replaying log
+        LOG.info("replay run backup job: {}", this);
+        if (state == BackupJobState.FINISHED && repoId == Repository.KEEP_ON_LOCAL_REPO_ID) {
+            Snapshot snapshot = new Snapshot(label, metaInfoBytes, jobInfoBytes);
+            env.getBackupHandler().addSnapshot(label, snapshot);
+        }
     }
 
     @Override
@@ -403,6 +406,8 @@ public class BackupJob extends AbstractJob {
             tbl.readLock();
             try {
                 switch (tbl.getType()) {
+                    case MATERIALIZED_VIEW:
+                        break;
                     case OLAP:
                         OlapTable olapTable = (OlapTable) tbl;
                         if (!checkOlapTable(olapTable, tableRef).ok()) {
@@ -610,6 +615,13 @@ public class BackupJob extends AbstractJob {
 
     private void waitingAllSnapshotsFinished() {
         if (unfinishedTaskIds.isEmpty()) {
+
+            if (env.getEditLog().exceedMaxJournalSize(this)) {
+                status = new Status(ErrCode.COMMON_ERROR, "backupJob is too large ");
+                return;
+            }
+
+
             snapshotFinishedTime = System.currentTimeMillis();
             state = BackupJobState.UPLOAD_SNAPSHOT;
 
@@ -812,22 +824,18 @@ public class BackupJob extends AbstractJob {
     }
 
     private void uploadMetaAndJobInfoFile() {
-        if (repoId == Repository.KEEP_ON_LOCAL_REPO_ID) {
-            state = BackupJobState.FINISHED;
-            Snapshot snapshot = new Snapshot(label, metaInfoBytes, jobInfoBytes);
-            env.getBackupHandler().addSnapshot(label, snapshot);
-            return;
+        if (repoId != Repository.KEEP_ON_LOCAL_REPO_ID) {
+            String remoteMetaInfoFile = repo.assembleMetaInfoFilePath(label);
+            if (!uploadFile(localMetaInfoFilePath, remoteMetaInfoFile)) {
+                return;
+            }
+
+            String remoteJobInfoFile = repo.assembleJobInfoFilePath(label, createTime);
+            if (!uploadFile(localJobInfoFilePath, remoteJobInfoFile)) {
+                return;
+            }
         }
 
-        String remoteMetaInfoFile = repo.assembleMetaInfoFilePath(label);
-        if (!uploadFile(localMetaInfoFilePath, remoteMetaInfoFile)) {
-            return;
-        }
-
-        String remoteJobInfoFile = repo.assembleJobInfoFilePath(label, createTime);
-        if (!uploadFile(localJobInfoFilePath, remoteJobInfoFile)) {
-            return;
-        }
 
         finishedTime = System.currentTimeMillis();
         state = BackupJobState.FINISHED;
@@ -835,6 +843,12 @@ public class BackupJob extends AbstractJob {
         // log
         env.getEditLog().logBackupJob(this);
         LOG.info("job is finished. {}", this);
+
+        if (repoId == Repository.KEEP_ON_LOCAL_REPO_ID) {
+            Snapshot snapshot = new Snapshot(label, metaInfoBytes, jobInfoBytes);
+            env.getBackupHandler().addSnapshot(label, snapshot);
+            return;
+        }
     }
 
     private boolean uploadFile(String localFilePath, String remoteFilePath) {

@@ -127,10 +127,8 @@ public class ShowProcedureStatusCommand extends Command implements NoForward {
 
         List<List<String>> results = new ArrayList<>();
         ctx.getPlSqlOperation().getExec().functions.showProcedure(results, dbFilter.toString(), procFilter.toString());
-        if (!results.isEmpty()) {
-            ShowResultSet commonResultSet = new ShowResultSet(getMetaData(), results);
-            executor.sendResultSet(commonResultSet);
-        }
+        ShowResultSet commonResultSet = new ShowResultSet(getMetaData(), results);
+        executor.sendResultSet(commonResultSet);
     }
 
     @Override
