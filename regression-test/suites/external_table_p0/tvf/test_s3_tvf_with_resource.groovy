@@ -95,6 +95,7 @@ suite("test_s3_tvf_with_resource", "p0") {
 
     // test outfile to s3
     def outfile_url = outfile_to_S3()
+    // outfile_url like: s3://doris-build-hk-1308700295/est_s3_tvf/export_test/exp_f2cb650bbb94431a-ab0bc3e6f3e89f04_*
 
     // 1. normal
     try {
@@ -112,7 +113,7 @@ suite("test_s3_tvf_with_resource", "p0") {
     // 2. test endpoint property
     try {
         order_qt_select_2 """ SELECT * FROM S3 (
-                            "uri" = "http://${outfile_url.substring(5)}0.orc",
+                            "uri" = "${outfile_url}0.orc",
                             "format" = "orc",
                             "resource" = "${resource_name}"
                         );
