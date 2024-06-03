@@ -101,7 +101,7 @@ public:
             return std::make_unique<WorkloadConditionScanRows>(op, str_val);
         } else if (TWorkloadMetricType::type::BE_SCAN_BYTES == metric_name) {
             return std::make_unique<WorkloadConditionScanBytes>(op, str_val);
-        } else if (TWorkloadMetricType::type::QUERY_BE_MEMORY_BYTES) {
+        } else if (TWorkloadMetricType::type::QUERY_BE_MEMORY_BYTES == metric_name) {
             return std::make_unique<WorkloadConditionQueryMemory>(op, str_val);
         }
         LOG(ERROR) << "not find a metric name " << metric_name;
