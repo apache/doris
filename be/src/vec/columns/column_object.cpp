@@ -205,7 +205,7 @@ public:
 
 private:
     TypeIndex type = TypeIndex::Nothing;
-    bool have_nulls;
+    bool have_nulls = false;
 };
 
 /// Visitor that allows to get type of scalar field
