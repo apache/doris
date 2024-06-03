@@ -130,8 +130,6 @@ public:
 
     RuntimeState* state() { return _state; }
 
-    void register_pipeline_channels(pipeline::ExchangeSinkBuffer* buffer);
-
     int sender_id() const { return _sender_id; }
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
@@ -154,7 +152,6 @@ protected:
     friend class PipChannel;
 
     void _roll_pb_block();
-    Status _get_next_available_buffer(std::shared_ptr<BroadcastPBlockHolder>* holder);
 
     template <typename Channels, typename HashValueType>
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
@@ -187,9 +184,6 @@ protected:
     PBlock _pb_block1;
     PBlock _pb_block2;
     PBlock* _cur_pb_block = nullptr;
-
-    // used by pipeline engine
-    std::shared_ptr<BroadcastPBlockHolderQueue> _broadcast_pb_blocks;
 
     std::unique_ptr<PartitionerBase> _partitioner;
     size_t _partition_count;
