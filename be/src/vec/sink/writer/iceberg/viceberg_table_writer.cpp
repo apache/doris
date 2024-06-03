@@ -349,10 +349,19 @@ std::shared_ptr<VIcebergPartitionWriter> VIcebergTableWriter::_create_partition_
     }
     const std::string& output_path = iceberg_table_sink.output_path;
 
-    auto write_path = fmt::format("{}/{}", output_path, partition_path);
-    auto original_write_path =
-            fmt::format("{}/{}", iceberg_table_sink.original_output_path, partition_path);
-    auto target_path = fmt::format("{}/{}", output_path, partition_path);
+    std::string write_path;
+    std::string original_write_path;
+    std::string target_path;
+    if (partition_path.empty()) {
+        original_write_path = iceberg_table_sink.original_output_path;
+        target_path = output_path;
+        write_path = output_path;
+    } else {
+        original_write_path =
+                fmt::format("{}/{}", iceberg_table_sink.original_output_path, partition_path);
+        target_path = fmt::format("{}/{}", output_path, partition_path);
+        write_path = fmt::format("{}/{}", output_path, partition_path);
+    }
 
     VIcebergPartitionWriter::WriteInfo write_info = {
             std::move(write_path), std::move(original_write_path), std::move(target_path),

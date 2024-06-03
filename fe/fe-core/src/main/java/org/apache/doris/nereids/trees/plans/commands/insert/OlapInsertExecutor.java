@@ -89,6 +89,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     public void beginTransaction() {
+        if (isGroupCommitHttpStream()) {
+            LOG.info("skip begin transaction for group commit http stream");
+            return;
+        }
         try {
             this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                     database.getId(), ImmutableList.of(table.getId()), labelName,
@@ -147,13 +151,15 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
-        TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
-        if (state == null) {
-            throw new AnalysisException("txn does not exist: " + txnId);
-        }
-        addTableIndexes(state);
-        if (physicalOlapTableSink.isPartialUpdate()) {
-            state.setSchemaForPartialUpdate((OlapTable) table);
+        if (!isGroupCommitHttpStream()) {
+            TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
+            if (state == null) {
+                throw new AnalysisException("txn does not exist: " + txnId);
+            }
+            addTableIndexes(state);
+            if (physicalOlapTableSink.isPartialUpdate()) {
+                state.setSchemaForPartialUpdate((OlapTable) table);
+            }
         }
     }
 
@@ -290,5 +296,9 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
     public long getTimeout() {
         return ctx.getExecTimeout();
+    }
+
+    private boolean isGroupCommitHttpStream() {
+        return ConnectContext.get() != null && ConnectContext.get().isGroupCommitStreamLoadSql();
     }
 }

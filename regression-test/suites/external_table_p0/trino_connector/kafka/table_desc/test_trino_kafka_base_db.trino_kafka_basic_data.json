@@ -1,0 +1,100 @@
+{
+    "tableName": "trino_kafka_basic_data",
+    "schemaName": "test_trino_kafka_base_db",
+    "topicName": "trino_kafka_basic_data",
+    "message": {
+        "dataFormat": "csv",
+        "fields": [
+            {
+                "name": "k00",
+                "mapping": "0",
+                "type": "INTEGER"
+            },
+            {
+                "name": "k01",
+                "mapping": "1",
+                "type": "VARCHAR"
+            },
+            {
+                "name": "k02",
+                "mapping": "2",
+                "type": "BOOLEAN"
+            },
+            {
+                "name": "k03",
+                "mapping": "3",
+                "type": "TINYINT"
+            },
+            {
+                "name": "k04",
+                "mapping": "4",
+                "type": "SMALLINT"
+            },
+            {
+                "name": "k05",
+                "mapping": "5",
+                "type": "INTEGER"
+            },
+            {
+                "name": "k06",
+                "mapping": "6",
+                "type": "BIGINT"
+            },
+            {
+                "name": "k07",
+                "mapping": "7",
+                "type": "VARCHAR"
+            },
+            {
+                "name": "k08",
+                "mapping": "8",
+                "type": "DOUBLE"
+            },
+            {
+                "name": "k09",
+                "mapping": "9",
+                "type": "DOUBLE"
+            },
+            {
+                "name": "k10",
+                "mapping": "10",
+                "type": "VARCHAR"
+            },
+            {
+                "name": "k11",
+                "mapping": "11",
+                "type": "VARCHAR"
+            },
+            {
+                "name": "k12",
+                "mapping": "12",
+                "type": "VARCHAR"
+            },
+            {
+                "name": "k13",
+                "mapping": "13",
+                "type": "VARCHAR"
+            },
+            {
+                "name": "k14",
+                "mapping": "14",
+                "type": "VARCHAR"
+            },
+            {
+                "name": "k15",
+                "mapping": "15",
+                "type": "VARCHAR"
+            },
+            {
+                "name": "k16",
+                "mapping": "16",
+                "type": "VARCHAR"
+            },
+            {
+                "name": "k17",
+                "mapping": "17",
+                "type": "VARCHAR"
+            }
+        ]
+    }
+}

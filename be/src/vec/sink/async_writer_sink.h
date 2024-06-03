@@ -94,8 +94,6 @@ public:
         return _writer->sink(block, eos);
     }
 
-    bool can_write() override { return _writer->can_write(); }
-
     Status close(RuntimeState* state, Status exec_status) override {
         // if the init failed, the _writer may be nullptr. so here need check
         if (_writer) {
@@ -103,8 +101,6 @@ public:
         }
         return DataSink::close(state, exec_status);
     }
-
-    [[nodiscard]] bool is_pending_finish() const override { return _writer->is_pending_finish(); }
 
 protected:
     const std::vector<TExpr>& _t_output_expr;

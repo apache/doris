@@ -142,3 +142,6 @@ s3Region = "ap-hongkong"
 max_failure_num=50
 
 externalEnvIp="127.0.0.1"
+
+// trino-connector catalog test config
+enableTrinoConnectorTest = false

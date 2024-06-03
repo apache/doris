@@ -700,7 +700,7 @@ DEFINE_Int64(brpc_socket_max_unwritten_bytes, "-1");
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
 // is greater than 1.8G. This is to avoid the error of Request length overflow (2G).
-DEFINE_mBool(transfer_large_data_by_brpc, "false");
+DEFINE_mBool(transfer_large_data_by_brpc, "true");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager
@@ -1283,6 +1283,11 @@ DEFINE_Int64(max_nonblock_close_thread_num, "64");
 DEFINE_mDouble(mem_alloc_fault_probability, "0.0");
 // The time out milliseconds for remote fetch schema RPC, default 60s
 DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
+
+DEFINE_Int64(s3_file_system_local_upload_buffer_size, "5242880");
+
+//JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues. The default setting is off.
+DEFINE_Bool(enable_jvm_monitor, "false");
 
 // clang-format off
 #ifdef BE_TEST

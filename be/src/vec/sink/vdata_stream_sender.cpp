@@ -925,22 +925,6 @@ void VDataStreamSender::register_pipeline_channels(pipeline::ExchangeSinkBuffer*
     }
 }
 
-bool VDataStreamSender::channel_all_can_write() {
-    if ((_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) &&
-        !_only_local_exchange) {
-        // This condition means we need use broadcast buffer, so we should make sure
-        // there are available buffer before running pipeline
-        return !_broadcast_pb_blocks->empty();
-    } else {
-        for (auto channel : _channels) {
-            if (!channel->can_write()) {
-                return false;
-            }
-        }
-        return true;
-    }
-}
-
 template class Channel<pipeline::ExchangeSinkLocalState>;
 template class Channel<VDataStreamSender>;
 template class Channel<pipeline::ResultFileSinkLocalState>;
