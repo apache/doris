@@ -20,7 +20,7 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
     try {
         sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_1'
         sql '''CREATE TABLE test_dynamic_partition_failed_1
-              ( `k1` datetime NULL COMMENT )
+              ( `k1` datetime NULL )
               PARTITION BY RANGE (k1)()
               DISTRIBUTED BY HASH(`k1`) BUCKETS 1
               PROPERTIES
@@ -36,12 +36,15 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
                 "dynamic_partition.create_history_partition" = "true"
               )'''
 
+        def partitions = sql_return_maparray "SHOW PARTITIONS FROM test_dynamic_partition_failed_1"
+        assertEquals(9, partitions.size());
+
         setFeConfig('max_dynamic_partition_num', Integer.MAX_VALUE)
 
         sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_2'
         test {
             sql '''CREATE TABLE test_dynamic_partition_failed_2
-                  ( `k1` datetime NULL COMMENT )
+                  ( `k1` datetime NULL )
                   PARTITION BY RANGE (k1)()
                   DISTRIBUTED BY HASH(`k1`) BUCKETS 1
                   PROPERTIES
@@ -55,7 +58,13 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
                     "dynamic_partition.start" = "-99999999",
                     "dynamic_partition.create_history_partition" = "true"
                   )'''
-            exception 'date/datetime literal [+271768-09-11 00:00:00] is invalid'
+            check { result, exception, startTime, endTime ->
+                assertNotNull(exception)
+                def msg = exception.toString()
+                logger.info("exception: " + msg)
+                // 'date/datetime literal [+271768-09-11 00:00:00] is invalid'
+                assertTrue(msg.contains('date/datetime literal') && msg.contains('is invalid'))
+            }
         }
     } finally {
         setFeConfig('max_dynamic_partition_num', old_max_dynamic_partition_num)

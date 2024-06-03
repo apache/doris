@@ -53,7 +53,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Strings;
-import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -266,7 +265,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         db.getFullName(), olapTable.getName(), idx, e);
                 recordCreatePartitionFailedMsg(db.getFullName(), olapTable.getName(),
                         e.getMessage(), olapTable.getId());
-                throw new DdlException(Throwables.getStackTraceAsString(e));
+                throw new DdlException(e.getMessage());
             }
             for (PartitionItem partitionItem : rangePartitionInfo.getIdToItem(false).values()) {
                 // only support single column partition now
@@ -285,7 +284,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                                 addPartitionKeyRange, db.getFullName(), olapTable.getName(), idx, e);
                         recordCreatePartitionFailedMsg(db.getFullName(), olapTable.getName(),
                                 e.getMessage(), olapTable.getId());
-                        throw new DdlException(Throwables.getStackTraceAsString(e));
+                        throw new DdlException(e.getMessage());
                     }
                     break;
                 }
@@ -395,11 +394,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             PartitionKey upperBorderBound = PartitionKey.createPartitionKey(
                     Collections.singletonList(upperBorderPartitionValue), Collections.singletonList(partitionColumn));
             reservedHistoryPartitionKeyRange = Range.closed(lowerBorderBound, upperBorderBound);
-        } catch (AnalysisException e) {
+        } catch (AnalysisException | org.apache.doris.nereids.exceptions.AnalysisException e) {
             // AnalysisException: keys.size is always equal to column.size, cannot reach this exception
             // IllegalArgumentException: lb is greater than ub
-            LOG.warn("Error in gen reservePartitionKeyRange. Error={}, db: {}, table: {}", e.getMessage(),
-                    db.getFullName(), olapTable.getName());
+            LOG.warn("Error in gen reservePartitionKeyRange. {}, table: {}",
+                    db.getFullName(), olapTable.getName(), e);
         }
         return reservedHistoryPartitionKeyRange;
     }
@@ -456,7 +455,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     reservedHistoryPartitionKeyRangeList.add(reservedHistoryPartitionKeyRange);
                 } catch (IllegalArgumentException e) {
                     return dropPartitionClauses;
-                } catch (AnalysisException e) {
+                } catch (AnalysisException | org.apache.doris.nereids.exceptions.AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }
             }
