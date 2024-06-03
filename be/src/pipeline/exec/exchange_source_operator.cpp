@@ -24,7 +24,6 @@
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
 #include "vec/common/sort/vsort_exec_exprs.h"
-#include "vec/exec/vexchange_node.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"

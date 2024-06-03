@@ -52,11 +52,10 @@ private:
         }
         return need_more_input;
     }
-    vectorized::BlockRowPos _get_partition_by_end();
-    vectorized::BlockRowPos _compare_row_to_find_end(int idx, vectorized::BlockRowPos start,
-                                                     vectorized::BlockRowPos end,
-                                                     bool need_check_first = false);
-    bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
+    BlockRowPos _get_partition_by_end();
+    BlockRowPos _compare_row_to_find_end(int idx, BlockRowPos start, BlockRowPos end,
+                                         bool need_check_first = false);
+    bool _whether_need_next_partition(BlockRowPos& found_partition_end);
 
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;

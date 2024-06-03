@@ -31,8 +31,9 @@
 
 namespace doris::vectorized {
 
-template <int JoinOpType, typename Parent>
-ProcessHashTableProbe<JoinOpType, Parent>::ProcessHashTableProbe(Parent* parent, int batch_size)
+template <int JoinOpType>
+ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(pipeline::HashJoinProbeLocalState* parent,
+                                                         int batch_size)
         : _parent(parent),
           _batch_size(batch_size),
           _build_block(parent->build_block()),
@@ -62,8 +63,8 @@ ProcessHashTableProbe<JoinOpType, Parent>::ProcessHashTableProbe(Parent* parent,
                                  : _parent->left_table_data_types().size()),
           _right_col_len(_parent->right_table_data_types().size()) {}
 
-template <int JoinOpType, typename Parent>
-void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
+template <int JoinOpType>
+void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
         MutableColumns& mcol, const std::vector<bool>& output_slot_flags, int size,
         bool have_other_join_conjunct, bool is_mark_join) {
     SCOPED_TIMER(_build_side_output_timer);
@@ -129,8 +130,8 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
     }
 }
 
-template <int JoinOpType, typename Parent>
-void ProcessHashTableProbe<JoinOpType, Parent>::probe_side_output_column(
+template <int JoinOpType>
+void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
         MutableColumns& mcol, const std::vector<bool>& output_slot_flags, int size,
         int last_probe_index, bool all_match_one, bool have_other_join_conjunct) {
     SCOPED_TIMER(_probe_side_output_timer);
@@ -156,9 +157,9 @@ void ProcessHashTableProbe<JoinOpType, Parent>::probe_side_output_column(
     }
 }
 
-template <int JoinOpType, typename Parent>
+template <int JoinOpType>
 template <typename HashTableType>
-typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_probe_side(
+typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_side(
         HashTableType& hash_table_ctx, size_t probe_rows, bool with_other_join_conjuncts,
         const uint8_t* null_map, bool need_judge_null) {
     // may over batch size 1 for some outer join case
@@ -184,14 +185,13 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
     return typename HashTableType::State(_parent->_probe_columns);
 }
 
-template <int JoinOpType, typename Parent>
+template <int JoinOpType>
 template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType,
           bool with_other_conjuncts, bool is_mark_join>
-Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash_table_ctx,
-                                                             ConstNullMapPtr null_map,
-                                                             MutableBlock& mutable_block,
-                                                             Block* output_block,
-                                                             size_t probe_rows) {
+Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_ctx,
+                                                     ConstNullMapPtr null_map,
+                                                     MutableBlock& mutable_block,
+                                                     Block* output_block, size_t probe_rows) {
     if (_right_col_len && !_build_block) {
         return Status::InternalError("build block is nullptr");
     }
@@ -302,8 +302,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
     return Status::OK();
 }
 
-template <int JoinOpType, typename Parent>
-size_t ProcessHashTableProbe<JoinOpType, Parent>::_process_probe_null_key(uint32_t probe_index) {
+template <int JoinOpType>
+size_t ProcessHashTableProbe<JoinOpType>::_process_probe_null_key(uint32_t probe_index) {
     const auto rows = _build_block->rows();
 
     DCHECK_LT(_build_index_for_null_probe_key, rows);
@@ -359,10 +359,10 @@ size_t ProcessHashTableProbe<JoinOpType, Parent>::_process_probe_null_key(uint32
      * To avoid using nested loop join, we use the mark join conjunct(`t1.k1 = t2.k1`) as the equal join conjunct.
      * So this query will be a "null aware left anti join", which means the equal conjunct's result should be nullable.
      */
-template <int JoinOpType, typename Parent>
+template <int JoinOpType>
 template <bool with_other_conjuncts>
-Status ProcessHashTableProbe<JoinOpType, Parent>::do_mark_join_conjuncts(
-        Block* output_block, size_t hash_table_bucket_size) {
+Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(Block* output_block,
+                                                                 size_t hash_table_bucket_size) {
     DCHECK(JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
            JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
            JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
@@ -487,9 +487,10 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_mark_join_conjuncts(
     return Block::filter_block(output_block, result_column_id, result_column_id);
 }
 
-template <int JoinOpType, typename Parent>
-Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
-        Block* output_block, std::vector<uint8_t>& visited, bool has_null_in_build_side) {
+template <int JoinOpType>
+Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(Block* output_block,
+                                                                  std::vector<uint8_t>& visited,
+                                                                  bool has_null_in_build_side) {
     // dispose the other join conjunct exec
     auto row_count = output_block->rows();
     if (!row_count) {
@@ -607,11 +608,12 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
     return Status::OK();
 }
 
-template <int JoinOpType, typename Parent>
+template <int JoinOpType>
 template <typename HashTableType>
-Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
-        HashTableType& hash_table_ctx, MutableBlock& mutable_block, Block* output_block, bool* eos,
-        bool is_mark_join) {
+Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableType& hash_table_ctx,
+                                                                    MutableBlock& mutable_block,
+                                                                    Block* output_block, bool* eos,
+                                                                    bool is_mark_join) {
     SCOPED_TIMER(_probe_process_hashtable_timer);
     auto& mcol = mutable_block.mutable_columns();
     if (is_mark_join) {
@@ -659,11 +661,13 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
     return Status::OK();
 }
 
-template <int JoinOpType, typename Parent>
+template <int JoinOpType>
 template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
-Status ProcessHashTableProbe<JoinOpType, Parent>::process(
-        HashTableType& hash_table_ctx, ConstNullMapPtr null_map, MutableBlock& mutable_block,
-        Block* output_block, size_t probe_rows, bool is_mark_join, bool have_other_join_conjunct) {
+Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
+                                                  ConstNullMapPtr null_map,
+                                                  MutableBlock& mutable_block, Block* output_block,
+                                                  size_t probe_rows, bool is_mark_join,
+                                                  bool have_other_join_conjunct) {
     Status res;
     std::visit(
             [&](auto is_mark_join, auto have_other_join_conjunct) {
@@ -683,54 +687,50 @@ struct ExtractType<T(U)> {
     using Type = U;
 };
 
-#define INSTANTIATION(JoinOpType, Parent, T)                                                      \
-    template Status                                                                               \
-    ProcessHashTableProbe<JoinOpType, Parent>::process<false, false, ExtractType<void(T)>::Type>( \
-            ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,                \
-            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,                \
-            bool is_mark_join, bool have_other_join_conjunct);                                    \
-    template Status                                                                               \
-    ProcessHashTableProbe<JoinOpType, Parent>::process<false, true, ExtractType<void(T)>::Type>(  \
-            ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,                \
-            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,                \
-            bool is_mark_join, bool have_other_join_conjunct);                                    \
-    template Status                                                                               \
-    ProcessHashTableProbe<JoinOpType, Parent>::process<true, false, ExtractType<void(T)>::Type>(  \
-            ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,                \
-            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,                \
-            bool is_mark_join, bool have_other_join_conjunct);                                    \
-    template Status                                                                               \
-    ProcessHashTableProbe<JoinOpType, Parent>::process<true, true, ExtractType<void(T)>::Type>(   \
-            ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,                \
-            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,                \
-            bool is_mark_join, bool have_other_join_conjunct);                                    \
-                                                                                                  \
-    template Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable<         \
-            ExtractType<void(T)>::Type>(ExtractType<void(T)>::Type & hash_table_ctx,              \
-                                        MutableBlock & mutable_block, Block * output_block,       \
-                                        bool* eos, bool is_mark_join);
+#define INSTANTIATION(JoinOpType, T)                                                          \
+    template Status                                                                           \
+    ProcessHashTableProbe<JoinOpType>::process<false, false, ExtractType<void(T)>::Type>(     \
+            ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,            \
+            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,            \
+            bool is_mark_join, bool have_other_join_conjunct);                                \
+    template Status                                                                           \
+    ProcessHashTableProbe<JoinOpType>::process<false, true, ExtractType<void(T)>::Type>(      \
+            ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,            \
+            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,            \
+            bool is_mark_join, bool have_other_join_conjunct);                                \
+    template Status                                                                           \
+    ProcessHashTableProbe<JoinOpType>::process<true, false, ExtractType<void(T)>::Type>(      \
+            ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,            \
+            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,            \
+            bool is_mark_join, bool have_other_join_conjunct);                                \
+    template Status                                                                           \
+    ProcessHashTableProbe<JoinOpType>::process<true, true, ExtractType<void(T)>::Type>(       \
+            ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,            \
+            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,            \
+            bool is_mark_join, bool have_other_join_conjunct);                                \
+                                                                                              \
+    template Status                                                                           \
+    ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable<ExtractType<void(T)>::Type>( \
+            ExtractType<void(T)>::Type & hash_table_ctx, MutableBlock & mutable_block,        \
+            Block * output_block, bool* eos, bool is_mark_join);
 
-#define INSTANTIATION_FOR1(JoinOpType, Parent)                                \
-    template struct ProcessHashTableProbe<JoinOpType, Parent>;                \
-                                                                              \
-    INSTANTIATION(JoinOpType, Parent, (SerializedHashTableContext));          \
-    INSTANTIATION(JoinOpType, Parent, (I8HashTableContext));                  \
-    INSTANTIATION(JoinOpType, Parent, (I16HashTableContext));                 \
-    INSTANTIATION(JoinOpType, Parent, (I32HashTableContext));                 \
-    INSTANTIATION(JoinOpType, Parent, (I64HashTableContext));                 \
-    INSTANTIATION(JoinOpType, Parent, (I128HashTableContext));                \
-    INSTANTIATION(JoinOpType, Parent, (I256HashTableContext));                \
-    INSTANTIATION(JoinOpType, Parent, (I64FixedKeyHashTableContext<true>));   \
-    INSTANTIATION(JoinOpType, Parent, (I64FixedKeyHashTableContext<false>));  \
-    INSTANTIATION(JoinOpType, Parent, (I128FixedKeyHashTableContext<true>));  \
-    INSTANTIATION(JoinOpType, Parent, (I128FixedKeyHashTableContext<false>)); \
-    INSTANTIATION(JoinOpType, Parent, (I256FixedKeyHashTableContext<true>));  \
-    INSTANTIATION(JoinOpType, Parent, (I256FixedKeyHashTableContext<false>)); \
-    INSTANTIATION(JoinOpType, Parent, (I136FixedKeyHashTableContext<true>));  \
-    INSTANTIATION(JoinOpType, Parent, (I136FixedKeyHashTableContext<false>));
-
-#define INSTANTIATION_FOR(JoinOpType)             \
-    INSTANTIATION_FOR1(JoinOpType, HashJoinNode); \
-    INSTANTIATION_FOR1(JoinOpType, pipeline::HashJoinProbeLocalState)
+#define INSTANTIATION_FOR(JoinOpType)                                 \
+    template struct ProcessHashTableProbe<JoinOpType>;                \
+                                                                      \
+    INSTANTIATION(JoinOpType, (SerializedHashTableContext));          \
+    INSTANTIATION(JoinOpType, (I8HashTableContext));                  \
+    INSTANTIATION(JoinOpType, (I16HashTableContext));                 \
+    INSTANTIATION(JoinOpType, (I32HashTableContext));                 \
+    INSTANTIATION(JoinOpType, (I64HashTableContext));                 \
+    INSTANTIATION(JoinOpType, (I128HashTableContext));                \
+    INSTANTIATION(JoinOpType, (I256HashTableContext));                \
+    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<true>));   \
+    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<false>));  \
+    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<true>));  \
+    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<false>)); \
+    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<true>));  \
+    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<false>)); \
+    INSTANTIATION(JoinOpType, (I136FixedKeyHashTableContext<true>));  \
+    INSTANTIATION(JoinOpType, (I136FixedKeyHashTableContext<false>));
 
 } // namespace doris::vectorized

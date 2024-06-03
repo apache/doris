@@ -32,6 +32,7 @@
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/local_exchange/local_exchanger.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
