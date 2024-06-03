@@ -21,6 +21,10 @@ package org.apache.doris.common;
 
 import org.apache.logging.log4j.core.Layout;
 import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.config.Node;
+import org.apache.logging.log4j.core.config.plugins.Plugin;
+import org.apache.logging.log4j.core.config.plugins.PluginAttribute;
+import org.apache.logging.log4j.core.config.plugins.PluginFactory;
 import org.apache.logging.log4j.core.layout.AbstractStringLayout;
 import org.apache.logging.log4j.core.layout.PatternLayout;
 import org.apache.logging.log4j.core.util.StringBuilderWriter;
@@ -50,6 +54,7 @@ public class LogUtils {
         System.err.println(STDERR_LOG_MARKER + formattedTime() + " " + message);
     }
 
+    @Plugin(name = "NewCustLayout", category = Node.CATEGORY, elementType = Layout.ELEMENT_TYPE, printObject = true)
     public static class SingleLineExceptionLayout extends AbstractStringLayout {
 
         private final PatternLayout patternLayout;
@@ -73,7 +78,10 @@ public class LogUtils {
             return result.toString();
         }
 
-        public static Layout<String> createLayout(String pattern, Charset charset) {
+        @PluginFactory
+        public static Layout<String> createLayout(
+                @PluginAttribute(value = "pattern") String pattern,
+                @PluginAttribute(value = "charset", defaultString = "UTF-8") Charset charset) {
             PatternLayout patternLayout = PatternLayout.newBuilder()
                     .withPattern(pattern)
                     .withCharset(charset)

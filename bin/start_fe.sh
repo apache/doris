@@ -178,10 +178,11 @@ fi
 
 STDOUT_LOGGER="${LOG_DIR}/fe.out"
 log() {
+    cur_date=$(date +"%Y-%m-%d %H:%M:%S,$(date +%3N)")
     if [[ "${RUN_CONSOLE}" -eq 1 ]]; then
-        echo "$1"
+        echo "StdoutLogger ${cur_date} $1"
     else
-        echo "$1" >>"${STDOUT_LOGGER}"
+        echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
     fi
 }
 
