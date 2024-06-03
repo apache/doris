@@ -17,6 +17,7 @@
 
 package org.apache.doris.journal.bdbje;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
@@ -93,6 +94,9 @@ public class BDBJournalCursor implements JournalCursor {
             return null;
         }
 
+        if (Config.force_skip_journal_id == currentKey) {
+            return Pair.of(currentKey++, null);
+        }
         Long key = currentKey;
         DatabaseEntry theKey = new DatabaseEntry();
         TupleBinding<Long> myBinding = TupleBinding.getPrimitiveBinding(Long.class);

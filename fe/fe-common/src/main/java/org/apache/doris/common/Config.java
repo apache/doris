@@ -1214,6 +1214,12 @@ public class Config extends ConfigBase {
     public static boolean force_do_metadata_checkpoint = false;
 
     /**
+     * If some joural is wrong, and FE can't start, we can use this to skip it.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static long force_skip_journal_id = -1;
+
+    /**
      * Decide how often to check dynamic partition
      */
     @ConfField(mutable = true, masterOnly = true)

@@ -2867,7 +2867,18 @@ public class Env {
             Long logId = kv.first;
             JournalEntity entity = kv.second;
             if (entity == null) {
-                break;
+                if (logId != null && logId == Config.force_skip_journal_id) {
+                    replayedJournalId.incrementAndGet();
+                    LOG.info("journal {} has skipped", replayedJournalId);
+
+                    if (MetricRepo.isInit) {
+                        // Metric repo may not init after this replay thread start
+                        MetricRepo.COUNTER_EDIT_LOG_READ.increase(1L);
+                    }
+                    continue;
+                } else {
+                    break;
+                }
             }
             hasLog = true;
             EditLog.loadJournal(this, logId, entity);
