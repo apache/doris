@@ -85,9 +85,10 @@ Status ExchangeLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
-
-    RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
-            state, vsort_exec_exprs));
+    auto& p = _parent->cast<ExchangeSourceOperatorX>();
+    if (p.is_merging()) {
+        RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, vsort_exec_exprs));
+    }
     return Status::OK();
 }
 
