@@ -17,12 +17,12 @@
 
 package org.apache.doris.datasource.property;
 
+import org.apache.doris.common.credentials.CloudCredential;
+import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InitCatalogLog.Type;
-import org.apache.doris.datasource.credentials.CloudCredential;
-import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.DLFProperties;
@@ -493,7 +493,7 @@ public class PropertyConverter {
     }
 
     private static String getOssEndpoint(String region, boolean publicAccess) {
-        String prefix = "http://oss-";
+        String prefix = "oss-";
         String suffix = ".aliyuncs.com";
         if (!publicAccess) {
             suffix = "-internal" + suffix;

@@ -414,6 +414,25 @@ size_t Block::bytes() const {
     return res;
 }
 
+std::string Block::columns_bytes() const {
+    std::stringstream res;
+    res << "column bytes: [";
+    for (const auto& elem : data) {
+        if (!elem.column) {
+            std::stringstream ss;
+            for (const auto& e : data) {
+                ss << e.name + " ";
+            }
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
+                            elem.name, ss.str());
+        }
+        res << ", " << elem.column->byte_size();
+    }
+    res << "]";
+    return res.str();
+}
+
 size_t Block::allocated_bytes() const {
     size_t res = 0;
     for (const auto& elem : data) {
@@ -716,7 +735,6 @@ void Block::swap(Block& other) noexcept {
 
 void Block::swap(Block&& other) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
-    clear();
     data = std::move(other.data);
     index_by_name = std::move(other.index_by_name);
     row_same_bit = std::move(other.row_same_bit);
@@ -758,7 +776,6 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
                                         "filter_size={}",
                                         result_size, count);
                     }
-                    CHECK_EQ(result_size, count);
                 } else {
                     column = column->filter(filter, count);
                 }
@@ -786,15 +803,18 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
     return columns_with_type_and_name;
 }
 
-void Block::append_to_block_by_selector(MutableBlock* dst,
-                                        const IColumn::Selector& selector) const {
-    DCHECK_EQ(data.size(), dst->mutable_columns().size());
-    for (size_t i = 0; i < data.size(); i++) {
-        // FIXME: this is a quickfix. we assume that only partition functions make there some
-        if (!is_column_const(*data[i].column)) {
-            data[i].column->append_data_by_selector(dst->mutable_columns()[i], selector);
+Status Block::append_to_block_by_selector(MutableBlock* dst,
+                                          const IColumn::Selector& selector) const {
+    RETURN_IF_CATCH_EXCEPTION({
+        DCHECK_EQ(data.size(), dst->mutable_columns().size());
+        for (size_t i = 0; i < data.size(); i++) {
+            // FIXME: this is a quickfix. we assume that only partition functions make there some
+            if (!is_column_const(*data[i].column)) {
+                data[i].column->append_data_by_selector(dst->mutable_columns()[i], selector);
+            }
         }
-    }
+    });
+    return Status::OK();
 }
 
 Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
@@ -970,44 +990,53 @@ void MutableBlock::add_row(const Block* block, int row) {
     }
 }
 
-void MutableBlock::add_rows(const Block* block, const uint32_t* row_begin,
-                            const uint32_t* row_end) {
-    DCHECK_LE(columns(), block->columns());
-    const auto& block_data = block->get_columns_with_type_and_name();
-    for (size_t i = 0; i < _columns.size(); ++i) {
-        DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
-        auto& dst = _columns[i];
-        const auto& src = *block_data[i].column.get();
-        DCHECK_GE(src.size(), row_end - row_begin);
-        dst->insert_indices_from(src, row_begin, row_end);
-    }
-}
-
-void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
-    DCHECK_LE(columns(), block->columns());
-    const auto& block_data = block->get_columns_with_type_and_name();
-    for (size_t i = 0; i < _columns.size(); ++i) {
-        DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
-        auto& dst = _columns[i];
-        const auto& src = *block_data[i].column.get();
-        dst->insert_range_from(src, row_begin, length);
-    }
-}
-
-void MutableBlock::add_rows(const Block* block, std::vector<int64_t> rows) {
-    DCHECK_LE(columns(), block->columns());
-    const auto& block_data = block->get_columns_with_type_and_name();
-    const size_t length = std::ranges::distance(rows);
-    for (size_t i = 0; i < _columns.size(); ++i) {
-        DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
-        auto& dst = _columns[i];
-        const auto& src = *block_data[i].column.get();
-        dst->reserve(dst->size() + length);
-        for (size_t row : rows) {
-            // we can introduce a new function like `insert_assume_reserved` for IColumn.
-            dst->insert_from(src, row);
+Status MutableBlock::add_rows(const Block* block, const uint32_t* row_begin,
+                              const uint32_t* row_end) {
+    RETURN_IF_CATCH_EXCEPTION({
+        DCHECK_LE(columns(), block->columns());
+        const auto& block_data = block->get_columns_with_type_and_name();
+        for (size_t i = 0; i < _columns.size(); ++i) {
+            DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
+            auto& dst = _columns[i];
+            const auto& src = *block_data[i].column.get();
+            DCHECK_GE(src.size(), row_end - row_begin);
+            dst->insert_indices_from(src, row_begin, row_end);
         }
-    }
+    });
+    return Status::OK();
+}
+
+Status MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
+    RETURN_IF_CATCH_EXCEPTION({
+        DCHECK_LE(columns(), block->columns());
+        const auto& block_data = block->get_columns_with_type_and_name();
+        for (size_t i = 0; i < _columns.size(); ++i) {
+            DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
+            auto& dst = _columns[i];
+            const auto& src = *block_data[i].column.get();
+            dst->insert_range_from(src, row_begin, length);
+        }
+    });
+    return Status::OK();
+}
+
+Status MutableBlock::add_rows(const Block* block, std::vector<int64_t> rows) {
+    RETURN_IF_CATCH_EXCEPTION({
+        DCHECK_LE(columns(), block->columns());
+        const auto& block_data = block->get_columns_with_type_and_name();
+        const size_t length = std::ranges::distance(rows);
+        for (size_t i = 0; i < _columns.size(); ++i) {
+            DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
+            auto& dst = _columns[i];
+            const auto& src = *block_data[i].column.get();
+            dst->reserve(dst->size() + length);
+            for (size_t row : rows) {
+                // we can introduce a new function like `insert_assume_reserved` for IColumn.
+                dst->insert_from(src, row);
+            }
+        }
+    });
+    return Status::OK();
 }
 
 void MutableBlock::erase(const String& name) {

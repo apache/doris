@@ -26,6 +26,7 @@ import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.BindSlotWithPaths;
+import org.apache.doris.nereids.rules.analysis.BuildAggForRandomDistributedTable;
 import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
@@ -176,6 +177,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new EliminateGroupByConstant()),
 
             topDown(new SimplifyAggGroupBy()),
+            // run BuildAggForRandomDistributedTable before NormalizeAggregate in order to optimize the agg plan
+            topDown(new BuildAggForRandomDistributedTable()),
             topDown(new NormalizeAggregate()),
             topDown(new HavingToFilter()),
             bottomUp(new SemiJoinCommute()),

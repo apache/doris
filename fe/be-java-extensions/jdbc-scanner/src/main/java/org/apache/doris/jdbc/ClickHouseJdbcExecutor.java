@@ -22,6 +22,8 @@ import org.apache.doris.common.jni.vec.ColumnType.Type;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.common.jni.vec.VectorTable;
 
+import com.google.common.collect.Lists;
+
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -30,11 +32,7 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
 
@@ -89,7 +87,7 @@ public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
             case STRING:
                 return resultSet.getObject(columnIndex + 1, String.class);
             case ARRAY:
-                return resultSet.getObject(columnIndex + 1);
+                return convertArrayToList(resultSet.getArray(columnIndex + 1).getArray());
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }
@@ -99,114 +97,128 @@ public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
     protected ColumnValueConverter getOutputConverter(ColumnType columnType, String replaceString) {
         if (columnType.getType() == Type.ARRAY) {
             return createConverter(
-                    (Object input) -> convertArray(input, columnType.getChildTypes().get(0)),
+                    (Object input) -> convertArray((List<?>) input, columnType.getChildTypes().get(0)),
                     List.class);
         } else {
             return null;
         }
     }
 
-    private <T, U> List<U> convertArray(T[] input, Function<T, U> converter) {
-        if (input == null) {
-            return Collections.emptyList();
+    private List<Object> convertArrayToList(Object array) {
+        if (array == null) {
+            return null;
         }
-        return Arrays.stream(input)
-                .map(converter)
-                .collect(Collectors.toList());
-    }
 
-    private List<?> convertArray(Object input, ColumnType childType) {
-        if (input == null) {
-            return Collections.emptyList();
-        }
-        if (childType.isArray()) {
-            ColumnType subType = childType.getChildTypes().get(0);
-            Object[] array = (Object[]) input;
-            List<Object> convertedList = new ArrayList<>();
-            for (Object subArray : array) {
-                convertedList.add(convertArray(subArray, subType));
-            }
-            return convertedList;
-        }
-        if (input instanceof Object[]) {
-            Object[] arrayInput = (Object[]) input;
-            switch (childType.getType()) {
-                case SMALLINT:
-                    return input instanceof Byte[]
-                            ? convertArray((Byte[]) input,
-                                byteValue -> byteValue != null ? (short) (byte) byteValue : null)
-                            : convertArray((Number[]) arrayInput,
-                                    number -> number != null ? number.shortValue() : null);
-                case INT:
-                    return input instanceof Short[]
-                            ? convertArray((Short[]) input,
-                                shortValue -> shortValue != null ? (int) (short) shortValue : null)
-                            : convertArray((Number[]) arrayInput, number -> number != null ? number.intValue() : null);
-                case BIGINT:
-                    return input instanceof Integer[]
-                            ? convertArray((Integer[]) input,
-                                intValue -> intValue != null ? (long) (int) intValue : null)
-                            : convertArray((Number[]) arrayInput, number -> number != null ? number.longValue() : null);
-                case LARGEINT:
-                    return input instanceof Long[]
-                            ? convertArray((Long[]) input,
-                                longValue -> longValue != null ? BigInteger.valueOf(longValue) : null)
-                            : convertArray((Number[]) arrayInput,
-                                    number -> number != null ? BigInteger.valueOf(number.longValue()) : null);
-                case STRING:
-                    if (input instanceof InetAddress[]) {
-                        return convertArray((InetAddress[]) input,
-                                inetAddress -> inetAddress != null ? inetAddress.getHostAddress() : null);
-                    } else {
-                        return convertArray(arrayInput, element -> element != null ? element.toString() : null);
-                    }
-                default:
-                    return Arrays.asList(arrayInput);
-            }
-        } else {
-            return convertPrimitiveArray(input, childType);
-        }
-    }
-
-    private List<?> convertPrimitiveArray(Object input, ColumnType childType) {
-        int length = Array.getLength(input);
+        int length = Array.getLength(array);
         List<Object> list = new ArrayList<>(length);
+
         for (int i = 0; i < length; i++) {
-            Object element = Array.get(input, i);
-            switch (childType.getType()) {
-                case SMALLINT:
-                    if (input instanceof byte[]) {
-                        list.add((short) (byte) element);
-                    } else {
-                        list.add(element);
-                    }
-                    break;
-                case INT:
-                    if (input instanceof short[]) {
-                        list.add((int) (short) element);
-                    } else {
-                        list.add(element);
-                    }
-                    break;
-                case BIGINT:
-                    if (input instanceof int[]) {
-                        list.add((long) (int) element);
-                    } else {
-                        list.add(element);
-                    }
-                    break;
-                case LARGEINT:
-                    if (input instanceof long[]) {
-                        list.add(BigInteger.valueOf((long) element));
-                    } else {
-                        list.add(element);
-                    }
-                    break;
-                default:
-                    list.add(element);
-                    break;
-            }
+            Object element = Array.get(array, i);
+            list.add(element);
         }
+
         return list;
+    }
+
+    private List<?> convertArray(List<?> array, ColumnType type) {
+        if (array == null) {
+            return null;
+        }
+        switch (type.getType()) {
+            case SMALLINT: {
+                List<Short> result = Lists.newArrayList();
+                for (Object element : array) {
+                    if (element == null) {
+                        result.add(null);
+                    } else {
+                        if (element instanceof Byte) {
+                            result.add(((Byte) element).shortValue());
+                        } else if (element instanceof Number) {
+                            result.add(((Number) element).shortValue());
+                        } else {
+                            throw new IllegalArgumentException("Unsupported element type: " + element.getClass());
+                        }
+                    }
+                }
+                return result;
+            }
+            case INT: {
+                List<Integer> result = Lists.newArrayList();
+                for (Object element : array) {
+                    if (element == null) {
+                        result.add(null);
+                    } else {
+                        if (element instanceof Short) {
+                            result.add(((Short) element).intValue());
+                        } else if (element instanceof Number) {
+                            result.add(((Number) element).intValue());
+                        } else {
+                            throw new IllegalArgumentException("Unsupported element type: " + element.getClass());
+                        }
+                    }
+                }
+                return result;
+            }
+            case BIGINT: {
+                List<Long> result = Lists.newArrayList();
+                for (Object element : array) {
+                    if (element == null) {
+                        result.add(null);
+                    } else {
+                        if (element instanceof Integer) {
+                            result.add(((Integer) element).longValue());
+                        } else if (element instanceof Number) {
+                            result.add(((Number) element).longValue());
+                        } else {
+                            throw new IllegalArgumentException("Unsupported element type: " + element.getClass());
+                        }
+                    }
+                }
+                return result;
+            }
+            case LARGEINT: {
+                List<BigInteger> result = Lists.newArrayList();
+                for (Object element : array) {
+                    if (element == null) {
+                        result.add(null);
+                    } else {
+                        if (element instanceof BigDecimal) {
+                            result.add(((BigDecimal) element).toBigInteger());
+                        } else if (element instanceof Number) {
+                            result.add(BigInteger.valueOf(((Number) element).longValue()));
+                        } else {
+                            throw new IllegalArgumentException("Unsupported element type: " + element.getClass());
+                        }
+                    }
+                }
+                return result;
+            }
+            case STRING: {
+                List<String> result = Lists.newArrayList();
+                for (Object element : array) {
+                    if (element == null) {
+                        result.add(null);
+                    } else if (element instanceof InetAddress) {
+                        result.add(((InetAddress) element).getHostAddress());
+                    } else {
+                        result.add(element.toString());
+                    }
+                }
+                return result;
+            }
+            case ARRAY:
+                List<List<?>> resultArray = Lists.newArrayList();
+                for (Object element : array) {
+                    if (element == null) {
+                        resultArray.add(null);
+                    } else {
+                        resultArray.add(
+                                Lists.newArrayList(convertArray((List<?>) element, type.getChildTypes().get(0))));
+                    }
+                }
+                return resultArray;
+            default:
+                return array;
+        }
     }
 }

@@ -41,9 +41,16 @@ Status create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name
     return Status::OK();
 }
 
-uint64 hdfs_hash_code(const THdfsParams& hdfs_params) {
+uint64 hdfs_hash_code(const THdfsParams& hdfs_params, const std::string& fs_name) {
     uint64 hash_code = 0;
-    hash_code ^= Fingerprint(hdfs_params.fs_name);
+    // The specified fsname is used first.
+    // If there is no specified fsname, the default fsname is used
+    if (!fs_name.empty()) {
+        hash_code ^= Fingerprint(fs_name);
+    } else if (hdfs_params.__isset.fs_name) {
+        hash_code ^= Fingerprint(hdfs_params.fs_name);
+    }
+
     if (hdfs_params.__isset.user) {
         hash_code ^= Fingerprint(hdfs_params.user);
     }
@@ -105,7 +112,7 @@ void HdfsHandlerCache::_clean_oldest() {
 
 Status HdfsHandlerCache::get_connection(const THdfsParams& hdfs_params, const std::string& fs_name,
                                         std::shared_ptr<HdfsHandler>* fs_handle) {
-    uint64 hash_code = hdfs_hash_code(hdfs_params);
+    uint64 hash_code = hdfs_hash_code(hdfs_params, fs_name);
     {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _cache.find(hash_code);

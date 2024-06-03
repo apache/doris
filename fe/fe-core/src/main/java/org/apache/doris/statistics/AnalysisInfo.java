@@ -35,7 +35,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.text.ParseException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
 
@@ -188,11 +190,10 @@ public class AnalysisInfo implements Writable {
 
     @SerializedName("updateRows")
     public final long updateRows;
-    /**
-     *
-     * Used to store the newest partition version of tbl when creating this job.
-     * This variables would be saved by table stats meta.
-     */
+
+    public final Map<Long, Long> partitionUpdateRows = new HashMap();
+
+    @SerializedName("tblUpdateTime")
     public final long tblUpdateTime;
 
     @SerializedName("userInject")
@@ -209,7 +210,7 @@ public class AnalysisInfo implements Writable {
             boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
             boolean usingSqlForExternalTable, long tblUpdateTime, long rowCount, boolean userInject,
-            long updateRows, JobPriority priority) {
+            long updateRows, JobPriority priority, Map<Long, Long> partitionUpdateRows) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -248,6 +249,9 @@ public class AnalysisInfo implements Writable {
         this.userInject = userInject;
         this.updateRows = updateRows;
         this.priority = priority;
+        if (partitionUpdateRows != null) {
+            this.partitionUpdateRows.putAll(partitionUpdateRows);
+        }
     }
 
     @Override

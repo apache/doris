@@ -65,6 +65,14 @@ suite("test_pushdown_explain") {
         sql("select count(cast(lo_orderkey as bigint)) from test_lineorder;")
         contains "pushAggOp=COUNT"
     }
+    explain {
+        sql("select 66 from test_lineorder;")
+        contains "pushAggOp=COUNT"
+    }
+    explain {
+        sql("select lo_orderkey from test_lineorder;")
+        contains "pushAggOp=NONE"
+    }
 
     sql "DROP TABLE IF EXISTS table_unique0"
     sql """ 

@@ -24,13 +24,13 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -165,7 +166,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     // return;
                     throw new AnalysisException("group commit is not supported in Nereids now");
                 }
-                boolean emptyInsert = leafIsEmptyRelation(physicalSink);
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 // the insertCtx contains some variables to adjust SinkNode
                 insertExecutor = ctx.isTxnModel()
@@ -179,14 +180,19 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 insertExecutor.getCoordinator().getQueryOptions()
                         .setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             } else if (physicalSink instanceof PhysicalHiveTableSink) {
-                boolean emptyInsert = leafIsEmptyRelation(physicalSink);
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
                 insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
                         Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))), emptyInsert);
                 // set hive query options
+            } else if (physicalSink instanceof PhysicalIcebergTableSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                IcebergExternalTable icebergExternalTable = (IcebergExternalTable) targetTableIf;
+                insertExecutor = new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
+                        Optional.of(insertCtx.orElse((new BaseExternalTableInsertCommandContext()))), emptyInsert);
             } else {
                 // TODO: support other table types
-                throw new AnalysisException("insert into command only support olap table");
+                throw new AnalysisException("insert into command only support [olap, hive, iceberg] table");
             }
 
             insertExecutor.beginTransaction();
@@ -231,15 +237,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         return visitor.visitInsertIntoTableCommand(this, context);
     }
 
-    private boolean leafIsEmptyRelation(TreeNode<Plan> node) {
-        if (node.children() == null || node.children().isEmpty()) {
-            return node instanceof PhysicalEmptyRelation;
+    private boolean childIsEmptyRelation(PhysicalSink sink) {
+        if (sink.children() != null && sink.children().size() == 1
+                && sink.child(0) instanceof PhysicalEmptyRelation) {
+            return true;
         }
-        for (TreeNode<Plan> child : node.children()) {
-            if (!leafIsEmptyRelation(child)) {
-                return false;
-            }
-        }
-        return true;
+        return false;
     }
 }

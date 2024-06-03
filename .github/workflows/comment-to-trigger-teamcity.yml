@@ -111,7 +111,7 @@ jobs:
             echo "changed_p1=false" | tee -a "$GITHUB_OUTPUT"
           fi
           if file_changed_performance; then
-            echo "changed_performance=false" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_performance=true" | tee -a "$GITHUB_OUTPUT"
           else
             echo "changed_performance=false" | tee -a "$GITHUB_OUTPUT"
           fi

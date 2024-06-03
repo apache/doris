@@ -56,8 +56,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaRowsetsScanner::_s_tbls_columns = {
         {"END_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
         {"INDEX_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
         {"DATA_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
-        {"CREATION_TIME", TYPE_BIGINT, sizeof(int64_t), true},
-        {"NEWEST_WRITE_TIMESTAMP", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CREATION_TIME", TYPE_DATETIME, sizeof(int64_t), true},
+        {"NEWEST_WRITE_TIMESTAMP", TYPE_DATETIME, sizeof(int64_t), true},
 
 };
 
@@ -221,24 +221,28 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // CREATION_TIME
     {
-        std::vector<int64_t> srcs(fill_rowsets_num);
+        std::vector<VecDateTimeValue> srcs(fill_rowsets_num);
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            srcs[i - fill_idx_begin] = rowset->creation_time();
+            int64_t creation_time = rowset->creation_time();
+            srcs[i - fill_idx_begin].from_unixtime(creation_time, TimezoneUtils::default_time_zone);
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, datas));
     }
     // NEWEST_WRITE_TIMESTAMP
     {
-        std::vector<int64_t> srcs(fill_rowsets_num);
+        std::vector<VecDateTimeValue> srcs(fill_rowsets_num);
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            srcs[i - fill_idx_begin] = rowset->newest_write_timestamp();
+            int64_t newest_write_timestamp = rowset->newest_write_timestamp();
+            srcs[i - fill_idx_begin].from_unixtime(newest_write_timestamp,
+                                                   TimezoneUtils::default_time_zone);
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
     }
+
     _rowsets_idx += fill_rowsets_num;
     return Status::OK();
 }

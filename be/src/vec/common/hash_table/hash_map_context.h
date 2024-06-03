@@ -125,7 +125,7 @@ struct MethodBaseInner {
         if constexpr (!is_string_hash_map()) {
             prefetch<true>(i);
         }
-        return state.find_key_with_hash(*hash_table, hash_values[i], keys[i]);
+        return state.find_key_with_hash(*hash_table, i, keys[i], hash_values[i]);
     }
 
     template <typename State, typename F, typename FF>

@@ -165,6 +165,10 @@ suite("txn_insert") {
                 exception "Transaction insert expect label"
             }
             sql """ insert into ${table}_1 select * from $table; """
+            test {
+                sql """ insert into ${table}_0 with label $label2 select * from $table; """
+                exception "Transaction insert expect label"
+            }
             sql """ insert into ${table}_2 select * from ${table}_0; """
             sql """ commit; """
             sql "sync"
@@ -672,6 +676,58 @@ suite("txn_insert") {
             } finally {
 
             }
+        }
+
+        // 18. column update
+        if (use_nereids_planner) {
+            def unique_table = "txn_insert_cu"
+            for (def i in 0..3) {
+                sql """ drop table if exists ${unique_table}_${i} """
+                sql """
+                    CREATE TABLE ${unique_table}_${i} (
+                        `id` int(11) NOT NULL,
+                        `name` varchar(50) NULL,
+                        `score` int(11) NULL default "-1"
+                    ) ENGINE=OLAP
+                    UNIQUE KEY(`id`)
+                    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+                    PROPERTIES (
+                        "replication_num" = "1"
+                    );
+                """
+            }
+            sql """ insert into ${unique_table}_0 values(1, "0", 10), (2, "0", 20), (3, "0", 30); """
+            sql """ insert into ${unique_table}_1 values(1, "1", 11), (2, "1", 12), (4, "1", 14), (5, "1", 15); """
+            sql """ insert into ${unique_table}_2 values(1, "2", 21), (2, "2", 22), (4, "4", 23); """
+            sql """ insert into ${unique_table}_3 values(1, "2", 21), (2, "2", 22), (4, "4", 23); """
+
+            try {
+                sql "set enable_unique_key_partial_update = true"
+                sql "set enable_insert_strict = false"
+                sql """ begin """
+                sql """ insert into ${unique_table}_2(id, score) select id, score from ${unique_table}_0; """
+                sql """ insert into ${unique_table}_2(id, score) select id, score from ${unique_table}_1; """
+                sql """ update ${unique_table}_2 set score = score + 100 where id in (select id from ${unique_table}_0); """
+                sql """ delete from ${unique_table}_2 where id <= 1; """
+                sql """ commit """
+
+                sql """ delete from ${unique_table}_3 where id <= 1; """
+                sql """ insert into ${unique_table}_3(id, score) select id, score from ${unique_table}_0; """
+                sql """ insert into ${unique_table}_3(id, score) select id, score from ${unique_table}_1; """
+                sql """ update ${unique_table}_3 set score = score + 100 where id in (select id from ${unique_table}_0); """
+            } catch (Throwable e) {
+                logger.warn("column update failed", e)
+                assertTrue(false)
+            } finally {
+                sql "rollback"
+                sql "set enable_unique_key_partial_update = false"
+                sql "set enable_insert_strict = true"
+            }
+            sql "sync"
+            order_qt_select_cu0 """select * from ${unique_table}_0"""
+            order_qt_select_cu1 """select * from ${unique_table}_1"""
+            order_qt_select_cu2 """select * from ${unique_table}_2"""
+            order_qt_select_cu3 """select * from ${unique_table}_3"""
         }
     }
 }

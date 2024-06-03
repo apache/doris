@@ -190,6 +190,13 @@ public:
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                               bool skip_missing_version) override;
 
+    // Find the missed versions until the spec_version.
+    //
+    // for example:
+    //     [0-4][5-5][8-8][9-9][14-14]
+    // if spec_version = 12, it will return [6, 6], [7, 7], [10, 10], [11, 11], [12, 12]
+    Versions calc_missed_versions(int64_t spec_version, Versions existing_versions) const override;
+
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
@@ -267,7 +274,7 @@ public:
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_build_inverted_index(
-            const std::set<int32_t>& alter_index_uids, bool is_drop_op);
+            const std::set<int64_t>& alter_index_uids, bool is_drop_op);
 
     // used for single compaction to get the local versions
     // Single compaction does not require remote rowsets and cannot violate the cooldown semantics
@@ -476,6 +483,8 @@ public:
     }
     inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
     void clear_cache() override;
+    Status calc_local_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
+                               int32_t* rowset_count, int64_t* file_count);
 
 private:
     Status _init_once_action();

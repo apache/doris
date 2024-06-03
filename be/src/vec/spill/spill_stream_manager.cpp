@@ -98,7 +98,7 @@ Status SpillStreamManager::init() {
 void SpillStreamManager::_spill_gc_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::spill_gc_interval_ms))) {
-        gc(config::spill_gc_file_count);
+        gc(config::spill_gc_work_time_ms);
         for (auto& [path, dir] : _spill_store_map) {
             static_cast<void>(dir->update_capacity());
         }
@@ -203,16 +203,29 @@ void SpillStreamManager::delete_spill_stream(SpillStreamSPtr stream) {
                 fmt::format("{}/{}", query_dir,
                             std::filesystem::path(stream->get_spill_dir()).filename().string());
         (void)io::global_local_filesystem()->rename(stream->get_spill_dir(), gc_dir);
+        stream->decrease_spill_data_usage();
     }
 }
 
-void SpillStreamManager::gc(int64_t max_file_count) {
-    if (max_file_count < 1) {
-        return;
-    }
-
+void SpillStreamManager::gc(int32_t max_work_time_ms) {
     bool exists = true;
-    int64_t count = 0;
+    bool has_work = false;
+    int64_t max_work_time_ns = max_work_time_ms * 1000L * 1000L;
+    MonotonicStopWatch watch;
+    watch.start();
+    Defer defer {[&]() {
+        if (has_work) {
+            std::string msg(
+                    fmt::format("spill gc time: {}",
+                                PrettyPrinter::print(watch.elapsed_time(), TUnit::TIME_NS)));
+            msg += ", spill storage:\n";
+            for (const auto& [path, store_dir] : _spill_store_map) {
+                msg += "    " + store_dir->debug_string();
+                msg += "\n";
+            }
+            LOG(INFO) << msg;
+        }
+    }};
     for (const auto& [path, store_dir] : _spill_store_map) {
         std::string gc_root_dir = fmt::format("{}/{}", path, SPILL_GC_DIR_PREFIX);
 
@@ -221,6 +234,7 @@ void SpillStreamManager::gc(int64_t max_file_count) {
         if (ec || !exists) {
             continue;
         }
+        // dirs of queries
         std::vector<io::FileInfo> dirs;
         auto st = io::global_local_filesystem()->list(gc_root_dir, false, &dirs, &exists);
         if (!st.ok()) {
@@ -228,32 +242,32 @@ void SpillStreamManager::gc(int64_t max_file_count) {
         }
 
         for (const auto& dir : dirs) {
+            has_work = true;
             if (dir.is_file) {
                 continue;
             }
             std::string abs_dir = fmt::format("{}/{}", gc_root_dir, dir.file_name);
+            // operator spill sub dirs of a query
             std::vector<io::FileInfo> files;
-            st = io::global_local_filesystem()->list(abs_dir, true, &files, &exists);
+            st = io::global_local_filesystem()->list(abs_dir, false, &files, &exists);
             if (!st.ok()) {
                 continue;
             }
             if (files.empty()) {
                 static_cast<void>(io::global_local_filesystem()->delete_directory(abs_dir));
-                if (count++ == max_file_count) {
-                    return;
-                }
                 continue;
             }
 
-            int64_t data_size = 0;
-            Defer defer {[&]() { store_dir->update_spill_data_usage(-data_size); }};
-
             for (const auto& file : files) {
                 auto abs_file_path = fmt::format("{}/{}", abs_dir, file.file_name);
-                data_size += file.file_size;
-                static_cast<void>(io::global_local_filesystem()->delete_file(abs_file_path));
-                if (count++ == max_file_count) {
-                    return;
+                if (file.is_file) {
+                    static_cast<void>(io::global_local_filesystem()->delete_file(abs_file_path));
+                } else {
+                    static_cast<void>(
+                            io::global_local_filesystem()->delete_directory(abs_file_path));
+                }
+                if (watch.elapsed_time() > max_work_time_ns) {
+                    break;
                 }
             }
         }
@@ -356,5 +370,14 @@ bool SpillDataDir::reach_capacity_limit(int64_t incoming_data_size) {
         return true;
     }
     return false;
+}
+std::string SpillDataDir::debug_string() {
+    return fmt::format(
+            "path: {}, capacity: {}, limit: {}, used: {}, available: "
+            "{}",
+            _path, PrettyPrinter::print_bytes(_disk_capacity_bytes),
+            PrettyPrinter::print_bytes(_spill_data_limit_bytes),
+            PrettyPrinter::print_bytes(_spill_data_bytes),
+            PrettyPrinter::print_bytes(_available_bytes));
 }
 } // namespace doris::vectorized

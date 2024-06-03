@@ -32,6 +32,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
+#include "util/debug_points.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_util.h"
 #include "util/time.h"
@@ -226,8 +227,9 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
               << ", ctx: " << _ctx->brief();
     _unplanned_pipes.clear();
 
-    _inflight_cnt += params.size();
     for (auto& plan : params) {
+        DBUG_EXECUTE_IF("MultiTablePipe.exec_plans.failed",
+                        { return Status::Aborted("MultiTablePipe.exec_plans.failed"); });
         if (!plan.__isset.table_name ||
             _planned_pipes.find(plan.table_name) == _planned_pipes.end()) {
             return Status::Aborted("Missing vital param: table_name");
@@ -249,6 +251,8 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
                          << ", ctx: " << _ctx->brief();
             CHECK(false);
         }
+
+        _inflight_cnt++;
 
         RETURN_IF_ERROR(exec_env->fragment_mgr()->exec_plan_fragment(
                 plan, [this](RuntimeState* state, Status* status) {

@@ -395,7 +395,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
                 TabletMetaManager::get_meta(_data_dir, tablet_id, 3333, new_tablet_meta);
         ASSERT_TRUE(check_meta_st.ok()) << check_meta_st;
         // insert into rowset
-        auto create_rowset = [=](int64_t start, int64 end) {
+        auto create_rowset = [=, this](int64_t start, int64 end) {
             auto rowset_meta = std::make_shared<RowsetMeta>();
             Version version(start, end);
             rowset_meta->set_version(version);

@@ -129,7 +129,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
 
         JavaUdf udf = new JavaUdf(fnName, scalar.getId(), dbName, scalar.getBinaryType(), sig,
                 scalar.getNullableMode(),
-                scalar.getLocation().getLocation(),
+                scalar.getLocation() == null ? null : scalar.getLocation().getLocation(),
                 scalar.getSymbolName(),
                 scalar.getPrepareFnSymbol(),
                 scalar.getCloseFnSymbol(),
@@ -154,7 +154,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
                     signature.argumentsTypes.stream().map(DataType::toCatalogDataType).toArray(Type[]::new),
                     signature.returnType.toCatalogDataType(),
                     signature.hasVarArgs,
-                    URI.create(objectFile),
+                    objectFile == null ? null : URI.create(objectFile),
                     symbol,
                     prepareFn,
                     closeFn

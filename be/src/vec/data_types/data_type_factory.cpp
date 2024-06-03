@@ -188,7 +188,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case TYPE_DECIMALV2:
-        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(27, 9);
+        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(
+                27, 9, col_desc.precision, col_desc.scale);
         break;
     case TYPE_QUANTILE_STATE:
         nested = std::make_shared<vectorized::DataTypeQuantileState>();
@@ -414,7 +415,8 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
-        result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(27, 9);
+        result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(
+                27, 9, precision, scale);
         break;
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
         result = std::make_shared<vectorized::DataTypeQuantileState>();

@@ -21,8 +21,11 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+
+import com.google.common.collect.ImmutableList;
 
 /**
  * Pull up SemiJoin through Agg.
@@ -40,7 +43,8 @@ public class TransposeAggSemiJoinProject extends OneExplorationRuleFactory {
                     if (!TransposeSemiJoinAgg.canTranspose(agg, join)) {
                         return null;
                     }
-                    return join.withChildren(agg.withChildren(project.withChildren(join.left())), join.right());
+                    Plan newJoin = join.withChildren(agg.withChildren(project.withChildren(join.left())), join.right());
+                    return new LogicalProject<>(ImmutableList.copyOf(agg.getOutput()), newJoin);
                 })
                 .toRule(RuleType.TRANSPOSE_LOGICAL_AGG_SEMI_JOIN_PROJECT);
     }

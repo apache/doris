@@ -275,6 +275,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
     if (context.cache_type == FileCacheType::TTL && _key_to_time.find(hash) == _key_to_time.end()) {
         for (auto& [_, cell] : file_blocks) {
             FileCacheType origin_type = cell.file_block->cache_type();
+            if (origin_type == FileCacheType::TTL) continue;
             Status st = cell.file_block->change_cache_type_by_mgr(FileCacheType::TTL);
             if (st.ok()) {
                 auto& queue = get_queue(origin_type);

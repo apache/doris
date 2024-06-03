@@ -152,7 +152,7 @@ public class LoadLoadingTask extends LoadTask {
         }
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
-        curCoordinator.setExecPipEngine(Config.enable_pipeline_load);
+        curCoordinator.setExecPipEngine();
 
         /*
          * For broker load job, user only need to set mem limit by 'exec_mem_limit' property.

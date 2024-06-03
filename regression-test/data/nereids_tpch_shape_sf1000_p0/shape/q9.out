@@ -27,12 +27,13 @@ PhysicalResultSink
 --------------------------------------filter((p_name like '%green%'))
 ----------------------------------------PhysicalOlapScan[part] apply RFs: RF5
 ----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[s_nationkey]
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[supplier] apply RFs: RF0 RF4
---------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[s_nationkey]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[nation]
+------------------------------PhysicalOlapScan[supplier] apply RFs: RF0 RF4
+----------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[nation]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[partsupp]

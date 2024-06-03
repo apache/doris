@@ -148,7 +148,8 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
 
     const char* cluster_pattern_str = "^[a-zA-Z][a-zA-Z0-9_]*$";
     std::regex txt_regex(cluster_pattern_str);
-    if (!std::regex_match(cluster.cluster_name(), txt_regex)) {
+    if (config::enable_cluster_name_check && cluster.has_cluster_name() &&
+        !std::regex_match(cluster.cluster_name(), txt_regex)) {
         *err = "cluster name not regex with ^[a-zA-Z][a-zA-Z0-9_]*$, please check it";
         return false;
     }

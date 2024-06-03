@@ -20,18 +20,20 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF2
 --------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_ship_date_sk]
-------------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[cs_ship_addr_sk]
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_ship_date_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF3
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[cs_ship_addr_sk]
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF3
+------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------------PhysicalProject
+----------------------------------------filter((customer_address.ca_state = 'WV'))
+------------------------------------------PhysicalOlapScan[customer_address]
 --------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------PhysicalProject
-------------------------------------filter((customer_address.ca_state = 'WV'))
---------------------------------------PhysicalOlapScan[customer_address]
-------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_date <= '2002-05-31') and (date_dim.d_date >= '2002-04-01'))
-------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------filter((date_dim.d_date <= '2002-05-31') and (date_dim.d_date >= '2002-04-01'))
+--------------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------PhysicalProject
 ----------------------------filter(cc_county IN ('Barrow County', 'Daviess County', 'Luce County', 'Richland County', 'Ziebach County'))

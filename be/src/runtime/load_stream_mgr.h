@@ -38,8 +38,7 @@ public:
                   FifoThreadPool* light_work_pool);
     ~LoadStreamMgr();
 
-    Status open_load_stream(const POpenLoadStreamRequest* request,
-                            LoadStreamSharedPtr& load_stream);
+    Status open_load_stream(const POpenLoadStreamRequest* request, LoadStream*& load_stream);
     void clear_load(UniqueId loadid);
     void create_tokens(std::vector<std::unique_ptr<ThreadPoolToken>>& tokens) {
         for (int i = 0; i < _num_threads * 2; i++) {
@@ -56,7 +55,7 @@ public:
 
 private:
     std::mutex _lock;
-    std::unordered_map<UniqueId, LoadStreamSharedPtr> _load_streams_map;
+    std::unordered_map<UniqueId, LoadStreamPtr> _load_streams_map;
     std::unique_ptr<ThreadPool> _file_writer_thread_pool;
 
     uint32_t _num_threads = 0;

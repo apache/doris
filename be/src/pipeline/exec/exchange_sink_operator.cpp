@@ -132,7 +132,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
     _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, p._dest_node_id, _sender_id,
-                                                        _state->be_number(), state);
+                                                        _state->be_number(), state, this);
 
     register_channels(_sink_buffer.get());
     _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
@@ -155,12 +155,17 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         size_t dep_id = 0;
         for (auto* channel : channels) {
             if (channel->is_local()) {
-                _local_channels_dependency.push_back(channel->get_local_channel_dependency());
-                DCHECK(_local_channels_dependency[dep_id] != nullptr);
-                _wait_channel_timer.push_back(_profile->add_nonzero_counter(
-                        fmt::format("WaitForLocalExchangeBuffer{}", dep_id), TUnit ::TIME_NS,
-                        timer_name, 1));
-                dep_id++;
+                if (auto dep = channel->get_local_channel_dependency()) {
+                    _local_channels_dependency.push_back(dep);
+                    DCHECK(_local_channels_dependency[dep_id] != nullptr);
+                    _wait_channel_timer.push_back(_profile->add_nonzero_counter(
+                            fmt::format("WaitForLocalExchangeBuffer{}", dep_id), TUnit ::TIME_NS,
+                            timer_name, 1));
+                    dep_id++;
+                } else {
+                    LOG(WARNING) << "local recvr is null: query id = "
+                                 << print_id(state->query_id()) << " node id = " << p.node_id();
+                }
             }
         }
     }
@@ -619,8 +624,11 @@ Status ExchangeSinkOperatorX::channel_add_rows_with_idx(
 std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
-    fmt::format_to(debug_string_buffer, ", Sink Buffer: (_should_stop = {}, _busy_channels = {})",
-                   _sink_buffer->_should_stop.load(), _sink_buffer->_busy_channels.load());
+    fmt::format_to(debug_string_buffer,
+                   ", Sink Buffer: (_should_stop = {}, _busy_channels = {}, _is_finishing = {}), "
+                   "_reach_limit: {}",
+                   _sink_buffer->_should_stop.load(), _sink_buffer->_busy_channels.load(),
+                   _sink_buffer->_is_finishing.load(), _reach_limit.load());
     return fmt::to_string(debug_string_buffer);
 }
 

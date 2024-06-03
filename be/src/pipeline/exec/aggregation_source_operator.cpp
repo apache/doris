@@ -32,8 +32,7 @@ AggLocalState::AggLocalState(RuntimeState* state, OperatorXBase* parent)
           _serialize_result_timer(nullptr),
           _hash_table_iterate_timer(nullptr),
           _insert_keys_to_column_timer(nullptr),
-          _serialize_data_timer(nullptr),
-          _hash_table_size_counter(nullptr) {}
+          _serialize_data_timer(nullptr) {}
 
 Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -44,7 +43,6 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _hash_table_iterate_timer = ADD_TIMER(profile(), "HashTableIterateTime");
     _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
     _serialize_data_timer = ADD_TIMER(profile(), "SerializeDataTime");
-    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
 
     _merge_timer = ADD_TIMER(Base::profile(), "MergeTime");
     _deserialize_data_timer = ADD_TIMER(Base::profile(), "DeserializeAndMergeTime");
@@ -500,8 +498,7 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
                             ->function()
                             ->deserialize_and_merge_vec_selected(
                                     _places.data(), _shared_state->offsets_of_aggregate_states[i],
-                                    _deserialize_buffer.data(),
-                                    (vectorized::ColumnString*)(column.get()),
+                                    _deserialize_buffer.data(), column.get(),
                                     _shared_state->agg_arena_pool.get(), rows);
                 }
             } else {
@@ -532,14 +529,9 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
                 SCOPED_TIMER(_deserialize_data_timer);
                 Base::_shared_state->aggregate_evaluators[i]->function()->deserialize_and_merge_vec(
                         _places.data(), _shared_state->offsets_of_aggregate_states[i],
-                        _deserialize_buffer.data(), (vectorized::ColumnString*)(column.get()),
+                        _deserialize_buffer.data(), column.get(),
                         _shared_state->agg_arena_pool.get(), rows);
             }
-        }
-
-        if (_should_limit_output) {
-            _reach_limit = _get_hash_table_size() >=
-                           Base::_parent->template cast<AggSourceOperatorX>()._limit;
         }
     }
 
@@ -646,21 +638,6 @@ Status AggLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
-    }
-
-    /// _hash_table_size_counter may be null if prepare failed.
-    if (_hash_table_size_counter) {
-        std::visit(vectorized::Overload {[&](std::monostate& arg) -> void {
-                                             // Do nothing
-                                         },
-                                         [&](auto& agg_method) {
-                                             if (agg_method.hash_table) {
-                                                 COUNTER_SET(
-                                                         _hash_table_size_counter,
-                                                         int64_t(agg_method.hash_table->size()));
-                                             }
-                                         }},
-                   _shared_state->agg_data->method_variant);
     }
 
     vectorized::PODArray<vectorized::AggregateDataPtr> tmp_places;

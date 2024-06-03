@@ -109,6 +109,7 @@
 #include "service/point_query_executor.h"
 #include "tablet.h"
 #include "util/bvar_helper.h"
+#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
@@ -908,6 +909,39 @@ Status Tablet::capture_rs_readers(const Version& spec_version, std::vector<RowSe
     return Status::OK();
 }
 
+Versions Tablet::calc_missed_versions(int64_t spec_version, Versions existing_versions) const {
+    DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
+
+    // sort the existing versions in ascending order
+    std::sort(existing_versions.begin(), existing_versions.end(),
+              [](const Version& a, const Version& b) {
+                  // simple because 2 versions are certainly not overlapping
+                  return a.first < b.first;
+              });
+
+    // From the first version(=0),  find the missing version until spec_version
+    int64_t last_version = -1;
+    Versions missed_versions;
+    for (const Version& version : existing_versions) {
+        if (version.first > last_version + 1) {
+            for (int64_t i = last_version + 1; i < version.first && i <= spec_version; ++i) {
+                // Don't merge missed_versions because clone & snapshot use single version.
+                // For example, if miss 4 ~ 6, clone need [4, 4], [5, 5], [6, 6], but not [4, 6].
+                missed_versions.emplace_back(i, i);
+            }
+        }
+        last_version = version.second;
+        if (last_version >= spec_version) {
+            break;
+        }
+    }
+    for (int64_t i = last_version + 1; i <= spec_version; ++i) {
+        missed_versions.emplace_back(i, i);
+    }
+
+    return missed_versions;
+}
+
 bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type) {
     if (compaction_type == CompactionType::BASE_COMPACTION && tablet_state() != TABLET_RUNNING) {
         // base compaction can only be done for tablet in TABLET_RUNNING state.
@@ -1191,7 +1225,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction()
 }
 
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_index(
-        const std::set<int32_t>& alter_index_uids, bool is_drop_op) {
+        const std::set<int64_t>& alter_index_uids, bool is_drop_op) {
     std::vector<RowsetSharedPtr> candidate_rowsets;
     {
         std::shared_lock rlock(_meta_lock);
@@ -2627,6 +2661,37 @@ void Tablet::clear_cache() {
     };
     recycle_segment_cache(rowset_map());
     recycle_segment_cache(stale_rowset_map());
+}
+
+Status Tablet::calc_local_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
+                                   int32_t* rowset_count, int64_t* file_count) {
+    Version v(start_version, end_version);
+    std::vector<RowsetSharedPtr> rowsets;
+    traverse_rowsets([&rowsets, &v](const auto& rs) {
+        // get local rowsets
+        if (rs->is_local() && v.contains(rs->version())) {
+            rowsets.emplace_back(rs);
+        }
+    });
+    std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
+    *rowset_count = rowsets.size();
+
+    *crc_value = 0;
+    *file_count = 0;
+    for (const auto& rs : rowsets) {
+        uint32_t rs_crc_value;
+        int64_t rs_file_count = 0;
+        auto rowset = std::static_pointer_cast<BetaRowset>(rs);
+        auto st = rowset->calc_local_file_crc(&rs_crc_value, &rs_file_count);
+        if (!st.ok()) {
+            return st;
+        }
+        // crc_value is calculated based on the crc_value of each rowset.
+        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const char*>(&rs_crc_value),
+                                    sizeof(rs_crc_value));
+        *file_count += rs_file_count;
+    }
+    return Status::OK();
 }
 
 } // namespace doris

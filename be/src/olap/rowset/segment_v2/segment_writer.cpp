@@ -385,8 +385,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     for (auto i : including_cids) {
         full_block.replace_by_position(i, block->get_by_position(input_id++).column);
     }
-    _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, row_pos, num_rows,
-                                                                   including_cids);
+    RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
+            &full_block, row_pos, num_rows, including_cids));
 
     bool have_input_seq_column = false;
     // write including columns
@@ -561,8 +561,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     }
 
     // convert missing columns and send to column writer
-    _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, row_pos, num_rows,
-                                                                   missing_cids);
+    RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
+            &full_block, row_pos, num_rows, missing_cids));
     for (auto cid : missing_cids) {
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
         if (!converted_result.first.ok()) {

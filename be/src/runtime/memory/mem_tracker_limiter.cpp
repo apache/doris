@@ -31,6 +31,7 @@
 #include "olap/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "service/backend_options.h"
@@ -114,14 +115,14 @@ MemTrackerLimiter::~MemTrackerLimiter() {
             "4. If you need to "
             "transfer memory tracking value between two trackers, can use transfer_to.";
     if (_consumption->current_value() != 0) {
-        // TODO, expect mem tracker equal to 0 at the task end.
+        // TODO, expect mem tracker equal to 0 at the load/compaction/etc. task end.
 #ifndef NDEBUG
         if (_type == Type::QUERY) {
             std::string err_msg =
                     fmt::format("mem tracker label: {}, consumption: {}, peak consumption: {}, {}.",
                                 label(), _consumption->current_value(), _consumption->peak_value(),
                                 mem_tracker_inaccurate_msg);
-            LOG(INFO) << err_msg << print_address_sanitizers();
+            LOG(FATAL) << err_msg << print_address_sanitizers();
         }
 #endif
         if (ExecEnv::tracking_memory()) {
@@ -376,7 +377,7 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
     if (_enable_print_log_usage) {
         _enable_print_log_usage = false;
         std::string detail = msg;
-        detail += "\nProcess Memory Summary:\n    " + MemTrackerLimiter::process_mem_log_str();
+        detail += "\nProcess Memory Summary:\n    " + GlobalMemoryArbitrator::process_mem_log_str();
         detail += "\nMemory Tracker Summary:    " + log_usage();
         std::string child_trackers_usage;
         std::vector<MemTracker::Snapshot> snapshots;
@@ -394,7 +395,7 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
 
 std::string MemTrackerLimiter::log_process_usage_str() {
     std::string detail;
-    detail += "\nProcess Memory Summary:\n    " + MemTrackerLimiter::process_mem_log_str();
+    detail += "\nProcess Memory Summary:\n    " + GlobalMemoryArbitrator::process_mem_log_str();
     std::vector<MemTracker::Snapshot> snapshots;
     MemTrackerLimiter::make_process_snapshots(&snapshots);
     MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
@@ -423,50 +424,6 @@ void MemTrackerLimiter::print_log_process_usage() {
         MemTrackerLimiter::_enable_print_log_process_usage = false;
         LOG(WARNING) << log_process_usage_str();
     }
-}
-
-bool MemTrackerLimiter::sys_mem_exceed_limit_check(int64_t bytes) {
-    // Limit process memory usage using the actual physical memory of the process in `/proc/self/status`.
-    // This is independent of the consumption value of the mem tracker, which counts the virtual memory
-    // of the process malloc.
-    // for fast, expect MemInfo::initialized() to be true.
-    //
-    // tcmalloc/jemalloc allocator cache does not participate in the mem check as part of the process physical memory.
-    // because `new/malloc` will trigger mem hook when using tcmalloc/jemalloc allocator cache,
-    // but it may not actually alloc physical memory, which is not expected in mem hook fail.
-    return MemInfo::proc_mem_no_allocator_cache() + bytes >= MemInfo::mem_limit() ||
-           MemInfo::sys_mem_available() < MemInfo::sys_mem_available_low_water_mark();
-}
-
-std::string MemTrackerLimiter::process_mem_log_str() {
-    return fmt::format(
-            "os physical memory {}. process memory used {}, limit {}, soft limit {}. sys "
-            "available memory {}, low water mark {}, warning water mark {}. Refresh interval "
-            "memory growth {} B",
-            PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES),
-            PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(), MemInfo::soft_mem_limit_str(),
-            MemInfo::sys_mem_available_str(),
-            PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
-            PrettyPrinter::print(MemInfo::sys_mem_available_warning_water_mark(), TUnit::BYTES),
-            MemInfo::refresh_interval_memory_growth);
-}
-
-std::string MemTrackerLimiter::process_limit_exceeded_errmsg_str() {
-    return fmt::format(
-            "process memory used {} exceed limit {} or sys available memory {} less than low "
-            "water mark {}",
-            PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
-            MemInfo::sys_mem_available_str(),
-            PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES));
-}
-
-std::string MemTrackerLimiter::process_soft_limit_exceeded_errmsg_str() {
-    return fmt::format(
-            "process memory used {} exceed soft limit {} or sys available memory {} less than "
-            "warning water mark {}.",
-            PerfCounters::get_vm_rss_str(), MemInfo::soft_mem_limit_str(),
-            MemInfo::sys_mem_available_str(),
-            PrettyPrinter::print(MemInfo::sys_mem_available_warning_water_mark(), TUnit::BYTES));
 }
 
 std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
@@ -560,7 +517,7 @@ int64_t MemTrackerLimiter::free_top_memory_query(
                     } else if (tracker->consumption() + prepare_free_mem < min_free_mem) {
                         min_pq.emplace(tracker->consumption(), tracker->label());
                         prepare_free_mem += tracker->consumption();
-                    } else if (tracker->consumption() > min_pq.top().first) {
+                    } else if (!min_pq.empty() && tracker->consumption() > min_pq.top().first) {
                         min_pq.emplace(tracker->consumption(), tracker->label());
                         prepare_free_mem += tracker->consumption();
                         while (prepare_free_mem - min_pq.top().first > min_free_mem) {

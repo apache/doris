@@ -41,13 +41,12 @@ public:
         _now_offset += 1;
     }
 
+    // commit may not be called if exception is thrown in writes(e.g. alloc mem failed)
     void commit() {
         ColumnString::check_chars_length(_offsets.back() + _now_offset, 0);
         _offsets.push_back(_offsets.back() + _now_offset);
         _now_offset = 0;
     }
-
-    ~BufferWritable() { DCHECK(_now_offset == 0); }
 
     template <typename T>
     void write_number(T data) {

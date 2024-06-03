@@ -695,3 +695,5 @@ TESTING	AGAIN
 -- !subquery_without_inner_predicate --
 7
 
+-- !aggregate_limit_contain_null --
+16	\N

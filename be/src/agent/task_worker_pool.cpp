@@ -77,6 +77,7 @@
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/debug_points.h"
@@ -196,9 +197,10 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                     .tag("new_tablet_id", new_tablet_id)
                     .tag("mem_limit",
                          engine.memory_limitation_bytes_per_thread_for_schema_change());
-            DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
             SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2,
-                                std::to_string(agent_task_req.alter_tablet_req_v2.job_id));
+                                std::to_string(agent_task_req.alter_tablet_req_v2.__isset.job_id
+                                                       ? agent_task_req.alter_tablet_req_v2.job_id
+                                                       : 0));
             status = job.process_alter_tablet(agent_task_req.alter_tablet_req_v2);
         } catch (const Exception& e) {
             status = e.to_status();
@@ -1792,7 +1794,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 .error(status);
     } else {
         if (!config::disable_auto_compaction &&
-            !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+            !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {

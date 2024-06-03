@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <iterator>
 #include <ostream>
 #include <set>
@@ -406,8 +407,10 @@ Status NewOlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.topn_filter_source_node_ids =
                     ((pipeline::OlapScanLocalState*)_local_state)
                             ->get_topn_filter_source_node_ids(_state, true);
-            _tablet_reader_params.use_topn_opt =
-                    !_tablet_reader_params.topn_filter_source_node_ids.empty();
+            if (!_tablet_reader_params.topn_filter_source_node_ids.empty()) {
+                _tablet_reader_params.topn_filter_target_node_id =
+                        ((pipeline::OlapScanLocalState*)_local_state)->parent()->node_id();
+            }
         }
     }
 
@@ -525,6 +528,7 @@ Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
         _profile_updated = _tablet_reader->update_profile(_profile);
     }
     if (block->rows() > 0) {
+        _tablet_reader_params.tablet->read_block_count.fetch_add(1, std::memory_order_relaxed);
         *eof = false;
     }
     _update_realtime_counters();

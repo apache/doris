@@ -46,7 +46,6 @@
 #include "vec/core/types.h"
 #include "vec/exec/join/join_op.h" // IWYU pragma: keep
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/runtime/shared_hash_table_controller.h"
 #include "vjoin_node_base.h"
 
 template <typename T>
@@ -217,15 +216,6 @@ public:
 
     void debug_string(int indentation_level, std::stringstream* out) const override;
 
-    bool can_sink_write() const {
-        if (_should_build_hash_table) {
-            return true;
-        }
-        return _shared_hash_table_context && _shared_hash_table_context->signaled;
-    }
-
-    bool should_build_hash_table() const { return _should_build_hash_table; }
-
     bool have_other_join_conjunct() const { return _have_other_join_conjunct; }
     bool is_right_semi_anti() const { return _is_right_semi_anti; }
     bool is_outer_join() const { return _is_outer_join; }
@@ -346,8 +336,6 @@ private:
     bool _build_side_ignore_null = false;
 
     bool _is_broadcast_join = false;
-    bool _should_build_hash_table = true;
-    std::shared_ptr<SharedHashTableController> _shared_hashtable_controller;
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
 
     std::vector<SlotId> _hash_output_slot_ids;
@@ -357,8 +345,6 @@ private:
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
     MutableBlock _build_side_mutable_block;
-
-    SharedHashTableContextPtr _shared_hash_table_context = nullptr;
 
     Status _materialize_build_side(RuntimeState* state) override;
 

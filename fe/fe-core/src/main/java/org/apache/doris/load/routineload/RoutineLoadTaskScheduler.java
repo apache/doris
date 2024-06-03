@@ -123,6 +123,9 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         }
 
         try {
+            if (routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).isFinal()) {
+                return;
+            }
             // check if topic has more data to consume
             if (!routineLoadTaskInfo.hasMoreDataToConsume()) {
                 needScheduleTasksQueue.addLast(routineLoadTaskInfo);

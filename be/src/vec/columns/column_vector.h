@@ -341,13 +341,7 @@ public:
 
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
 
-    UInt64 get64(size_t n) const override;
-
-    Float64 get_float64(size_t n) const override;
-
     void clear() override { data.clear(); }
-
-    UInt64 get_uint(size_t n) const override { return UInt64(data[n]); }
 
     bool get_bool(size_t n) const override { return bool(data[n]); }
 
@@ -372,13 +366,6 @@ public:
     size_t filter(const IColumn::Filter& filter) override;
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
-
-    template <typename Type>
-    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
-
-    double get_ratio_of_default_rows(double sample_ratio) const override {
-        return this->template get_ratio_of_default_rows_impl<Self>(sample_ratio);
-    }
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
@@ -415,11 +402,6 @@ public:
         data[self_row] = assert_cast<const Self&>(rhs).data[row];
     }
 
-    void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        data[self_row] = T();
-    }
-
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
@@ -428,32 +410,9 @@ public:
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
-    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);
-    }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
 protected:
     Container data;
 };
-
-template <typename T>
-template <typename Type>
-ColumnPtr ColumnVector<T>::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
-    size_t size = indexes.size();
-
-    if (limit == 0)
-        limit = size;
-    else
-        limit = std::min(size, limit);
-
-    auto res = this->create(limit);
-    typename Self::Container& res_data = res->get_data();
-    for (size_t i = 0; i < limit; ++i) res_data[i] = data[indexes[i]];
-
-    return res;
-}
 
 } // namespace doris::vectorized

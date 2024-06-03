@@ -17,8 +17,11 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
+import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.InsertStmt;
@@ -75,6 +78,7 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionEntry;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -253,8 +257,11 @@ public abstract class ConnectProcessor {
         Exception nereidsSyntaxException = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
-        // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
-        if (mysqlCommand == MysqlCommand.COM_QUERY && sessionVariable.isEnableNereidsPlanner()) {
+        // Currently we add a config to decide whether using PREPARED/EXECUTE command for nereids
+        // TODO: after implemented full prepared, we could remove this flag
+        boolean nereidsUseServerPrep = sessionVariable.enableServeSidePreparedStatement
+                        || mysqlCommand == MysqlCommand.COM_QUERY;
+        if (nereidsUseServerPrep && sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
                 cachedStmts = parseFromSqlCache(originStmt);
                 if (cachedStmts != null) {
@@ -315,7 +322,10 @@ public abstract class ConnectProcessor {
                 || s instanceof UpdateStmt
                 || s instanceof DeleteStmt
                 || s instanceof CreateTableAsSelectStmt
-                || s instanceof CreateTableStmt)) {
+                || s instanceof CreateTableStmt
+                || s instanceof CreateTableLikeStmt
+                || s instanceof CreateViewStmt
+                || s instanceof AlterViewStmt)) {
             String errMsg;
             Throwable exception = null;
             if (nereidsParseException != null) {
@@ -702,6 +712,9 @@ public abstract class ConnectProcessor {
             ctx.setUserVars(userVariableFromThrift(request.getUserVariables()));
         }
 
+        // set resource tag
+        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser));
+
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
         try {
@@ -722,6 +735,13 @@ public abstract class ConnectProcessor {
                         }
                     }
                 }
+            }
+
+            // set transaction entry for transaction load
+            if (request.isSetTxnLoadInfo()) {
+                TransactionEntry transactionEntry = new TransactionEntry();
+                transactionEntry.setTxnInfoInMaster(request.getTxnLoadInfo());
+                ctx.setTxnEntry(transactionEntry);
             }
 
             TUniqueId queryId; // This query id will be set in ctx
@@ -758,6 +778,13 @@ public abstract class ConnectProcessor {
         result.setStatus(ctx.getState().toString());
         if (ctx.getState().getStateType() == MysqlStateType.OK) {
             result.setStatusCode(0);
+            if (request.isSetTxnLoadInfo()) {
+                TransactionEntry transactionEntry = ConnectContext.get().getTxnEntry();
+                // null if this is a commit or rollback command
+                if (transactionEntry != null) {
+                    result.setTxnLoadInfo(transactionEntry.getTxnInfoInMaster());
+                }
+            }
         } else {
             result.setStatusCode(ctx.getState().getErrorCode().getCode());
             result.setErrMessage(ctx.getState().getErrorMessage());

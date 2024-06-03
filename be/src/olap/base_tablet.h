@@ -210,7 +210,7 @@ public:
             const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
             int64_t txn_expiration = 0) = 0;
 
-    static Status update_delete_bitmap(const BaseTabletSPtr& self, const TabletTxnInfo* txn_info,
+    static Status update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
                                        int64_t txn_id, int64_t txn_expiration = 0);
 
     virtual Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
@@ -254,8 +254,10 @@ protected:
     //
     // for example:
     //     [0-4][5-5][8-8][9-9][14-14]
-    // if spec_version = 12, it will return [6-7],[10-12]
-    static Versions calc_missed_versions(int64_t spec_version, Versions existing_versions);
+    // for cloud, if spec_version = 12, it will return [6-7],[10-12]
+    // for local, if spec_version = 12, it will return [6, 6], [7, 7], [10, 10], [11, 11], [12, 12]
+    virtual Versions calc_missed_versions(int64_t spec_version,
+                                          Versions existing_versions) const = 0;
 
     void _print_missed_versions(const Versions& missed_versions) const;
     bool _reconstruct_version_tracker_if_necessary();
@@ -268,7 +270,7 @@ protected:
     Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
                                                 std::vector<RowsetSharedPtr>* rowsets) const;
 
-    void sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
+    Status sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
 
     mutable std::shared_mutex _meta_lock;
     TimestampedVersionTracker _timestamped_version_tracker;
@@ -297,6 +299,9 @@ public:
     IntCounter* flush_bytes = nullptr;
     IntCounter* flush_finish_count = nullptr;
     std::atomic<int64_t> published_count = 0;
+    std::atomic<int64_t> read_block_count = 0;
+    std::atomic<int64_t> write_count = 0;
+    std::atomic<int64_t> compaction_count = 0;
 };
 
 } /* namespace doris */

@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
@@ -429,7 +430,7 @@ public class LoadAction extends RestBaseController {
             throw new LoadException("Invalid header host: " + reqHost);
         }
 
-        if (!Strings.isNullOrEmpty(Config.security_checker_class_name)) {
+        if (Config.streamload_redirect_policy.equalsIgnoreCase("public-private")) {
             // ip
             if (InetAddressValidator.getInstance().isValid(reqHost)) {
                 InetAddress addr;
@@ -519,6 +520,8 @@ public class LoadAction extends RestBaseController {
             ctx.setRemoteIP(request.getRemoteAddr());
             // set user to ADMIN_USER, so that we can get the proper resource tag
             ctx.setQualifiedUser(Auth.ADMIN_USER);
+            // cloud need
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
             ctx.setThreadLocalInfo();
 
             String dbName = db;

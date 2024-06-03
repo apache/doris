@@ -26,6 +26,7 @@
 #include "geo/geo_common.h"
 #include "geo/geo_types.h"
 #include "vec/columns/column.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -496,9 +497,12 @@ struct StCircle {
         auto return_type = block.get_data_type(result);
         auto center_lng =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto* center_lng_ptr = assert_cast<const ColumnFloat64*>(center_lng.get());
         auto center_lat =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto* center_lat_ptr = assert_cast<const ColumnFloat64*>(center_lat.get());
         auto radius = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        const auto* radius_ptr = assert_cast<const ColumnFloat64*>(radius.get());
 
         const auto size = center_lng->size();
 
@@ -507,9 +511,9 @@ struct StCircle {
         GeoCircle circle;
         std::string buf;
         for (int row = 0; row < size; ++row) {
-            auto lng_value = center_lng->get_float64(row);
-            auto lat_value = center_lat->get_float64(row);
-            auto radius_value = radius->get_float64(row);
+            auto lng_value = center_lng_ptr->get_element(row);
+            auto lat_value = center_lat_ptr->get_element(row);
+            auto radius_value = radius_ptr->get_element(row);
 
             auto value = circle.init(lng_value, lat_value, radius_value);
             if (value != GEO_PARSE_OK) {

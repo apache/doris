@@ -512,10 +512,6 @@ MutableColumnPtr ColumnObject::apply_for_subcolumns(Func&& func) const {
     }
     return res;
 }
-ColumnPtr ColumnObject::index(const IColumn& indexes, size_t limit) const {
-    return apply_for_subcolumns(
-            [&](const auto& subcolumn) { return subcolumn.index(indexes, limit); });
-}
 
 bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
     if (num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
@@ -1017,7 +1013,7 @@ void ColumnObject::Subcolumn::wrapp_array_nullable() {
         auto new_null_map = ColumnUInt8::create();
         new_null_map->reserve(result_column->size());
         auto& null_map_data = new_null_map->get_data();
-        auto array = static_cast<const ColumnArray*>(result_column.get());
+        const auto* array = static_cast<const ColumnArray*>(result_column.get());
         for (size_t i = 0; i < array->size(); ++i) {
             null_map_data.push_back(array->is_default_at(i));
         }
@@ -1601,10 +1597,6 @@ Status ColumnObject::sanitize() const {
 
 void ColumnObject::replace_column_data(const IColumn& col, size_t row, size_t self_row) {
     LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
-}
-
-void ColumnObject::replace_column_data_default(size_t self_row) {
-    LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
 }
 
 } // namespace doris::vectorized

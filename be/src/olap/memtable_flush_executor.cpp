@@ -141,7 +141,8 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     signal::set_signal_task_id(_rowset_writer->load_id());
     {
         SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());
-        std::unique_ptr<vectorized::Block> block = memtable->to_block();
+        std::unique_ptr<vectorized::Block> block;
+        RETURN_IF_ERROR(memtable->to_block(&block));
         RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
     }
     _memtable_stat += memtable->stat();

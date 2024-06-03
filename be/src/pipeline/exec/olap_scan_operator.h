@@ -45,8 +45,9 @@ public:
     TOlapScanNode& olap_scan_node() const;
 
     std::string name_suffix() const override {
-        return fmt::format(" (id={}. table name = {})", std::to_string(_parent->node_id()),
-                           olap_scan_node().table_name);
+        return fmt::format(" (id={}. nereids_id={}. table name = {})",
+                           std::to_string(_parent->node_id()),
+                           std::to_string(_parent->nereids_id()), olap_scan_node().table_name);
     }
 
 private:
@@ -81,10 +82,10 @@ private:
     bool _storage_no_merge() override;
 
     bool _push_down_topn(const vectorized::RuntimePredicate& predicate) override {
-        if (!predicate.target_is_slot()) {
+        if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
         }
-        return _is_key_column(predicate.get_col_name()) || _storage_no_merge();
+        return _is_key_column(predicate.get_col_name(_parent->node_id())) || _storage_no_merge();
     }
 
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;

@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -223,7 +222,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         if (ctx.getSessionVariable().isInDebugMode()) {
             throw new AnalysisException("Update is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
-                    + String.join(", ", SessionVariable.DEBUG_VARIABLES));
+                    + ctx.getSessionVariable().printDebugModeVariables());
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = RelationUtil.getTable(tableQualifier, ctx.getEnv());
