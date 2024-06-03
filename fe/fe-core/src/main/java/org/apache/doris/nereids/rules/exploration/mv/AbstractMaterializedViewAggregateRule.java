@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
@@ -91,7 +92,11 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     () -> String.format("query plan = %s\n", queryStructInfo.getOriginalPlan().treeString()));
             return null;
         }
-        // Firstly,if group by expression between query and view is equals, try to rewrite expression directly
+        if (!checkCompatibility(queryStructInfo, queryTopPlanAndAggPair.value(),
+                viewTopPlanAndAggPair.value(), materializationContext)) {
+            return null;
+        }
+        // If group by expression between query and view is equals, try to rewrite expression directly
         Plan queryTopPlan = queryTopPlanAndAggPair.key();
         if (isGroupByEquals(queryTopPlanAndAggPair, viewTopPlanAndAggPair, viewToQuerySlotMapping, queryStructInfo,
                 viewStructInfo, materializationContext)) {
@@ -123,20 +128,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                             queryTopPlan.getOutput(),
                             materializationContext.getShuttledExprToScanExprMapping(),
                             viewToQuerySlotMapping));
-        }
-        // if view is scalar aggregate but query is not. Or if query is scalar aggregate but view is not
-        // Should not rewrite
-        List<Expression> queryGroupByExpressions = queryTopPlanAndAggPair.value().getGroupByExpressions();
-        List<Expression> viewGroupByExpressions = viewTopPlanAndAggPair.value().getGroupByExpressions();
-        if ((queryGroupByExpressions.isEmpty() && !viewGroupByExpressions.isEmpty())
-                || (!queryGroupByExpressions.isEmpty() && viewGroupByExpressions.isEmpty())) {
-            materializationContext.recordFailReason(queryStructInfo,
-                    "only one the of query or view is scalar aggregate and "
-                            + "can not rewrite expression meanwhile",
-                    () -> String.format("query aggregate = %s,\n view aggregate = %s,\n",
-                            queryTopPlanAndAggPair.value().treeString(),
-                            viewTopPlanAndAggPair.value().treeString()));
-            return null;
         }
         // try to roll up.
         // split the query top plan expressions to group expressions and functions, if can not, bail out.
@@ -181,6 +172,9 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 // group by expression maybe group by a + b, so we need expression rewriter
                 Expression rewrittenGroupByExpression = queryGroupShuttledExpr.accept(AGGREGATE_EXPRESSION_REWRITER,
                         context);
+                if (isEmptyVirtualSlot(rewrittenGroupByExpression)) {
+                    continue;
+                }
                 if (!context.isValid()) {
                     // group expr can not rewrite by view
                     materializationContext.recordFailReason(queryStructInfo,
@@ -197,6 +191,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
         // add project to guarantee group by column ref is slot reference,
         // this is necessary because physical createHash will need slotReference later
+        List<Expression> queryGroupByExpressions = queryTopPlanAndAggPair.value().getGroupByExpressions();
         if (queryGroupByExpressions.size() != queryTopPlanGroupBySet.size()) {
             for (Expression expression : queryGroupByExpressions) {
                 if (queryTopPlanGroupBySet.contains(expression)) {
@@ -216,6 +211,9 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                             () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryGroupShuttledExpr is %s",
                                     mvExprToMvScanExprQueryBased, queryGroupShuttledExpr));
                     return null;
+                }
+                if (isEmptyVirtualSlot(rewrittenGroupByExpression)) {
+                    continue;
                 }
                 NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
                         ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
@@ -249,6 +247,56 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         return new LogicalAggregate(finalGroupExpressions, finalOutputExpressions, mvProject);
     }
 
+    /**
+     * Check query and view aggregate compatibility
+     */
+    private static boolean checkCompatibility(
+            StructInfo queryStructInfo,
+            LogicalAggregate<Plan> queryAggregate, LogicalAggregate<Plan> viewAggregate,
+            MaterializationContext materializationContext) {
+        // if view is scalar aggregate but query is not. Or if query is scalar aggregate but view is not
+        // Should not rewrite
+        List<Expression> queryGroupByExpressions = queryAggregate.getGroupByExpressions();
+        List<Expression> viewGroupByExpressions = viewAggregate.getGroupByExpressions();
+        if (!queryGroupByExpressions.isEmpty() && viewGroupByExpressions.isEmpty()) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "only one the of query or view is scalar aggregate and "
+                            + "can not rewrite expression meanwhile",
+                    () -> String.format("query aggregate = %s,\n view aggregate = %s,\n",
+                            queryAggregate.treeString(),
+                            viewAggregate.treeString()));
+            return false;
+        }
+        int queryGroupSetsSize = queryAggregate.getSourceRepeat()
+                .map(repeat -> repeat.getGroupingSets().size()).orElse(-1);
+        int viewGroupSetsSize = viewAggregate.getSourceRepeat()
+                .map(repeat -> repeat.getGroupingSets().size()).orElse(-1);
+        // if both query and view has no group sets, maybe rewrite
+        if (queryGroupSetsSize == -1 && viewGroupSetsSize == -1) {
+            return true;
+        }
+        // if both query and view has group sets, but group sets different, can not rewrite
+        if (queryGroupSetsSize != -1 && viewGroupSetsSize != -1 && queryGroupSetsSize != viewGroupSetsSize) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "the group sets size between query and view is different",
+                    () -> String.format("query aggregate = %s,\n view aggregate = %s,\n",
+                            queryAggregate.treeString(),
+                            viewAggregate.treeString()));
+            return false;
+        }
+        // if any of query or view has no group sets, but another has more than one, can not rewrite
+        if ((viewGroupSetsSize == -1 && queryGroupSetsSize != 1)
+                || (queryGroupSetsSize == -1 && viewGroupSetsSize != 1)) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "the group sets size between query and view is different",
+                    () -> String.format("query aggregate = %s,\n view aggregate = %s,\n",
+                            queryAggregate.treeString(),
+                            viewAggregate.treeString()));
+            return false;
+        }
+        return true;
+    }
+
     private boolean isGroupByEquals(Pair<Plan, LogicalAggregate<Plan>> queryTopPlanAndAggPair,
             Pair<Plan, LogicalAggregate<Plan>> viewTopPlanAndAggPair,
             SlotMapping viewToQuerySlotMapping,
@@ -259,14 +307,26 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         Plan viewTopPlan = viewTopPlanAndAggPair.key();
         LogicalAggregate<Plan> queryAggregate = queryTopPlanAndAggPair.value();
         LogicalAggregate<Plan> viewAggregate = viewTopPlanAndAggPair.value();
-        Set<? extends Expression> queryGroupShuttledExpression = new HashSet<>(
-                ExpressionUtils.shuttleExpressionWithLineage(
-                        queryAggregate.getGroupByExpressions(), queryTopPlan, queryStructInfo.getTableBitSet()));
-        Set<? extends Expression> viewGroupShuttledExpressionQueryBased = ExpressionUtils.shuttleExpressionWithLineage(
-                        viewAggregate.getGroupByExpressions(), viewTopPlan, viewStructInfo.getTableBitSet())
-                .stream()
-                .map(expr -> ExpressionUtils.replace(expr, viewToQuerySlotMapping.toSlotReferenceMap()))
-                .collect(Collectors.toSet());
+
+        Set<Expression> queryGroupShuttledExpression = new HashSet<>();
+        for (Expression queryExpression : ExpressionUtils.shuttleExpressionWithLineage(
+                queryAggregate.getGroupByExpressions(), queryTopPlan, queryStructInfo.getTableBitSet())) {
+            if (isEmptyVirtualSlot(queryExpression)) {
+                // empty virtual is useless for rewrite
+                continue;
+            }
+            queryGroupShuttledExpression.add(queryExpression);
+        }
+        Set<Expression> viewGroupShuttledExpressionQueryBased = new HashSet<>();
+        for (Expression viewExpression : ExpressionUtils.shuttleExpressionWithLineage(
+                viewAggregate.getGroupByExpressions(), viewTopPlan, viewStructInfo.getTableBitSet())) {
+            if (isEmptyVirtualSlot(viewExpression)) {
+                // empty virtual is useless for rewrite
+                continue;
+            }
+            viewGroupShuttledExpressionQueryBased.add(
+                    ExpressionUtils.replace(viewExpression, viewToQuerySlotMapping.toSlotReferenceMap()));
+        }
         return queryGroupShuttledExpression.equals(viewGroupShuttledExpressionQueryBased);
     }
 
@@ -408,6 +468,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         @Override
         public Expression visitSlot(Slot slot, AggregateExpressionRewriteContext rewriteContext) {
             if (!rewriteContext.isValid()) {
+                return slot;
+            }
+            if (slot instanceof VirtualSlotReference && ((VirtualSlotReference) slot).getRealExpressions().isEmpty()) {
+                // if real expression in VirtualSlotReference is empty, useless slot, skip
                 return slot;
             }
             if (rewriteContext.getMvExprToMvScanExprQueryBasedMapping().containsKey(slot)) {

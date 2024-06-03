@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
@@ -504,7 +505,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
 
         List<Expression> rewrittenExpressions = new ArrayList<>();
         for (Expression expressionShuttledToRewrite : sourceShuttledExpressions) {
-            if (expressionShuttledToRewrite instanceof Literal) {
+            if (expressionShuttledToRewrite instanceof Literal || isEmptyVirtualSlot(expressionShuttledToRewrite)) {
                 rewrittenExpressions.add(expressionShuttledToRewrite);
                 continue;
             }
@@ -699,6 +700,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     protected boolean checkIfRewritten(Plan plan, MaterializationContext context) {
         return plan.getGroupExpression().isPresent()
                 && context.alreadyRewrite(plan.getGroupExpression().get().getOwnerGroup().getGroupId());
+    }
+
+    protected boolean isEmptyVirtualSlot(Expression expression) {
+        return expression instanceof VirtualSlotReference
+                && ((VirtualSlotReference) expression).getRealExpressions().isEmpty();
     }
 
     // check mv plan is valid or not, this can use cache for performance

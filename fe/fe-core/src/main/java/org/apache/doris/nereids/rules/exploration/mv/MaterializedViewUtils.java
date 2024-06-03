@@ -195,7 +195,7 @@ public class MaterializedViewUtils {
      * should be different
      */
     public static Plan generateMvScanPlan(MTMV materializedView, CascadesContext cascadesContext) {
-        LogicalOlapScan mvScan = new LogicalOlapScan(
+        return new LogicalOlapScan(
                 cascadesContext.getStatementContext().getNextRelationId(),
                 materializedView,
                 materializedView.getFullQualifiers(),
@@ -205,9 +205,9 @@ public class MaterializedViewUtils {
                 // this must be empty, or it will be used to sample
                 ImmutableList.of(),
                 Optional.empty());
-        List<NamedExpression> mvProjects = mvScan.getOutput().stream().map(NamedExpression.class::cast)
-                .collect(Collectors.toList());
-        return new LogicalProject<Plan>(mvProjects, mvScan);
+        // List<NamedExpression> mvProjects = mvScan.getOutput().stream().map(NamedExpression.class::cast)
+        //         .collect(Collectors.toList());
+        // return new LogicalProject<Plan>(mvProjects, mvScan);
     }
 
     /**
