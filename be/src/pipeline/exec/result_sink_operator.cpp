@@ -78,8 +78,8 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema));
         state->exec_env()->result_mgr()->register_arrow_schema(state->fragment_instance_id(),
                                                                arrow_schema);
-        _writer.reset(new (std::nothrow) vectorized::VArrowFlightResultWriter(_sender.get(), _output_vexpr_ctxs,
-                                                                  _profile, arrow_schema));
+        _writer.reset(new (std::nothrow) vectorized::VArrowFlightResultWriter(
+                _sender.get(), _output_vexpr_ctxs, _profile, arrow_schema));
         break;
     }
     default:
