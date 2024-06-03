@@ -20,9 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.remote.S3FileSystem;
 

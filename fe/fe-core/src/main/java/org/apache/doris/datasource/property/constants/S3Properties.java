@@ -19,9 +19,9 @@ package org.apache.doris.datasource.property.constants;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.credentials.CloudCredential;
-import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
-import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
+import org.apache.doris.common.credentials.CloudCredential;
+import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
+import org.apache.doris.common.credentials.DataLakeAWSCredentialsProvider;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.thrift.TS3StorageParam;
 
