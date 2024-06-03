@@ -263,6 +263,7 @@ terminal String
     KW_ALIAS,
     KW_ALL,
     KW_ALTER,
+    KW_ALWAYS,
     KW_ANALYZE,
     KW_AND,
     KW_ANTI,
@@ -272,7 +273,6 @@ terminal String
     KW_AS,
     KW_ASC,
     KW_AT,
-    KW_ALWAYS,
     KW_AUTHORS,
     KW_BACKEND,
     KW_BACKENDS,
@@ -8003,6 +8003,8 @@ type_func_name_keyword ::=
 keyword ::=
     KW_AFTER:id
     {: RESULT = id; :}
+    | KW_ALWAYS:id
+    {: RESULT = id; :}
     | KW_AGGREGATE:id
     {: RESULT = id; :}
     | KW_ALIAS:id
@@ -8162,6 +8164,8 @@ keyword ::=
     | KW_EXTERNAL:id
     {: RESULT = id; :}
     | KW_GLOBAL:id
+    {: RESULT = id; :}
+    | KW_GENERATED:id
     {: RESULT = id; :}
     | KW_GENERIC:id
     {: RESULT = id; :}

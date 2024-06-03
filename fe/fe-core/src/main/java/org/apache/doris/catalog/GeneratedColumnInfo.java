@@ -30,18 +30,18 @@ public class GeneratedColumnInfo {
         STORED
     }
 
-    @SerializedName(value = "type")
+    @SerializedName(value = "t")
     private final GeneratedColumnType type;
-    @SerializedName(value = "exprSql")
+    @SerializedName(value = "es")
     private final String exprSql;
-    @SerializedName(value = "expr")
+    @SerializedName(value = "e")
     private final Expr expr;
 
     /* e.g. a,b,c=a+b,d=c+1 -> a,b,c=a+b,d=a+b+1
      e.g. this is column d generated column info
      expr is c+1, expandExprForLoad is a+b+1
      expandExprForLoad is used in streamload, routineload, mysqlload, etc */
-    @SerializedName(value = "exprForLoad")
+    @SerializedName(value = "efl")
     private Expr expandExprForLoad;
 
     /** constructor */

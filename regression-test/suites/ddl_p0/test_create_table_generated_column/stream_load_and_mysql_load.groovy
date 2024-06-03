@@ -118,7 +118,7 @@ suite("test_generated_column_stream_mysql_load") {
     qt_test_mysql_load_refer_gencol "select * from gencol_refer_gencol_steam_mysql_load order by 1,2,3,4"
 
     // specify value for generated column
-    sql "truncate table gencol_refer_gencol_steam_mysql_load"
+    sql "truncate table test_gen_col_common_steam_mysql_load"
     filepath = getLoalFilePath "three_column_gen_col_data.csv"
     sql """
         LOAD DATA LOCAL
@@ -130,7 +130,7 @@ suite("test_generated_column_stream_mysql_load") {
     sql "sync"
     qt_specify_value_for_gencol "select * from test_gen_col_common_steam_mysql_load order by 1,2,3"
 
-    sql "truncate table gencol_refer_gencol_steam_mysql_load"
+    sql "truncate table test_gen_col_common_steam_mysql_load"
     sql """
         LOAD DATA LOCAL
         INFILE '${filepath}'
