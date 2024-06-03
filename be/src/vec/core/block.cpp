@@ -100,6 +100,7 @@ Status Block::deserialize(const PBlock& pblock) {
             BlockCompressionCodec* codec;
             RETURN_IF_ERROR(get_block_compression_codec(pblock.compression_type(), &codec));
             uncompressed_size = pblock.uncompressed_size();
+            // Should also use allocator to allocate memory here.
             compression_scratch.resize(uncompressed_size);
             Slice decompressed_slice(compression_scratch);
             RETURN_IF_ERROR(codec->decompress(Slice(compressed_data, compressed_size),
@@ -123,7 +124,9 @@ Status Block::deserialize(const PBlock& pblock) {
     for (const auto& pcol_meta : pblock.column_metas()) {
         DataTypePtr type = DataTypeFactory::instance().create_data_type(pcol_meta);
         MutableColumnPtr data_column = type->create_column();
-        buf = type->deserialize(buf, data_column.get(), pblock.be_exec_version());
+        // Here will try to allocate large memory, should return error if failed.
+        RETURN_IF_CATCH_EXCEPTION(
+                buf = type->deserialize(buf, data_column.get(), pblock.be_exec_version()));
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
