@@ -129,6 +129,7 @@ CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
+    ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
     ENABLE_PCH          -- ${ENABLE_PCH}
 "
 echo "Build Backend UT"
@@ -203,6 +204,10 @@ if [[ -z "${USE_MEM_TRACKER}" ]]; then
     fi
 fi
 
+if [[ -z "${ENABLE_STACKTRACE}" ]]; then
+    ENABLE_STACKTRACE='ON'
+fi
+
 if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
@@ -233,6 +238,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_UNWIND="${USE_UNWIND}" \
     -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
+    -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
     -DUSE_JEMALLOC=OFF \
     -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
     -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
