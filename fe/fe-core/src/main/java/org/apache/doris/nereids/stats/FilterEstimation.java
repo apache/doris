@@ -286,11 +286,11 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             return Optional.empty();
         }
         Optional<DateLiteral> newMinExpr = tryConvertStrLiteralToDateLiteral(colStats.minExpr);
-        if (newMinExpr.isEmpty()) {
+        if (!newMinExpr.isPresent()) {
             return Optional.empty();
         }
         Optional<DateLiteral> newMaxExpr = tryConvertStrLiteralToDateLiteral(colStats.maxExpr);
-        if (newMaxExpr.isEmpty()) {
+        if (!newMaxExpr.isPresent()) {
             return Optional.empty();
         }
         if (newMaxExpr.get().getType() != newMinExpr.get().getType()) {
