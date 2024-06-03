@@ -143,12 +143,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         _broadcast_dependency = Dependency::create_shared(
                 _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
         _sink_buffer->set_broadcast_dependency(_broadcast_dependency);
-        _broadcast_pb_blocks =
-                vectorized::BroadcastPBlockHolderQueue::create_shared(_broadcast_dependency);
-        for (int i = 0; i < config::num_broadcast_buffer; ++i) {
-            _broadcast_pb_blocks->push(vectorized::BroadcastPBlockHolder::create_shared());
-        }
-
+        _broadcast_pb_mem_limiter =
+                vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_broadcast_dependency);
         _wait_broadcast_buffer_timer =
                 ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
     } else if (local_size > 0) {
@@ -376,8 +372,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 }
             }
         } else {
-            std::shared_ptr<vectorized::BroadcastPBlockHolder> block_holder = nullptr;
-            RETURN_IF_ERROR(local_state.get_next_available_buffer(&block_holder));
+            auto block_holder = vectorized::BroadcastPBlockHolder::create_shared();
             {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 bool serialized = false;
@@ -393,6 +388,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     } else {
                         block_holder->get_block()->Clear();
                     }
+
+                    local_state._broadcast_pb_mem_limiter->acquire(*block_holder);
+
                     for (auto* channel : local_state.channels) {
                         if (!channel->is_receiver_eof()) {
                             Status status;
@@ -566,19 +564,6 @@ Status ExchangeSinkOperatorX::serialize_block(ExchangeSinkLocalState& state, vec
 void ExchangeSinkLocalState::register_channels(pipeline::ExchangeSinkBuffer* buffer) {
     for (auto channel : channels) {
         ((vectorized::PipChannel*)channel)->register_exchange_buffer(buffer);
-    }
-}
-
-Status ExchangeSinkLocalState::get_next_available_buffer(
-        std::shared_ptr<vectorized::BroadcastPBlockHolder>* holder) {
-    // This condition means we need use broadcast buffer, so we should make sure
-    // there are available buffer before running pipeline
-    if (_broadcast_pb_blocks->empty()) {
-        return Status::InternalError("No broadcast buffer left! Dependency: {}",
-                                     _broadcast_dependency->debug_string());
-    } else {
-        *holder = _broadcast_pb_blocks->pop();
-        return Status::OK();
     }
 }
 
