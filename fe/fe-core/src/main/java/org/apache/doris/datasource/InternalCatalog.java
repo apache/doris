@@ -1327,8 +1327,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                             && !resultExpr.getSrcSlotRef().getTable().isManagedTable()) {
                         if (createTableStmt.getPartitionDesc().inIdentifierPartitions(
                                 resultExpr.getSrcSlotRef().getColumnName())
-                                || createTableStmt.getDistributionDesc().inDistributionColumns(
-                                        resultExpr.getSrcSlotRef().getColumnName())) {
+                                || (createTableStmt.getDistributionDesc() != null
+                                && createTableStmt.getDistributionDesc().inDistributionColumns(
+                                        resultExpr.getSrcSlotRef().getColumnName()))) {
                             // String type can not be used in partition/distributed column
                             // so we replace it to varchar
                             if (resultType.getPrimitiveType() == PrimitiveType.STRING) {
