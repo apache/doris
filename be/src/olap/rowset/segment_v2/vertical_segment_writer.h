@@ -198,6 +198,7 @@ private:
     bool _has_delete_predicate = false;
     std::unique_ptr<DeleteHandler> _delete_handler = nullptr;
     std::vector<bool> _delete_predicate_rows;
+    std::vector<uint32_t> _all_cids;
 };
 
 } // namespace segment_v2

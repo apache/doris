@@ -402,6 +402,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         _delete_handler = DeleteHandler::create_unique();
         RETURN_IF_ERROR(_delete_handler->init(_tablet_schema, delete_predicates, max_rowset_version,
                                               false));
+        _all_cids.resize(_tablet_schema->num_columns());
+        std::iota(_all_cids.begin(), _all_cids.end(), 0);
     }
 
     // locate rows in base data
@@ -578,6 +580,19 @@ Status VerticalSegmentWriter::_fill_missing_columns(
     size_t read_idx = 0;
     for (auto rs_it : _rssid_to_rid) {
         size_t start_row_num = old_value_block.rows();
+        // todo: clear block every loop
+        auto full_schema_predicate_block = _tablet_schema->create_block_by_cids(_all_cids);
+        vectorized::MutableColumns mutable_full_schema_predicate_columns =
+                full_schema_predicate_block.mutate_columns();
+        mutable_full_schema_predicate_columns.resize(_tablet_schema->num_columns());
+        for (int cid = 0; cid < _tablet_schema->num_columns(); cid++) {
+            RETURN_IF_CATCH_EXCEPTION(
+                    mutable_full_schema_predicate_columns[cid] = Schema::get_predicate_column_ptr(
+                            _tablet_schema->column(cid).type() == FieldType::OLAP_FIELD_TYPE_CHAR
+                                    ? FieldType::OLAP_FIELD_TYPE_CHAR
+                                    : _tablet_schema->column(cid).type(),
+                            _tablet_schema->column(cid).is_nullable(), ReaderType::UNKNOWN));
+        }
         for (auto seg_it : rs_it.second) {
             auto rowset = _rsid_to_rowset[rs_it.first];
             CHECK(rowset);
@@ -593,6 +608,15 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                     LOG(WARNING) << "failed to fetch value through row column";
                     return st;
                 }
+                if (_has_delete_predicate) {
+                    auto st = tablet->fetch_value_through_row_column(rowset, *_tablet_schema,
+                                                                     seg_it.first, rids, _all_cids,
+                                                                     full_schema_predicate_block);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "failed to fetch full schema value through row column";
+                        return st;
+                    }
+                }
                 continue;
             }
             for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
@@ -603,6 +627,19 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value by rowids";
                     return st;
+                }
+            }
+            if (_has_delete_predicate) {
+                for (size_t cid = 0; cid < mutable_full_schema_predicate_columns.size(); ++cid) {
+                    TabletColumn tablet_column = _tablet_schema->column(_all_cids[cid]);
+                    auto st = tablet->fetch_value_by_rowids(
+                            rowset, seg_it.first, rids, tablet_column,
+                            mutable_full_schema_predicate_columns[cid]);
+                    // set read value to output block
+                    if (!st.ok()) {
+                        LOG(WARNING) << "failed to fetch full schema value by rowids";
+                        return st;
+                    }
                 }
             }
         }
@@ -634,10 +671,6 @@ Status VerticalSegmentWriter::_fill_missing_columns(
             // Therefore, if we delete (2,'b') directly in the block, some checks, such as
             // CHECK(row_num_need_to_read = block.rows()), will fail.
 
-            std::unique_ptr<vectorized::MutableBlock> delete_pre_block =
-                    vectorized::MutableBlock::create_unique(old_value_block.clone_empty());
-            RETURN_IF_ERROR(delete_pre_block->add_rows(&old_value_block, start_row_num - 1,
-                                                       old_value_block.rows() - start_row_num));
             std::shared_ptr<AndBlockColumnPredicate> delete_condition_predicates =
                     AndBlockColumnPredicate::create_shared();
             std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>
@@ -648,11 +681,11 @@ Status VerticalSegmentWriter::_fill_missing_columns(
             std::vector<uint16_t> select_rowid_idx_vec;
             uint16_t selected_size = 0;
             selected_size = delete_condition_predicates->evaluate(
-                    delete_pre_block->mutable_columns(), select_rowid_idx_vec.data(),
+                    mutable_full_schema_predicate_columns, select_rowid_idx_vec.data(),
                     selected_size);
-            _delete_predicate_rows.resize(old_value_block.rows());
+            _delete_predicate_rows.resize(old_value_block.rows(), true);
             for (size_t i = 0; i < selected_size; i++) {
-                _delete_predicate_rows[start_row_num + select_rowid_idx_vec[i] - 1] = true;
+                _delete_predicate_rows[start_row_num + select_rowid_idx_vec[i] - 1] = false;
             }
         }
     }
@@ -669,7 +702,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         delete_sign_column_data = delete_sign_col.get_data().data();
     }
 
-    if (has_default_or_nullable || delete_sign_column_data != nullptr) {
+    if (has_default_or_nullable || delete_sign_column_data != nullptr || _has_delete_predicate) {
         for (auto i = 0; i < missing_cids.size(); ++i) {
             const auto& column = _tablet_schema->column(missing_cids[i]);
             if (column.has_default_value()) {
