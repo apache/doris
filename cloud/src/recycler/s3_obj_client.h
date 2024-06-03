@@ -17,50 +17,41 @@
 
 #pragma once
 
-#include "io/fs/obj_storage_client.h"
-#include "io/fs/s3_file_system.h"
+#include <memory>
+
+#include "recycler/obj_store_accessor.h"
 
 namespace Aws::S3 {
 class S3Client;
-namespace Model {
-class CompletedPart;
-}
 } // namespace Aws::S3
 
-namespace doris::io {
+namespace doris::cloud {
 
-struct S3CompleteMultiParts : public ObjectCompleteMultiParts {
-    std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>& parts;
-};
-
-class ObjClientHolder;
-
-class S3ObjStorageClient final : public ObjStorageClient {
+class S3ObjClient : public ObjStorageClient {
 public:
-    S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client) : _client(std::move(client)) {}
-    ~S3ObjStorageClient() override = default;
-    ObjectStorageUploadResponse create_multipart_upload(
-            const ObjectStoragePathOptions& opts) override;
+    S3ObjClient(std::shared_ptr<Aws::S3::S3Client> client) : s3_client_(std::move(client)) {}
+    ~S3ObjClient() override = default;
+
     ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
                                      std::string_view stream) override;
-    ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts, std::string_view,
-                                            int partNum) override;
-    ObjectStorageResponse complete_multipart_upload(
-            const ObjectStoragePathOptions& opts,
-            const ObjectCompleteMultiParts& completed_parts) override;
-    ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override;
-    ObjectStorageResponse get_object(const ObjectStoragePathOptions& opts, void* buffer,
-                                     size_t offset, size_t bytes_read,
-                                     size_t* size_return) override;
+    ObjectStorageResponse head_object(const ObjectStoragePathOptions& opts) override;
     ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
-                                       std::vector<FileInfo>* files) override;
+                                       std::vector<ObjectMeta>* files) override;
     ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
                                          std::vector<std::string> objs) override;
     ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override;
     ObjectStorageResponse delete_objects_recursively(const ObjectStoragePathOptions& opts) override;
+    ObjectStorageResponse delete_expired(const ObjectStorageDeleteExpiredOptions& opts,
+                                         int64_t expired_time) override;
+    ObjectStorageResponse get_life_cycle(const ObjectStoragePathOptions& opts,
+                                         int64_t* expiration_days) override;
+
+    ObjectStorageResponse check_versioning(const ObjectStoragePathOptions& opts) override;
+
+    const std::shared_ptr<Aws::S3::S3Client>& s3_client() { return s3_client_; }
 
 private:
-    std::shared_ptr<Aws::S3::S3Client> _client;
+    std::shared_ptr<Aws::S3::S3Client> s3_client_;
 };
 
-} // namespace doris::io
+} // namespace doris::cloud
