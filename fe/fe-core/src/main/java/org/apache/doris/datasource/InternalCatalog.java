@@ -1512,6 +1512,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
             }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
+                TStorageMedium tableStorageMedium = olapTable.getStorageMedium();
+                if (tableStorageMedium != null) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
+                            tableStorageMedium.name().toLowerCase());
+                }
+            }
 
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
