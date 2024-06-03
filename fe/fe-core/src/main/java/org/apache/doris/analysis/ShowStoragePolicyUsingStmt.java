@@ -54,10 +54,6 @@ public class ShowStoragePolicyUsingStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
-        if (policyName == null) {
-            throw new UserException("policy name does not set");
-        }
-
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
@@ -68,7 +64,9 @@ public class ShowStoragePolicyUsingStmt extends ShowStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("SHOW STORAGE POLICY USING");
-        sb.append(" FOR ").append(policyName);
+        if (policyName != null) {
+            sb.append(" FOR ").append(policyName);
+        }
 
         return sb.toString();
     }

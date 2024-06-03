@@ -47,6 +47,14 @@ suite("test_show_storage_policy_using") {
         )
     """
 
+    sql """
+        CREATE STORAGE POLICY IF NOT EXISTS ${policy_name_2}
+        PROPERTIES(
+            "storage_resource" = "${resource_name}",
+            "cooldown_ttl" = "600"
+        )
+    """
+
     sql """ DROP TABLE IF EXISTS table_with_storage_policy_1 """
     sql """
         CREATE TABLE IF NOT EXISTS table_with_storage_policy_1
@@ -76,9 +84,9 @@ suite("test_show_storage_policy_using") {
         );
     """
 
-    sql """ DROP TABLE IF EXISTS partition_with_storage_policy_1 """
+    sql """ DROP TABLE IF EXISTS partition_with_multiple_storage_policy """
     sql """
-        CREATE TABLE `partition_with_storage_policy_1` (
+        CREATE TABLE `partition_with_multiple_storage_policy` (
         `id` int(11) NOT NULL COMMENT '',
         `name` int(11) NOT NULL COMMENT '',
         `event_date` date NOT NULL
@@ -88,21 +96,13 @@ suite("test_show_storage_policy_using") {
         PARTITION BY RANGE(`event_date`)
         (
                 PARTITION p201701 VALUES [('0000-01-01'), ('2017-02-01')) ("storage_policy" = "${policy_name}"),
-                PARTITION `p201702` VALUES LESS THAN ("2017-03-01"),
+                PARTITION `p201702` VALUES LESS THAN ("2017-03-01")("storage_policy" = "${policy_name_2}"),
                 PARTITION `p2018` VALUES [("2018-01-01"), ("2019-01-01"))
         )
         DISTRIBUTED BY HASH(`id`) BUCKETS 8
         PROPERTIES(
                 "replication_allocation" = "tag.location.default: 1"
          );
-    """
-
-    sql """
-        CREATE STORAGE POLICY IF NOT EXISTS ${policy_name_2}
-        PROPERTIES(
-            "storage_resource" = "${resource_name}",
-            "cooldown_ttl" = "600"
-        )
     """
 
     sql """ DROP TABLE IF EXISTS table_with_storage_policy_2"""
@@ -125,29 +125,40 @@ suite("test_show_storage_policy_using") {
     """
     assertEquals(show_result.size(), 2)
     assertTrue(show_result[0][2].equals("table_with_storage_policy_1") || show_result[1][2].equals("table_with_storage_policy_1"))
-    assertTrue(show_result[0][2].equals("partition_with_storage_policy_1") || show_result[1][2].equals("partition_with_storage_policy_1"))
-    if (show_result[0][2].equals("partition_with_storage_policy_1")) {
+    assertTrue(show_result[0][2].equals("partition_with_multiple_storage_policy") || show_result[1][2].equals("partition_with_multiple_storage_policy"))
+    if (show_result[0][2].equals("partition_with_multiple_storage_policy")) {
         show_result[0][3].equals("p201701")
     }
-    if (show_result[1][2].equals("partition_with_storage_policy_1")) {
+    if (show_result[1][2].equals("partition_with_multiple_storage_policy")) {
         show_result[1][3].equals("p201701")
     }
 
     show_result = sql """
         show storage policy using for ${policy_name_2}
     """
-    assertTrue(show_result.size() == 1)
-    assertEquals(show_result[0][2], "table_with_storage_policy_2")
-    assertEquals(show_result[0][3], "ALL")
+    assertTrue(show_result[0][2].equals("table_with_storage_policy_2") || show_result[1][2].equals("table_with_storage_policy_2"))
+    assertTrue(show_result[0][2].equals("partition_with_multiple_storage_policy") || show_result[1][2].equals("partition_with_multiple_storage_policy"))
+    if (show_result[0][2].equals("partition_with_multiple_storage_policy")) {
+        show_result[0][3].equals("p201702")
+    }
+    if (show_result[1][2].equals("partition_with_multiple_storage_policy")) {
+        show_result[1][3].equals("p201702")
+    }
+
 
     show_result = sql """
         show storage policy using for ${policy_name_not_exist}
     """
     assertTrue(show_result.size() == 0)
 
+    show_result = sql """
+        show storage policy using
+    """
+    assertTrue(show_result.size() >= 4)
+
     // cleanup
     sql """ DROP TABLE IF EXISTS table_with_storage_policy_1 """
     sql """ DROP TABLE IF EXISTS table_no_storage_policy_1 """
-    sql """ DROP TABLE IF EXISTS partition_with_storage_policy_1 """
+    sql """ DROP TABLE IF EXISTS partition_with_multiple_storage_policy """
     sql """ DROP TABLE IF EXISTS table_with_storage_policy_2"""
 }
