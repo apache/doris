@@ -46,14 +46,26 @@ struct ObjectStoragePathOptions {
 
 struct ObjectCompleteMultiParts {};
 
+struct ObjectStorageStatus {
+    int code = 0;
+    std::string msg = std::string();
+};
+
+// We only store error code along with err_msg instead of Status to unify BE and recycler's error handle logic
 struct ObjectStorageResponse {
-    Status status = Status::OK();
+    ObjectStorageStatus status {};
+    int http_code {200};
+    std::string request_id = std::string();
+};
+
+struct ObjectStorageUploadResponse {
+    ObjectStorageResponse resp {};
     std::optional<std::string> upload_id = std::nullopt;
     std::optional<std::string> etag = std::nullopt;
 };
 
 struct ObjectStorageHeadResponse {
-    Status status = Status::OK();
+    ObjectStorageResponse resp {};
     long long file_size {0};
 };
 
@@ -62,7 +74,8 @@ public:
     virtual ~ObjStorageClient() = default;
     // Create a multi-part upload request. On AWS-compatible systems, it will return an upload ID, but not on Azure.
     // The input parameters should include the bucket and key for the object storage.
-    virtual ObjectStorageResponse create_multipart_upload(const ObjectStoragePathOptions& opts) = 0;
+    virtual ObjectStorageUploadResponse create_multipart_upload(
+            const ObjectStoragePathOptions& opts) = 0;
     // To directly upload a piece of data to object storage and generate a user-visible file.
     // You need to clearly specify the bucket and key
     virtual ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
@@ -71,8 +84,8 @@ public:
     // The temporary file's ID is the value of the part_num passed in
     // You need to specify the bucket and key along with the upload_id if it's AWS-compatible system
     // For the same bucket and key, as well as the same part_num, it will directly replace the original temporary file.
-    virtual ObjectStorageResponse upload_part(const ObjectStoragePathOptions& opts,
-                                              std::string_view stream, int part_num) = 0;
+    virtual ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts,
+                                                    std::string_view stream, int part_num) = 0;
     // To combine the previously uploaded multiple file parts into a complete file, the file name is the name of the key passed in.
     // If it is an AWS-compatible system, the upload_id needs to be included.
     // After a successful execution, the large file can be accessed in the object storage
@@ -88,6 +101,7 @@ public:
                                              size_t offset, size_t bytes_read,
                                              size_t* size_return) = 0;
     // According to the passed bucket and prefix, it traverses and retrieves all files under the prefix, and returns the name and file size of all files.
+    // **Notice**: The files returned by this function contains the full key in object storage.
     virtual ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
                                                std::vector<FileInfo>* files) = 0;
     // According to the bucket and prefix specified by the user, it performs batch deletion based on the object names in the object array.

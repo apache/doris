@@ -700,7 +700,7 @@ DEFINE_Int64(brpc_socket_max_unwritten_bytes, "-1");
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
 // is greater than 1.8G. This is to avoid the error of Request length overflow (2G).
-DEFINE_mBool(transfer_large_data_by_brpc, "false");
+DEFINE_mBool(transfer_large_data_by_brpc, "true");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager
@@ -1070,7 +1070,7 @@ DEFINE_mInt32(segment_cache_memory_percentage, "2");
 DEFINE_Bool(enable_feature_binlog, "false");
 
 // enable set in BitmapValue
-DEFINE_Bool(enable_set_in_bitmap_value, "false");
+DEFINE_Bool(enable_set_in_bitmap_value, "true");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "1000");
 DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");

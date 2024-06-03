@@ -223,12 +223,16 @@ suite("txn_insert") {
             order_qt_select21 """select * from ${table}_2"""
         }
 
-        // 6. insert select with error
+        // 6. insert select with error, insert overwrite
         if (use_nereids_planner) {
             sql """ begin; """
             test {
                 sql """ insert into ${table}_0 select * from $tableMV; """
                 exception "insert into cols should be corresponding to the query output"
+            }
+            test {
+                sql """ insert overwrite table ${table}_1 select * from $table where k2 = 2.2 limit 1; """
+                exception "This is in a transaction, only insert, update, delete, commit, rollback is acceptable"
             }
             sql """ insert into ${table}_1 select * from $table where k2 = 2.2 limit 1; """
             sql """ commit; """
@@ -631,6 +635,9 @@ suite("txn_insert") {
             assertEquals("ABORTED", txn_state)
 
             // after the txn is timeout: do insert/ commit/ rollback
+            def insert_timeout = sql """show variables where variable_name = 'insert_timeout';"""
+            def query_timeout = sql """show variables where variable_name = 'query_timeout';"""
+            logger.info("query_timeout: ${query_timeout}, insert_timeout: ${insert_timeout}")
             try {
                 sql "SET insert_timeout = 5"
                 sql "SET query_timeout = 5"
@@ -674,7 +681,8 @@ suite("txn_insert") {
                     assertTrue(e.getMessage().contains("transaction not found"))
                 }*/
             } finally {
-
+                sql "SET insert_timeout = ${insert_timeout[0][1]}"
+                sql "SET query_timeout = ${query_timeout[0][1]}"
             }
         }
 
