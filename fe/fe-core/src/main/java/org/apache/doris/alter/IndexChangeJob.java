@@ -266,15 +266,11 @@ public class IndexChangeJob implements Writable {
 
             if (!isStable) {
                 errMsg = "table is unstable";
-                LOG.warn("wait table {} to be stable before doing {} job", tableId,
-                        OlapTable.OlapTableState.SCHEMA_CHANGE);
-                tbl.setState(OlapTable.OlapTableState.WAITING_STABLE);
+                LOG.warn("wait table {} to be stable before doing index change job", tableId);
                 return false;
             } else {
-                // table is stable, set is to SCHEMA_CHANGE and begin altering.
-                LOG.info("table {} is stable, start {} job {}", tableId,
-                        OlapTable.OlapTableState.SCHEMA_CHANGE, jobId);
-                tbl.setState(OlapTable.OlapTableState.SCHEMA_CHANGE);
+                // table is stable
+                LOG.info("table {} is stable, start index change job {}", tableId, jobId);
                 errMsg = "";
                 return true;
             }
@@ -395,27 +391,6 @@ public class IndexChangeJob implements Writable {
 
         Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
         LOG.info("inverted index job finished: {}", jobId);
-        changeTableState(dbId, tableId, OlapTable.OlapTableState.NORMAL);
-        LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
-    }
-
-    private void changeTableState(long dbId, long tableId, OlapTable.OlapTableState olapTableState) {
-        try {
-            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
-            olapTable.writeLockOrMetaException();
-            try {
-                if (olapTable.getState() == olapTableState) {
-                    return;
-                } else if (olapTable.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
-                    olapTable.setState(olapTableState);
-                }
-            } finally {
-                olapTable.writeUnlock();
-            }
-        } catch (MetaNotFoundException e) {
-            LOG.warn("[INCONSISTENT META] changing table status failed after alter index change job done", e);
-        }
     }
 
     /**
@@ -434,8 +409,6 @@ public class IndexChangeJob implements Writable {
         this.finishedTimeMs = System.currentTimeMillis();
         Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
         LOG.info("cancel index job {}, err: {}", jobId, errMsg);
-        changeTableState(dbId, tableId, OlapTable.OlapTableState.NORMAL);
-        LOG.info("set table's state to NORMAL when cancel, table id: {}, job id: {}", tableId, jobId);
         return true;
     }
 
@@ -478,8 +451,6 @@ public class IndexChangeJob implements Writable {
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         LOG.info("replay finished inverted index job: {} table id: {}", jobId, tableId);
-        changeTableState(dbId, tableId, OlapTable.OlapTableState.NORMAL);
-        LOG.info("set table's state to NORMAL when replay finished, table id: {}, job id: {}", tableId, jobId);
     }
 
     /**
@@ -492,8 +463,6 @@ public class IndexChangeJob implements Writable {
         this.errMsg = replayedJob.errMsg;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         LOG.info("cancel index job {}, err: {}", jobId, errMsg);
-        changeTableState(dbId, tableId, OlapTable.OlapTableState.NORMAL);
-        LOG.info("set table's state to NORMAL when replay cancelled, table id: {}, job id: {}", tableId, jobId);
     }
 
     public static IndexChangeJob read(DataInput in) throws IOException {
