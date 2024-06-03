@@ -54,7 +54,12 @@ public class LogUtils {
         System.err.println(STDERR_LOG_MARKER + formattedTime() + " " + message);
     }
 
-    @Plugin(name = "NewCustLayout", category = Node.CATEGORY, elementType = Layout.ELEMENT_TYPE, printObject = true)
+    // TODO: this custom layout is not used in the codebase, but it is a good example of how to create a custom layout
+    // 1. Add log4j2.component.properties in fe/conf with content:
+    //      log4j.layoutFactory=org.apache.doris.common.LogUtils$SingleLineExceptionLayout
+    // 2. Change PatternLayout in Log4jConfig.java to SingleLineExceptionLayout
+    @Plugin(name = "SingleLineExceptionLayout", category = Node.CATEGORY,
+            elementType = Layout.ELEMENT_TYPE, printObject = true)
     public static class SingleLineExceptionLayout extends AbstractStringLayout {
 
         private final PatternLayout patternLayout;
