@@ -131,7 +131,9 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     auto st = _query_ctx->exec_status();
     _query_ctx.reset();
     for (size_t i = 0; i < _tasks.size(); i++) {
-        _call_back(_tasks[i].front()->runtime_state(), &st);
+        if (!_tasks[i].empty()) {
+            _call_back(_tasks[i].front()->runtime_state(), &st);
+        }
     }
     _tasks.clear();
     for (auto& runtime_state : _task_runtime_states) {

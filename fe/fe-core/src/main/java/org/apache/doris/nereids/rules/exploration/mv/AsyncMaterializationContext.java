@@ -108,7 +108,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
         if (!logicalOlapScan.isEmpty()) {
             relationId = logicalOlapScan.get(0).getRelationId();
         }
-        return Optional.of(Pair.of(relationId, mtmvCache.getStatistics()));
+        return Optional.of(Pair.of(relationId, normalizeStatisticsColumnExpression(mtmvCache.getStatistics())));
     }
 
     @Override
@@ -131,8 +131,8 @@ public class AsyncMaterializationContext extends MaterializationContext {
         return baseViews;
     }
 
-    public ExpressionMapping getExprToScanExprMapping() {
-        return exprToScanExprMapping;
+    public ExpressionMapping getShuttledExprToScanExprMapping() {
+        return shuttledExprToScanExprMapping;
     }
 
     public boolean isAvailable() {

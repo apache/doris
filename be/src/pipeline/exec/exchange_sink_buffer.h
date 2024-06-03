@@ -70,48 +70,42 @@ struct AtomicWrapper {
 // We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
 // will be shared between different channel, so we have to use a ref count to mark if this
 // PBlock is available for next serialization.
-class BroadcastPBlockHolderQueue;
+class BroadcastPBlockHolderMemLimiter;
 class BroadcastPBlockHolder {
     ENABLE_FACTORY_CREATOR(BroadcastPBlockHolder);
 
 public:
     BroadcastPBlockHolder() { _pblock = std::make_unique<PBlock>(); }
-    BroadcastPBlockHolder(std::unique_ptr<PBlock>&& pblock) { _pblock = std::move(pblock); }
     ~BroadcastPBlockHolder();
 
     PBlock* get_block() { return _pblock.get(); }
 
 private:
-    friend class BroadcastPBlockHolderQueue;
+    friend class BroadcastPBlockHolderMemLimiter;
     std::unique_ptr<PBlock> _pblock;
-    std::weak_ptr<BroadcastPBlockHolderQueue> _parent_creator;
-    void set_parent_creator(std::shared_ptr<BroadcastPBlockHolderQueue> parent_creator) {
+    std::weak_ptr<BroadcastPBlockHolderMemLimiter> _parent_creator;
+    void set_parent_creator(std::shared_ptr<BroadcastPBlockHolderMemLimiter> parent_creator) {
         _parent_creator = parent_creator;
     }
 };
 
-// Use a stack inside to ensure that the PBlock is in cpu cache
-class BroadcastPBlockHolderQueue : public std::enable_shared_from_this<BroadcastPBlockHolderQueue> {
-    ENABLE_FACTORY_CREATOR(BroadcastPBlockHolderQueue);
+class BroadcastPBlockHolderMemLimiter
+        : public std::enable_shared_from_this<BroadcastPBlockHolderMemLimiter> {
+    ENABLE_FACTORY_CREATOR(BroadcastPBlockHolderMemLimiter);
 
 public:
-    BroadcastPBlockHolderQueue() = default;
+    BroadcastPBlockHolderMemLimiter() = delete;
 
-    BroadcastPBlockHolderQueue(std::shared_ptr<pipeline::Dependency>& broadcast_dependency) {
+    BroadcastPBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency) {
         _broadcast_dependency = broadcast_dependency;
     }
 
-    void push(std::shared_ptr<BroadcastPBlockHolder> holder);
-
-    bool empty() {
-        std::unique_lock l(_holders_lock);
-        return _holders.empty();
-    }
-
-    std::shared_ptr<BroadcastPBlockHolder> pop();
+    void acquire(BroadcastPBlockHolder& holder);
+    void release(const BroadcastPBlockHolder& holder);
 
 private:
-    std::stack<std::shared_ptr<BroadcastPBlockHolder>> _holders;
+    std::atomic_int64_t _total_queue_buffer_size {0};
+    std::atomic_int64_t _total_queue_blocks_count {0};
     std::shared_ptr<pipeline::Dependency> _broadcast_dependency;
     std::mutex _holders_lock;
 };

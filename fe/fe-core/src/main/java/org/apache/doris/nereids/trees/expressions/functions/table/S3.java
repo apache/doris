@@ -44,8 +44,7 @@ public class S3 extends TableValuedFunction {
             Map<String, String> arguments = getTVFProperties().getMap();
             return new S3TableValuedFunction(arguments);
         } catch (Throwable t) {
-            throw new AnalysisException("Can not build S3TableValuedFunction by "
-                + this + ": " + t.getMessage(), t);
+            throw new AnalysisException("Can not build s3(): " + t.getMessage(), t);
         }
     }
 
