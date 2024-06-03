@@ -94,6 +94,10 @@ protected:
     virtual void _do_hash(const ColumnPtr& column, HashValueType* __restrict result,
                           int idx) const = 0;
 
+    HashValueType _get_default_seed() {
+        return 0;
+    }
+
     VExprContextSPtrs _partition_expr_ctxs;
     mutable std::vector<HashValueType> _hash_vals;
 };
@@ -141,6 +145,8 @@ public:
     ~Murmur32HashPartitioner() override = default;
 
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
+
+    int32_t _get_default_seed() override;
 
 private:
     void _do_hash(const ColumnPtr& column, int32_t* __restrict result, int idx) const override;

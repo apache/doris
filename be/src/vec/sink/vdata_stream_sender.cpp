@@ -518,8 +518,14 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
             _profile->add_info_string("Partitioner",
                                       fmt::format("XXHashPartitioner({})", _partition_count));
         } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-            _profile->add_info_string("Partitioner",
-                                      fmt::format("Crc32HashPartitioner({})", _partition_count));
+            if (_hash_type == THashType::CRC32) {
+                _profile->add_info_string("Partitioner",
+                                          fmt::format("Crc32HashPartitioner({})", _partition_count));
+            } else if (_hash_type == THashType::SPARK_MURMUR32) {
+                _profile->add_info_string("Partitioner",
+                                          fmt::format("SparkMurmur32HashPartitioner({})",
+                                          _partition_count));
+            }
         }
     }
 

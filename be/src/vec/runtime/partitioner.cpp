@@ -36,7 +36,7 @@ Status Partitioner<HashValueType, ChannelIds>::do_partitioning(RuntimeState* sta
         std::vector<int> result(result_size);
 
         _hash_vals.resize(rows);
-        std::fill(_hash_vals.begin(), _hash_vals.end(), 0);
+        std::fill(_hash_vals.begin(), _hash_vals.end(), _get_default_seed());
         auto* __restrict hashes = _hash_vals.data();
         {
             SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
@@ -115,6 +115,11 @@ Status Murmur32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
                 state, new_partitioner->_partition_expr_ctxs[i]));
     }
     return Status::OK();
+}
+
+template <typename ChannelIds>
+int32_t Murmur32HashPartitioner<ChannelIds>::_get_default_seed() {
+    return static_cast<int32_t>(HashUtil::SPARK_MURMUR_32_SEED);
 }
 
 template class Partitioner<size_t, pipeline::LocalExchangeChannelIds>;
