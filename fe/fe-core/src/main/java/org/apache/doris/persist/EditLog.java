@@ -446,8 +446,7 @@ public class EditLog {
                     Frontend fe = (Frontend) journal.getData();
                     env.replayDropFrontend(fe);
                     if (fe.getNodeName().equals(Env.getCurrentEnv().getNodeName())) {
-                        System.out.println("current fe " + fe + " is removed. will exit");
-                        LOG.info("current fe " + fe + " is removed. will exit");
+                        LOG.warn("current fe {} is removed. will exit", fe);
                         System.exit(-1);
                     }
                     break;

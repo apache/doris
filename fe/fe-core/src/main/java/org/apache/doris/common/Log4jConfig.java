@@ -305,9 +305,7 @@ public class Log4jConfig extends XmlConfiguration {
         strSub = new StrSubstitutor(new Interpolator(properties));
         newXmlConfTemplate = strSub.replace(newXmlConfTemplate);
 
-        System.out.println("=====");
-        System.out.println(newXmlConfTemplate);
-        System.out.println("=====");
+        LogUtils.stdout("=====\n" + newXmlConfTemplate + "\n=====");
         logXmlConfTemplate = newXmlConfTemplate;
         SpringLog4j2Config.writeSpringLogConf(customConfDir);
 
