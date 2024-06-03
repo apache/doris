@@ -53,6 +53,8 @@ public:
 
     const ColumnPtr& get_column_ptr() const { return _column_ptr; }
 
+    bool is_literal() const override { return true; }
+
 protected:
     ColumnPtr _column_ptr;
     std::string _expr_name;

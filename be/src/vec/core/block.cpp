@@ -735,7 +735,6 @@ void Block::swap(Block& other) noexcept {
 
 void Block::swap(Block&& other) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
-    clear();
     data = std::move(other.data);
     index_by_name = std::move(other.index_by_name);
     row_same_bit = std::move(other.row_same_bit);
@@ -804,15 +803,18 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
     return columns_with_type_and_name;
 }
 
-void Block::append_to_block_by_selector(MutableBlock* dst,
-                                        const IColumn::Selector& selector) const {
-    DCHECK_EQ(data.size(), dst->mutable_columns().size());
-    for (size_t i = 0; i < data.size(); i++) {
-        // FIXME: this is a quickfix. we assume that only partition functions make there some
-        if (!is_column_const(*data[i].column)) {
-            data[i].column->append_data_by_selector(dst->mutable_columns()[i], selector);
+Status Block::append_to_block_by_selector(MutableBlock* dst,
+                                          const IColumn::Selector& selector) const {
+    RETURN_IF_CATCH_EXCEPTION({
+        DCHECK_EQ(data.size(), dst->mutable_columns().size());
+        for (size_t i = 0; i < data.size(); i++) {
+            // FIXME: this is a quickfix. we assume that only partition functions make there some
+            if (!is_column_const(*data[i].column)) {
+                data[i].column->append_data_by_selector(dst->mutable_columns()[i], selector);
+            }
         }
-    }
+    });
+    return Status::OK();
 }
 
 Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,

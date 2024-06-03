@@ -214,16 +214,19 @@ void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, 
     }
 }
 
-void OlapBlockDataConvertor::set_source_content_with_specifid_columns(
+Status OlapBlockDataConvertor::set_source_content_with_specifid_columns(
         const vectorized::Block* block, size_t row_pos, size_t num_rows,
         std::vector<uint32_t> cids) {
     DCHECK(block != nullptr);
     DCHECK(num_rows > 0);
     DCHECK(row_pos + num_rows <= block->rows());
-    for (auto i : cids) {
-        DCHECK(i < _convertors.size());
-        _convertors[i]->set_source_column(block->get_by_position(i), row_pos, num_rows);
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (auto i : cids) {
+            DCHECK(i < _convertors.size());
+            _convertors[i]->set_source_column(block->get_by_position(i), row_pos, num_rows);
+        }
+    });
+    return Status::OK();
 }
 
 void OlapBlockDataConvertor::clear_source_content() {
@@ -235,7 +238,11 @@ void OlapBlockDataConvertor::clear_source_content() {
 std::pair<Status, IOlapColumnDataAccessor*> OlapBlockDataConvertor::convert_column_data(
         size_t cid) {
     assert(cid < _convertors.size());
-    auto status = _convertors[cid]->convert_to_olap();
+    auto convert_func = [&]() -> Status {
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_convertors[cid]->convert_to_olap());
+        return Status::OK();
+    };
+    auto status = convert_func();
     return {status, _convertors[cid].get()};
 }
 

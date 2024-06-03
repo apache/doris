@@ -132,8 +132,6 @@ public:
 
     void register_pipeline_channels(pipeline::ExchangeSinkBuffer* buffer);
 
-    bool channel_all_can_write();
-
     int sender_id() const { return _sender_id; }
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
@@ -326,17 +324,6 @@ public:
     bool is_local() const { return _is_local; }
 
     virtual void ch_roll_pb_block();
-
-    bool can_write() {
-        if (!is_local()) {
-            return true;
-        }
-
-        // if local recvr queue mem over the exchange node mem limit, we must ensure each queue
-        // has one block to do merge sort in exchange node to prevent the logic dead lock
-        return !_local_recvr || _local_recvr->is_closed() || !_local_recvr->exceeds_limit(0) ||
-               _local_recvr->sender_queue_empty(_parent->sender_id());
-    }
 
     bool is_receiver_eof() const { return _receiver_status.is<ErrorCode::END_OF_FILE>(); }
 

@@ -53,6 +53,8 @@
 
 namespace doris {
 
+static bvar::Adder<size_t> g_total_tablet_schema_num("doris_total_tablet_schema_num");
+
 FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     switch (primitiveType) {
     case PrimitiveType::INVALID_TYPE:
@@ -818,6 +820,14 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
                     INVERTED_INDEX_PARSER_TRUE;
         }
     }
+}
+
+TabletSchema::TabletSchema() {
+    g_total_tablet_schema_num << 1;
+}
+
+TabletSchema::~TabletSchema() {
+    g_total_tablet_schema_num << -1;
 }
 
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {

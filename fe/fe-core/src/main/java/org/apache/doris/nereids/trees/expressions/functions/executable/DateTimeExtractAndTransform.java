@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -285,26 +286,26 @@ public class DateTimeExtractAndTransform {
      * datetime arithmetic function date-format
      */
     @ExecFunction(name = "date_format", argTypes = {"DATE", "VARCHAR"}, returnType = "VARCHAR")
-    public static Expression dateFormat(DateLiteral date, VarcharLiteral format) {
+    public static Expression dateFormat(DateLiteral date, StringLikeLiteral format) {
         return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
                 java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
     }
 
     @ExecFunction(name = "date_format", argTypes = {"DATETIME", "VARCHAR"}, returnType = "VARCHAR")
-    public static Expression dateFormat(DateTimeLiteral date, VarcharLiteral format) {
+    public static Expression dateFormat(DateTimeLiteral date, StringLikeLiteral format) {
         return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
                         ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
     }
 
     @ExecFunction(name = "date_format", argTypes = {"DATEV2", "VARCHAR"}, returnType = "VARCHAR")
-    public static Expression dateFormat(DateV2Literal date, VarcharLiteral format) {
+    public static Expression dateFormat(DateV2Literal date, StringLikeLiteral format) {
         return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
                 java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
     }
 
     @ExecFunction(name = "date_format", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "VARCHAR")
-    public static Expression dateFormat(DateTimeV2Literal date, VarcharLiteral format) {
+    public static Expression dateFormat(DateTimeV2Literal date, StringLikeLiteral format) {
         return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
                         ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
@@ -327,22 +328,22 @@ public class DateTimeExtractAndTransform {
      * datetime arithmetic function date-trunc
      */
     @ExecFunction(name = "date_trunc", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")
-    public static Expression dateTrunc(DateTimeLiteral date, VarcharLiteral trunc) {
+    public static Expression dateTrunc(DateTimeLiteral date, StringLikeLiteral trunc) {
         return DateTimeLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
 
     @ExecFunction(name = "date_trunc", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "DATETIMEV2")
-    public static Expression dateTrunc(DateTimeV2Literal date, VarcharLiteral trunc) {
+    public static Expression dateTrunc(DateTimeV2Literal date, StringLikeLiteral trunc) {
         return DateTimeV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
 
     @ExecFunction(name = "date_trunc", argTypes = {"DATE", "VARCHAR"}, returnType = "DATE")
-    public static Expression dateTrunc(DateLiteral date, VarcharLiteral trunc) {
+    public static Expression dateTrunc(DateLiteral date, StringLikeLiteral trunc) {
         return DateLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
 
     @ExecFunction(name = "date_trunc", argTypes = {"DATEV2", "VARCHAR"}, returnType = "DATEV2")
-    public static Expression dateTrunc(DateV2Literal date, VarcharLiteral trunc) {
+    public static Expression dateTrunc(DateV2Literal date, StringLikeLiteral trunc) {
         return DateV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
 
@@ -471,7 +472,7 @@ public class DateTimeExtractAndTransform {
      * date transformation function: from_unixtime
      */
     @ExecFunction(name = "from_unixtime", argTypes = {"BIGINT", "VARCHAR"}, returnType = "VARCHAR")
-    public static Expression fromUnixTime(BigIntLiteral second, VarcharLiteral format) {
+    public static Expression fromUnixTime(BigIntLiteral second, StringLikeLiteral format) {
         // 32536771199L is max valid timestamp of mysql from_unix_time
         if (second.getValue() < 0 || second.getValue() > 32536771199L) {
             return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
@@ -524,7 +525,7 @@ public class DateTimeExtractAndTransform {
      * date transformation function: unix_timestamp
      */
     @ExecFunction(name = "unix_timestamp", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "INT")
-    public static Expression unixTimestamp(VarcharLiteral date, VarcharLiteral format) {
+    public static Expression unixTimestamp(StringLikeLiteral date, StringLikeLiteral format) {
         DateTimeFormatter formatter = DateUtils.formatBuilder(format.getValue()).toFormatter();
         LocalDateTime dateObj;
         try {
@@ -603,7 +604,7 @@ public class DateTimeExtractAndTransform {
      * date transformation function: str_to_date
      */
     @ExecFunction(name = "str_to_date", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "DATETIMEV2")
-    public static Expression strToDate(VarcharLiteral str, VarcharLiteral format) {
+    public static Expression strToDate(StringLikeLiteral str, StringLikeLiteral format) {
         if (org.apache.doris.analysis.DateLiteral.hasTimePart(format.getStringValue())) {
             return DateTimeV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
                     .toFormatter(), str.getValue()));
@@ -624,7 +625,7 @@ public class DateTimeExtractAndTransform {
     }
 
     @ExecFunction(name = "convert_tz", argTypes = {"DATETIMEV2", "VARCHAR", "VARCHAR"}, returnType = "DATETIMEV2")
-    public static Expression convertTz(DateTimeV2Literal datetime, VarcharLiteral fromTz, VarcharLiteral toTz) {
+    public static Expression convertTz(DateTimeV2Literal datetime, StringLikeLiteral fromTz, StringLikeLiteral toTz) {
         LocalDateTime localDateTime = datetime.toJavaDateType();
         ZonedDateTime fromDateTime = localDateTime.atZone(ZoneId.of(fromTz.getStringValue()));
         ZonedDateTime toDateTime = fromDateTime.withZoneSameInstant(ZoneId.of(toTz.getStringValue()));

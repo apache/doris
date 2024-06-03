@@ -627,6 +627,36 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     return Status::OK();
 }
 
+Versions CloudTablet::calc_missed_versions(int64_t spec_version, Versions existing_versions) const {
+    DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
+
+    // sort the existing versions in ascending order
+    std::sort(existing_versions.begin(), existing_versions.end(),
+              [](const Version& a, const Version& b) {
+                  // simple because 2 versions are certainly not overlapping
+                  return a.first < b.first;
+              });
+
+    // From the first version(=0), find the missing version until spec_version
+    int64_t last_version = -1;
+    Versions missed_versions;
+    for (const Version& version : existing_versions) {
+        if (version.first > last_version + 1) {
+            // there is a hole between versions
+            missed_versions.emplace_back(last_version + 1, std::min(version.first, spec_version));
+        }
+        last_version = version.second;
+        if (last_version >= spec_version) {
+            break;
+        }
+    }
+    if (last_version < spec_version) {
+        // there is a hole between the last version and the specificed version.
+        missed_versions.emplace_back(last_version + 1, spec_version);
+    }
+    return missed_versions;
+}
+
 Status CloudTablet::calc_delete_bitmap_for_compaction(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
         const RowIdConversion& rowid_conversion, ReaderType compaction_type, int64_t merged_rows,
