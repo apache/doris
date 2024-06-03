@@ -423,7 +423,7 @@ public:
     /**
      * return the total cardinality of the Delete Bitmap
      */
-     uint64_t cardinality() const;
+    uint64_t cardinality() const;
 
     /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
