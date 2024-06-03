@@ -31,7 +31,6 @@ class Block;
 } // namespace vectorized
 
 namespace pipeline {
-class DataQueue;
 
 class UnionSourceOperatorX;
 class UnionSourceLocalState final : public PipelineXLocalState<UnionSharedState> {
@@ -106,7 +105,7 @@ private:
         if (_child_size == 0) {
             return local_state._need_read_for_const_expr;
         }
-        return local_state._shared_state->data_queue.remaining_has_data();
+        return local_state._shared_state->remaining_has_data();
     }
     bool has_more_const(RuntimeState* state) const {
         auto& local_state = get_local_state(state);

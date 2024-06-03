@@ -22,7 +22,6 @@
 
 #include "common/status.h"
 #include "pipeline/dependency.h"
-#include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "runtime/descriptors.h"
@@ -39,19 +38,13 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
-    if (p.get_child_count() != 0) {
-        ((UnionSharedState*)_dependency->shared_state())
-                ->data_queue.set_source_dependency(_shared_state->source_deps.front());
-    } else {
+    if (p.get_child_count() == 0) {
         _only_const_dependency = Dependency::create_shared(
                 _parent->operator_id(), _parent->node_id(), _parent->get_name() + "_DEPENDENCY");
         _dependency = _only_const_dependency.get();
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                 _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
-    }
-
-    if (p.get_child_count() == 0) {
-        _dependency->set_ready();
+        _dependency->set_always_ready();
     }
     return Status::OK();
 }
@@ -89,8 +82,7 @@ std::string UnionSourceLocalState::debug_string(int indentation_level) const {
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
     if (_shared_state) {
         fmt::format_to(debug_string_buffer, ", data_queue: (is_all_finish = {}, has_data = {})",
-                       _shared_state->data_queue.is_all_finish(),
-                       _shared_state->data_queue.remaining_has_data());
+                       _shared_state->is_all_finish(), _shared_state->remaining_has_data());
     }
     return fmt::to_string(debug_string_buffer);
 }
@@ -105,9 +97,9 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
             *eos = true;
         } else if (_has_data(state)) {
             *eos = false;
-        } else if (local_state._shared_state->data_queue.is_all_finish()) {
-            // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
-            // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
+        } else if (local_state._shared_state->is_all_finish()) {
+            // Here, check the value of `_has_data(state)` again after `is_all_finish()` is TRUE
+            // as there may be one or more blocks when `is_all_finish()` is TRUE.
             *eos = !_has_data(state);
         } else {
             *eos = false;
@@ -121,16 +113,13 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
         }
         local_state._need_read_for_const_expr = has_more_const(state);
     } else if (_child_size != 0) {
-        std::unique_ptr<vectorized::Block> output_block;
-        int child_idx = 0;
-        RETURN_IF_ERROR(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
-                                                                                   &child_idx));
+        auto output_block = local_state._shared_state->get_block_from_queue();
         if (!output_block) {
             return Status::OK();
         }
         block->swap(*output_block);
         output_block->clear_column_data(_row_descriptor.num_materialized_slots());
-        local_state._shared_state->data_queue.push_free_block(std::move(output_block), child_idx);
+        local_state._shared_state->push_free_block(std::move(output_block));
     }
     local_state.reached_limit(block, eos);
     return Status::OK();

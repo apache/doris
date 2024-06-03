@@ -29,7 +29,7 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-class DataQueue;
+class PipelineUnionDataQueue;
 
 class UnionSinkOperatorX;
 class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionSharedState> {
