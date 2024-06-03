@@ -104,6 +104,10 @@ public class TempPartitions implements Writable, GsonPostProcessable {
         return nameToPartition.containsKey(partName);
     }
 
+    public boolean hasPartition(long partitionId) {
+        return idToPartition.containsKey(partitionId);
+    }
+
     public boolean isEmpty() {
         return idToPartition.isEmpty();
     }
