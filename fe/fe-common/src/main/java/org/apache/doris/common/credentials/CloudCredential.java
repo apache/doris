@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.credentials;
+package org.apache.doris.common.credentials;
 
 import org.apache.commons.lang3.StringUtils;
 
