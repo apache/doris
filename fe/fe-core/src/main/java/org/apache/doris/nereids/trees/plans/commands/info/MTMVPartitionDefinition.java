@@ -109,6 +109,8 @@ public class MTMVPartitionDefinition {
                 // todo use new expression?
                 mtmvPartitionInfo.setExpr(new FunctionCallExpr(dateTrunc.getName(),
                         new FunctionParams(convertToLegacyArguments(dateTrunc.children()))));
+                mtmvPartitionInfo.setPartitionType(MTMVPartitionType.EXPR);
+                this.partitionType = MTMVPartitionType.EXPR;
             }
         }
         if (this.partitionType == MTMVPartitionType.EXPR) {

@@ -70,6 +70,25 @@ suite("test_rollup_partition_mtmv") {
     order_qt_date_list_month "SELECT * FROM ${mvName} order by k1,k2"
 
     sql """drop materialized view if exists ${mvName};"""
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+            partition by (month_alias)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1'
+            )
+            AS
+            SELECT date_trunc(`k2`,'month') as month_alias, * FROM ${tableName};
+    """
+    def date_list_month_partitions = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + date_list_month_partitions.toString())
+    assertEquals(2, date_list_month_partitions.size())
+    waitingMTMVTaskFinished(getJobName(dbName, mvName))
+    order_qt_date_list_month_partition_by_column "SELECT * FROM ${mvName}"
+
+
+    sql """drop materialized view if exists ${mvName};"""
     // list date year
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
@@ -85,6 +104,23 @@ suite("test_rollup_partition_mtmv") {
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(1, showPartitionsResult.size())
+
+    sql """drop materialized view if exists ${mvName};"""
+    // list date year
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+            partition by (year_alias)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1'
+            )
+            AS
+            SELECT date_trunc(`k2`,'year') as year_alias, * FROM ${tableName};
+    """
+    def date_list_year_partitions = sql """show partitions from ${mvName}"""
+    assertEquals(1, date_list_year_partitions.size())
+    order_qt_date_list_year_partition_by_column "SELECT * FROM ${mvName}"
 
     // list string month
     sql """drop table if exists `${tableName}`"""
@@ -133,6 +169,28 @@ suite("test_rollup_partition_mtmv") {
     waitingMTMVTaskFinished(jobName)
     order_qt_string_list_month "SELECT * FROM ${mvName} order by k1,k2"
 
+    // fail need support partition_date_format when partitition by column and column is date_trunc
+//    sql """drop materialized view if exists ${mvName};"""
+//    sql """
+//        CREATE MATERIALIZED VIEW ${mvName}
+//            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+//            partition by (month_alias)
+//            DISTRIBUTED BY RANDOM BUCKETS 2
+//            PROPERTIES (
+//            'replication_num' = '1',
+//            'partition_date_format'='%Y==%m==%d'
+//            )
+//            AS
+//            SELECT date_trunc(`k2`,'month') as month_alias, * FROM ${tableName};
+//    """
+//    def string_list_month_partitions = sql """show partitions from ${mvName}"""
+//    logger.info("showPartitionsResult: " + string_list_month_partitions.toString())
+//    assertEquals(2, string_list_month_partitions.size())
+//
+//    jobName = getJobName(dbName, mvName);
+//    log.info(jobName)
+//    waitingMTMVTaskFinished(jobName)
+//    order_qt_string_list_month_partition_by_column "SELECT * FROM ${mvName}"
 
     // range date month
     sql """drop table if exists `${tableName}`"""
@@ -180,6 +238,27 @@ suite("test_rollup_partition_mtmv") {
     waitingMTMVTaskFinished(jobName)
     order_qt_date_range_month "SELECT * FROM ${mvName} order by k1,k2"
 
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+            partition by (month_alias)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1'
+            )
+            AS
+            SELECT date_trunc(`k2`,'month') as month_alias, * FROM ${tableName};
+    """
+    def date_range_month_partitions = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + date_range_month_partitions.toString())
+    assertEquals(2, date_range_month_partitions.size())
+
+    jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+    order_qt_date_range_month_partition_by_column "SELECT * FROM ${mvName}"
+
     // not support MAXVALUE
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
@@ -213,6 +292,24 @@ suite("test_rollup_partition_mtmv") {
                 SELECT * FROM ${tableName};
             """
              Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    sql """drop materialized view if exists ${mvName};"""
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by (month_alias)
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES (
+                'replication_num' = '1'
+                )
+                AS
+                SELECT date_trunc(`k2`,'month') as month_alias, * FROM ${tableName};
+            """
+        Assert.fail();
     } catch (Exception e) {
         log.info(e.getMessage())
     }
@@ -253,6 +350,24 @@ suite("test_rollup_partition_mtmv") {
         log.info(e.getMessage())
     }
 
+    sql """drop materialized view if exists ${mvName};"""
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by (month_alias)
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES (
+                'replication_num' = '1'
+                )
+                AS
+                SELECT date_trunc(`k2`,'month') as month_alias, * FROM ${tableName};
+            """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
     // not support trunc hour
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
@@ -286,6 +401,24 @@ suite("test_rollup_partition_mtmv") {
                 SELECT * FROM ${tableName};
             """
              Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    sql """drop materialized view if exists ${mvName};"""
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by (hour_alias)
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES (
+                'replication_num' = '1'
+                )
+                AS
+                SELECT date_trunc(`k2`,'hour') as hour_alias, * FROM ${tableName};
+            """
+        Assert.fail();
     } catch (Exception e) {
         log.info(e.getMessage())
     }
