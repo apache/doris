@@ -368,8 +368,7 @@ Status PipelineTask::execute(bool* eos) {
         }
     }
 
-    static_cast<void>(get_task_queue()->push_back(this));
-    return Status::OK();
+    return get_task_queue()->push_back(this);
 }
 
 bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes) {

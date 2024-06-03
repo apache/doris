@@ -224,7 +224,7 @@ private:
     friend class ExchangeSinkLocalState;
 
     template <typename ChannelPtrType>
-    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
+    Status _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
     template <typename Channels, typename HashValueType>
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,

@@ -257,7 +257,7 @@ Status InvertedIndexReader::handle_searcher_cache(
         // to avoid open directory additionally for null_bitmap
         // TODO: handle null bitmap procedure in new format.
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        static_cast<void>(read_null_bitmap(&null_bitmap_cache_handle, dir.get()));
+        RETURN_IF_ERROR(read_null_bitmap(&null_bitmap_cache_handle, dir.get()));
         RETURN_IF_ERROR(create_index_searcher(dir.release(), &searcher, mem_tracker.get(), type()));
         auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
                 std::move(searcher), mem_tracker->consumption(), UnixMillis());

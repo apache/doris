@@ -163,7 +163,7 @@ protected:
                                      bool eos);
 
     template <typename ChannelPtrType>
-    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
+    Status _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
     static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {
         return Status::OK();
@@ -397,13 +397,13 @@ protected:
     BlockSerializer<Parent> _serializer;
 };
 
-#define HANDLE_CHANNEL_STATUS(state, channel, status)    \
-    do {                                                 \
-        if (status.is<ErrorCode::END_OF_FILE>()) {       \
-            _handle_eof_channel(state, channel, status); \
-        } else {                                         \
-            RETURN_IF_ERROR(status);                     \
-        }                                                \
+#define HANDLE_CHANNEL_STATUS(state, channel, status)                     \
+    do {                                                                  \
+        if (status.is<ErrorCode::END_OF_FILE>()) {                        \
+            RETURN_IF_ERROR(_handle_eof_channel(state, channel, status)); \
+        } else {                                                          \
+            RETURN_IF_ERROR(status);                                      \
+        }                                                                 \
     } while (0)
 
 template <typename Channels, typename HashValueType>

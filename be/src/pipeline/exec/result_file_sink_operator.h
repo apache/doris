@@ -50,7 +50,7 @@ private:
     friend class ResultFileSinkOperatorX;
 
     template <typename ChannelPtrType>
-    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
+    Status _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
     std::unique_ptr<vectorized::Block> _output_block;
     std::shared_ptr<BufferControlBlock> _sender;

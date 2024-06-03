@@ -239,11 +239,11 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
 }
 
 template <typename ChannelPtrType>
-void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
-                                                   Status st) {
+Status ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
+                                                     Status st) {
     channel->set_receiver_eof(st);
     // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
-    static_cast<void>(channel->close(state, Status::OK()));
+    return channel->close(state, Status::OK());
 }
 
 Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {

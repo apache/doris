@@ -313,7 +313,7 @@ Status VFileResultWriter::_fill_result_block() {
         column->insert_data(reinterpret_cast<const char*>(&written_data_bytes), 0); \
     } else if (i == 3) {                                                            \
         std::string file_url;                                                       \
-        static_cast<void>(_get_file_url(&file_url));                                \
+        _get_file_url(&file_url);                                                   \
         column->insert_data(file_url.c_str(), file_url.size());                     \
     }                                                                               \
     _output_block->replace_by_position(i, std::move(column));

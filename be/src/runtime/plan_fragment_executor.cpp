@@ -208,7 +208,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
             ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
             auto scan_ranges =
                     find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
-            static_cast<void>(scan_node->set_scan_ranges(runtime_state(), scan_ranges));
+            RETURN_IF_ERROR(scan_node->set_scan_ranges(runtime_state(), scan_ranges));
             VLOG_CRITICAL << "scan_node_Id=" << scan_node->id()
                           << " size=" << scan_ranges.get().size();
         }
