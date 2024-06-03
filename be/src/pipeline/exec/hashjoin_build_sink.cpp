@@ -279,13 +279,22 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     // for hash table build type check
 
     for (int i = 0; i < raw_ptrs.size(); i++) {
-        auto& ctx = _build_expr_ctxs[i];
-        auto& col = raw_ptrs[i];
-        if (ctx->root()->data_type()->create_column()->type_structure() != col->type_structure()) {
+        auto data_type = _build_expr_ctxs[i]->root()->data_type();
+        auto hash_table_col = data_type->create_column();
+        auto& insert_col = raw_ptrs[i];
+        auto report_error = [&]() -> Status {
             return Status::InternalError(
                     "build hash table failed , build type = {} , insert type = {}",
-                    ctx->root()->data_type()->create_column()->type_structure(),
-                    col->type_structure());
+                    hash_table_col->type_structure(), insert_col->type_structure());
+        };
+
+        if (!insert_col->is_nullable() && insert_col->is_nullable()) {
+            return report_error();
+        }
+        auto hash_table_remove_null = vectorized::remove_nullable(data_type)->create_column();
+        if (hash_table_col->type_structure() != insert_col->type_structure() &&
+            hash_table_remove_null->type_structure() != insert_col->type_structure()) {
+            return report_error();
         }
     }
 
