@@ -237,7 +237,9 @@ private:
         tablet_map_t tablet_map;
         std::mutex lock_for_transition;
         // tablet do clone, path gc, move to trash, disk migrate will record in tablets_under_transition
-        std::map<int64_t, std::string> tablets_under_transition;
+        // tablet <reason, thread_id, lock_times>
+        std::map<int64_t, std::tuple<std::string, std::thread::id, int64_t>>
+                tablets_under_transition;
     };
 
     struct Partition {
