@@ -583,21 +583,18 @@ public class DynamicPartitionUtil {
         long expectCreatePartitionNum = 0;
         if (!createHistoryPartition) {
             start = 0;
-            expectCreatePartitionNum = (long) end - start;
         } else {
             int historyPartitionNum = Integer.parseInt(analyzedProperties.getOrDefault(
                     DynamicPartitionProperty.HISTORY_PARTITION_NUM,
                     String.valueOf(DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM)));
-            if (historyPartitionNum != DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM) {
-                expectCreatePartitionNum = (long) end - Math.max(start, -historyPartitionNum);
-            } else {
-                if (start == Integer.MIN_VALUE) {
-                    throw new DdlException("Provide start or history_partition_num property"
-                            + " when create_history_partition=true. Otherwise set create_history_partition=false");
-                }
-                expectCreatePartitionNum = (long) end - start;
+            start = getRealStart(start, historyPartitionNum);
+            if (start == Integer.MIN_VALUE) {
+                throw new DdlException("Provide start or history_partition_num property"
+                        + " when create_history_partition=true. Otherwise set create_history_partition=false");
             }
         }
+        expectCreatePartitionNum = (long) end - start;
+
         if (hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)
                 && Boolean.parseBoolean(analyzedProperties.getOrDefault(DynamicPartitionProperty.ENABLE, "true"))) {
             throw new DdlException("Too many dynamic partitions: "
@@ -681,6 +678,14 @@ public class DynamicPartitionUtil {
             }
         }
         return analyzedProperties;
+    }
+
+    public static int getRealStart(int start, int historyPartitionNum) {
+        if (historyPartitionNum == DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM) {
+            return start;
+        } else {
+            return Math.max(start, -historyPartitionNum);
+        }
     }
 
     public static void checkAlterAllowed(OlapTable olapTable) throws DdlException {
