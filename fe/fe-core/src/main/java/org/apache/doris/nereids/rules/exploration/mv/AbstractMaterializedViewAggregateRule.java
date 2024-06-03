@@ -97,7 +97,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 viewStructInfo, materializationContext)) {
             List<Expression> rewrittenQueryExpressions = rewriteExpression(queryTopPlan.getOutput(),
                     queryTopPlan,
-                    materializationContext.getExprToScanExprMapping(),
+                    materializationContext.getShuttledExprToScanExprMapping(),
                     viewToQuerySlotMapping,
                     true,
                     queryStructInfo.getTableBitSet());
@@ -121,7 +121,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     () -> String.format("expressionToWrite = %s,\n mvExprToMvScanExprMapping = %s,\n"
                                     + "viewToQuerySlotMapping = %s",
                             queryTopPlan.getOutput(),
-                            materializationContext.getExprToScanExprMapping(),
+                            materializationContext.getShuttledExprToScanExprMapping(),
                             viewToQuerySlotMapping));
         }
         // if view is scalar aggregate but query is not. Or if query is scalar aggregate but view is not
@@ -150,7 +150,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         List<? extends Expression> queryExpressions = queryTopPlan.getOutput();
         // permute the mv expr mapping to query based
         Map<Expression, Expression> mvExprToMvScanExprQueryBased =
-                materializationContext.getExprToScanExprMapping().keyPermute(viewToQuerySlotMapping)
+                materializationContext.getShuttledExprToScanExprMapping().keyPermute(viewToQuerySlotMapping)
                         .flattenMap().get(0);
         for (Expression topExpression : queryExpressions) {
             // if agg function, try to roll up and rewrite
