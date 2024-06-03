@@ -205,7 +205,9 @@ constexpr bool field_is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_BOOL;
+           field_type == FieldType::OLAP_FIELD_TYPE_BOOL ||
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV4 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV6;
 }
 
 // <start_version_id, end_version_id>, such as <100, 110>
