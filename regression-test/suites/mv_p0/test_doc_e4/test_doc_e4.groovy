@@ -41,6 +41,9 @@ suite ("test_doc_e4") {
 
     sql "insert into d_table select 3,-3,null,'2022-02-20';"
 
+    sql """analyze table d_table with sync;"""
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by 1,2;")
         contains "(k1a2p2ap3ps)"

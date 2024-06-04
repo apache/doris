@@ -139,8 +139,8 @@ import org.apache.doris.nereids.rules.rewrite.VariantSubPathPruning;
 import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
-import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithAggregate;
-import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithoutAggregate;
+// import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithAggregate;
+// import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithoutAggregate;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -389,8 +389,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
             topic("MV optimization",
                     topDown(
-                            new SelectMaterializedIndexWithAggregate(),
-                            new SelectMaterializedIndexWithoutAggregate(),
+                            // new SelectMaterializedIndexWithAggregate(),
+                            // new SelectMaterializedIndexWithoutAggregate(),
                             new EliminateFilter(),
                             new PushDownFilterThroughProject(),
                             new MergeProjects(),

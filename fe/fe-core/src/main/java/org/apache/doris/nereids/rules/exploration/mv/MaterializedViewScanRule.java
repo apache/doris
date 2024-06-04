@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableSet;
@@ -44,6 +45,13 @@ public abstract class MaterializedViewScanRule extends AbstractMaterializedViewR
             Plan tempRewritedPlan,
             MaterializationContext materializationContext,
             CascadesContext cascadesContext) {
+        if (materializationContext instanceof SyncMaterializationContext
+                && queryStructInfo.getBottomPlan() instanceof LogicalOlapScan) {
+            LogicalOlapScan olapScan = (LogicalOlapScan) queryStructInfo.getBottomPlan();
+            if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
+                return null;
+            }
+        }
         // Rewrite top projects, represent the query projects by view
         List<Expression> expressionsRewritten = rewriteExpression(
                 queryStructInfo.getExpressions(),

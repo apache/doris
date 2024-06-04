@@ -59,16 +59,7 @@ suite ("multi_slot_k123p") {
     }
     qt_select_mv "select k1,k2+k3 from d_table order by k1;"
 
-    explain {
-        sql("select lhs.k1,rhs.k2 from d_table as lhs right join d_table as rhs on lhs.k1=rhs.k1;")
-        contains "(k123p)"
-        contains "(d_table)"
-    }
     qt_select_mv "select lhs.k1,rhs.k2 from d_table as lhs right join d_table as rhs on lhs.k1=rhs.k1 order by lhs.k1;"
 
-    explain {
-        sql("select k1,version() from d_table;")
-        contains "(k123p)"
-    }
     qt_select_mv "select k1,version() from d_table order by k1;"
 }

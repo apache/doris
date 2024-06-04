@@ -48,6 +48,9 @@ suite ("sum_count") {
     sql "insert into d_table values(2,1,1,'a'),(2,1,1,'a');"
     qt_select_star "select * from d_table order by k1,k2,k3,k4;"
 
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select k1,k4,sum(k2),count(k2) from d_table group by k1,k4;")
         contains "(kavg)"
@@ -84,9 +87,5 @@ suite ("sum_count") {
     }
     qt_select_mv "select k1,k4,sum(1),count(3) from d_table group by k1,k4 order by 1,2;"
 
-    explain {
-        sql("select k1,k4,count(*) from d_table group by k1,k4;")
-        contains "(kavg_const1)"
-    }
     qt_select_mv "select k1,k4,count(*) from d_table group by k1,k4 order by 1,2;"
 }

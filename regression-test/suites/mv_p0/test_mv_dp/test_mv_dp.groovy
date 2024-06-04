@@ -44,6 +44,8 @@ suite ("test_mv_dp") {
                     group by d;""")
 
     sql """INSERT INTO `dp` VALUES (1,'success',["3","4"]),(2,'success',["5"]);"""
+    sql "analyze table dp with sync;"
+    sql """set enable_stats=false;"""
 /*
     streamLoad {
         table "test"

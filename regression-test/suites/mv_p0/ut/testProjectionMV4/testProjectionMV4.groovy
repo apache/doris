@@ -47,10 +47,6 @@ suite ("testProjectionMV4") {
     qt_select_star "select * from emps order by empid;"
 
 
-    explain {
-        sql("select name from emps where deptno > 1 and salary > 1 order by name;")
-        contains "(emps_mv)"
-    }
     qt_select_mv "select name from emps where deptno > 1 and salary > 1 order by name;"
 
     explain {

@@ -43,6 +43,9 @@ suite ("testAggQueryOnAggMV1") {
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
+    sql "analyze table emps with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from emps order by empid;")
         contains "(emps)"

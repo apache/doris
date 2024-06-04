@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
@@ -89,6 +90,13 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             Plan tempRewritedPlan,
             MaterializationContext materializationContext,
             CascadesContext cascadesContext) {
+        if (materializationContext instanceof SyncMaterializationContext
+                && queryStructInfo.getBottomPlan() instanceof LogicalOlapScan) {
+            LogicalOlapScan olapScan = (LogicalOlapScan) queryStructInfo.getBottomPlan();
+            if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
+                return null;
+            }
+        }
         // get view and query aggregate and top plan correspondingly
         Pair<Plan, LogicalAggregate<Plan>> viewTopPlanAndAggPair = splitToTopPlanAndAggregate(viewStructInfo);
         if (viewTopPlanAndAggPair == null) {

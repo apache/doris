@@ -34,12 +34,15 @@ suite ("k1s2m3") {
 
     sql "insert into d_table select 1,1,1,'a';"
     sql "insert into d_table select 2,2,2,'b';"
+    sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
     createMV("create materialized view k1s2m3 as select k1,sum(k2*k3) from d_table group by k1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table(k4,k2) values('d',4);"
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
 

@@ -45,6 +45,9 @@ suite ("multi_agg_with_same_slot") {
     sql "insert into d_table select -4,-4,-4,'d',-4;"
     sql "insert into d_table(k4,k2,k5) values('d',4,4);"
 
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
+
     qt_select_star "select * from d_table order by k1;"
 
     explain {

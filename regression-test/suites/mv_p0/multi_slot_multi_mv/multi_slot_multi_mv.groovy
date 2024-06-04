@@ -40,8 +40,12 @@ suite ("multi_slot_multi_mv") {
     createMV("create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
+    sql "insert into d_table select -4,-4,-4,'d';"
 
     qt_select_star "select * from d_table order by k1;"
+
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
 
     def retry_times = 60
     for (def i = 0; i < retry_times; ++i) {
