@@ -94,7 +94,7 @@ public class InsertOverwriteTableStmt extends DdlStmt {
         InternalDatabaseUtil.checkDatabase(getDb(), ConnectContext.get());
         TableIf tableIf = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(getCtl())
                 .getDbOrAnalysisException(getDb()).getTableOrAnalysisException(getTbl());
-        if (tableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData()) {
+        if (tableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ConnectContext.get())) {
             throw new DdlException("Not allowed to perform current operation on async materialized view");
         }
         if (!Env.getCurrentEnv().getAccessManager()

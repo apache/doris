@@ -188,7 +188,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         }
 
-        MTMVUtil.checkModifyMTMVData(db, tableIdList);
+        MTMVUtil.checkModifyMTMVData(db, tableIdList, ConnectContext.get());
 
         switch (sourceType) {
             case BACKEND_STREAMING:

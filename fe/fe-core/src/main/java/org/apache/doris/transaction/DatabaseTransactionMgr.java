@@ -352,7 +352,7 @@ public class DatabaseTransactionMgr {
         if (!coordinator.isFromInternal) {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         }
-        MTMVUtil.checkModifyMTMVData(db, tableIdList);
+        MTMVUtil.checkModifyMTMVData(db, tableIdList, ConnectContext.get());
         checkDatabaseDataQuota();
         Preconditions.checkNotNull(coordinator);
         Preconditions.checkNotNull(label);
