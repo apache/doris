@@ -483,7 +483,7 @@ JvmStats::~JvmStats() {
         if (!st.ok()) {
             LOG(WARNING) << "JVM STATS GET JNI ENV FAIL";
             return;
-        } 
+        }
         env->DeleteLocalRef(_newThreadStateObj);
         env->DeleteLocalRef(_runnableThreadStateObj);
         env->DeleteLocalRef(_blockedThreadStateObj);
