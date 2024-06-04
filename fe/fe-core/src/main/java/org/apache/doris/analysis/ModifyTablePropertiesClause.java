@@ -18,7 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -315,6 +318,20 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             throw new AnalysisException("You can not modify estimate partition size");
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
+        }
+        analyzeForMTMV();
+    }
+
+    private void analyzeForMTMV() throws AnalysisException {
+        if (tableName != null) {
+            Table table = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb())
+                    .getTableOrAnalysisException(tableName.getTbl());
+            if (!(table instanceof MTMV)) {
+                return;
+            }
+            if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+                throw new AnalysisException("Not support dynamic partition properties on async materialized view");
+            }
         }
     }
 

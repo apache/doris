@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/QueryPlanExtra_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 #include <stdint.h>
@@ -34,7 +35,6 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
-#include "runtime/plan_fragment_executor.h"
 #include "runtime/query_context.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
@@ -54,7 +54,6 @@ class PipelineFragmentContext;
 } // namespace pipeline
 class QueryContext;
 class ExecEnv;
-class PlanFragmentExecutor;
 class ThreadPool;
 class TExecPlanFragmentParams;
 class PExecPlanFragmentStartRequest;
@@ -101,9 +100,6 @@ public:
 
     // Cancel instance (pipeline or nonpipeline).
     void cancel_instance(const TUniqueId instance_id, const Status reason);
-    // Cancel fragment (only pipelineX).
-    // {query id fragment} -> PipelineFragmentContext
-    void cancel_fragment(const TUniqueId query_id, int32_t fragment_id, const Status reason);
 
     // Can be used in both version.
     void cancel_query(const TUniqueId query_id, const Status reason);
@@ -112,10 +108,11 @@ public:
 
     void debug(std::stringstream& ss) override;
 
-    // input: TScanOpenParams fragment_instance_id
+    // input: TQueryPlanInfo fragment_instance_id
     // output: selected_columns
     // execute external query, all query info are packed in TScanOpenParams
     Status exec_external_plan_fragment(const TScanOpenParams& params,
+                                       const TQueryPlanInfo& t_query_plan_info,
                                        const TUniqueId& fragment_instance_id,
                                        std::vector<TScanColumnDesc>* selected_columns);
 
@@ -154,12 +151,6 @@ public:
                                     TReportExecStatusParams* exec_status);
 
 private:
-    void cancel_unlocked_impl(const TUniqueId& id, const Status& reason,
-                              const std::unique_lock<std::mutex>& state_lock, bool is_pipeline);
-
-    void _exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
-                      const FinishCallback& cb);
-
     template <typename Param>
     void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
 
@@ -177,9 +168,6 @@ private:
     // when allocate failed, allocator may call query_is_cancelled, query is callced will also
     // call _lock, so that there is dead lock.
     std::mutex _lock;
-
-    // Make sure that remove this before no data reference PlanFragmentExecutor
-    std::unordered_map<TUniqueId, std::shared_ptr<PlanFragmentExecutor>> _fragment_instance_map;
 
     std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
 

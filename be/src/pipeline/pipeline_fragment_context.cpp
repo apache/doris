@@ -104,7 +104,6 @@
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
-#include "vec/exec/scan/vscan_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
@@ -131,7 +130,9 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     auto st = _query_ctx->exec_status();
     _query_ctx.reset();
     for (size_t i = 0; i < _tasks.size(); i++) {
-        _call_back(_tasks[i].front()->runtime_state(), &st);
+        if (!_tasks[i].empty()) {
+            _call_back(_tasks[i].front()->runtime_state(), &st);
+        }
     }
     _tasks.clear();
     for (auto& runtime_state : _task_runtime_states) {
@@ -169,6 +170,10 @@ void PipelineFragmentContext::cancel(const Status reason) {
             return;
         }
     }
+    // Timeout is a special error code, we need print current stack to debug timeout issue.
+    if (reason.is<ErrorCode::TIMEOUT>()) {
+        LOG(WARNING) << "PipelineFragmentContext is cancelled due to timeout : " << debug_string();
+    }
     _query_ctx->cancel(reason, _fragment_id);
     if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
@@ -189,9 +194,6 @@ void PipelineFragmentContext::cancel(const Status reason) {
     // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
-            if (task->is_finished()) {
-                continue;
-            }
             task->clear_blocking_state();
         }
     }
@@ -1175,6 +1177,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             !tnode.agg_node.grouping_exprs.empty()) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs,
                                                        _require_bucket_distribution));
+            _require_bucket_distribution =
+                    _require_bucket_distribution || op->require_data_distribution();
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
                    tnode.agg_node.use_streaming_preaggregation &&
@@ -1204,6 +1208,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                                 _require_bucket_distribution));
             }
+            _require_bucket_distribution =
+                    _require_bucket_distribution || sink->require_data_distribution();
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1342,6 +1348,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                              _require_bucket_distribution));
         }
+        _require_bucket_distribution =
+                _require_bucket_distribution || sink->require_data_distribution();
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1379,6 +1387,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         DataSinkOperatorXPtr sink;
         sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                              _require_bucket_distribution));
+        _require_bucket_distribution =
+                _require_bucket_distribution || sink->require_data_distribution();
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));

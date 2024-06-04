@@ -25,6 +25,14 @@
 
 namespace doris {
 
+namespace io {
+struct ObjectStorageStatus;
+}
+
+class Status;
+
+extern io::ObjectStorageStatus convert_to_obj_response(Status st);
+
 class PStatus;
 
 namespace ErrorCode {
@@ -352,11 +360,11 @@ public:
     Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
 
     // used to convert Exception to Status
-    Status(int code, std::string msg, std::string stack) : _code(code) {
+    Status(int code, std::string msg, std::string stack = "") : _code(code) {
         _err_msg = std::make_unique<ErrMsg>();
-        _err_msg->_msg = msg;
+        _err_msg->_msg = std::move(msg);
 #ifdef ENABLE_STACKTRACE
-        _err_msg->_stack = stack;
+        _err_msg->_stack = std::move(stack);
 #endif
     }
 
@@ -412,6 +420,7 @@ public:
         if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
             // Delete the first one frame pointers, which are inside the status.h
             status._err_msg->_stack = get_stack_trace(1);
+            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
         return status;
@@ -430,6 +439,7 @@ public:
 #ifdef ENABLE_STACKTRACE
         if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
             status._err_msg->_stack = get_stack_trace(1);
+            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
         return status;
@@ -526,6 +536,10 @@ public:
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
 
     std::string_view msg() const { return _err_msg ? _err_msg->_msg : std::string_view(""); }
+
+    std::pair<int, std::string> retrieve_error_msg() { return {_code, std::move(_err_msg->_msg)}; }
+
+    friend io::ObjectStorageStatus convert_to_obj_response(Status st);
 
 private:
     int _code;

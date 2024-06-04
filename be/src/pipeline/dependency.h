@@ -38,9 +38,6 @@
 #include "vec/exec/join/process_hash_table_probe.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/vaggregation_node.h"
-#include "vec/exec/vanalytic_eval_node.h"
-#include "vec/exec/vpartition_sort_node.h"
-#include "vec/exec/vset_operation_node.h"
 #include "vec/spill/spill_stream.h"
 
 namespace doris::pipeline {
@@ -311,6 +308,9 @@ public:
 
     Status reset_hash_table();
 
+    bool do_limit_filter(vectorized::Block* block, size_t num_rows);
+    void build_limit_heap(size_t hash_table_size);
+
     // We should call this function only at 1st phase.
     // 1st phase: is_merge=true, only have one SlotRef.
     // 2nd phase: is_merge=false, maybe have multiple exprs.
@@ -346,8 +346,73 @@ public:
     MemoryRecord mem_usage_record;
     bool agg_data_created_without_key = false;
     bool enable_spill = false;
+    bool reach_limit = false;
+
+    int64_t limit = -1;
+    bool do_sort_limit = false;
+    vectorized::MutableColumns limit_columns;
+    int limit_columns_min = -1;
+    vectorized::PaddedPODArray<uint8_t> need_computes;
+    std::vector<uint8_t> cmp_res;
+    std::vector<int> order_directions;
+    std::vector<int> null_directions;
+
+    struct HeapLimitCursor {
+        HeapLimitCursor(int row_id, vectorized::MutableColumns& limit_columns,
+                        std::vector<int>& order_directions, std::vector<int>& null_directions)
+                : _row_id(row_id),
+                  _limit_columns(limit_columns),
+                  _order_directions(order_directions),
+                  _null_directions(null_directions) {}
+
+        HeapLimitCursor(const HeapLimitCursor& other) noexcept
+                : _row_id(other._row_id),
+                  _limit_columns(other._limit_columns),
+                  _order_directions(other._order_directions),
+                  _null_directions(other._null_directions) {}
+
+        HeapLimitCursor(HeapLimitCursor&& other) noexcept
+                : _row_id(other._row_id),
+                  _limit_columns(other._limit_columns),
+                  _order_directions(other._order_directions),
+                  _null_directions(other._null_directions) {}
+
+        HeapLimitCursor& operator=(const HeapLimitCursor& other) noexcept {
+            _row_id = other._row_id;
+            return *this;
+        }
+
+        HeapLimitCursor& operator=(HeapLimitCursor&& other) noexcept {
+            _row_id = other._row_id;
+            return *this;
+        }
+
+        bool operator<(const HeapLimitCursor& rhs) const {
+            for (int i = 0; i < _limit_columns.size(); ++i) {
+                const auto& _limit_column = _limit_columns[i];
+                auto res = _limit_column->compare_at(_row_id, rhs._row_id, *_limit_column,
+                                                     _null_directions[i]) *
+                           _order_directions[i];
+                if (res < 0) {
+                    return true;
+                } else if (res > 0) {
+                    return false;
+                }
+            }
+            return false;
+        }
+
+        int _row_id;
+        vectorized::MutableColumns& _limit_columns;
+        std::vector<int>& _order_directions;
+        std::vector<int>& _null_directions;
+    };
+
+    std::priority_queue<HeapLimitCursor> limit_heap;
 
 private:
+    vectorized::MutableColumns _get_keys_hash_table();
+
     void _close_with_serialized_key() {
         std::visit(vectorized::Overload {[&](std::monostate& arg) -> void {
                                              // Do nothing
@@ -508,6 +573,22 @@ public:
     pipeline::MultiCastDataStreamer multi_cast_data_streamer;
 };
 
+struct BlockRowPos {
+    BlockRowPos() : block_num(0), row_num(0), pos(0) {}
+    int64_t block_num; //the pos at which block
+    int64_t row_num;   //the pos at which row
+    int64_t pos;       //pos = all blocks size + row_num
+    std::string debug_string() {
+        std::string res = "\t block_num: ";
+        res += std::to_string(block_num);
+        res += "\t row_num: ";
+        res += std::to_string(row_num);
+        res += "\t pos: ";
+        res += std::to_string(pos);
+        return res;
+    }
+};
+
 struct AnalyticSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(AnalyticSharedState)
 
@@ -515,13 +596,13 @@ public:
     AnalyticSharedState() = default;
 
     int64_t current_row_position = 0;
-    vectorized::BlockRowPos partition_by_end;
+    BlockRowPos partition_by_end;
     vectorized::VExprContextSPtrs partition_by_eq_expr_ctxs;
     int64_t input_total_rows = 0;
-    vectorized::BlockRowPos all_block_end;
+    BlockRowPos all_block_end;
     std::vector<vectorized::Block> input_blocks;
     bool input_eos = false;
-    vectorized::BlockRowPos found_partition_end;
+    BlockRowPos found_partition_end;
     std::vector<int64_t> origin_cols;
     vectorized::VExprContextSPtrs order_by_eq_expr_ctxs;
     std::vector<int64_t> input_block_first_row_positions;
@@ -532,6 +613,19 @@ public:
     std::vector<int64_t> ordey_by_column_idxs;
 };
 
+using JoinOpVariants =
+        std::variant<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::LEFT_ANTI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::LEFT_OUTER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::FULL_OUTER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_OUTER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
+
 struct JoinSharedState : public BasicSharedState {
     // For some join case, we can apply a short circuit strategy
     // 1. _has_null_in_build_side = true
@@ -540,7 +634,7 @@ struct JoinSharedState : public BasicSharedState {
     bool short_circuit_for_probe = false;
     // for some join, when build side rows is empty, we could return directly by add some additional null data in probe table.
     bool empty_right_table_need_probe_dispose = false;
-    vectorized::JoinOpVariants join_op_variants;
+    JoinOpVariants join_op_variants;
 };
 
 struct HashJoinSharedState : public JoinSharedState {
@@ -602,6 +696,24 @@ public:
     ~AsyncWriterDependency() override = default;
 };
 
+using SetHashTableVariants = std::variant<
+        std::monostate,
+        vectorized::MethodSerialized<HashMap<StringRef, vectorized::RowRefListWithFlags>>,
+        vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt8>,
+        vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt16>,
+        vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt32>,
+        vectorized::SetPrimaryTypeHashTableContext<UInt64>,
+        vectorized::SetPrimaryTypeHashTableContext<UInt128>,
+        vectorized::SetPrimaryTypeHashTableContext<UInt256>,
+        vectorized::SetFixedKeyHashTableContext<UInt64, true>,
+        vectorized::SetFixedKeyHashTableContext<UInt64, false>,
+        vectorized::SetFixedKeyHashTableContext<UInt128, true>,
+        vectorized::SetFixedKeyHashTableContext<UInt128, false>,
+        vectorized::SetFixedKeyHashTableContext<UInt256, true>,
+        vectorized::SetFixedKeyHashTableContext<UInt256, false>,
+        vectorized::SetFixedKeyHashTableContext<UInt136, true>,
+        vectorized::SetFixedKeyHashTableContext<UInt136, false>>;
+
 struct SetSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(SetSharedState)
 public:
@@ -616,8 +728,7 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<vectorized::SetHashTableVariants> hash_table_variants =
-            nullptr; // the real data HERE.
+    std::unique_ptr<SetHashTableVariants> hash_table_variants = nullptr; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
     /// init in both upstream side.
@@ -642,16 +753,16 @@ public:
             switch (child_exprs_lists[0][0]->root()->result_type()) {
             case TYPE_BOOLEAN:
             case TYPE_TINYINT:
-                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt8>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt8>>();
                 break;
             case TYPE_SMALLINT:
-                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt16>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt16>>();
                 break;
             case TYPE_INT:
             case TYPE_FLOAT:
             case TYPE_DATEV2:
             case TYPE_DECIMAL32:
-                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt32>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt32>>();
                 break;
             case TYPE_BIGINT:
             case TYPE_DOUBLE:
@@ -659,12 +770,12 @@ public:
             case TYPE_DATE:
             case TYPE_DECIMAL64:
             case TYPE_DATETIMEV2:
-                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt64>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt64>>();
                 break;
             case TYPE_LARGEINT:
             case TYPE_DECIMALV2:
             case TYPE_DECIMAL128I:
-                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt128>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt128>>();
                 break;
             default:
                 hash_table_variants->emplace<SetSerializedHashTableContext>();

@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exec/exec_node.h"
 #include "exprs/runtime_filter.h"
 #include "pipeline/dependency.h"
 

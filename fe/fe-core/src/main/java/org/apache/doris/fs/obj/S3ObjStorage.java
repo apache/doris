@@ -20,9 +20,9 @@ package org.apache.doris.fs.obj;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
-import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 

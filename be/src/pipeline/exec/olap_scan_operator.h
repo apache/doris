@@ -45,8 +45,9 @@ public:
     TOlapScanNode& olap_scan_node() const;
 
     std::string name_suffix() const override {
-        return fmt::format(" (id={}. table name = {})", std::to_string(_parent->node_id()),
-                           olap_scan_node().table_name);
+        return fmt::format(" (id={}. nereids_id={}. table name = {})",
+                           std::to_string(_parent->node_id()),
+                           std::to_string(_parent->nereids_id()), olap_scan_node().table_name);
     }
 
 private:
@@ -62,19 +63,13 @@ private:
                                              vectorized::VExprContext* expr_ctx,
                                              StringRef* constant_str,
                                              doris::FunctionContext** fn_ctx,
-                                             vectorized::VScanNode::PushDownType& pdt) override;
+                                             PushDownType& pdt) override;
 
-    vectorized::VScanNode::PushDownType _should_push_down_bloom_filter() override {
-        return vectorized::VScanNode::PushDownType::ACCEPTABLE;
-    }
+    PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }
 
-    vectorized::VScanNode::PushDownType _should_push_down_bitmap_filter() override {
-        return vectorized::VScanNode::PushDownType::ACCEPTABLE;
-    }
+    PushDownType _should_push_down_bitmap_filter() override { return PushDownType::ACCEPTABLE; }
 
-    vectorized::VScanNode::PushDownType _should_push_down_is_null_predicate() override {
-        return vectorized::VScanNode::PushDownType::ACCEPTABLE;
-    }
+    PushDownType _should_push_down_is_null_predicate() override { return PushDownType::ACCEPTABLE; }
 
     bool _should_push_down_common_expr() override;
 

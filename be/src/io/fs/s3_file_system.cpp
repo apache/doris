@@ -131,9 +131,10 @@ Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
             .key = key,
     });
 
-    if (!resp.status.ok()) {
-        return ResultError(resp.status.append(
-                fmt::format("failed to head s3 file {}", full_s3_path(bucket, key))));
+    if (resp.resp.status.code != ErrorCode::OK) {
+        return ResultError(std::move(Status(resp.resp.status.code, std::move(resp.resp.status.msg))
+                                             .append(fmt::format("failed to head s3 file {}",
+                                                                 full_s3_path(bucket, key)))));
     }
 
     return resp.file_size;
@@ -207,10 +208,11 @@ Status S3FileSystem::delete_file_impl(const Path& file) {
 
     auto resp = client->delete_object({.bucket = _bucket, .key = key});
 
-    if (resp.status.ok() || resp.status.is<ErrorCode::NOT_FOUND>()) {
+    if (resp.status.code == ErrorCode::OK || resp.status.code == ErrorCode::NOT_FOUND) {
         return Status::OK();
     }
-    return resp.status.append(fmt::format("failed to delete file {}", full_s3_path(key)));
+    return std::move(Status(resp.status.code, std::move(resp.status.msg))
+                             .append(fmt::format("failed to delete file {}", full_s3_path(key))));
 }
 
 Status S3FileSystem::delete_directory_impl(const Path& dir) {
@@ -222,13 +224,12 @@ Status S3FileSystem::delete_directory_impl(const Path& dir) {
         prefix.push_back('/');
     }
 
-    return client
-            ->delete_objects_recursively({
-                    .path = full_s3_path(prefix),
-                    .bucket = _bucket,
-                    .prefix = prefix,
-            })
-            .status;
+    auto resp = client->delete_objects_recursively({
+            .path = full_s3_path(prefix),
+            .bucket = _bucket,
+            .prefix = prefix,
+    });
+    return {resp.status.code, std::move(resp.status.msg)};
 }
 
 Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
@@ -251,8 +252,9 @@ Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
             return Status::OK();
         }
         // clang-format off
-        RETURN_IF_ERROR(client->delete_objects( {.bucket = _bucket,}, std::move(objects))
-                                .status);
+        if (auto resp = client->delete_objects( {.bucket = _bucket,}, std::move(objects)); resp.status.code != ErrorCode::OK) {
+            return {resp.status.code, std::move(resp.status.msg)};
+        }
         // clang-format on
     } while (path_iter != remote_files.end());
 
@@ -266,12 +268,14 @@ Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
 
     auto resp = client->head_object({.bucket = _bucket, .key = key});
 
-    if (resp.status.ok()) {
+    if (resp.resp.status.code == ErrorCode::OK) {
         *res = true;
-    } else if (resp.status.is<ErrorCode::NOT_FOUND>()) {
+    } else if (resp.resp.status.code == ErrorCode::NOT_FOUND) {
         *res = false;
     } else {
-        return resp.status.append(fmt::format("failed to check exists {}", full_s3_path(key)));
+        return std::move(
+                Status(resp.resp.status.code, std::move(resp.resp.status.msg))
+                        .append(fmt::format(" failed to check exists {}", full_s3_path(key))));
     }
     return Status::OK();
 }
@@ -297,8 +301,13 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
     // clang-format off
     auto resp = client->list_objects( {.bucket = _bucket, .prefix = prefix,}, files);
     // clang-format on
+    if (resp.status.code == ErrorCode::OK) {
+        for (auto&& file : *files) {
+            file.file_name.erase(0, prefix.size());
+        }
+    }
 
-    return resp.status;
+    return {resp.status.code, std::move(resp.status.msg)};
 }
 
 Status S3FileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
@@ -347,10 +356,13 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
 
     std::vector<FileWriterPtr> obj_writers(local_files.size());
 
-    auto upload_task = [this](Path local_file, Path remote_file, FileWriterPtr* obj_writer) {
+    auto upload_task = [&, this](size_t idx) {
+        const auto& local_file = local_files[idx];
+        const auto& remote_file = remote_files[idx];
+        auto& obj_writer = obj_writers[idx];
         auto key = DORIS_TRY(get_key(remote_file));
         LOG(INFO) << "Start to upload " << local_file.native() << " to " << full_s3_path(key);
-        RETURN_IF_ERROR(create_file_impl(key, obj_writer, nullptr));
+        RETURN_IF_ERROR(create_file_impl(key, &obj_writer, nullptr));
         FileReaderSPtr local_reader;
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(local_file, &local_reader));
         size_t local_buffer_size = config::s3_file_system_local_upload_buffer_size;
@@ -360,24 +372,18 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
             size_t bytes_read = 0;
             RETURN_IF_ERROR(local_reader->read_at(
                     cur_read, Slice {write_buffer.get(), local_buffer_size}, &bytes_read));
-            RETURN_IF_ERROR((*obj_writer)->append({write_buffer.get(), bytes_read}));
+            RETURN_IF_ERROR((*obj_writer).append({write_buffer.get(), bytes_read}));
             cur_read += bytes_read;
         }
-        RETURN_IF_ERROR((*obj_writer)->close());
+        RETURN_IF_ERROR((*obj_writer).close());
         return Status::OK();
     };
 
     std::vector<std::future<Status>> futures;
     for (int i = 0; i < local_files.size(); ++i) {
-        std::shared_ptr<std::packaged_task<Status(Path local_file, Path remote_file,
-                                                  FileWriterPtr * obj_writer)>>
-                task = std::make_shared<std::packaged_task<Status(Path local_file, Path remote_file,
-                                                                  FileWriterPtr * obj_writer)>>(
-                        upload_task);
+        auto task = std::make_shared<std::packaged_task<Status(size_t idx)>>(upload_task);
         futures.emplace_back(task->get_future());
-        default_executor()->Submit(
-                [t = std::move(task), local = local_files[i], remote = remote_files[i],
-                 obj_writer = &obj_writers[i]]() mutable { (*t)(local, remote, obj_writer); });
+        default_executor()->Submit([t = std::move(task), idx = i]() mutable { (*t)(idx); });
     }
     Status s = Status::OK();
     for (auto&& f : futures) {
@@ -401,16 +407,15 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
     auto resp = client->get_object( {.bucket = _bucket, .key = key,},
             buf.get(), 0, size, &bytes_read);
     // clang-format on
-    if (!resp.status.ok()) {
-        return resp.status;
+    if (resp.status.code != ErrorCode::OK) {
+        return {resp.status.code, std::move(resp.status.msg)};
     }
     Aws::OFStream local_file_s;
     local_file_s.open(local_file, std::ios::out | std::ios::binary);
     if (local_file_s.good()) {
         local_file_s << StringViewStream(buf.get(), size).rdbuf();
     } else {
-        return Status::IOError("failed to download {}: failed to write file: {}",
-                               remote_file.native(), local_file.native());
+        return localfs_error(errno, fmt::format("failed to write file {}", local_file.native()));
     }
 
     return Status::OK();
