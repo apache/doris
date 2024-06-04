@@ -1279,10 +1279,13 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
         } else if (resource.__isset.hdfs_storage_param) {
             Status st;
             std::shared_ptr<io::HdfsFileSystem> fs;
-            std::string root_path = param.hdfs_storage_param.__isset.root_path ? param.hdfs_storage_param.root_path : "";
+            std::string root_path = param.hdfs_storage_param.__isset.root_path
+                                            ? param.hdfs_storage_param.root_path
+                                            : "";
             if (existed_resource.fs == nullptr) {
                 st = io::HdfsFileSystem::create(resource.hdfs_storage_param,
-                                                std::to_string(resource.id), std::move(root_path), nullptr, &fs);
+                                                std::to_string(resource.id), std::move(root_path),
+                                                nullptr, &fs);
             } else {
                 fs = std::static_pointer_cast<io::HdfsFileSystem>(existed_resource.fs);
             }
