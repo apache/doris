@@ -2658,6 +2658,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_create_inverted_index_for_array = false;
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_create_bitmap_index_as_inverted_index = true;
+
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,
     // to help to acquire a snapshot of partition versions.
