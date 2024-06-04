@@ -58,10 +58,10 @@ suite ("test_alter_colocate_group") {
     sql " DROP TABLE IF EXISTS tbl2 FORCE; "
     sql " DROP TABLE IF EXISTS tbl3 FORCE; "
 
-    def replicaNum = 1
+    def replication_num = 1
     def forceReplicaNum = getFeConfig('force_olap_table_replication_num').toInteger()
     if (forceReplicaNum > 0) {
-        replicaNum = forceReplicaNum
+        replication_num = forceReplicaNum
     }
 
     sql """
@@ -74,7 +74,7 @@ suite ("test_alter_colocate_group") {
         PROPERTIES
         (
             "colocate_with" = "group_1",
-            "replication_num" = "${replicaNum}"
+            "replication_num" = "${replication_num}"
         );
     """
 
@@ -93,7 +93,7 @@ suite ("test_alter_colocate_group") {
         PROPERTIES
         (
             "colocate_with" = "group_2",
-            "replication_num" = "${replicaNum}"
+            "replication_num" = "${replication_num}"
         );
     """
 
@@ -109,13 +109,13 @@ suite ("test_alter_colocate_group") {
         PROPERTIES
         (
             "colocate_with" = "group_3",
-            "replication_num" = "${replicaNum}",
+            "replication_num" = "${replication_num}",
             "dynamic_partition.enable" = "true",
             "dynamic_partition.time_unit" = "DAY",
             "dynamic_partition.end" = "2",
             "dynamic_partition.prefix" = "p",
             "dynamic_partition.buckets" = "4",
-            "dynamic_partition.replication_num" = "${replicaNum}"
+            "dynamic_partition.replication_num" = "${replication_num}"
          );
     """
 
@@ -149,12 +149,12 @@ suite ("test_alter_colocate_group") {
     def beNum = sql_return_maparray("show backends").size()
     def modifyReplicaNum = -1
     for (int i=1; i <= beNum; i++) {
-        if (i != replicaNum) {
+        if (i != replication_num) {
             modifyReplicaNum = i
             break
         }
     }
-    logger.info("old replica num ${replicaNum}, modify replica num ${modifyReplicaNum}")
+    logger.info("old replica num ${replication_num}, modify replica num ${modifyReplicaNum}")
 
     for (int i = 1; i <= 3; i++) {
         def groupName = "regression_test_alter_p2.group_${i}"
@@ -180,10 +180,10 @@ suite ("test_alter_colocate_group") {
                   SET ( "replication_num" = "${modifyReplicaNum}" );
                 """
             }
-        }
 
-        checkGroupsReplicaAlloc(groupName, 3)
-        checkTableReplicaAlloc(tableName, hasDynamicPart, 3)
+            checkGroupsReplicaAlloc(groupName, modifyReplicaNum)
+            checkTableReplicaAlloc(tableName, hasDynamicPart, modifyReplicaNum)
+        }
     }
 
     sql " DROP TABLE IF EXISTS tbl1 FORCE; "
