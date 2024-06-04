@@ -17,23 +17,13 @@
 
 package org.apache.doris.consistency;
 
-import com.google.common.collect.Lists;
 import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTask;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
-import org.springframework.cglib.core.ReflectUtils;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.Collections;
 import java.util.List;
 
 
