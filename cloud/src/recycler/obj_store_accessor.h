@@ -32,6 +32,7 @@ struct ObjectMeta {
 enum class AccessorType {
     S3,
     HDFS,
+    AZURE,
 };
 
 // TODO(plat1ko): Redesign `Accessor` interface to adapt to storage vaults other than S3 style
@@ -86,7 +87,7 @@ struct ObjectStorageDeleteExpiredOptions {
 struct ObjectCompleteMultiParts {};
 
 struct ObjectStorageResponse {
-    ObjectStorageResponse(int r, std::string msg = "") : ret(r), error_msg(std::move(msg)) {}
+    ObjectStorageResponse(int r = 0, std::string msg = "") : ret(r), error_msg(std::move(msg)) {}
     // clang-format off
     int ret {0}; // To unify the error handle logic with BE, we'd better use the same error code as BE
     // clang-format on

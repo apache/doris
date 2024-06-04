@@ -32,12 +32,10 @@
 
 #include <algorithm>
 #include <execution>
-#include <type_traits>
 #include <utility>
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "rate-limiter/s3_rate_limiter.h"
 #include "recycler/obj_store_accessor.h"
 #include "recycler/s3_obj_client.h"
