@@ -657,7 +657,7 @@ public class AnalysisManager implements Writable {
         invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats);
         // Drop stats ddl is master only operation.
         invalidateRemoteStats(catalogId, dbId, tblId, cols);
-        StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, null);
+        StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols);
     }
 
     public void dropStats(TableIf table) throws DdlException {
@@ -671,7 +671,7 @@ public class AnalysisManager implements Writable {
         invalidateLocalStats(catalogId, dbId, tableId, null, tableStats);
         // Drop stats ddl is master only operation.
         invalidateRemoteStats(catalogId, dbId, tableId, null);
-        StatisticsRepository.dropStatistics(catalogId, dbId, table.getId(), null, null);
+        StatisticsRepository.dropStatistics(catalogId, dbId, table.getId(), null);
     }
 
     public void invalidateLocalStats(long catalogId, long dbId, long tableId,
@@ -1054,7 +1054,7 @@ public class AnalysisManager implements Writable {
         for (long tableId : tableIds) {
             TableStatsMeta statsStatus = idToTblStats.get(tableId);
             if (statsStatus != null) {
-                statsStatus.newPartitionLoaded.set(true);
+                statsStatus.partitionChanged.set(true);
             }
         }
         logNewPartitionLoadedEvent(new NewPartitionLoadedEvent(tableIds));
@@ -1189,7 +1189,7 @@ public class AnalysisManager implements Writable {
         for (long tableId : event.getTableIds()) {
             TableStatsMeta statsStatus = idToTblStats.get(tableId);
             if (statsStatus != null) {
-                statsStatus.newPartitionLoaded.set(true);
+                statsStatus.partitionChanged.set(true);
             }
         }
     }
