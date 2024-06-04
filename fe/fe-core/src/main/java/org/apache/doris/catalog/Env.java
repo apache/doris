@@ -2878,7 +2878,7 @@ public class Env {
                     replayedJournalId.incrementAndGet();
                     String msg = "journal " + replayedJournalId + " has skipped by config force_skip_journal_id";
                     LOG.info(msg);
-                    Util.stdoutWithTime(msg);
+                    LogUtils.stdout(msg);
                     if (MetricRepo.isInit) {
                         // Metric repo may not init after this replay thread start
                         MetricRepo.COUNTER_EDIT_LOG_READ.increase(1L);
