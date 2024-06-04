@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_forbid_unknown_col_stats") {
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     sql "drop table if exists test_forbid_unknown_col_stats_tbl"
     sql """

@@ -36,14 +36,10 @@ public:
         SCOPED_TIMER(_exec_timer);
         COUNTER_UPDATE(_blocks_sent_counter, 1);
         COUNTER_UPDATE(_output_rows_counter, block->rows());
-        static_cast<void>(_multi_cast_data_streamer->push(state, block, eos));
-        return Status::OK();
+        return _multi_cast_data_streamer->push(state, block, eos);
     };
 
     Status open(doris::RuntimeState* state) override { return Status::OK(); };
-
-    // use sink to check can_write, now always true after we support spill to disk
-    bool can_write() override { return _multi_cast_data_streamer->can_write(); }
 
     std::shared_ptr<pipeline::MultiCastDataStreamer>& get_multi_cast_data_streamer() {
         return _multi_cast_data_streamer;

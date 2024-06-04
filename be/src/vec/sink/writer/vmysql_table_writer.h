@@ -51,7 +51,7 @@ public:
     // connect to mysql server
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status append_block(vectorized::Block& block) override;
+    Status write(vectorized::Block& block) override;
 
     Status close(Status) override;
 

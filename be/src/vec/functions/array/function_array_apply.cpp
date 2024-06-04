@@ -173,48 +173,48 @@ private:
     }
 
 // need exception safety
-#define APPLY_ALL_TYPES(src_column, src_offsets, OP, cmp, dst)                     \
-    do {                                                                           \
-        WhichDataType which(remove_nullable(nested_type));                         \
-        if (which.is_uint8()) {                                                    \
-            *dst = _apply_internal<UInt8, OP>(src_column, src_offsets, cmp);       \
-        } else if (which.is_int8()) {                                              \
-            *dst = _apply_internal<Int8, OP>(src_column, src_offsets, cmp);        \
-        } else if (which.is_int16()) {                                             \
-            *dst = _apply_internal<Int16, OP>(src_column, src_offsets, cmp);       \
-        } else if (which.is_int32()) {                                             \
-            *dst = _apply_internal<Int32, OP>(src_column, src_offsets, cmp);       \
-        } else if (which.is_int64()) {                                             \
-            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);       \
-        } else if (which.is_int128()) {                                            \
-            *dst = _apply_internal<Int128, OP>(src_column, src_offsets, cmp);      \
-        } else if (which.is_float32()) {                                           \
-            *dst = _apply_internal<Float32, OP>(src_column, src_offsets, cmp);     \
-        } else if (which.is_float64()) {                                           \
-            *dst = _apply_internal<Float64, OP>(src_column, src_offsets, cmp);     \
-        } else if (which.is_date()) {                                              \
-            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);       \
-        } else if (which.is_date_time()) {                                         \
-            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);       \
-        } else if (which.is_date_v2()) {                                           \
-            *dst = _apply_internal<UInt32, OP>(src_column, src_offsets, cmp);      \
-        } else if (which.is_date_time_v2()) {                                      \
-            *dst = _apply_internal<UInt64, OP>(src_column, src_offsets, cmp);      \
-        } else if (which.is_date_time_v2()) {                                      \
-            *dst = _apply_internal<UInt64, OP>(src_column, src_offsets, cmp);      \
-        } else if (which.is_decimal32()) {                                         \
-            *dst = _apply_internal<Decimal32, OP>(src_column, src_offsets, cmp);   \
-        } else if (which.is_decimal64()) {                                         \
-            *dst = _apply_internal<Decimal64, OP>(src_column, src_offsets, cmp);   \
-        } else if (which.is_decimal128()) {                                        \
-            *dst = _apply_internal<Decimal128, OP>(src_column, src_offsets, cmp);  \
-        } else if (which.is_decimal128i()) {                                       \
-            *dst = _apply_internal<Decimal128I, OP>(src_column, src_offsets, cmp); \
-        } else if (which.is_decimal256()) {                                        \
-            *dst = _apply_internal<Decimal256, OP>(src_column, src_offsets, cmp);  \
-        } else {                                                                   \
-            LOG(FATAL) << "unsupported type " << nested_type->get_name();          \
-        }                                                                          \
+#define APPLY_ALL_TYPES(src_column, src_offsets, OP, cmp, dst)                      \
+    do {                                                                            \
+        WhichDataType which(remove_nullable(nested_type));                          \
+        if (which.is_uint8()) {                                                     \
+            *dst = _apply_internal<UInt8, OP>(src_column, src_offsets, cmp);        \
+        } else if (which.is_int8()) {                                               \
+            *dst = _apply_internal<Int8, OP>(src_column, src_offsets, cmp);         \
+        } else if (which.is_int16()) {                                              \
+            *dst = _apply_internal<Int16, OP>(src_column, src_offsets, cmp);        \
+        } else if (which.is_int32()) {                                              \
+            *dst = _apply_internal<Int32, OP>(src_column, src_offsets, cmp);        \
+        } else if (which.is_int64()) {                                              \
+            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);        \
+        } else if (which.is_int128()) {                                             \
+            *dst = _apply_internal<Int128, OP>(src_column, src_offsets, cmp);       \
+        } else if (which.is_float32()) {                                            \
+            *dst = _apply_internal<Float32, OP>(src_column, src_offsets, cmp);      \
+        } else if (which.is_float64()) {                                            \
+            *dst = _apply_internal<Float64, OP>(src_column, src_offsets, cmp);      \
+        } else if (which.is_date()) {                                               \
+            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);        \
+        } else if (which.is_date_time()) {                                          \
+            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);        \
+        } else if (which.is_date_v2()) {                                            \
+            *dst = _apply_internal<UInt32, OP>(src_column, src_offsets, cmp);       \
+        } else if (which.is_date_time_v2()) {                                       \
+            *dst = _apply_internal<UInt64, OP>(src_column, src_offsets, cmp);       \
+        } else if (which.is_date_time_v2()) {                                       \
+            *dst = _apply_internal<UInt64, OP>(src_column, src_offsets, cmp);       \
+        } else if (which.is_decimal32()) {                                          \
+            *dst = _apply_internal<Decimal32, OP>(src_column, src_offsets, cmp);    \
+        } else if (which.is_decimal64()) {                                          \
+            *dst = _apply_internal<Decimal64, OP>(src_column, src_offsets, cmp);    \
+        } else if (which.is_decimal128v2()) {                                       \
+            *dst = _apply_internal<Decimal128V2, OP>(src_column, src_offsets, cmp); \
+        } else if (which.is_decimal128v3()) {                                       \
+            *dst = _apply_internal<Decimal128V3, OP>(src_column, src_offsets, cmp); \
+        } else if (which.is_decimal256()) {                                         \
+            *dst = _apply_internal<Decimal256, OP>(src_column, src_offsets, cmp);   \
+        } else {                                                                    \
+            LOG(FATAL) << "unsupported type " << nested_type->get_name();           \
+        }                                                                           \
     } while (0)
 
     // need exception safety

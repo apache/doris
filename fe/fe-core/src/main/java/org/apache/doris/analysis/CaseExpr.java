@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TExprNodeType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -67,8 +68,14 @@ import java.util.Objects;
  *   END
  */
 public class CaseExpr extends Expr {
+    @SerializedName("hce")
     private boolean hasCaseExpr;
+    @SerializedName("hee")
     private boolean hasElseExpr;
+
+    private CaseExpr() {
+        // use for serde only
+    }
 
     public CaseExpr(Expr caseExpr, List<CaseWhenClause> whenClauses, Expr elseExpr) {
         super();
@@ -352,11 +359,7 @@ public class CaseExpr extends Expr {
         }
 
         if (caseExpr instanceof NullLiteral) {
-            if (expr.hasElseExpr) {
-                return expr.getChild(expr.getChildren().size() - 1);
-            } else {
-                return new NullLiteral();
-            }
+            return expr.getFinalResult();
         }
 
         if (expr.hasElseExpr) {
@@ -402,8 +405,12 @@ public class CaseExpr extends Expr {
             }
         }
 
-        if (expr.hasElseExpr) {
-            return expr.getChild(expr.getChildren().size() - 1);
+        return expr.getFinalResult();
+    }
+
+    public Expr getFinalResult() {
+        if (hasElseExpr) {
+            return getChild(getChildren().size() - 1);
         } else {
             return new NullLiteral();
         }

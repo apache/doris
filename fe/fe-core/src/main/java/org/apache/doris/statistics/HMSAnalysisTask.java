@@ -18,12 +18,12 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.external.HMSExternalTable;
-import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.external.hive.util.HiveUtil;
+import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
@@ -38,134 +38,62 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
-public class HMSAnalysisTask extends BaseAnalysisTask {
+public class HMSAnalysisTask extends ExternalAnalysisTask {
     private static final Logger LOG = LogManager.getLogger(HMSAnalysisTask.class);
+    private HMSExternalTable hmsExternalTable;
 
-    private static final String ANALYZE_TABLE_COUNT_TEMPLATE = "SELECT ROUND(COUNT(1) * ${scaleFactor}) as rowCount "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleHints}";
-    private boolean isTableLevelTask;
-    private boolean isPartitionOnly;
-    private HMSExternalTable table;
-
+    // for test
     public HMSAnalysisTask() {
     }
 
     public HMSAnalysisTask(AnalysisInfo info) {
         super(info);
-        isTableLevelTask = info.externalTableLevelTask;
-        isPartitionOnly = info.partitionOnly;
-        table = (HMSExternalTable) tbl;
+        hmsExternalTable = (HMSExternalTable) tbl;
     }
 
-    public void doExecute() throws Exception {
-        if (isTableLevelTask) {
-            getTableStats();
-        } else {
-            getTableColumnStats();
-        }
+    private boolean isPartitionColumn() {
+        return hmsExternalTable.getPartitionColumns().stream().anyMatch(c -> c.getName().equals(col.getName()));
     }
 
     // For test
     protected void setTable(HMSExternalTable table) {
-        this.table = table;
+        setTable((ExternalTable) table);
+        this.hmsExternalTable = table;
     }
 
-    /**
-     * Get table row count
-     */
-    private void getTableStats() throws Exception {
-        Map<String, String> params = buildStatsParams(null);
-        List<ResultRow> columnResult =
-                StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                        .replace(ANALYZE_TABLE_COUNT_TEMPLATE));
-        String rowCount = columnResult.get(0).get(0);
-        Env.getCurrentEnv().getAnalysisManager()
-                .updateTableStatsStatus(
-                        new TableStatsMeta(Long.parseLong(rowCount), info, tbl));
-        job.rowCountDone(this);
-    }
-
-    /**
-     * Get column statistics and insert the result to __internal_schema.column_statistics
-     */
-    private void getTableColumnStats() throws Exception {
-        if (!info.usingSqlForPartitionColumn && isPartitionColumn()) {
+    @Override
+    public void doExecute() throws Exception {
+        if (killed) {
+            return;
+        }
+        if (info.usingSqlForExternalTable) {
+            // If user specify with sql in analyze statement, using sql to collect stats.
+            super.doExecute();
+        } else {
+            // By default, using HMS stats and partition info to collect stats.
             try {
-                getPartitionColumnStats();
+                if (StatisticsUtil.enablePartitionAnalyze() && tbl.isPartitionedTable()) {
+                    throw new RuntimeException("HMS doesn't support fetch partition level stats.");
+                }
+                if (isPartitionColumn()) {
+                    getPartitionColumnStats();
+                } else {
+                    getHmsColumnStats();
+                }
             } catch (Exception e) {
-                LOG.warn("Failed to collect stats for partition col {} using metadata, "
-                        + "fallback to normal collection", col.getName(), e);
-                getOrdinaryColumnStats();
+                LOG.info("Failed to collect stats for {}col {} using metadata, "
+                        + "fallback to normal collection. Because {}",
+                        isPartitionColumn() ? "partition " : "", col.getName(), e.getMessage());
+                /* retry using sql way! */
+                super.doExecute();
             }
-        } else {
-            getOrdinaryColumnStats();
         }
-    }
-
-    private boolean isPartitionColumn() {
-        return table.getPartitionColumns().stream().anyMatch(c -> c.getName().equals(col.getName()));
-    }
-
-    // Get ordinary column stats. Ordinary column means not partition column.
-    private void getOrdinaryColumnStats() throws Exception {
-        StringBuilder sb = new StringBuilder();
-        Map<String, String> params = buildStatsParams("NULL");
-        params.put("min", getMinFunction());
-        params.put("max", getMaxFunction());
-        params.put("dataSizeFunction", getDataSizeFunction(col, false));
-        Pair<Double, Long> sampleInfo = getSampleInfo();
-        params.put("scaleFactor", String.valueOf(sampleInfo.first));
-        StringSubstitutor stringSubstitutor;
-        if (tableSample == null) {
-            // Do full analyze
-            LOG.debug("Will do full collection for column {}", col.getName());
-            sb.append(COLLECT_COL_STATISTICS);
-        } else {
-            // Do sample analyze
-            LOG.debug("Will do sample collection for column {}", col.getName());
-            boolean limitFlag = false;
-            boolean bucketFlag = false;
-            // If sample size is too large, use limit to control the sample size.
-            if (needLimit(sampleInfo.second, sampleInfo.first)) {
-                limitFlag = true;
-                long columnSize = 0;
-                for (Column column : table.getFullSchema()) {
-                    columnSize += column.getDataType().getSlotSize();
-                }
-                double targetRows = (double) sampleInfo.second / columnSize;
-                // Estimate the new scaleFactor based on the schema.
-                if (targetRows > StatisticsUtil.getHugeTableSampleRows()) {
-                    params.put("limit", "limit " + StatisticsUtil.getHugeTableSampleRows());
-                    params.put("scaleFactor",
-                            String.valueOf(sampleInfo.first * targetRows / StatisticsUtil.getHugeTableSampleRows()));
-                }
-            }
-            // Single distribution column is not fit for DUJ1 estimator, use linear estimator.
-            Set<String> distributionColumns = tbl.getDistributionColumnNames();
-            if (distributionColumns.size() == 1 && distributionColumns.contains(col.getName().toLowerCase())) {
-                bucketFlag = true;
-                sb.append(LINEAR_ANALYZE_TEMPLATE);
-                params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
-                params.put("rowCount", "ROUND(count(1) * ${scaleFactor})");
-            } else {
-                sb.append(DUJ1_ANALYZE_TEMPLATE);
-                params.put("dataSizeFunction", getDataSizeFunction(col, true));
-                params.put("ndvFunction", getNdvFunction("ROUND(SUM(t1.count) * ${scaleFactor})"));
-                params.put("rowCount", "ROUND(SUM(t1.count) * ${scaleFactor})");
-            }
-            LOG.info("Sample for column [{}]. Scale factor [{}], "
-                    + "limited [{}], is distribute column [{}]",
-                    col.getName(), params.get("scaleFactor"), limitFlag, bucketFlag);
-        }
-        stringSubstitutor = new StringSubstitutor(params);
-        String sql = stringSubstitutor.replace(sb.toString());
-        runQuery(sql);
     }
 
     // Collect the partition column stats through HMS metadata.
     // Get all the partition values and calculate the stats based on the values.
-    private void getPartitionColumnStats() throws Exception {
-        Set<String> partitionNames = table.getPartitionNames();
+    private void getPartitionColumnStats() {
+        Set<String> partitionNames = hmsExternalTable.getPartitionNames();
         Set<String> ndvPartValues = Sets.newHashSet();
         long numNulls = 0;
         long dataSize = 0;
@@ -190,20 +118,51 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
                 }
             }
         }
-        // Estimate the row count. This value is inaccurate if the table stats is empty.
-        TableStatsMeta tableStatsStatus = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
-        long count = tableStatsStatus == null ? table.estimatedRowCount() : tableStatsStatus.rowCount;
+        // getRowCount may return 0 if cache is empty, in this case, call fetchRowCount.
+        long count = hmsExternalTable.getRowCount();
+        if (count == 0) {
+            count = hmsExternalTable.fetchRowCount();
+        }
         dataSize = dataSize * count / partitionNames.size();
         numNulls = numNulls * count / partitionNames.size();
         int ndv = ndvPartValues.size();
 
-        Map<String, String> params = buildStatsParams("NULL");
+        Map<String, String> params = buildSqlParams();
         params.put("row_count", String.valueOf(count));
         params.put("ndv", String.valueOf(ndv));
         params.put("null_count", String.valueOf(numNulls));
         params.put("min", StatisticsUtil.quote(min));
         params.put("max", StatisticsUtil.quote(max));
         params.put("data_size", String.valueOf(dataSize));
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String sql = stringSubstitutor.replace(ANALYZE_PARTITION_COLUMN_TEMPLATE);
+        runQuery(sql);
+    }
+
+    // Collect the spark analyzed column stats through HMS metadata.
+    private void getHmsColumnStats() throws Exception {
+        // getRowCount may return 0 if cache is empty, in this case, call fetchRowCount.
+        long count = hmsExternalTable.getRowCount();
+        if (count == 0) {
+            count = hmsExternalTable.fetchRowCount();
+        }
+
+        Map<String, String> params = buildSqlParams();
+        Map<StatsType, String> statsParams = new HashMap<>();
+        statsParams.put(StatsType.NDV, "ndv");
+        statsParams.put(StatsType.NUM_NULLS, "null_count");
+        statsParams.put(StatsType.MIN_VALUE, "min");
+        statsParams.put(StatsType.MAX_VALUE, "max");
+        statsParams.put(StatsType.AVG_SIZE, "avg_len");
+
+        if (!hmsExternalTable.fillColumnStatistics(info.colName, statsParams, params)) {
+            throw new AnalysisException("some column stats not available");
+        }
+
+        long dataSize = Long.parseLong(params.get("avg_len")) * count;
+        params.put("row_count", String.valueOf(count));
+        params.put("data_size", String.valueOf(dataSize));
+
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_PARTITION_COLUMN_TEMPLATE);
         runQuery(sql);
@@ -251,36 +210,96 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         return value.compareTo(currentMax) > 0 ? value : currentMax;
     }
 
-    private Map<String, String> buildStatsParams(String partId) {
-        Map<String, String> commonParams = new HashMap<>();
-        String id = StatisticsUtil.constructId(tbl.getId(), -1);
-        if (partId == null) {
-            commonParams.put("partId", "NULL");
+    @Override
+    protected void doSample() {
+        StringBuilder sb = new StringBuilder();
+        Map<String, String> params = buildSqlParams();
+        params.put("min", getMinFunction());
+        params.put("max", getMaxFunction());
+        params.put("dataSizeFunction", getDataSizeFunction(col, false));
+        Pair<Double, Long> sampleInfo = getSampleInfo();
+        params.put("scaleFactor", String.valueOf(sampleInfo.first));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Will do sample collection for column {}", col.getName());
+        }
+        boolean limitFlag = false;
+        boolean bucketFlag = false;
+        // If sample size is too large, use limit to control the sample size.
+        if (needLimit(sampleInfo.second, sampleInfo.first)) {
+            limitFlag = true;
+            long columnSize = 0;
+            for (Column column : table.getFullSchema()) {
+                columnSize += column.getDataType().getSlotSize();
+            }
+            double targetRows = (double) sampleInfo.second / columnSize;
+            // Estimate the new scaleFactor based on the schema.
+            if (targetRows > StatisticsUtil.getHugeTableSampleRows()) {
+                params.put("limit", "limit " + StatisticsUtil.getHugeTableSampleRows());
+                params.put("scaleFactor",
+                        String.valueOf(sampleInfo.first * targetRows / StatisticsUtil.getHugeTableSampleRows()));
+            }
+        }
+        // Single distribution column is not fit for DUJ1 estimator, use linear estimator.
+        Set<String> distributionColumns = tbl.getDistributionColumnNames();
+        if (distributionColumns.size() == 1 && distributionColumns.contains(col.getName().toLowerCase())) {
+            bucketFlag = true;
+            sb.append(LINEAR_ANALYZE_TEMPLATE);
+            params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
+            params.put("rowCount", "ROUND(count(1) * ${scaleFactor})");
         } else {
-            id = StatisticsUtil.constructId(id, partId);
-            commonParams.put("partId", "\'" + partId + "\'");
+            if (col.getType().isStringType()) {
+                sb.append(DUJ1_ANALYZE_STRING_TEMPLATE);
+            } else {
+                sb.append(DUJ1_ANALYZE_TEMPLATE);
+            }
+            params.put("dataSizeFunction", getDataSizeFunction(col, true));
+            params.put("ndvFunction", getNdvFunction("ROUND(SUM(t1.count) * ${scaleFactor})"));
+            params.put("rowCount", "ROUND(SUM(t1.count) * ${scaleFactor})");
         }
-        commonParams.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-        commonParams.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
-        commonParams.put("id", id);
-        commonParams.put("catalogId", String.valueOf(catalog.getId()));
-        commonParams.put("dbId", String.valueOf(db.getId()));
-        commonParams.put("tblId", String.valueOf(tbl.getId()));
-        commonParams.put("indexId", "-1");
-        commonParams.put("idxId", "-1");
-        commonParams.put("colName", info.colName);
-        commonParams.put("colId", info.colName);
-        commonParams.put("catalogName", catalog.getName());
-        commonParams.put("dbName", db.getFullName());
-        commonParams.put("tblName", tbl.getName());
-        commonParams.put("sampleHints", getSampleHint());
-        commonParams.put("limit", "");
-        commonParams.put("scaleFactor", "1");
-        if (col != null) {
-            commonParams.put("type", col.getType().toString());
+        LOG.info("Sample for column [{}]. Scale factor [{}], "
+                + "limited [{}], is distribute column [{}]",
+                col.getName(), params.get("scaleFactor"), limitFlag, bucketFlag);
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String sql = stringSubstitutor.replace(sb.toString());
+        runQuery(sql);
+    }
+
+    @Override
+    protected void doFull() throws Exception {
+        if (StatisticsUtil.enablePartitionAnalyze() && tbl.isPartitionedTable()) {
+            doPartitionTable();
+        } else {
+            super.doFull();
         }
-        commonParams.put("lastAnalyzeTimeInMs", String.valueOf(System.currentTimeMillis()));
-        return commonParams;
+    }
+
+    @Override
+    protected String getPartitionInfo(String partitionName) {
+        // partitionName is like "date=20230101" for one level partition
+        // and like "date=20230101/hour=12" for two level partition
+        String[] parts = partitionName.split("/");
+        if (parts.length == 0) {
+            throw new RuntimeException("Invalid partition name " + partitionName);
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(" WHERE ");
+        for (int i = 0; i < parts.length; i++) {
+            String[] split = parts[i].split("=");
+            if (split.length != 2 || split[0].isEmpty() || split[1].isEmpty()) {
+                throw new RuntimeException("Invalid partition name " + partitionName);
+            }
+            sb.append("`");
+            sb.append(split[0]);
+            sb.append("`");
+            sb.append(" = ");
+            sb.append("'");
+            sb.append(split[1]);
+            sb.append("'");
+            if (i < parts.length - 1) {
+                sb.append(" AND ");
+            }
+        }
+        return sb.toString();
     }
 
     protected String getSampleHint() {
@@ -337,16 +356,6 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         return Pair.of(Math.max(((double) total) / cumulate, 1), cumulate);
     }
 
-    @Override
-    protected void afterExecution() {
-        // Table level task doesn't need to sync any value to sync stats, it stores the value in metadata.
-        // Partition only task doesn't need to refresh cached.
-        if (isTableLevelTask || isPartitionOnly) {
-            return;
-        }
-        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
-    }
-
     /**
      * If the size to sample is larger than LIMIT_SIZE (1GB)
      * and is much larger (1.2*) than the size user want to sample,
@@ -367,9 +376,6 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             }
             target = columnSize * tableSample.getSampleValue();
         }
-        if (sizeToRead > LIMIT_SIZE && sizeToRead > target * LIMIT_FACTOR) {
-            return true;
-        }
-        return false;
+        return sizeToRead > LIMIT_SIZE && sizeToRead > target * LIMIT_FACTOR;
     }
 }

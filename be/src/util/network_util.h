@@ -45,6 +45,8 @@ private:
 
 bool is_valid_ip(const std::string& ip);
 
+bool parse_endpoint(const std::string& endpoint, std::string* host, uint16_t* port);
+
 Status hostname_to_ip(const std::string& host, std::string& ip);
 
 Status hostname_to_ipv4(const std::string& host, std::string& ip);

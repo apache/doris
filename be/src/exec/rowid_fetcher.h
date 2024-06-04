@@ -22,6 +22,7 @@
 #include <gen_cpp/internal_service.pb.h>
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -36,7 +37,9 @@ class RuntimeState;
 class TupleDescriptor;
 
 namespace vectorized {
-class ColumnString;
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 class MutableBlock;
 } // namespace vectorized
 
@@ -51,7 +54,7 @@ struct FetchOption {
 
 class RowIDFetcher {
 public:
-    RowIDFetcher(const FetchOption& fetch_opt) : _fetch_option(fetch_opt) {}
+    RowIDFetcher(FetchOption fetch_opt) : _fetch_option(std::move(fetch_opt)) {}
     Status init();
     Status fetch(const vectorized::ColumnPtr& row_ids, vectorized::Block* block);
 
@@ -65,6 +68,11 @@ private:
 
     std::vector<std::shared_ptr<PBackendService_Stub>> _stubs;
     FetchOption _fetch_option;
+};
+
+class RowIdStorageReader {
+public:
+    static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
 };
 
 } // namespace doris

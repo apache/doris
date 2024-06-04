@@ -56,6 +56,8 @@ public class ConfigBase {
 
         Class<? extends ConfHandler> callback() default DefaultConfHandler.class;
 
+        String callbackClassString() default "";
+
         // description for this config item.
         // There should be 2 elements in the array.
         // The first element is the description in Chinese.
@@ -222,7 +224,12 @@ public class ConfigBase {
                 continue;
             }
 
-            setConfigField(f, confVal);
+            try {
+                setConfigField(f, confVal);
+            } catch (Exception e) {
+                String msg = String.format("Failed to set config, name: %s, value: %s", f.getName(), confVal);
+                throw new IllegalArgumentException(msg, e);
+            }
         }
     }
 
@@ -329,6 +336,16 @@ public class ConfigBase {
             throw new ConfigException("Failed to set config '" + key + "'. err: " + e.getMessage());
         }
 
+        String callbackClassString = anno.callbackClassString();
+        if (!Strings.isNullOrEmpty(callbackClassString)) {
+            try {
+                ConfHandler confHandler = (ConfHandler) Class.forName(anno.callbackClassString()).newInstance();
+                confHandler.handle(field, value);
+            } catch (Exception e) {
+                throw new ConfigException("Failed to set config '" + key + "'. err: " + e.getMessage());
+            }
+        }
+
         LOG.info("set config {} to {}", key, value);
     }
 
@@ -364,7 +381,13 @@ public class ConfigBase {
             if (matcher == null || matcher.match(confKey)) {
                 List<String> config = Lists.newArrayList();
                 config.add(confKey);
-                config.add(getConfValue(f));
+                String value = getConfValue(f);
+                // For compatibility, this PR #32933 change the log dir's config logic,
+                // and deprecate the `sys_log_dir` config.
+                if (confKey.equals("sys_log_dir") && Strings.isNullOrEmpty(value)) {
+                    value = System.getenv("DORIS_HOME") + "/log";
+                }
+                config.add(value);
                 config.add(f.getType().getSimpleName());
                 config.add(String.valueOf(confField.mutable()));
                 config.add(String.valueOf(confField.masterOnly()));
@@ -391,6 +414,7 @@ public class ConfigBase {
             throws IOException {
         File file = new File(customConfFile);
         if (!file.exists()) {
+            file.getParentFile().mkdirs();
             file.createNewFile();
         } else if (resetPersist) {
             // clear the customConfFile content

@@ -18,7 +18,6 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 
@@ -69,35 +68,12 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             String extraStr = StringUtils.join(extras, ",");
 
             List<String> rowList = Arrays.asList(column.getDisplayName(),
-                                                 column.getOriginType().toString(),
+                                                 column.getOriginType().hideVersionForVersionColumn(true),
                                                  column.isAllowNull() ? "Yes" : "No",
                                                  ((Boolean) column.isKey()).toString(),
                                                  column.getDefaultValue() == null
                                                          ? FeConstants.null_string : column.getDefaultValue(),
                                                  extraStr);
-
-            if (column.getOriginType().isDateV2()) {
-                rowList.set(1, "DATE");
-            }
-            if (column.getOriginType().isDatetimeV2()) {
-                StringBuilder typeStr = new StringBuilder("DATETIME");
-                if (((ScalarType) column.getOriginType()).getScalarScale() > 0) {
-                    typeStr.append("(").append(((ScalarType) column.getOriginType()).getScalarScale()).append(")");
-                }
-                rowList.set(1, typeStr.toString());
-            }
-            if (column.getOriginType().isDecimalV3()) {
-                StringBuilder typeStr = new StringBuilder("DECIMAL");
-                ScalarType sType = (ScalarType) column.getOriginType();
-                int scale = sType.getScalarScale();
-                int precision = sType.getScalarPrecision();
-                // not default
-                if (scale > 0 && precision != 9) {
-                    typeStr.append("(").append(precision).append(", ").append(scale)
-                            .append(")");
-                }
-                rowList.set(1, typeStr.toString());
-            }
             result.addRow(rowList);
         }
         return result;

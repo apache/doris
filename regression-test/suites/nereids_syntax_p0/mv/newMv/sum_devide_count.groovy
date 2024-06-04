@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
 suite ("sum_devide_count") {
     sql """ DROP TABLE IF EXISTS sum_devide_count; """
 
@@ -43,12 +41,8 @@ suite ("sum_devide_count") {
 
     sleep(3000)
 
-    sql "SET experimental_enable_nereids_planner=false"
-
     sql "insert into sum_devide_count select -4,-4,-4,'d';"
     sql "insert into sum_devide_count select 3,2,null,'c';"
-    sql "SET experimental_enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
 
     qt_select_star "select * from sum_devide_count order by k1,k2,k3,k4;"
 

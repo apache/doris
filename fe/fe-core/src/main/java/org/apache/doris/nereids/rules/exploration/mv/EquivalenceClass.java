@@ -141,4 +141,9 @@ public class EquivalenceClass {
         this.equivalenceSlotList = equivalenceSets;
         return this.equivalenceSlotList;
     }
+
+    @Override
+    public String toString() {
+        return "EquivalenceClass{" + "equivalenceSlotMap=" + equivalenceSlotMap + '}';
+    }
 }

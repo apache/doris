@@ -30,7 +30,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "pipeline_task.h"
-#include "runtime/task_group/task_group.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/thread.h"
 
 namespace doris {
@@ -44,42 +44,13 @@ class TaskQueue;
 
 namespace doris::pipeline {
 
-class BlockedTaskScheduler {
-public:
-    explicit BlockedTaskScheduler();
-
-    ~BlockedTaskScheduler() = default;
-
-    Status start(std::string sche_name);
-    void shutdown();
-    Status add_blocked_task(PipelineTask* task);
-
-private:
-    std::mutex _task_mutex;
-    std::condition_variable _task_cond;
-    std::list<PipelineTask*> _blocked_tasks;
-
-    scoped_refptr<Thread> _thread;
-    std::atomic<bool> _started;
-    std::atomic<bool> _shutdown;
-
-    static constexpr auto EMPTY_TIMES_TO_YIELD = 64;
-
-    void _schedule();
-    void _make_task_run(std::list<PipelineTask*>& local_tasks,
-                        std::list<PipelineTask*>::iterator& task_itr,
-                        PipelineTaskState state = PipelineTaskState::RUNNABLE);
-};
-
 class TaskScheduler {
 public:
-    TaskScheduler(ExecEnv* exec_env, std::shared_ptr<BlockedTaskScheduler> b_scheduler,
-                  std::shared_ptr<TaskQueue> task_queue, std::string name,
+    TaskScheduler(ExecEnv* exec_env, std::shared_ptr<TaskQueue> task_queue, std::string name,
                   CgroupCpuCtl* cgroup_cpu_ctl)
             : _task_queue(std::move(task_queue)),
-              _blocked_task_scheduler(std::move(b_scheduler)),
               _shutdown(false),
-              _name(name),
+              _name(std::move(name)),
               _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
 
     ~TaskScheduler();
@@ -95,15 +66,11 @@ public:
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
     std::shared_ptr<TaskQueue> _task_queue;
-    std::vector<std::unique_ptr<std::atomic<bool>>> _markers;
-    std::shared_ptr<BlockedTaskScheduler> _blocked_task_scheduler;
-    std::atomic<bool> _shutdown;
+    std::vector<bool> _markers;
+    bool _shutdown;
     std::string _name;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
 
     void _do_work(size_t index);
-    // after _try_close_task, task maybe destructed.
-    void _try_close_task(PipelineTask* task, PipelineTaskState state,
-                         Status exec_status = Status::OK());
 };
 } // namespace doris::pipeline

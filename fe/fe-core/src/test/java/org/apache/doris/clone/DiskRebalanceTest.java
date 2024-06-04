@@ -84,7 +84,6 @@ public class DiskRebalanceTest {
         Config.used_capacity_percent_max_diff = 1.0;
         Config.balance_slot_num_per_path = 1;
         db = new Database(1, "test db");
-        db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         new Expectations() {
             {
                 env.getInternalCatalog();
@@ -172,7 +171,7 @@ public class DiskRebalanceTest {
 
         olapTable = new OlapTable(2, "fake table", new ArrayList<>(), KeysType.DUP_KEYS,
                 new RangePartitionInfo(), new HashDistributionInfo());
-        db.createTable(olapTable);
+        db.registerTable(olapTable);
 
         // 1 table, 3 partitions p0,p1,p2
         MaterializedIndex materializedIndex = new MaterializedIndex(olapTable.getId(), null);
@@ -215,7 +214,7 @@ public class DiskRebalanceTest {
 
         olapTable = new OlapTable(2, "fake table", new ArrayList<>(), KeysType.DUP_KEYS,
                 new RangePartitionInfo(), new HashDistributionInfo());
-        db.createTable(olapTable);
+        db.registerTable(olapTable);
 
         // 1 table, 3 partitions p0,p1,p2
         MaterializedIndex materializedIndex = new MaterializedIndex(olapTable.getId(), null);

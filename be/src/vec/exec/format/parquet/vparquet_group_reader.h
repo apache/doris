@@ -29,7 +29,6 @@
 
 #include "io/fs/file_reader_writer_fwd.h"
 #include "vec/columns/column.h"
-#include "vec/common/allocator.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vparquet_column_reader.h"
@@ -63,7 +62,7 @@ namespace doris::vectorized {
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 
-class RowGroupReader {
+class RowGroupReader : public ProfileCollector {
 public:
     static const std::vector<int64_t> NO_DELETE;
 
@@ -161,6 +160,13 @@ public:
     ParquetColumnReader::Statistics statistics();
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
     int64_t get_remaining_rows() { return _remaining_rows; }
+
+protected:
+    void _collect_profile_before_close() override {
+        if (_file_reader != nullptr) {
+            _file_reader->collect_profile_before_close();
+        }
+    }
 
 private:
     void _merge_read_ranges(std::vector<RowRange>& row_ranges);

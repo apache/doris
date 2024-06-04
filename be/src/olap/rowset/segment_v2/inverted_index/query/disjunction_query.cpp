@@ -17,65 +17,50 @@
 
 #include "disjunction_query.h"
 
-namespace doris {
+namespace doris::segment_v2 {
 
-DisjunctionQuery::DisjunctionQuery(IndexReader* reader) : _reader(reader) {}
-
-DisjunctionQuery::~DisjunctionQuery() {
-    for (auto& term : _terms) {
-        if (term) {
-            _CLDELETE(term);
-        }
-    }
-    for (auto& term_doc : _term_docs) {
-        if (term_doc) {
-            _CLDELETE(term_doc);
-        }
-    }
-}
+DisjunctionQuery::DisjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
+                                   const TQueryOptions& query_options)
+        : _searcher(searcher) {}
 
 void DisjunctionQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
-    if (terms.size() < 1) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "ConjunctionQuery::add: terms.size() < 1");
+    if (terms.empty()) {
+        _CLTHROWA(CL_ERR_IllegalArgument, "DisjunctionQuery::add: terms empty");
     }
 
-    for (auto& term : terms) {
-        std::wstring ws_term = StringUtil::string_to_wstring(term);
-        _wsterms.emplace_back(&ws_term);
-        Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
-        _terms.push_back(t);
-        TermDocs* term_doc = _reader->termDocs(t);
-        _term_docs.push_back(term_doc);
-        _term_iterators.emplace_back(term_doc);
-    }
+    _field_name = field_name;
+    _terms = terms;
 }
 
 void DisjunctionQuery::search(roaring::Roaring& roaring) {
-    roaring::Roaring result;
-    auto func = [&roaring](const TermIterator& term_docs, bool first) {
-        roaring::Roaring result;
+    auto func = [this, &roaring](const std::string& term, bool first) {
+        std::wstring ws_term = StringUtil::string_to_wstring(term);
+        auto* t = _CLNEW Term(_field_name.c_str(), ws_term.c_str());
+        auto* term_doc = _searcher->getReader()->termDocs(t);
+        TermIterator iterator(term_doc);
+
         DocRange doc_range;
-        while (term_docs.readRange(&doc_range)) {
+        roaring::Roaring result;
+        while (iterator.readRange(&doc_range)) {
             if (doc_range.type_ == DocRangeType::kMany) {
                 result.addMany(doc_range.doc_many_size_, doc_range.doc_many->data());
             } else {
                 result.addRange(doc_range.doc_range.first, doc_range.doc_range.second);
             }
         }
+
+        _CLDELETE(term_doc);
+        _CLDELETE(t);
+
         if (first) {
             roaring.swap(result);
         } else {
             roaring |= result;
         }
     };
-    for (int i = 0; i < _term_iterators.size(); i++) {
-        auto& iter = _term_iterators[i];
-        if (i == 0) {
-            func(iter, true);
-        } else {
-            func(iter, false);
-        }
+    for (int i = 0; i < _terms.size(); i++) {
+        func(_terms[i], i == 0);
     }
 }
 
-} // namespace doris
+} // namespace doris::segment_v2

@@ -19,13 +19,15 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.TransProcDir;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -43,6 +45,7 @@ public class ShowTransactionStmt extends ShowStmt {
     private long txnId = -1;
     private String label = "";
     private TransactionStatus status = TransactionStatus.UNKNOWN;
+    private boolean labelMatch = false;
 
     public ShowTransactionStmt(String dbName, Expr whereClause) {
         this.dbName = dbName;
@@ -65,17 +68,25 @@ public class ShowTransactionStmt extends ShowStmt {
         return status;
     }
 
+    public boolean labelMatch() {
+        return labelMatch;
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    PrivPredicate.ADMIN.getPrivs().toString());
+        }
 
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
         if (whereClause == null) {
@@ -98,7 +109,7 @@ public class ShowTransactionStmt extends ShowStmt {
                     valid = false;
                     break CHECK;
                 }
-            } else {
+            } else if (!(whereClause instanceof LikePredicate)) {
                 valid = false;
                 break CHECK;
             }
@@ -126,10 +137,16 @@ public class ShowTransactionStmt extends ShowStmt {
             } else {
                 valid = false;
             }
+
+            if (whereClause instanceof LikePredicate && leftKey.equalsIgnoreCase("label")) {
+                //Only supports label like matching
+                labelMatch = true;
+                label = label.replaceAll("%", ".*");
+            }
         }
 
         if (!valid) {
-            throw new AnalysisException("Where clause should looks like one of them: id = 123 or label = 'label' "
+            throw new AnalysisException("Where clause should looks like one of them: id = 123 or label =/like 'label' "
                     + "or status = 'prepare/precommitted/committed/visible/aborted'");
         }
     }

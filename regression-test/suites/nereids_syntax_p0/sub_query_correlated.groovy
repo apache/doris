@@ -679,4 +679,87 @@ suite ("sub_query_correlated") {
     // order_qt_doris_6937_2 """
     //     select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 not in (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 > sub_query_correlated_subquery1.k2) or k1 < 10 order by k1, k2;
     // """
+    sql """drop table if exists table_21_undef_partitions2_keys3;"""
+    sql """drop table if exists table_1_undef_partitions2_keys3;"""
+    sql """create table table_21_undef_partitions2_keys3 (
+            `col_int_undef_signed` int   ,
+            `col_varchar_10__undef_signed` varchar(10)   ,
+            `pk` int
+            ) engine=olap
+            distributed by hash(pk) buckets 10
+            properties('replication_num' = '1');"""
+    sql """create table table_1_undef_partitions2_keys3 (
+            `col_int_undef_signed` int   ,
+            `col_varchar_10__undef_signed` varchar(10)   ,
+            `pk` int
+            ) engine=olap
+            distributed by hash(pk) buckets 10
+            properties('replication_num' = '1');"""
+    sql """insert into table_21_undef_partitions2_keys3(pk,col_int_undef_signed,col_varchar_10__undef_signed) values (0,null,null),(1,6,'c'),(2,7,'m'),(3,null,null),(4,null,'b'),(5,4,null),(6,3,null),(7,0,'z'),(8,null,"me"),(9,6,null),(10,0,""),(11,null,'e'),(12,null,"up"),(13,null,""),(14,7,'s'),(15,null,""),(16,3,null),(17,null,""),(18,null,""),(19,4,""),(20,7,null);"""
+    sql """insert into table_1_undef_partitions2_keys3(pk,col_int_undef_signed,col_varchar_10__undef_signed) values (0,null,null),(100,null,null);"""
+
+    qt_select_exists1 """SELECT *
+                            FROM table_1_undef_partitions2_keys3 AS t1
+                            WHERE EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9
+                                ) order by t1.pk;"""
+    qt_select_exists2 """SELECT *
+                            FROM table_1_undef_partitions2_keys3 AS t1
+                            WHERE not EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9
+                                ) order by t1.pk;"""
+    qt_select_exists3 """SELECT *
+                            FROM table_1_undef_partitions2_keys3 AS t1
+                            WHERE EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = 9
+                                ) or t1.pk = 100 order by t1.pk;"""
+    qt_select_exists4 """SELECT *
+                            FROM table_1_undef_partitions2_keys3 AS t1
+                            WHERE not EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = 9
+                                ) or t1.pk = 100 order by t1.pk;"""
+    qt_select_exists5 """select EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9
+                                ) from table_1_undef_partitions2_keys3 AS t1;"""
+    qt_select_exists6 """select not EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9
+                                ) from table_1_undef_partitions2_keys3 AS t1 order by t1.pk;"""
+    qt_select_exists7 """select EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9
+                                ) or t1.pk = 100 from table_1_undef_partitions2_keys3 AS t1 order by t1.pk;"""
+    qt_select_exists8 """select EXISTS (
+                                    SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9
+                                ) and t1.pk = 100 from table_1_undef_partitions2_keys3 AS t1 order by t1.pk;"""
+    qt_select_exists9 """select t1.* from table_1_undef_partitions2_keys3 AS t1 join table_21_undef_partitions2_keys3 AS t2 
+                                on t1.pk = t2.pk and not exists ( SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9 ) or t1.pk = 100 order by t1.pk;"""
+    qt_select_exists10 """select t1.* from table_1_undef_partitions2_keys3 AS t1 join table_21_undef_partitions2_keys3 AS t2 
+                                on t1.pk = t2.pk and not exists ( SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9 ) or t1.pk > 100 order by t1.pk;"""
+    qt_select_exists11 """select t1.* from table_1_undef_partitions2_keys3 AS t1  join table_21_undef_partitions2_keys3 AS t2 
+                                on t1.pk = t2.pk and exists ( SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9 ) or t1.pk = 100 order by t1.pk;"""
+    qt_select_exists12 """select t1.* from table_1_undef_partitions2_keys3 AS t1  join table_21_undef_partitions2_keys3 AS t2 
+                                on t1.pk = t2.pk and exists ( SELECT SUM(`pk`)
+                                    FROM table_21_undef_partitions2_keys3 AS t2
+                                    WHERE t1.pk = t2.pk and t1.pk = 9 ) or t1.pk > 100 order by t1.pk;"""                                                                                                                                            
 }

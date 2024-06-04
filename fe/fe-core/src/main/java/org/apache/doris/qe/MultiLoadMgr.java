@@ -140,7 +140,7 @@ public class MultiLoadMgr {
 
     // 'db' and 'label' form a multiLabel used to
     // user can pass commitLabel which use this string commit to jobmgr
-    public void commit(String fullDbName, String label) throws DdlException {
+    public void commit(String fullDbName, String label) throws DdlException, UserException {
         LabelName multiLabel = new LabelName(fullDbName, label);
         List<Long> jobIds = Lists.newArrayList();
         lock.writeLock().lock();

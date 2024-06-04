@@ -25,11 +25,10 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-
 class BuildStructInfoTest extends SqlTestBase {
     @Test
     void testSimpleSQL() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select * from T1, T2, T3, T4 "
                 + "where "
                 + "T1.id = T2.id and "
@@ -41,7 +40,7 @@ class BuildStructInfoTest extends SqlTestBase {
                 .deriveStats()
                 .matches(logicalJoin()
                         .when(j -> {
-                            HyperGraph.toStructInfo(j);
+                            HyperGraph.builderForMv(j);
                             return true;
                         }));
 
@@ -49,6 +48,7 @@ class BuildStructInfoTest extends SqlTestBase {
 
     @Test
     void testStructInfoNode() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select * from T1 inner join "
                 + "(select sum(id) as id from T2 where id = 1) T2 "
                 + "on T1.id = T2.id";
@@ -58,8 +58,8 @@ class BuildStructInfoTest extends SqlTestBase {
                 .deriveStats()
                 .matches(logicalJoin()
                         .when(j -> {
-                            List<HyperGraph> hyperGraph = HyperGraph.toStructInfo(j);
-                            Assertions.assertTrue(hyperGraph.get(0).getNodes().stream()
+                            HyperGraph hyperGraph = HyperGraph.builderForMv(j).build();
+                            Assertions.assertTrue(hyperGraph.getNodes().stream()
                                     .allMatch(n -> n.getPlan()
                                             .collectToList(GroupPlan.class::isInstance).isEmpty()));
                             return true;
@@ -69,6 +69,7 @@ class BuildStructInfoTest extends SqlTestBase {
 
     @Test
     void testFilter() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select * from T1 left outer join "
                 + " (select id from T2 where id = 1) T2 "
                 + "on T1.id = T2.id ";
@@ -77,9 +78,10 @@ class BuildStructInfoTest extends SqlTestBase {
                 .rewrite()
                 .matches(logicalJoin()
                         .when(j -> {
-                            HyperGraph structInfo = HyperGraph.toStructInfo(j).get(0);
+                            HyperGraph structInfo = HyperGraph.builderForMv(j).build();
                             Assertions.assertTrue(structInfo.getJoinEdge(0).getJoinType().isLeftOuterJoin());
-                            Assertions.assertEquals(0, (int) structInfo.getFilterEdge(0).getRejectEdges().get(0));
+                            Assertions.assertEquals(0, structInfo.getFilterEdge(0).getLeftRejectEdge().size());
+                            Assertions.assertEquals(1, structInfo.getFilterEdge(0).getRightRejectEdge().size());
                             return true;
                         }));
 
@@ -90,9 +92,8 @@ class BuildStructInfoTest extends SqlTestBase {
                 .rewrite()
                 .matches(logicalJoin()
                         .when(j -> {
-                            HyperGraph structInfo = HyperGraph.toStructInfo(j).get(0);
+                            HyperGraph structInfo = HyperGraph.builderForMv(j).build();
                             Assertions.assertTrue(structInfo.getJoinEdge(0).getJoinType().isLeftOuterJoin());
-                            Assertions.assertTrue(structInfo.getFilterEdge(0).getRejectEdges().isEmpty());
                             return true;
                         }));
     }

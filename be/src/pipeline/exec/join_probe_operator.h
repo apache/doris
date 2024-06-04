@@ -18,20 +18,16 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/join/vjoin_node_base.h"
 
-namespace doris {
-
-namespace pipeline {
+namespace doris::pipeline {
 template <typename LocalStateType>
 class JoinProbeOperatorX;
-template <typename DependencyType, typename Derived>
-class JoinProbeLocalState : public PipelineXLocalState<DependencyType> {
+template <typename SharedStateArg, typename Derived>
+class JoinProbeLocalState : public PipelineXLocalState<SharedStateArg> {
 public:
-    using Base = PipelineXLocalState<DependencyType>;
+    using Base = PipelineXLocalState<SharedStateArg>;
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     virtual void add_tuple_is_null_column(vectorized::Block* block) = 0;
 
@@ -39,9 +35,7 @@ protected:
     template <typename LocalStateType>
     friend class StatefulOperatorX;
     JoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
-            : Base(state, parent),
-              _child_block(vectorized::Block::create_unique()),
-              _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
+            : Base(state, parent), _child_block(vectorized::Block::create_unique()) {}
     ~JoinProbeLocalState() override = default;
     void _construct_mutable_join_block();
     Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block,
@@ -53,13 +47,15 @@ protected:
     vectorized::MutableColumnPtr _tuple_is_null_left_flag_column = nullptr;
     vectorized::MutableColumnPtr _tuple_is_null_right_flag_column = nullptr;
 
+    size_t _mark_column_id = -1;
+
     RuntimeProfile::Counter* _probe_timer = nullptr;
     RuntimeProfile::Counter* _probe_rows_counter = nullptr;
     RuntimeProfile::Counter* _join_filter_timer = nullptr;
     RuntimeProfile::Counter* _build_output_block_timer = nullptr;
 
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
-    SourceState _child_source_state;
+    bool _child_eos = false;
 };
 
 template <typename LocalStateType>
@@ -71,7 +67,12 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status open(doris::RuntimeState* state) override;
-    [[nodiscard]] const RowDescriptor& row_desc() override { return *_output_row_desc; }
+    [[nodiscard]] const RowDescriptor& row_desc() const override {
+        if (Base::_output_row_descriptor) {
+            return *Base::_output_row_descriptor;
+        }
+        return *_output_row_desc;
+    }
 
     [[nodiscard]] const RowDescriptor& intermediate_row_desc() const override {
         return *_intermediate_row_desc;
@@ -95,7 +96,7 @@ public:
     }
 
 protected:
-    template <typename DependencyType, typename Derived>
+    template <typename SharedStateArg, typename Derived>
     friend class JoinProbeLocalState;
 
     const TJoinOp::type _join_op;
@@ -115,7 +116,11 @@ protected:
     vectorized::VExprContextSPtrs _output_expr_ctxs;
     OperatorXPtr _build_side_child = nullptr;
     const bool _short_circuit_for_null_in_build_side;
+    // In the Old planner, there is a plan for two columns of tuple is null,
+    // but in the Nereids planner, this logic does not exist.
+    // Therefore, we should not insert these two columns under the Nereids optimizer.
+    // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+    const bool _use_specific_projections;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

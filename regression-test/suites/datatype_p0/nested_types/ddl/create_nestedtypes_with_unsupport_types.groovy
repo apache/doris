@@ -25,7 +25,7 @@ suite("create_nestedtypes_with_unsupport_types") {
             sql """
             CREATE TABLE IF NOT EXISTS ${testTablex} (
               `k1` INT(11) NULL,
-              `k2` array<${columnType}> NULL,
+              `k2` array<${columnType}> NULL
             )
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -48,7 +48,7 @@ suite("create_nestedtypes_with_unsupport_types") {
                 sql """
             CREATE TABLE IF NOT EXISTS ${testTablex} (
               `k1` INT(11) NULL,
-              `k2` map<${columnType}, String> NULL,
+              `k2` map<${columnType}, String> NULL
             )
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -60,7 +60,7 @@ suite("create_nestedtypes_with_unsupport_types") {
                 sql """
             CREATE TABLE IF NOT EXISTS ${testTablex} (
               `k1` INT(11) NULL,
-              `k2` map<String, ${columnType}> NULL,
+              `k2` map<String, ${columnType}> NULL
             )
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -84,7 +84,7 @@ suite("create_nestedtypes_with_unsupport_types") {
             sql """
             CREATE TABLE IF NOT EXISTS ${testTablex} (
               `k1` INT(11) NULL,
-              `k2` STRUCT<f1:${columnType}> NULL,
+              `k2` STRUCT<f1:${columnType}> NULL
             )
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1

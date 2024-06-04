@@ -26,14 +26,14 @@
 #include <mutex>
 
 #include "common/status.h"
-#include "io/cache/block/block_file_segment.h"
-#include "runtime/exec_env.h"
+#include "io/cache/file_block.h"
+#include "util/crc32c.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 
 namespace doris {
 namespace io {
-enum class BufferType { DOWNLOAD, UPLOAD };
+enum class BufferType : uint32_t { DOWNLOAD, UPLOAD };
 using FileBlocksHolderPtr = std::unique_ptr<FileBlocksHolder>;
 struct OperationState {
     OperationState(std::function<bool(Status)> sync_after_complete_task,
@@ -45,13 +45,13 @@ struct OperationState {
     *
     * @param S the execution result
     */
-    void set_val(Status s = Status::OK()) {
+    void set_status(Status s = Status::OK()) {
         // make sure we wouldn't sync twice
         if (_value_set) [[unlikely]] {
             return;
         }
         if (nullptr != _sync_after_complete_task) {
-            _fail_after_sync = _sync_after_complete_task(s);
+            _fail_after_sync = _sync_after_complete_task(std::move(s));
         }
         _value_set = true;
     }
@@ -75,36 +75,27 @@ struct OperationState {
     bool _fail_after_sync = false;
 };
 
-struct FileBuffer : public std::enable_shared_from_this<FileBuffer> {
-    FileBuffer(std::function<FileBlocksHolderPtr()> alloc_holder, size_t offset,
-               OperationState state, bool reserve = false);
-    virtual ~FileBuffer() { on_finish(); }
+struct FileBuffer {
+    FileBuffer(BufferType type, std::function<FileBlocksHolderPtr()> alloc_holder, size_t offset,
+               OperationState state);
+    virtual ~FileBuffer();
     /**
     * submit the correspoding task to async executor
     */
-    virtual void submit() = 0;
+    static Status submit(std::shared_ptr<FileBuffer> buf);
     /**
     * append data to the inner memory buffer
     *
     * @param S the content to be appended
     */
     virtual Status append_data(const Slice& s) = 0;
-    /**
-    * call the reclaim callback when task is done 
-    */
-    void on_finish();
-    /**
-    * swap memory buffer
-    *
-    * @param other which has memory buffer allocated
-    */
-    void swap_buffer(Slice& other);
+    virtual void execute_async() = 0;
     /**
     * set the val of it's operation state
     *
     * @param S the execution result
     */
-    void set_val(Status s) { _state.set_val(s); }
+    void set_status(Status s) { _state.set_status(s); }
     /**
     * get the start offset of this file buffer
     *
@@ -117,6 +108,8 @@ struct FileBuffer : public std::enable_shared_from_this<FileBuffer> {
     * @return the size of the buffered data
     */
     size_t get_size() const { return _size; }
+    size_t get_capacaticy() const { return _capacity; }
+    Slice get_slice() const;
     /**
     * detect whether the execution task is done
     *
@@ -124,29 +117,46 @@ struct FileBuffer : public std::enable_shared_from_this<FileBuffer> {
     */
     bool is_cancelled() const { return _state.is_cancelled(); }
 
+    std::string_view get_string_view_data() const;
+
+    BufferType _type;
     std::function<FileBlocksHolderPtr()> _alloc_holder;
-    Slice _buffer;
     size_t _offset;
     size_t _size;
     OperationState _state;
+    struct PartData;
+    std::unique_ptr<PartData> _inner_data;
     size_t _capacity;
+};
+
+struct DownloadFileBuffer final : public FileBuffer {
+    DownloadFileBuffer(std::function<Status(Slice&)> download,
+                       std::function<void(FileBlocksHolderPtr, Slice)> write_to_cache,
+                       std::function<void(Slice, size_t)> write_to_use_buffer, OperationState state,
+                       size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder)
+            : FileBuffer(BufferType::DOWNLOAD, alloc_holder, offset, state),
+              _download(std::move(download)),
+              _write_to_local_file_cache(std::move(write_to_cache)),
+              _write_to_use_buffer(std::move(write_to_use_buffer)) {}
+    ~DownloadFileBuffer() override = default;
+    /**
+    * do the download work, it would write the content into local memory buffer
+    */
+    void on_download();
+    void execute_async() override { on_download(); }
+    Status append_data(const Slice& s) override { return Status::OK(); }
+
+    std::function<Status(Slice&)> _download;
+    std::function<void(FileBlocksHolderPtr, Slice)> _write_to_local_file_cache;
+    std::function<void(Slice, size_t)> _write_to_use_buffer;
 };
 
 struct UploadFileBuffer final : public FileBuffer {
     UploadFileBuffer(std::function<void(UploadFileBuffer&)> upload_cb, OperationState state,
-                     size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder,
-                     size_t index_offset)
-            : FileBuffer(alloc_holder, offset, state),
-              _upload_to_remote(std::move(upload_cb)),
-              _index_offset(index_offset) {}
+                     size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder)
+            : FileBuffer(BufferType::UPLOAD, alloc_holder, offset, state),
+              _upload_to_remote(std::move(upload_cb)) {}
     ~UploadFileBuffer() override = default;
-    void submit() override;
-    /**
-    * set the index offset
-    *
-    * @param offset the index offset
-    */
-    void set_index_offset(size_t offset);
     Status append_data(const Slice& s) override;
     /**
     * read the content from local file cache
@@ -158,6 +168,8 @@ struct UploadFileBuffer final : public FileBuffer {
     * local file cache
     */
     void upload_to_local_file_cache(bool);
+
+    void execute_async() override { on_upload(); }
     /**
     * do the upload work
     * 1. read from cache if the data is written to cache first
@@ -166,25 +178,7 @@ struct UploadFileBuffer final : public FileBuffer {
     * 4. call the finish callback caller specified
     * 5. reclaim self
     */
-    void on_upload() {
-        if (_buffer.empty()) {
-            read_from_cache();
-        }
-        _upload_to_remote(*this);
-        if (config::enable_flush_file_cache_async) {
-            // If we call is_cancelled() after _state.set_val() then there might one situation where
-            // s3 file writer is already destructed
-            bool cancelled = is_cancelled();
-            _state.set_val();
-            // this control flow means the buf and the stream shares one memory
-            // so we can directly use buf here
-            upload_to_local_file_cache(cancelled);
-        } else {
-            upload_to_local_file_cache(is_cancelled());
-            _state.set_val();
-        }
-        on_finish();
-    }
+    void on_upload();
     /**
     *
     * @return the stream representing the inner memory buffer
@@ -204,9 +198,9 @@ private:
 
     bool _is_cache_allocated {false};
     FileBlocksHolderPtr _holder;
-    decltype(_holder->file_segments.begin()) _cur_file_segment;
+    decltype(_holder->file_blocks.begin()) _cur_file_block;
     size_t _append_offset {0};
-    size_t _index_offset {0};
+    uint32_t _crc_value = 0;
 };
 
 struct FileBufferBuilder {
@@ -216,7 +210,7 @@ struct FileBufferBuilder {
     * build one file buffer using previously set properties
     * @return the file buffer's base shared pointer
     */
-    std::shared_ptr<FileBuffer> build();
+    Status build(std::shared_ptr<FileBuffer>* buf);
     /**
     * set the file buffer type
     *
@@ -254,13 +248,13 @@ struct FileBufferBuilder {
         return *this;
     }
     /**
-    * set the callback which allocate file cache segment holder
+    * set the callback which allocate file cache block holder
     * **Notice**: Because the load file cache workload coule be done
     * asynchronously so you must make sure all the dependencies of this
     * cb could last until this cb is invoked
     * @param cb 
     */
-    FileBufferBuilder& set_allocate_file_segments_holder(std::function<FileBlocksHolderPtr()> cb);
+    FileBufferBuilder& set_allocate_file_blocks_holder(std::function<FileBlocksHolderPtr()> cb);
     /**
     * set the file offset of the file buffer
     *
@@ -268,15 +262,6 @@ struct FileBufferBuilder {
     */
     FileBufferBuilder& set_file_offset(size_t offset) {
         _offset = offset;
-        return *this;
-    }
-    /**
-    * set the index offset of the file buffer
-    *
-    * @param cb 
-    */
-    FileBufferBuilder& set_index_offset(size_t index_offset) {
-        _index_offset = index_offset;
         return *this;
     }
     /**
@@ -308,45 +293,6 @@ struct FileBufferBuilder {
     std::function<Status(Slice&)> _download;
     std::function<void(Slice, size_t)> _write_to_use_buffer;
     size_t _offset;
-    size_t _index_offset;
-};
-
-class S3FileBufferPool {
-public:
-    S3FileBufferPool() = default;
-    ~S3FileBufferPool() = default;
-
-    // should be called one and only once
-    // at startup
-    void init(int32_t s3_write_buffer_whole_size, int32_t s3_write_buffer_size,
-              doris::ThreadPool* thread_pool);
-
-    /**
-    *
-    * @return singleton of the S3FileBufferPool
-    */
-    static S3FileBufferPool* GetInstance() {
-        return ExecEnv::GetInstance()->get_s3_file_buffer_pool();
-    }
-
-    void reclaim(Slice buf);
-
-    /**
-    *
-    * @param reserve must return buffer with memory allocated
-    * @return memory buffer
-    */
-    Slice allocate(bool reserve = false);
-
-    ThreadPool* thread_pool() { return _thread_pool; }
-
-private:
-    std::mutex _lock;
-    std::condition_variable _cv;
-    std::unique_ptr<char[]> _whole_mem_buffer;
-    std::list<Slice> _free_raw_buffers;
-    // not owned
-    ThreadPool* _thread_pool = nullptr;
 };
 } // namespace io
 } // namespace doris

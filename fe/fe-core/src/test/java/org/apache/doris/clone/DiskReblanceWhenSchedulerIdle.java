@@ -96,7 +96,7 @@ public class DiskReblanceWhenSchedulerIdle extends TestWithFeService {
         Assertions.assertEquals(2, invertedIndex.getTabletNumByBackendId(backends.get(1).getId()));
 
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1");
         Assertions.assertNotNull(tbl);
         Partition partition = tbl.getPartitions().iterator().next();
@@ -110,7 +110,8 @@ public class DiskReblanceWhenSchedulerIdle extends TestWithFeService {
             Lists.newArrayList(tablet.getReplicas()).forEach(
                     replica -> {
                     if (replica.getBackendId() == backends.get(1).getId()) {
-                        replica.updateStat(totalCapacity / 4, 1);
+                        replica.setDataSize(totalCapacity / 4);
+                        replica.setRowCount(1);
                         tablet.deleteReplica(replica);
                         replica.setBackendId(backends.get(0).getId());
                         replica.setPathHash(diskInfo0.getPathHash());

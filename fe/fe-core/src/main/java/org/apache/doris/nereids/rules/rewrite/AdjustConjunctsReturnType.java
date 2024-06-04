@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -42,16 +44,11 @@ public class AdjustConjunctsReturnType extends DefaultPlanRewriter<Void> impleme
     }
 
     @Override
-    public Plan visit(Plan plan, Void context) {
-        return super.visit(plan, context);
-    }
-
-    @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
         filter = (LogicalFilter<? extends Plan>) super.visit(filter, context);
         Set<Expression> conjuncts = filter.getConjuncts().stream()
                 .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
-                .collect(Collectors.toSet());
+                .collect(ImmutableSet.toImmutableSet());
         return filter.withConjuncts(conjuncts);
     }
 
@@ -64,6 +61,9 @@ public class AdjustConjunctsReturnType extends DefaultPlanRewriter<Void> impleme
         List<Expression> otherConjuncts = join.getOtherJoinConjuncts().stream()
                 .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                 .collect(Collectors.toList());
-        return join.withJoinConjuncts(hashConjuncts, otherConjuncts);
+        List<Expression> markConjuncts = join.getMarkJoinConjuncts().stream()
+                .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
+                .collect(Collectors.toList());
+        return join.withJoinConjuncts(hashConjuncts, otherConjuncts, markConjuncts, join.getJoinReorderContext());
     }
 }

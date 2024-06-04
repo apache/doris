@@ -59,7 +59,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
@@ -86,8 +86,8 @@ public class RollupJobV2Test {
     private static String fileName = "./RollupJobV2Test";
 
     private static FakeTransactionIDGenerator fakeTransactionIDGenerator;
-    private static GlobalTransactionMgr masterTransMgr;
-    private static GlobalTransactionMgr slaveTransMgr;
+    private static GlobalTransactionMgrIface masterTransMgr;
+    private static GlobalTransactionMgrIface slaveTransMgr;
     private static Env masterEnv;
     private static Env slaveEnv;
 
@@ -152,7 +152,7 @@ public class RollupJobV2Test {
         alterClauses.add(clause2);
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
-        materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        materializedViewHandler.process(alterClauses, db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
 
         materializedViewHandler.runAfterCatalogReady();
@@ -172,7 +172,7 @@ public class RollupJobV2Test {
         alterClauses.add(clause);
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
-        materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        materializedViewHandler.process(alterClauses, db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         Assert.assertEquals(OlapTableState.ROLLUP, olapTable.getState());
@@ -192,7 +192,7 @@ public class RollupJobV2Test {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
-        materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        materializedViewHandler.process(alterClauses, db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         RollupJobV2 rollupJob = (RollupJobV2) alterJobsV2.values().stream().findAny().get();
@@ -221,10 +221,7 @@ public class RollupJobV2Test {
         MaterializedIndex shadowIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
         for (Tablet shadowTablet : shadowIndex.getTablets()) {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
-                shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(),
-                        shadowReplica.getDataSize(),
-                        shadowReplica.getRemoteDataSize(),
-                        shadowReplica.getRowCount());
+                shadowReplica.updateVersion(testPartition.getVisibleVersion());
             }
         }
 
@@ -245,7 +242,7 @@ public class RollupJobV2Test {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
-        materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        materializedViewHandler.process(alterClauses, db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         RollupJobV2 rollupJob = (RollupJobV2) alterJobsV2.values().stream().findAny().get();
@@ -301,10 +298,7 @@ public class RollupJobV2Test {
         MaterializedIndex shadowIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
         for (Tablet shadowTablet : shadowIndex.getTablets()) {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
-                shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(),
-                        shadowReplica.getDataSize(),
-                        shadowReplica.getRemoteDataSize(),
-                        shadowReplica.getRowCount());
+                shadowReplica.updateVersion(testPartition.getVisibleVersion());
             }
         }
 
@@ -327,7 +321,8 @@ public class RollupJobV2Test {
         Column column = new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", "");
         columns.add(column);
 
-        RollupJobV2 rollupJobV2 = new RollupJobV2("", 1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, null, 1, 1,
+        RollupJobV2 rollupJobV2 = AlterJobV2Factory.createRollupJobV2(
+                "", 1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, null, 1, 1,
                 KeysType.AGG_KEYS, keysCount,
                 new OriginStatement("create materialized view rollup as select bitmap_union(to_bitmap(c1)) from test",
                         0));

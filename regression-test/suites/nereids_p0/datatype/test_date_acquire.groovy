@@ -20,9 +20,12 @@ suite("test_date_acquire") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_fold_nondeterministic_fn=true'
 
-    String res = sql 'explain select now(), now(3), curdate(), current_date(), current_timestamp(), current_timestamp(3)'
-    res = res.split('VUNION')[1]
-    assertFalse(res.contains("()") || res.contains("(3)"))
+    String res1 = sql 'explain select now(), now(3), curdate(), current_date(), current_timestamp(), current_timestamp(3)'
+    res1 = res1.split('VUNION')[1]
+    assertFalse(res1.contains("()") || res1.contains("(3)"))
+
+    String res2 = sql 'explain select CURRENT_DATE, CURRENT_TIME, CURRENT_TIMESTAMP, LOCALTIME, LOCALTIMESTAMP, CURRENT_USER'
+    assertTrue(res2.contains("CURRENT_DATE") || res2.contains("CURRENT_TIME") || res2.contains("CURRENT_TIMESTAMP") || res2.contains("LOCALTIME") || res2.contains("LOCALTIMESTAMP") || res2.contains("CURRENT_USER"))
 
     sql "set enable_fold_constant_by_be=true"
 

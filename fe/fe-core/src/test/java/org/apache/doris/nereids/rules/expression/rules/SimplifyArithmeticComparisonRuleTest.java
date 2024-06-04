@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -37,10 +38,46 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
     public void testProcess() {
         Map<String, Slot> nameToSlot = new HashMap<>();
         nameToSlot.put("a", new SlotReference("a", IntegerType.INSTANCE));
-        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyArithmeticComparisonRule.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                ExpressionRewrite.bottomUp(SimplifyArithmeticComparisonRule.INSTANCE)
+        ));
         assertRewriteAfterSimplify("a + 1 > 1", "a > cast((1 - 1) as INT)", nameToSlot);
         assertRewriteAfterSimplify("a - 1 > 1", "a > cast((1 + 1) as INT)", nameToSlot);
         assertRewriteAfterSimplify("a / -2 > 1", "cast((1 * -2) as INT) > a", nameToSlot);
+
+        // test integer type
+        assertRewriteAfterSimplify("1 + a > 2", "a > cast((2 - 1) as INT)", nameToSlot);
+        assertRewriteAfterSimplify("-1 + a > 2", "a > cast((2 - (-1)) as INT)", nameToSlot);
+        assertRewriteAfterSimplify("1 - a > 2", "a < cast((1 - 2) as INT)", nameToSlot);
+        assertRewriteAfterSimplify("-1 - a > 2", "a < cast(((-1) - 2) as INT)", nameToSlot);
+        assertRewriteAfterSimplify("2 * a > 1", "((2 * a) > 1)", nameToSlot);
+        assertRewriteAfterSimplify("-2 * a > 1", "((-2 * a) > 1)", nameToSlot);
+        assertRewriteAfterSimplify("2 / a > 1", "((2 / a) > 1)", nameToSlot);
+        assertRewriteAfterSimplify("-2 / a > 1", "((-2 / a) > 1)", nameToSlot);
+        assertRewriteAfterSimplify("a * 2 > 1", "((a * 2) > 1)", nameToSlot);
+        assertRewriteAfterSimplify("a * (-2) > 1", "((a * (-2)) > 1)", nameToSlot);
+        assertRewriteAfterSimplify("a / 2 > 1", "(a > cast((1 * 2) as INT))", nameToSlot);
+
+        // test decimal type
+        assertRewriteAfterSimplify("1.1 + a > 2.22", "(cast(a as DECIMALV3(12, 2)) > cast((2.22 - 1.1) as DECIMALV3(12, 2)))", nameToSlot);
+        assertRewriteAfterSimplify("-1.1 + a > 2.22", "(cast(a as DECIMALV3(12, 2)) > cast((2.22 - (-1.1)) as DECIMALV3(12, 2)))", nameToSlot);
+        assertRewriteAfterSimplify("1.1 - a > 2.22", "(cast(a as DECIMALV3(11, 1)) < cast((1.1 - 2.22) as DECIMALV3(11, 1)))", nameToSlot);
+        assertRewriteAfterSimplify("-1.1 - a > 2.22", "(cast(a as DECIMALV3(11, 1)) < cast((-1.1 - 2.22) as DECIMALV3(11, 1)))", nameToSlot);
+        assertRewriteAfterSimplify("2.22 * a > 1.1", "((2.22 * a) > 1.1)", nameToSlot);
+        assertRewriteAfterSimplify("-2.22 * a > 1.1", "-2.22 * a > 1.1", nameToSlot);
+        assertRewriteAfterSimplify("2.22 / a > 1.1", "((2.22 / a) > 1.1)", nameToSlot);
+        assertRewriteAfterSimplify("-2.22 / a > 1.1", "((-2.22 / a) > 1.1)", nameToSlot);
+        assertRewriteAfterSimplify("a * 2.22 > 1.1", "a * 2.22 > 1.1", nameToSlot);
+        assertRewriteAfterSimplify("a * (-2.22) > 1.1", "a * (-2.22) > 1.1", nameToSlot);
+        assertRewriteAfterSimplify("a / 2.22 > 1.1", "(cast(a as DECIMALV3(13, 3)) > cast((1.1 * 2.22) as DECIMALV3(13, 3)))", nameToSlot);
+        assertRewriteAfterSimplify("a / (-2.22) > 1.1", "(cast((1.1 * -2.22) as DECIMALV3(13, 3)) > cast(a as DECIMALV3(13, 3)))", nameToSlot);
+
+        // test (1 + a) can be processed
+        assertRewriteAfterSimplify("2 - (1 + a) > 3", "(a < ((2 - 3) - 1))", nameToSlot);
+        assertRewriteAfterSimplify("(1 - a) / 2 > 3", "(a < (1 - 6))", nameToSlot);
+        assertRewriteAfterSimplify("1 - a / 2 > 3", "(a < ((1 - 3) * 2))", nameToSlot);
+        assertRewriteAfterSimplify("(1 - (a + 4)) / 2 > 3", "(cast(a as BIGINT) < ((1 - 6) - 4))", nameToSlot);
+        assertRewriteAfterSimplify("2 * (1 + a) > 1", "(2 * (1 + a)) > 1", nameToSlot);
     }
 
     private void assertRewriteAfterSimplify(String expr, String expected, Map<String, Slot> slotNameToSlot) {
@@ -48,7 +85,7 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
         if (slotNameToSlot != null) {
             needRewriteExpression = replaceUnboundSlot(needRewriteExpression, slotNameToSlot);
         }
-        Expression rewritten = SimplifyArithmeticComparisonRule.INSTANCE.rewrite(needRewriteExpression, context);
+        Expression rewritten = executor.rewrite(needRewriteExpression, context);
         Expression expectedExpression = PARSER.parseExpression(expected);
         Assertions.assertEquals(expectedExpression.toSql(), rewritten.toSql());
     }

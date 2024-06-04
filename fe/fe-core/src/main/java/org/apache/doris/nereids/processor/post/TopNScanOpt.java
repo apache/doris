@@ -18,64 +18,67 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
-import org.apache.doris.nereids.trees.plans.algebra.Filter;
-import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
-import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.algebra.TopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.collect.ImmutableList;
 
 /**
  * topN opt
  * refer to:
  * <a href="https://github.com/apache/doris/pull/15558">...</a>
  * <a href="https://github.com/apache/doris/pull/15663">...</a>
+ *
+ * // [deprecated] only support simple case: select ... from tbl [where ...] order by ... limit ...
  */
 
 public class TopNScanOpt extends PlanPostProcessor {
-
     @Override
     public PhysicalTopN<? extends Plan> visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
-        Plan child = topN.child().accept(this, ctx);
-        topN = rewriteTopN(topN);
-        if (child != topN.child()) {
-            topN = ((PhysicalTopN) topN.withChildren(child)).copyStatsAndGroupIdFrom(topN);
+        topN.child().accept(this, ctx);
+        if (checkTopN(topN)) {
+            TopnFilterPushDownVisitor pusher = new TopnFilterPushDownVisitor(ctx.getTopnFilterContext());
+            TopnFilterPushDownVisitor.PushDownContext pushdownContext = new PushDownContext(topN,
+                    topN.getOrderKeys().get(0).getExpr(),
+                    topN.getOrderKeys().get(0).isNullFirst());
+            topN.accept(pusher, pushdownContext);
         }
         return topN;
     }
 
-    @Override
-    public Plan visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
-            CascadesContext context) {
-        Plan child = topN.child().accept(this, context);
-        if (child != topN.child()) {
-            topN = topN.withChildren(ImmutableList.of(child)).copyStatsAndGroupIdFrom(topN);
+    boolean checkTopN(TopN topN) {
+        if (!(topN instanceof PhysicalTopN) && !(topN instanceof PhysicalDeferMaterializeTopN)) {
+            return false;
         }
-        PhysicalTopN<? extends Plan> rewrittenTopN = rewriteTopN(topN.getPhysicalTopN());
-        if (topN.getPhysicalTopN() != rewrittenTopN) {
-            topN = topN.withPhysicalTopN(rewrittenTopN).copyStatsAndGroupIdFrom(topN);
+        if (topN instanceof PhysicalTopN
+                && ((PhysicalTopN) topN).getSortPhase() != SortPhase.LOCAL_SORT) {
+            return false;
+        } else {
+            if (topN instanceof PhysicalDeferMaterializeTopN
+                    && ((PhysicalDeferMaterializeTopN) topN).getSortPhase() != SortPhase.LOCAL_SORT) {
+                return false;
+            }
         }
-        return topN;
-    }
 
-    private PhysicalTopN<? extends Plan> rewriteTopN(PhysicalTopN<? extends Plan> topN) {
-        Plan child = topN.child();
-        if (topN.getSortPhase() != SortPhase.LOCAL_SORT) {
-            return topN;
-        }
         if (topN.getOrderKeys().isEmpty()) {
-            return topN;
+            return false;
         }
 
         // topn opt
         long topNOptLimitThreshold = getTopNOptLimitThreshold();
         if (topNOptLimitThreshold == -1 || topN.getLimit() > topNOptLimitThreshold) {
-            return topN;
+            return false;
         }
         // if firstKey's column is not present, it means the firstKey is not an original column from scan node
         // for example: "select cast(k1 as INT) as id from tbl1 order by id limit 2;" the firstKey "id" is
@@ -85,27 +88,27 @@ public class TopNScanOpt extends PlanPostProcessor {
         // see Alias::toSlot() method to get how column info is passed around by alias of slotReference
         Expression firstKey = topN.getOrderKeys().get(0).getExpr();
         if (!firstKey.isColumnFromTable()) {
-            return topN;
+            return false;
         }
-        if (firstKey.getDataType().isStringLikeType()
-                || firstKey.getDataType().isFloatType()
+
+        if (firstKey.getDataType().isFloatType()
                 || firstKey.getDataType().isDoubleType()) {
-            return topN;
+            return false;
         }
+        return true;
+    }
 
-        OlapScan olapScan;
-        while (child instanceof Project || child instanceof Filter) {
-            child = child.child(0);
+    @Override
+    public Plan visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
+            CascadesContext ctx) {
+        topN.child().accept(this, ctx);
+        if (checkTopN(topN)) {
+            TopnFilterPushDownVisitor pusher = new TopnFilterPushDownVisitor(ctx.getTopnFilterContext());
+            TopnFilterPushDownVisitor.PushDownContext pushdownContext = new PushDownContext(topN,
+                    topN.getOrderKeys().get(0).getExpr(),
+                    topN.getOrderKeys().get(0).isNullFirst());
+            topN.accept(pusher, pushdownContext);
         }
-        if (!(child instanceof OlapScan)) {
-            return topN;
-        }
-        olapScan = (OlapScan) child;
-
-        if (olapScan.getTable().isDupKeysOrMergeOnWrite()) {
-            return topN.withEnableRuntimeFilter(true).copyStatsAndGroupIdFrom(topN);
-        }
-
         return topN;
     }
 
@@ -114,5 +117,14 @@ public class TopNScanOpt extends PlanPostProcessor {
             return ConnectContext.get().getSessionVariable().topnOptLimitThreshold;
         }
         return -1;
+    }
+
+    private boolean supportPhysicalRelations(PhysicalRelation relation) {
+        return relation instanceof PhysicalOlapScan
+                || relation instanceof PhysicalOdbcScan
+                || relation instanceof PhysicalEsScan
+                || relation instanceof PhysicalFileScan
+                || relation instanceof PhysicalJdbcScan
+                || relation instanceof PhysicalDeferMaterializeOlapScan;
     }
 }

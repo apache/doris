@@ -175,3 +175,10 @@ create table doris_test.test_all_types (
   t6 interval year(3) to month,
   t7 interval day(3) to second(6)
 );
+
+create table doris_test.lower_test (
+"DORIS" varchar2(20),
+"Doris" varchar2(20),
+"doris" varchar2(20)
+);
+

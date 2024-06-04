@@ -68,6 +68,57 @@ suite("test_stream_load_move_memtable", "p0") {
     sql "sync"
     qt_sql "select * from ${tableName} order by k1, k2"
 
+    def tableNameNoLSC = "test_stream_load_strict_mm_no_lsc"
+
+    sql """ DROP TABLE IF EXISTS ${tableNameNoLSC} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableNameNoLSC} (
+            `k1` bigint(20) NULL,
+            `k2` bigint(20) NULL,
+            `v1` tinyint(4) SUM NULL,
+            `v2` tinyint(4) REPLACE NULL,
+            `v3` tinyint(4) REPLACE_IF_NOT_NULL NULL,
+            `v4` smallint(6) REPLACE_IF_NOT_NULL NULL,
+            `v5` int(11) REPLACE_IF_NOT_NULL NULL,
+            `v6` bigint(20) REPLACE_IF_NOT_NULL NULL,
+            `v7` largeint(40) REPLACE_IF_NOT_NULL NULL,
+            `v8` datetime REPLACE_IF_NOT_NULL NULL,
+            `v9` date REPLACE_IF_NOT_NULL NULL,
+            `v10` char(10) REPLACE_IF_NOT_NULL NULL,
+            `v11` varchar(6) REPLACE_IF_NOT_NULL NULL,
+            `v12` decimal(27, 9) REPLACE_IF_NOT_NULL NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`, `k2`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`k1`)
+        (PARTITION partition_a VALUES [("-9223372036854775808"), ("100000")),
+        PARTITION partition_b VALUES [("100000"), ("1000000000")),
+        PARTITION partition_c VALUES [("1000000000"), ("10000000000")),
+        PARTITION partition_d VALUES [("10000000000"), (MAXVALUE)))
+        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "light_schema_change" = "false"
+        );
+    """
+
+    // test strict_mode success
+    streamLoad {
+        table "${tableNameNoLSC}"
+
+        set 'column_separator', '\t'
+        set 'columns', 'k1, k2, v2, v10, v11'
+        set 'partitions', 'partition_a, partition_b, partition_c, partition_d'
+        set 'strict_mode', 'true'
+        set 'memtable_on_sink_node', 'true'
+
+        file 'test_strict_mode.csv'
+        time 10000 // limit inflight 10s
+    }
+
+    sql "sync"
+    qt_sql2 "select * from ${tableNameNoLSC} order by k1, k2"
+
     // test strict_mode fail
     streamLoad {
         table "${tableName}"
@@ -877,8 +928,17 @@ suite("test_stream_load_move_memtable", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
-    sql """create USER common_user1@'%' IDENTIFIED BY '123456test!'"""
-    sql """GRANT LOAD_PRIV ON *.* TO 'common_user1'@'%';"""
+    sql "sync"
+    try_sql """DROP USER 'ddd'"""
+    sql """create USER ddd IDENTIFIED BY '123456test!'"""
+    sql """GRANT LOAD_PRIV ON *.* TO 'ddd'@'%';"""
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ddd""";
+    }
 
     streamLoad {
         table "${tableName13}"
@@ -886,7 +946,7 @@ suite("test_stream_load_move_memtable", "p0") {
         set 'column_separator', '|'
         set 'columns', 'k1, k2, v1, v2, v3'
         set 'strict_mode', 'true'
-        set 'Authorization', 'Basic  Y29tbW9uX3VzZXIxOjEyMzQ1NnRlc3Qh'
+        set 'Authorization', 'Basic ZGRkOjEyMzQ1NnRlc3Qh'
         set 'memtable_on_sink_node', 'true'
 
         file 'test_auth.csv'
@@ -906,7 +966,7 @@ suite("test_stream_load_move_memtable", "p0") {
     }
 
     sql "sync"
-    sql """DROP USER 'common_user1'@'%'"""
+    sql """DROP USER 'ddd'"""
 
     // test default value
     def tableName14 = "test_default_value_mm"

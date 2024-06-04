@@ -39,11 +39,14 @@
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "util/once.h"
 #include "util/slice.h"
+#include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 namespace vectorized {
@@ -63,6 +66,7 @@ namespace segment_v2 {
 class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;
+class InvertedIndexFileReader;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 // A Segment is used to represent a segment in memory format. When segment is
@@ -79,6 +83,12 @@ public:
                        RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                        const io::FileReaderOptions& reader_options,
                        std::shared_ptr<Segment>* output);
+
+    static io::UInt128Wrapper file_cache_key(std::string_view rowset_id, uint32_t seg_id);
+    io::UInt128Wrapper file_cache_key() const {
+        return file_cache_key(_rowset_id.to_string(), _segment_id);
+    }
+
     ~Segment();
 
     Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
@@ -123,6 +133,10 @@ public:
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
+    Status seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot, uint32_t row_id,
+                                  vectorized::MutableColumnPtr& result, OlapReaderStatistics& stats,
+                                  std::unique_ptr<ColumnIterator>& iterator_hint);
+
     Status load_index();
 
     Status load_pk_index_and_bf();
@@ -146,7 +160,8 @@ public:
     // ignore_chidren set to false will treat field as variant
     // when it contains children with field paths.
     // nullptr will returned if storage type does not contains such column
-    std::shared_ptr<const vectorized::IDataType> get_data_type_of(const Field& filed,
+    std::shared_ptr<const vectorized::IDataType> get_data_type_of(vectorized::PathInDataPtr path,
+                                                                  bool is_nullable,
                                                                   bool ignore_children) const;
 
     // Check is schema read type equals storage column type
@@ -157,8 +172,8 @@ public:
     bool can_apply_predicate_safely(int cid, Predicate* pred, const Schema& schema,
                                     ReaderType read_type) const {
         const Field* col = schema.column(cid);
-        vectorized::DataTypePtr storage_column_type =
-                get_data_type_of(*col, read_type != ReaderType::READER_QUERY);
+        vectorized::DataTypePtr storage_column_type = get_data_type_of(
+                col->path(), col->is_nullable(), read_type != ReaderType::READER_QUERY);
         if (storage_column_type == nullptr) {
             // Default column iterator
             return true;
@@ -176,6 +191,8 @@ public:
         return safe;
     }
 
+    const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema);
@@ -186,13 +203,29 @@ private:
     Status _load_pk_bloom_filter();
     ColumnReader* _get_column_reader(const TabletColumn& col);
 
+    // Get Iterator which will read variant root column and extract with paths and types info
+    Status _new_iterator_with_variant_root(const TabletColumn& tablet_column,
+                                           std::unique_ptr<ColumnIterator>* iter,
+                                           const SubcolumnColumnReaders::Node* root,
+                                           vectorized::DataTypePtr target_type_hint);
+
     Status _load_index_impl();
+    Status _open_inverted_index();
+
+    Status _create_column_readers_once();
 
 private:
     friend class SegmentIterator;
+    io::FileSystemSPtr _fs;
     io::FileReaderSPtr _file_reader;
     uint32_t _segment_id;
     uint32_t _num_rows;
+
+    // 1. Tracking memory use by segment meta data such as footer or index page.
+    // 2. Tracking memory use by segment column reader
+    // The memory consumed by querying is tracked in segment iterator.
+    // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
+    // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
     int64_t _meta_mem_usage;
 
     RowsetId _rowset_id;
@@ -215,19 +248,29 @@ private:
     // for variants.
     SubcolumnColumnReaders _sub_column_tree;
 
+    // each sprase column's path and types info
+    SubcolumnColumnReaders _sparse_column_tree;
+
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
     // used to guarantee that primary key bloom filter will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_pk_bf_once;
+
+    DorisCallOnce<Status> _create_column_readers_once_call;
+
+    std::unique_ptr<SegmentFooterPB> _footer_pb;
+
     // used to hold short key index page in memory
     PageHandle _sk_index_handle;
     // short key index decoder
+    // all content is in memory
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
     // primary key index reader
     std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
-    // Segment may be destructed after StorageEngine, in order to exit gracefully.
-    std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
     std::mutex _open_lock;
+    // inverted index file reader
+    std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
+    DorisCallOnce<Status> _inverted_index_file_reader_open;
 };
 
 } // namespace segment_v2

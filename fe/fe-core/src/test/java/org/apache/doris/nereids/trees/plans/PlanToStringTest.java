@@ -72,9 +72,10 @@ public class PlanToStringTest {
         LogicalJoin<Plan, Plan> plan = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(
                 new EqualTo(new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
-                left, right);
+                left, right, null);
+        System.out.println(plan.toString());
         Assertions.assertTrue(plan.toString().matches(
-                "LogicalJoin\\[\\d+\\] \\( type=INNER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[] \\)"));
+                "LogicalJoin\\[\\d+\\] \\( type=INNER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[], markJoinConjuncts=\\[] \\)"));
     }
 
     @Test
@@ -83,7 +84,7 @@ public class PlanToStringTest {
         Assertions.assertTrue(
                 plan.toString().matches("LogicalOlapScan \\( qualified=db\\.table, "
                         + "indexName=<index_not_selected>, "
-                        + "selectedIndexId=-1, preAgg=ON \\)"));
+                        + "selectedIndexId=-1, preAgg=UNSET \\)"));
     }
 
     @Test

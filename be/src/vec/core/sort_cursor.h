@@ -47,7 +47,7 @@ public:
 private:
     void _reset() {
         sort_columns.clear();
-        auto columns = block.get_columns();
+        auto columns = block.get_columns_and_convert();
         for (size_t j = 0, size = desc.size(); j < size; ++j) {
             auto& column_desc = desc[j];
             size_t column_number = !column_desc.column_name.empty()
@@ -58,43 +58,16 @@ private:
     }
 };
 
-// Use `SharedHeapSortCursorBlockView` for `HeapSortCursorBlockView` instead of shared_ptr because there will be no
-// concurrent operation for `HeapSortCursorBlockView` and we don't need the lock inside shared_ptr
-class SharedHeapSortCursorBlockView {
-public:
-    SharedHeapSortCursorBlockView(HeapSortCursorBlockView&& reference)
-            : _ref_count(0), _reference(std::move(reference)) {}
-    SharedHeapSortCursorBlockView(const SharedHeapSortCursorBlockView&) = delete;
-    void unref() noexcept {
-        DCHECK_GT(_ref_count, 0);
-        _ref_count--;
-        if (_ref_count == 0) {
-            delete this;
-        }
-    }
-    void ref() noexcept { _ref_count++; }
-
-    HeapSortCursorBlockView& value() { return _reference; }
-
-    int ref_count() const { return _ref_count; }
-
-private:
-    ~SharedHeapSortCursorBlockView() noexcept = default;
-    int _ref_count;
-    HeapSortCursorBlockView _reference;
-};
+using HeapSortCursorBlockSPtr = std::shared_ptr<HeapSortCursorBlockView>;
 
 struct HeapSortCursorImpl {
 public:
-    HeapSortCursorImpl(int row_id, SharedHeapSortCursorBlockView* block_view)
-            : _row_id(row_id), _block_view(block_view) {
-        block_view->ref();
-    }
+    HeapSortCursorImpl(int row_id, HeapSortCursorBlockSPtr block_view)
+            : _row_id(row_id), _block_view(block_view) {}
 
     HeapSortCursorImpl(const HeapSortCursorImpl& other) {
         _row_id = other._row_id;
         _block_view = other._block_view;
-        _block_view->ref();
     }
 
     HeapSortCursorImpl(HeapSortCursorImpl&& other) {
@@ -109,19 +82,15 @@ public:
         return *this;
     }
 
-    ~HeapSortCursorImpl() {
-        if (_block_view) {
-            _block_view->unref();
-        }
-    }
+    ~HeapSortCursorImpl() = default;
 
     size_t row_id() const { return _row_id; }
 
-    const ColumnRawPtrs& sort_columns() const { return _block_view->value().sort_columns; }
+    const ColumnRawPtrs& sort_columns() const { return _block_view->sort_columns; }
 
-    const Block* block() const { return &_block_view->value().block; }
+    const Block* block() const { return &_block_view->block; }
 
-    const SortDescription& sort_desc() const { return _block_view->value().desc; }
+    const SortDescription& sort_desc() const { return _block_view->desc; }
 
     bool operator<(const HeapSortCursorImpl& rhs) const {
         for (size_t i = 0; i < sort_desc().size(); ++i) {
@@ -143,7 +112,7 @@ public:
 
 private:
     size_t _row_id;
-    SharedHeapSortCursorBlockView* _block_view;
+    HeapSortCursorBlockSPtr _block_view;
 };
 
 /** Cursor allows to compare rows in different blocks (and parts).
@@ -161,7 +130,7 @@ struct MergeSortCursorImpl {
     MergeSortCursorImpl() = default;
     virtual ~MergeSortCursorImpl() = default;
 
-    MergeSortCursorImpl(const Block& block, const SortDescription& desc_)
+    MergeSortCursorImpl(Block& block, const SortDescription& desc_)
             : desc(desc_), sort_columns_size(desc.size()) {
         reset(block);
     }
@@ -171,13 +140,11 @@ struct MergeSortCursorImpl {
     bool empty() const { return rows == 0; }
 
     /// Set the cursor to the beginning of the new block.
-    void reset(const Block& block) { reset(block.get_columns(), block); }
-
-    /// Set the cursor to the beginning of the new block.
-    void reset(const Columns& columns, const Block& block) {
+    void reset(Block& block) {
         all_columns.clear();
         sort_columns.clear();
 
+        auto columns = block.get_columns_and_convert();
         size_t num_columns = columns.size();
 
         for (size_t j = 0; j < num_columns; ++j) {
@@ -196,8 +163,8 @@ struct MergeSortCursorImpl {
         rows = all_columns[0]->size();
     }
 
-    bool isFirst() const { return pos == 0; }
-    bool isLast() const { return pos + 1 >= rows; }
+    bool is_first() const { return pos == 0; }
+    bool is_last() const { return pos + 1 >= rows; }
     void next() { ++pos; }
 
     virtual bool has_next_block() { return false; }
@@ -244,6 +211,8 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
             }
             MergeSortCursorImpl::reset(_block);
             return status.ok();
+        } else if (!status.ok()) {
+            throw std::runtime_error(std::string(status.msg()));
         }
         return false;
     }

@@ -119,8 +119,8 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
                         .addExternalPartitions(catalogName, dbName, tblName,
                                 Lists.newArrayList(partitionNameAfter), eventTime, true);
             } else {
-                Env.getCurrentEnv().getCatalogMgr()
-                        .refreshExternalPartitions(catalogName, dbName, hmsTbl.getTableName(),
+                Env.getCurrentEnv().getRefreshManager()
+                        .refreshPartitions(catalogName, dbName, hmsTbl.getTableName(),
                                 Lists.newArrayList(partitionNameAfter), eventTime, true);
             }
         } catch (DdlException e) {

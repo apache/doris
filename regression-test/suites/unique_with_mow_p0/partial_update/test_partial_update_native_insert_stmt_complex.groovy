@@ -25,10 +25,6 @@ suite("test_partial_update_native_insert_stmt_complex", "p0") {
 
         connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
             sql "use ${db};"
-
-            sql "set enable_nereids_dml=false;"
-            sql "set experimental_enable_nereids_planner=false;"
-            sql "set enable_fallback_to_original_planner=true;"
             sql "sync;"
 
             // test complex partial update
@@ -72,6 +68,8 @@ suite("test_partial_update_native_insert_stmt_complex", "p0") {
                 (5, 5, '5', 5.0, '2000-01-05');"""
             sql """insert into ${tbName3} values(1), (3), (5);"""
 
+            sql "sync;"
+
             qt_tbl1 "select * from ${tbName1} order by id;"
             qt_tbl2 "select * from ${tbName2} order by id;"
             qt_tbl3 "select * from ${tbName3} order by id;"
@@ -91,7 +89,7 @@ suite("test_partial_update_native_insert_stmt_complex", "p0") {
                 sql """insert into ${tbName1}
                 select ${tbName2}.id, ${tbName2}.c1, ${tbName2}.c3 * 100
                 from ${tbName2} inner join ${tbName3} on ${tbName2}.id = ${tbName3}.id; """
-                exception "You must explicitly specify the columns to be updated when updating partial columns using the INSERT statement."
+                exception "You must explicitly specify the columns to be updated when updating partial columns using the INSERT statement"
             }
             sql "truncate table ${tbName1};"
             sql "truncate table ${tbName2};"
@@ -111,6 +109,8 @@ suite("test_partial_update_native_insert_stmt_complex", "p0") {
                 (5, 5, '5', 5.0, '2000-01-05');"""
             sql """insert into ${tbName3} values(1), (3), (5);"""
 
+            sql "sync;"
+            
             qt_select_result "select ${tbName2}.id,1 from ${tbName2} inner join ${tbName3} on ${tbName2}.id = ${tbName3}.id order by ${tbName2}.id;"
 
             sql "set enable_unique_key_partial_update=true;"

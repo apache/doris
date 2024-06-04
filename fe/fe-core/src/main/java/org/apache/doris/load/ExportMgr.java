@@ -26,6 +26,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
@@ -33,6 +35,7 @@ import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.exception.JobException;
@@ -59,23 +62,26 @@ import java.util.stream.Collectors;
 
 public class ExportMgr {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
-
-    // lock for export job
-    // lock is private and must use after db lock
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-
     private Map<Long, ExportJob> exportIdToJob = Maps.newHashMap(); // exportJobId to exportJob
     // dbid -> <label -> job>
     private Map<Long, Map<String, Long>> dbTolabelToExportJobId = Maps.newHashMap();
 
+    // lock for export job
+    // lock is private and must use after db lock
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+
     public ExportMgr() {
     }
 
-    public void readLock() {
+    public List<ExportJob> getJobs() {
+        return Lists.newArrayList(exportIdToJob.values());
+    }
+
+    private void readLock() {
         lock.readLock().lock();
     }
 
-    public void readUnlock() {
+    private void readUnlock() {
         lock.readLock().unlock();
     }
 
@@ -85,10 +91,6 @@ public class ExportMgr {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
-    }
-
-    public List<ExportJob> getJobs() {
-        return Lists.newArrayList(exportIdToJob.values());
     }
 
     public void addExportJobAndRegisterTask(ExportJob job) throws Exception {
@@ -101,9 +103,8 @@ public class ExportMgr {
                 throw new LabelAlreadyUsedException(job.getLabel());
             }
             unprotectAddJob(job);
-            job.getJobExecutorList().forEach(executor -> {
-                Long taskId = Env.getCurrentEnv().getExportTaskRegister().registerTask(executor);
-                executor.setTaskId(taskId);
+            job.getTaskExecutors().forEach(executor -> {
+                Long taskId = Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
                 job.getTaskIdToExecutor().put(taskId, executor);
             });
             Env.getCurrentEnv().getEditLog().logExportCreate(job);
@@ -124,6 +125,9 @@ public class ExportMgr {
         if (matchExportJobs.isEmpty()) {
             throw new DdlException("All export job(s) are at final state (CANCELLED/FINISHED)");
         }
+
+        // check auth
+        checkCancelExportJobAuth(InternalCatalog.INTERNAL_CATALOG_NAME, stmt.getDbName(), matchExportJobs);
         try {
             for (ExportJob exportJob : matchExportJobs) {
                 // exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
@@ -132,6 +136,29 @@ public class ExportMgr {
             }
         } catch (JobException e) {
             throw new AnalysisException(e.getMessage());
+        }
+    }
+
+    public void checkCancelExportJobAuth(String ctlName, String dbName, List<ExportJob> jobs) throws AnalysisException {
+        if (jobs.size() > 1) {
+            if (Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), ctlName, dbName,
+                            PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), dbName);
+            }
+        } else {
+            TableName tableName = jobs.get(0).getTableName();
+            if (tableName == null) {
+                return;
+            }
+            if (Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), ctlName, dbName,
+                            tableName.getTbl(),
+                            PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), tableName.getTbl());
+            }
         }
     }
 
@@ -313,11 +340,11 @@ public class ExportMgr {
                 return false;
             }
             if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
-                    db.getFullName(), PrivPredicate.SHOW)) {
+                    InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), PrivPredicate.SHOW)) {
                 return false;
             }
         } else {
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getCtl(),
                     tableName.getDb(), tableName.getTbl(),
                     PrivPredicate.SHOW)) {
                 return false;
@@ -351,11 +378,14 @@ public class ExportMgr {
         infoMap.put("broker", job.getBrokerDesc().getName());
         infoMap.put("column_separator", job.getColumnSeparator());
         infoMap.put("format", job.getFormat());
+        infoMap.put("with_bom", job.getWithBom());
         infoMap.put("line_delimiter", job.getLineDelimiter());
         infoMap.put("columns", job.getColumns());
         infoMap.put("tablet_num", job.getTabletsNum());
         infoMap.put("max_file_size", job.getMaxFileSize());
         infoMap.put("delete_existing_files", job.getDeleteExistingFiles());
+        infoMap.put("parallelism", job.getParallelism());
+        infoMap.put("data_consistency", job.getDataConsistency());
         jobInfo.add(new Gson().toJson(infoMap));
         // path
         jobInfo.add(job.getExportPath());
@@ -394,7 +424,7 @@ public class ExportMgr {
                 ExportJob job = entry.getValue();
                 if ((currentTimeMs - job.getCreateTimeMs()) / 1000 > Config.history_job_keep_max_second
                         && (job.getState() == ExportJobState.CANCELLED
-                            || job.getState() == ExportJobState.FINISHED)) {
+                        || job.getState() == ExportJobState.FINISHED)) {
                     iter.remove();
                     Map<String, Long> labelJobs = dbTolabelToExportJobId.get(job.getDbId());
                     if (labelJobs != null) {
@@ -453,9 +483,10 @@ public class ExportMgr {
         readLock();
         try {
             for (ExportJob job : exportIdToJob.values()) {
-                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
-                        Env.getCurrentEnv().getCatalogMgr().getDbNullable(job.getDbId()).getFullName(),
-                        PrivPredicate.LOAD)) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                                Env.getCurrentEnv().getCatalogMgr().getDbNullable(job.getDbId()).getFullName(),
+                                PrivPredicate.LOAD)) {
                     continue;
                 }
 

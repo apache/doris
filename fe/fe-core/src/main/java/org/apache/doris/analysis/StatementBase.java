@@ -22,22 +22,21 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 public abstract class StatementBase implements ParseNode {
-
+    private static final Logger LOG = LogManager.getLogger(StatementBase.class);
     private String clusterName;
 
     // Set this variable if this QueryStmt is the top level query from an EXPLAIN <query>
@@ -57,7 +56,6 @@ public abstract class StatementBase implements ParseNode {
     private UserIdentity userInfo;
 
     private boolean isPrepared = false;
-
     // select * from tbl where a = ? and b = ?
     // `?` is the placeholder
     private ArrayList<PlaceHolderExpr> placeholders = new ArrayList<>();
@@ -89,10 +87,9 @@ public abstract class StatementBase implements ParseNode {
         if (analyzer.getRootStatementClazz() == null) {
             analyzer.setRootStatementClazz(this.getClass());
         }
-        if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
-        }
-        this.clusterName = analyzer.getClusterName();
+    }
+
+    public void checkPriv() throws AnalysisException {
     }
 
     public Analyzer getAnalyzer() {
@@ -107,12 +104,13 @@ public abstract class StatementBase implements ParseNode {
         this.explainOptions = options;
     }
 
-    public boolean isExplain() {
-        return this.explainOptions != null;
+    public void setPlaceHolders(ArrayList<PlaceHolderExpr> placeholders) {
+        LOG.debug("setPlaceHolders {}", placeholders);
+        this.placeholders = new ArrayList<PlaceHolderExpr>(placeholders);
     }
 
-    public void setPlaceHolders(ArrayList<PlaceHolderExpr> placeholders) {
-        this.placeholders = new ArrayList<PlaceHolderExpr>(placeholders);
+    public boolean isExplain() {
+        return this.explainOptions != null;
     }
 
     public ArrayList<PlaceHolderExpr> getPlaceHolders() {
@@ -221,12 +219,14 @@ public abstract class StatementBase implements ParseNode {
                 "foldConstant() not implemented for this stmt: " + getClass().getSimpleName());
     }
 
-    public String getClusterName() {
-        return clusterName;
-    }
-
-    public void setClusterName(String clusterName) {
-        this.clusterName = clusterName;
+    /**
+     * rewrite element_at to slot in statement
+     * @throws AnalysisException
+     * @param rewriter
+     */
+    public void rewriteElementAtToSlot(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
+        throw new IllegalStateException(
+                "rewriteElementAtToSlot() not implemented for this stmt: " + getClass().getSimpleName());
     }
 
     public void setOrigStmt(OriginStatement origStmt) {

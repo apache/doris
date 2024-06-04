@@ -18,8 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -30,6 +34,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Test;
 
 class ConvertOuterJoinToAntiJoinTest implements MemoPatternMatchSupported {
@@ -48,7 +53,7 @@ class ConvertOuterJoinToAntiJoinTest implements MemoPatternMatchSupported {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
                 .filter(new IsNull(scan2.getOutput().get(0)))
-                .project(ImmutableList.of(0, 1))
+                .projectExprs(ImmutableList.copyOf(scan1.getOutput()))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -63,7 +68,7 @@ class ConvertOuterJoinToAntiJoinTest implements MemoPatternMatchSupported {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
                 .filter(new IsNull(scan1.getOutput().get(0)))
-                .project(ImmutableList.of(2, 3))
+                .projectExprs(ImmutableList.copyOf(scan2.getOutput()))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -71,5 +76,78 @@ class ConvertOuterJoinToAntiJoinTest implements MemoPatternMatchSupported {
                 .applyTopDown(new ConvertOuterJoinToAntiJoin())
                 .printlnTree()
                 .matches(logicalJoin().when(join -> join.getJoinType().isRightAntiJoin()));
+    }
+
+    @Test
+    void testEliminateLeftWithLeftPredicate() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
+                .filter(Sets.newHashSet(
+                        new IsNull(scan2.getOutput().get(0)),
+                        new EqualTo(scan1.getOutput().get(0), new IntegerLiteral(1)))
+                )
+                .projectExprs(ImmutableList.copyOf(scan1.getOutput()))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferFilterNotNull())
+                .applyTopDown(new ConvertOuterJoinToAntiJoin())
+                .printlnTree()
+                .matches(logicalJoin().when(join -> join.getJoinType().isLeftAntiJoin()));
+    }
+
+    @Test
+    void testEliminateLeftWithRightPredicate() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
+                .filter(Sets.newHashSet(
+                        new IsNull(scan2.getOutput().get(0)),
+                        new EqualTo(scan2.getOutput().get(0), new IntegerLiteral(1)))
+                )
+                .projectExprs(ImmutableList.copyOf(scan1.getOutput()))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferFilterNotNull())
+                .applyTopDown(new ConvertOuterJoinToAntiJoin())
+                .printlnTree()
+                .matches(logicalJoin().when(join -> join.getJoinType().isLeftAntiJoin()));
+    }
+
+    @Test
+    void testEliminateLeftWithOrPredicate() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
+                .filter(Sets.newHashSet(
+                        new IsNull(scan1.getOutput().get(0)),
+                        new Or(new IsNull(scan1.getOutput().get(0)), new IsNull(scan2.getOutput().get(0))))
+                )
+                .projectExprs(ImmutableList.copyOf(scan1.getOutput()))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferFilterNotNull())
+                .applyTopDown(new ConvertOuterJoinToAntiJoin())
+                .printlnTree()
+                .matches(logicalJoin().when(join -> join.getJoinType().isLeftOuterJoin()));
+    }
+
+    @Test
+    void testEliminateLeftWithAndPredicate() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
+                .filter(Sets.newHashSet(
+                        new IsNull(scan1.getOutput().get(0)),
+                        new And(new EqualTo(scan1.getOutput().get(0), new IntegerLiteral(1)),
+                                new EqualTo(scan1.getOutput().get(0), new IntegerLiteral(1))))
+                )
+                .project(ImmutableList.of(2, 3))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferFilterNotNull())
+                .applyTopDown(new ConvertOuterJoinToAntiJoin())
+                .printlnTree()
+                .matches(logicalJoin().when(join -> join.getJoinType().isLeftOuterJoin()));
     }
 }

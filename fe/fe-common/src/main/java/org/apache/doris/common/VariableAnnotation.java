@@ -38,4 +38,3 @@ public enum VariableAnnotation {
         return prefix;
     }
 }
-

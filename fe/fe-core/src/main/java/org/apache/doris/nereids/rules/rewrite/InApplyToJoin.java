@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -29,7 +30,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -88,8 +89,9 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 }
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         Lists.newArrayList(expr),
-                        JoinHint.NONE,
-                        apply.left(), agg);
+                        new DistributeHint(DistributeType.NONE),
+                        apply.getMarkJoinSlotReference(),
+                        apply.left(), agg, null);
             }
 
             //in-predicate to equal
@@ -99,32 +101,54 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
             // TODO: trick here, because when deep copy logical plan the apply right child
             //  is not same with query plan in subquery expr, since the scan node copy twice
             Expression right = inSubquery.getSubqueryOutput((LogicalPlan) apply.right());
-            if (apply.isCorrelated()) {
-                if (inSubquery.isNot()) {
-                    predicate = ExpressionUtils.and(ExpressionUtils.or(new EqualTo(left, right),
-                            new IsNull(left), new IsNull(right)),
-                            apply.getCorrelationFilter().get());
-                } else {
-                    predicate = ExpressionUtils.and(new EqualTo(left, right),
-                            apply.getCorrelationFilter().get());
-                }
-            } else {
+            if (apply.isMarkJoin()) {
+                List<Expression> joinConjuncts = apply.getCorrelationFilter().isPresent()
+                        ? ExpressionUtils.extractConjunction(apply.getCorrelationFilter().get())
+                        : Lists.newArrayList();
                 predicate = new EqualTo(left, right);
-            }
-
-            List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
-            if (inSubquery.isNot()) {
+                List<Expression> markConjuncts = Lists.newArrayList(predicate);
+                if (!predicate.nullable() || (apply.isMarkJoinSlotNotNull() && !inSubquery.isNot())) {
+                    // we can merge mark conjuncts with hash conjuncts in 2 scenarios
+                    // 1. the mark join predicate is not nullable, so no null value would be produced
+                    // 2. semi join with non-nullable mark slot.
+                    // because semi join only care about mark slot with true value and discard false and null
+                    // it's safe the use false instead of null in this case
+                    joinConjuncts.addAll(markConjuncts);
+                    markConjuncts.clear();
+                }
                 return new LogicalJoin<>(
-                        predicate.nullable() && !apply.isCorrelated()
-                                ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN
-                                : JoinType.LEFT_ANTI_JOIN,
-                        Lists.newArrayList(), conjuncts, JoinHint.NONE,
-                        apply.getMarkJoinSlotReference(), apply.children());
+                        inSubquery.isNot() ? JoinType.LEFT_ANTI_JOIN : JoinType.LEFT_SEMI_JOIN,
+                        Lists.newArrayList(), joinConjuncts, markConjuncts,
+                        new DistributeHint(DistributeType.NONE), apply.getMarkJoinSlotReference(),
+                        apply.children(), null);
             } else {
-                return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
-                        conjuncts,
-                        JoinHint.NONE, apply.getMarkJoinSlotReference(),
-                        apply.children());
+                if (apply.isCorrelated()) {
+                    if (inSubquery.isNot()) {
+                        predicate = ExpressionUtils.and(ExpressionUtils.or(new EqualTo(left, right),
+                                        new IsNull(left), new IsNull(right)),
+                                apply.getCorrelationFilter().get());
+                    } else {
+                        predicate = ExpressionUtils.and(new EqualTo(left, right),
+                                apply.getCorrelationFilter().get());
+                    }
+                } else {
+                    predicate = new EqualTo(left, right);
+                }
+
+                List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
+                if (inSubquery.isNot()) {
+                    return new LogicalJoin<>(
+                            predicate.nullable() && !apply.isCorrelated()
+                                    ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN
+                                    : JoinType.LEFT_ANTI_JOIN,
+                            Lists.newArrayList(), conjuncts, new DistributeHint(DistributeType.NONE),
+                            apply.getMarkJoinSlotReference(), apply.children(), null);
+                } else {
+                    return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
+                            conjuncts,
+                            new DistributeHint(DistributeType.NONE), apply.getMarkJoinSlotReference(),
+                            apply.children(), null);
+                }
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);
     }

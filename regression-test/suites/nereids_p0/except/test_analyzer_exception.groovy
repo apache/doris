@@ -25,6 +25,6 @@ suite("test_analyzer_exception") {
 
     test {
         sql "SELECT id FROM ${tbName}"
-        exception "Table [test_analyzer_exception] does not exist in database [default_cluster:test_analyzer_db]."
+        exception "Table [test_analyzer_exception] does not exist in database [test_analyzer_db]."
     }
 }

@@ -23,67 +23,24 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/core/block.h"
-#include "vec/exec/vunion_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
 class DataQueue;
 
-class UnionSinkOperatorBuilder final : public OperatorBuilder<vectorized::VUnionNode> {
-public:
-    UnionSinkOperatorBuilder(int32_t id, int child_id, ExecNode* node,
-                             std::shared_ptr<DataQueue> queue);
-
-    OperatorPtr build_operator() override;
-
-    bool is_sink() const override { return true; }
-
-private:
-    int _cur_child_id;
-    std::shared_ptr<DataQueue> _data_queue;
-};
-
-class UnionSinkOperator final : public StreamingOperator<UnionSinkOperatorBuilder> {
-public:
-    UnionSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* node,
-                      std::shared_ptr<DataQueue> queue);
-
-    bool can_write() override { return true; }
-
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
-
-    Status close(RuntimeState* state) override;
-
-private:
-    int _cur_child_id;
-    std::shared_ptr<DataQueue> _data_queue;
-    std::unique_ptr<vectorized::Block> _output_block;
-};
-
-class UnionSinkDependency final : public Dependency {
-public:
-    using SharedState = UnionSharedState;
-    UnionSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "UnionSinkDependency", true, query_ctx) {}
-    ~UnionSinkDependency() override = default;
-    void block() override {}
-};
-
 class UnionSinkOperatorX;
-class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionSinkDependency> {
+class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(UnionSinkLocalState);
     UnionSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _child_row_idx(0) {}
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     friend class UnionSinkOperatorX;
-    using Base = PipelineXSinkLocalState<UnionSinkDependency>;
+    using Base = PipelineXSinkLocalState<UnionSharedState>;
     using Parent = UnionSinkOperatorX;
 
 private:
@@ -118,8 +75,20 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+
+    std::shared_ptr<BasicSharedState> create_shared_state() const override {
+        if (_cur_child_id > 0) {
+            return nullptr;
+        } else {
+            std::shared_ptr<BasicSharedState> ss = std::make_shared<UnionSharedState>(_child_size);
+            ss->id = operator_id();
+            for (auto& dest : dests_id()) {
+                ss->related_op_ids.insert(dest);
+            }
+            return ss;
+        }
+    }
 
 private:
     int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }

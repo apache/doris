@@ -17,13 +17,14 @@
 
 suite("array_agg") {
     sql "DROP TABLE IF EXISTS `test_array_agg`;"
+    sql "DROP TABLE IF EXISTS `test_array_agg1`;"
     sql "DROP TABLE IF EXISTS `test_array_agg_int`;"
     sql "DROP TABLE IF EXISTS `test_array_agg_decimal`;"
     sql """
        CREATE TABLE `test_array_agg` (
         `id` int(11) NOT NULL,
         `label_name` varchar(32) default null,
-        `value_field` string default null,
+        `value_field` string default null
     ) ENGINE=OLAP
     DUPLICATE KEY(`id`)
     COMMENT 'OLAP'
@@ -157,39 +158,100 @@ suite("array_agg") {
     (8, "", NULL,0,NULL,"alexcoco2");
     """ 
 
-    qt_sql1 """
-    SELECT array_agg(`label_name`) FROM `test_array_agg` GROUP BY `id` order by id;
+    order_qt_sql1 """
+    SELECT count(id), array_agg(`label_name`) FROM `test_array_agg` GROUP BY `id` order by id;
     """
-    qt_sql2 """
-    SELECT array_agg(label_name) FROM `test_array_agg` GROUP BY value_field order by value_field;
+    order_qt_sql2 """
+    SELECT count(value_field), array_agg(label_name) FROM `test_array_agg` GROUP BY value_field order by value_field;
     """
-    qt_sql3 """
+    order_qt_sql3 """
     SELECT array_agg(`label_name`) FROM `test_array_agg`;
     """
-    qt_sql4 """
+    order_qt_sql4 """
     SELECT array_agg(`value_field`) FROM `test_array_agg`;
     """
-    qt_sql5 """
+    order_qt_sql5 """
     SELECT id, array_agg(age) FROM test_array_agg_int GROUP BY id order by id;
     """
 
-    qt_sql6 """
+    order_qt_sql6 """
     select array_agg(label_name) from test_array_agg_decimal where id=7;
     """
 
-    qt_sql7 """
+    order_qt_sql6_1 """
+    select sum(o_totalprice), array_agg(label_name) from test_array_agg_decimal where id=7;
+    """
+
+    order_qt_sql7 """
     select array_agg(label_name) from test_array_agg_decimal group by id order by id;
     """
 
-    qt_sql8 """
+    order_qt_sql8 """
     select array_agg(age) from test_array_agg_decimal where id=7;
     """
 
-    qt_sql9 """
+    order_qt_sql9 """
     select id,array_agg(o_totalprice) from test_array_agg_decimal group by id order by id;
     """
 
+
+    // test for bucket 10 
+    sql """ CREATE TABLE `test_array_agg1` (
+        `id` int(11) NOT NULL,
+        `label_name` varchar(32) default null,
+        `value_field` string default null
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`id`) BUCKETS 10
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "false",
+    "enable_single_replica_compaction" = "false"
+    ); """
+
+    sql """
+    insert into `test_array_agg1` values
+    (1, "alex",NULL),
+    (1, "LB", "V1_2"),
+    (1, "LC", "V1_3"),
+    (2, "LA", "V2_1"),
+    (2, "LB", "V2_2"),
+    (2, "LC", "V2_3"),
+    (3, "LA", "V3_1"),
+    (3, NULL, NULL),
+    (3, "LC", "V3_3"),
+    (4, "LA", "V4_1"),
+    (4, "LB", "V4_2"),
+    (4, "LC", "V4_3"),
+    (5, "LA", "V5_1"),
+    (5, "LB", "V5_2"),
+    (5, "LC", "V5_3"),
+    (5, NULL, "V5_3"),
+    (6, "LC", "V6_3"),
+    (6, "LC", NULL),
+    (6, "LC", "V6_3"),
+    (6, "LC", NULL),
+    (6, NULL, "V6_3"),
+    (7, "LC", "V7_3"),
+    (7, "LC", NULL),
+    (7, "LC", "V7_3"),
+    (7, "LC", NULL),
+    (7, NULL, "V7_3");
+    """
+   
+    order_qt_sql11 """
+    SELECT count(id), size(array_agg(`label_name`)) FROM `test_array_agg` GROUP BY `id` order by id;
+    """
+    order_qt_sql21 """
+    SELECT count(value_field), size(array_agg(label_name)) FROM `test_array_agg` GROUP BY value_field order by value_field;
+    """
+
+
     sql "DROP TABLE `test_array_agg`"
+    sql "DROP TABLE `test_array_agg1`"	
     sql "DROP TABLE `test_array_agg_int`"
     sql "DROP TABLE `test_array_agg_decimal`"
 }

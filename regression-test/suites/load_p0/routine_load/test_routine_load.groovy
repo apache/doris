@@ -15,7 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.kafka.clients.admin.AdminClient
+import org.apache.kafka.clients.producer.KafkaProducer
+import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.clients.producer.ProducerConfig
+
 suite("test_routine_load","p0") {
+
+    sql "create workload group if not exists create_routine_load_group properties ( 'cpu_share'='123');"
+    sql "create workload group if not exists alter_routine_load_group properties ( 'cpu_share'='123');"
+    Thread.sleep(5000) // wait publish workload group to be
 
     def tables = [
                   "dup_tbl_basic",
@@ -45,6 +54,26 @@ suite("test_routine_load","p0") {
                   "uniq_tbl_array_job",
                   "mow_tbl_array_job",
                  ]
+
+    def kafkaCsvTpoics = [
+                  "basic_data",
+                  "basic_array_data",
+                  "basic_data_with_errors",
+                  "basic_array_data_with_errors",
+                  "basic_data_timezone",
+                  "basic_array_data_timezone",
+                  "multi_table_csv1",
+                  "multi_table_csv",
+                ]
+
+    def kafkaJsonTopics = [
+                  "basic_data_json",
+                  "basic_array_data_json",
+                  "basic_data_json_by_line",
+                  "basic_array_data_json_by_line",
+                  "multi_table_json",
+                  "multi_table_json1",
+                ]
 
     def topics = [
                   "basic_data",
@@ -151,6 +180,37 @@ suite("test_routine_load","p0") {
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
     String kafka_port = context.config.otherConfigs.get("kafka_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    def kafka_broker = "${externalEnvIp}:${kafka_port}"
+
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        // define kafka 
+        def props = new Properties()
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
+        // Create kafka producer
+        def producer = new KafkaProducer<>(props)
+
+        for (String kafkaCsvTopic in kafkaCsvTpoics) {
+            def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
+            def lines = txt.readLines()
+            lines.each { line ->
+                logger.info("=====${line}========")
+                def record = new ProducerRecord<>(kafkaCsvTopic, null, line)
+                producer.send(record)
+            }
+        }
+        for (String kafkaJsonTopic in kafkaJsonTopics) {
+            def kafkaJson = new File("""${context.file.parent}/data/${kafkaJsonTopic}.json""").text
+            def lines = kafkaJson.readLines()
+            lines.each { line ->
+                logger.info("=====${line}========")
+                def record = new ProducerRecord<>(kafkaJsonTopic, null, line)
+                producer.send(record)
+            }
+        }            
+
+    }  
 
     // send_batch_parallelism
     def i = 0
@@ -170,7 +230,8 @@ suite("test_routine_load","p0") {
                         "send_batch_parallelism" = "2",
                         "max_batch_interval" = "5",
                         "max_batch_rows" = "300000",
-                        "max_batch_size" = "209715200"
+                        "max_batch_size" = "209715200",
+                        "workload_group" = "create_routine_load_group"
                     )
                     FROM KAFKA
                     (
@@ -561,7 +622,7 @@ suite("test_routine_load","p0") {
             }
         } finally {
             for (String tableName in tables) {
-                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                //sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
             }
         }
     }
@@ -764,7 +825,7 @@ suite("test_routine_load","p0") {
             }
         } finally {
             for (String tableName in tables) {
-                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                //sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
             }
         }
     }
@@ -1876,6 +1937,7 @@ suite("test_routine_load","p0") {
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"timezone\" = \"Asia/Shanghai\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"num_as_string\" = \"true\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"fuzzy_parse\" = \"true\");"
+                sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"workload_group\" = \"alter_routine_load_group\");"
                 res = sql "show routine load for ${jobs[i]}"
                 log.info("routine load job properties: ${res[0][11].toString()}".toString())
 

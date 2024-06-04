@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
+import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.ExprFdItem;
+import org.apache.doris.nereids.properties.FdFactory;
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -34,12 +36,12 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * use for defer materialize top n
@@ -116,16 +118,38 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        FunctionalDependencies fd = child(0).getLogicalProperties().getFunctionalDependencies();
+    public void computeUnique(DataTrait.Builder builder) {
         if (getLimit() == 1) {
-            Builder builder = new Builder();
-            List<Slot> output = outputSupplier.get();
-            output.forEach(builder::addUniformSlot);
-            output.forEach(builder::addUniqueSlot);
-            fd = builder.build();
+            getOutput().forEach(builder::addUniqueSlot);
+        } else {
+            builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
         }
-        return fd;
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        if (getLimit() == 1) {
+            getOutput().forEach(builder::addUniformSlot);
+        } else {
+            builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
+        }
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems() {
+        ImmutableSet<FdItem> fdItems = child(0).getLogicalProperties().getTrait().getFdItems();
+        if (getLimit() == 1) {
+            ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+            List<Slot> output = getOutput();
+            ImmutableSet<SlotReference> slotSet = output.stream()
+                    .filter(SlotReference.class::isInstance)
+                    .map(SlotReference.class::cast)
+                    .collect(ImmutableSet.toImmutableSet());
+            ExprFdItem fdItem = FdFactory.INSTANCE.createExprFdItem(slotSet, true, slotSet);
+            builder.add(fdItem);
+            fdItems = builder.build();
+        }
+        return fdItems;
     }
 
     @Override
@@ -184,5 +208,15 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
                 "deferMaterializeSlotIds", deferMaterializeSlotIds,
                 "columnIdSlot", columnIdSlot
         );
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
     }
 }

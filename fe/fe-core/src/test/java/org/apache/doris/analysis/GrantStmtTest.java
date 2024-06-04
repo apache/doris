@@ -88,7 +88,7 @@ public class GrantStmtTest {
         stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new TablePattern("testDb", "*"), privileges);
         stmt.analyze(analyzer);
         Assert.assertEquals("testUser", stmt.getUserIdent().getQualifiedUser());
-        Assert.assertEquals("testCluster:testDb", stmt.getTblPattern().getQualifiedDb());
+        Assert.assertEquals("testDb", stmt.getTblPattern().getQualifiedDb());
 
         privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.READ_ONLY), new AccessPrivilegeWithCols(AccessPrivilege.ALL));
         stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new TablePattern("testDb", "*"), privileges);
@@ -99,15 +99,17 @@ public class GrantStmtTest {
     public void testResourceNormal() throws UserException {
         String resourceName = "spark0";
         List<AccessPrivilegeWithCols> privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
-        GrantStmt stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new ResourcePattern(resourceName), privileges);
+        GrantStmt stmt = new GrantStmt(new UserIdentity("testUser", "%"), null,
+                new ResourcePattern(resourceName, ResourceTypeEnum.GENERAL), privileges, ResourceTypeEnum.GENERAL);
         stmt.analyze(analyzer);
         Assert.assertEquals(resourceName, stmt.getResourcePattern().getResourceName());
         Assert.assertEquals(Auth.PrivLevel.RESOURCE, stmt.getResourcePattern().getPrivLevel());
 
-        stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new ResourcePattern("*"), privileges);
+        stmt = new GrantStmt(new UserIdentity("testUser", "%"), null,
+                new ResourcePattern("*", ResourceTypeEnum.GENERAL), privileges, ResourceTypeEnum.GENERAL);
         stmt.analyze(analyzer);
-        Assert.assertEquals(Auth.PrivLevel.GLOBAL, stmt.getResourcePattern().getPrivLevel());
-        Assert.assertEquals("GRANT Usage_priv ON RESOURCE '*' TO 'testUser'@'%'", stmt.toSql());
+        Assert.assertEquals(Auth.PrivLevel.RESOURCE, stmt.getResourcePattern().getPrivLevel());
+        Assert.assertEquals("GRANT Usage_priv ON RESOURCE '%' TO 'testUser'@'%'", stmt.toSql());
     }
 
     @Test(expected = AnalysisException.class)

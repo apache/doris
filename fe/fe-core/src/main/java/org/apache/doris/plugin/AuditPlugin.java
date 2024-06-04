@@ -17,6 +17,8 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.plugin.audit.AuditEvent;
+
 /**
  * Audit plugin interface describe.
  */

@@ -15,9 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Test some keywords that may conflict.
-// For example, "bin" is used for function "bin",
-// and also used "show catalog recycle bin"
 suite("test_many_inlineview") {
     sql """
         drop table if exists ods_drp_ch_sys_codelist_et;
@@ -56,7 +53,7 @@ suite("test_many_inlineview") {
     sql """
         CREATE TABLE `ods_drp_xpi_storemain` (
         `fID` varchar(300) NOT NULL COMMENT 'ID',
-        `fStoreCode` varchar(150) NULL COMMENT '店铺编码',
+        `fStoreCode` varchar(150) NULL COMMENT '店铺编码'
         ) ENGINE=OLAP
         UNIQUE KEY(`fID`)
         DISTRIBUTED BY HASH(`fID`) BUCKETS 4

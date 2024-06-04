@@ -17,143 +17,32 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-import com.google.common.base.Strings;
-
-// For stmt like:
-// show load profile "/";   # list all saving load job ids
-// show load profile "/e0f7390f5363419e-xxx"  # show task ids of specified job
-// show load profile "/e0f7390f5363419e-xxx/e0f7390f5363419e-yyy/" # show instance list of the task
-// show load profile "/e0f7390f5363419e-xxx/e0f7390f5363419e-yyy/e0f7390f5363419e-zzz" # show instance's graph
+// deprecated stmt, use will be guided to a specific url to get profile from
+// web browser
 public class ShowLoadProfileStmt extends ShowStmt {
-    private static final ShowResultSetMetaData META_DATA_TASK_IDS =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("TaskId", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("ActiveTime", ScalarType.createVarchar(64)))
-                    .build();
+    private String loadIdPath;
 
-    public enum PathType {
-        QUERY_IDS,
-        TASK_IDS,
-        FRAGMENTS,
-        INSTANCES,
-        SINGLE_INSTANCE
-    }
-
-    private String idPath;
-    private PathType pathType;
-
-    private String jobId = "";
-    private String taskId = "";
-    private String fragmentId = "";
-    private String instanceId = "";
-
-    public ShowLoadProfileStmt(String idPath) {
-        this.idPath = idPath;
-    }
-
-    public PathType getPathType() {
-        return pathType;
-    }
-
-    public String getJobId() {
-        return jobId;
-    }
-
-    public String getTaskId() {
-        return taskId;
-    }
-
-    public String getFragmentId() {
-        return fragmentId;
-    }
-
-    public String getInstanceId() {
-        return instanceId;
+    public ShowLoadProfileStmt(String path) {
+        this.loadIdPath = path;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        if (Strings.isNullOrEmpty(idPath)) {
-            // list all query ids
-            pathType = PathType.QUERY_IDS;
-            return;
-        }
-
-        if (!idPath.startsWith("/")) {
-            throw new AnalysisException("Path must starts with '/'");
-        }
-        pathType = PathType.QUERY_IDS;
-        String[] parts = idPath.split("/");
-        if (parts.length > 5) {
-            throw new AnalysisException("Path must in format '/jobId/taskId/fragmentId/instanceId'");
-        }
-
-        for (int i = 0; i < parts.length; i++) {
-            switch (i) {
-                case 0:
-                    pathType = PathType.QUERY_IDS;
-                    continue;
-                case 1:
-                    jobId = parts[i];
-                    pathType = PathType.TASK_IDS;
-                    break;
-                case 2:
-                    taskId = parts[i];
-                    pathType = PathType.FRAGMENTS;
-                    break;
-                case 3:
-                    fragmentId = parts[i];
-                    pathType = PathType.INSTANCES;
-                    break;
-                case 4:
-                    instanceId = parts[i];
-                    pathType = PathType.SINGLE_INSTANCE;
-                    break;
-                default:
-                    break;
-            }
-        }
-    }
-
-    @Override
-    public String toSql() {
-        StringBuilder sb = new StringBuilder("SHOW LOAD PROFILE ").append(idPath);
-        return sb.toString();
-    }
-
-    @Override
-    public String toString() {
-        return toSql();
+        String selfHost = Env.getCurrentEnv().getSelfNode().getHost();
+        int httpPort = Config.http_port;
+        String terminalMsg = String.format(
+                "try visit http://%s:%d/QueryProfile/%s, show query/load profile syntax is a deprecated feature",
+                selfHost, httpPort, this.loadIdPath);
+        throw new UserException(terminalMsg);
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        switch (pathType) {
-            case QUERY_IDS:
-                return ShowQueryProfileStmt.META_DATA_QUERY_IDS;
-            case TASK_IDS:
-                return META_DATA_TASK_IDS;
-            case FRAGMENTS:
-                return ShowQueryProfileStmt.META_DATA_FRAGMENTS;
-            case INSTANCES:
-                return ShowQueryProfileStmt.META_DATA_INSTANCES;
-            case SINGLE_INSTANCE:
-                return ShowQueryProfileStmt.META_DATA_SINGLE_INSTANCE;
-            default:
-                return null;
-        }
-    }
-
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
+        return null;
     }
 }
-

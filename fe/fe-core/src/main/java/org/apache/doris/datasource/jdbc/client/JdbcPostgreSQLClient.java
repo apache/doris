@@ -20,17 +20,12 @@ package org.apache.doris.datasource.jdbc.client;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 public class JdbcPostgreSQLClient extends JdbcClient {
 
     protected JdbcPostgreSQLClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
-    }
-
-    @Override
-    protected String getDatabaseQuery() {
-        return "SELECT nspname FROM pg_namespace WHERE has_schema_privilege("
-                + "'" + jdbcUser + "', nspname, 'USAGE');";
     }
 
     @Override
@@ -40,7 +35,7 @@ public class JdbcPostgreSQLClient extends JdbcClient {
 
     @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
-        String pgType = fieldSchema.getDataTypeName();
+        String pgType = fieldSchema.getDataTypeName().orElse("unknown");
         switch (pgType) {
             case "int2":
             case "smallserial":
@@ -52,8 +47,8 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "bigserial":
                 return Type.BIGINT;
             case "numeric": {
-                int precision = fieldSchema.getColumnSize();
-                int scale = fieldSchema.getDecimalDigits();
+                int precision = fieldSchema.getColumnSize().orElse(0);
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
                 return createDecimalOrStringType(precision, scale);
             }
             case "float4":
@@ -62,12 +57,12 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 return Type.DOUBLE;
             case "bpchar":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.columnSize);
+                charType.setLength(fieldSchema.getColumnSize().orElse(0));
                 return charType;
             case "timestamp":
             case "timestamptz": {
                 // postgres can support microsecond
-                int scale = fieldSchema.getDecimalDigits();
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale > 6) {
                     scale = 6;
                 }
@@ -78,7 +73,7 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "bool":
                 return Type.BOOLEAN;
             case "bit":
-                if (fieldSchema.getColumnSize() == 1) {
+                if (fieldSchema.getColumnSize().orElse(0) == 1) {
                     return Type.BOOLEAN;
                 } else {
                     return ScalarType.createStringType();
@@ -101,10 +96,9 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "varbit":
             case "uuid":
             case "bytea":
-                return ScalarType.createStringType();
             case "json":
             case "jsonb":
-                return ScalarType.createJsonbType();
+                return ScalarType.createStringType();
             default:
                 return Type.UNSUPPORTED;
         }

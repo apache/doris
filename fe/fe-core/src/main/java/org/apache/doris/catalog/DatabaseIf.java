@@ -31,7 +31,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -75,7 +74,7 @@ public interface DatabaseIf<T extends TableIf> {
 
     List<T> getTables();
 
-    default List<T> getTablesOrEmpty() {
+    default List<T> getTablesIgnoreException() {
         try {
             return getTables();
         } catch (Exception e) {
@@ -83,8 +82,6 @@ public interface DatabaseIf<T extends TableIf> {
             return Lists.newArrayList();
         }
     }
-
-    List<T> getTablesOnIdOrder();
 
     List<T> getViews();
 
@@ -151,11 +148,13 @@ public interface DatabaseIf<T extends TableIf> {
     }
 
     default T getTableOrMetaException(String tableName) throws MetaNotFoundException {
-        return getTableOrException(tableName, t -> new MetaNotFoundException("unknown table, tableName=" + t));
+        return getTableOrException(tableName, t -> new MetaNotFoundException("table not found, tableName=" + t,
+                                                        ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     default T getTableOrMetaException(long tableId) throws MetaNotFoundException {
-        return getTableOrException(tableId, t -> new MetaNotFoundException("unknown table, tableId=" + t));
+        return getTableOrException(tableId, t -> new MetaNotFoundException("table not found, tableId=" + t,
+                                                        ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     default T getTableOrMetaException(String tableName, TableIf.TableType tableType) throws MetaNotFoundException {
@@ -206,7 +205,8 @@ public interface DatabaseIf<T extends TableIf> {
     }
 
     default T getTableOrDdlException(String tableName) throws DdlException {
-        return getTableOrException(tableName, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
+        return getTableOrException(tableName, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t),
+                                                            ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     default T getTableOrDdlException(String tableName, TableIf.TableType tableType) throws DdlException {
@@ -220,7 +220,8 @@ public interface DatabaseIf<T extends TableIf> {
     }
 
     default T getTableOrDdlException(long tableId) throws DdlException {
-        return getTableOrException(tableId, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
+        return getTableOrException(tableId, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t),
+                                                            ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     default T getTableOrDdlException(long tableId, TableIf.TableType tableType) throws DdlException {
@@ -235,12 +236,14 @@ public interface DatabaseIf<T extends TableIf> {
 
     default T getTableOrAnalysisException(String tableName) throws AnalysisException {
         return getTableOrException(tableName,
-                t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
+                t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t),
+                                ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     default T getTableOrAnalysisException(long tableId) throws AnalysisException {
         return getTableOrException(tableId,
-                t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
+                t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t),
+                                ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     default OlapTable getOlapTableOrDdlException(String tableName) throws DdlException {
@@ -259,13 +262,22 @@ public interface DatabaseIf<T extends TableIf> {
         return (OlapTable) table;
     }
 
-    void dropTable(String tableName);
+    /**
+     * register table to memory
+     * @param table created table
+     * @return true if add to memory
+     */
+    boolean registerTable(TableIf table);
+
+    /**
+     * unregister table from memory
+     * @param tableName table name
+     */
+    void unregisterTable(String tableName);
 
     CatalogIf getCatalog();
 
     default long getLastUpdateTime() {
         return -1L;
     }
-
-    public Map<Long, TableIf> getIdToTable();
 }

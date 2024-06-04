@@ -120,7 +120,6 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         name = Text.readString(in);
         queryPort = in.readInt();
         rpcPort = in.readInt();
-        arrowFlightSqlPort = in.readInt();
         replayedJournalId = in.readLong();
     }
 

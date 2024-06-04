@@ -41,7 +41,6 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
-#include "vec/columns/column_vector_helper.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/pod_array_fwd.h"
@@ -129,12 +128,12 @@ struct CompareHelper<Float64> : public FloatCompareHelper<Float64> {};
 /** A template for columns that use a simple array to store.
  */
 template <typename T>
-class ColumnVector final : public COWHelper<ColumnVectorHelper, ColumnVector<T>> {
+class ColumnVector final : public COWHelper<IColumn, ColumnVector<T>> {
     static_assert(!IsDecimalNumber<T>);
 
 private:
     using Self = ColumnVector;
-    friend class COWHelper<ColumnVectorHelper, Self>;
+    friend class COWHelper<IColumn, Self>;
 
     struct less;
     struct greater;
@@ -151,25 +150,6 @@ private:
 
     /// Sugar constructor.
     ColumnVector(std::initializer_list<T> il) : data {il} {}
-
-    void insert_res_column(const uint16_t* sel, size_t sel_size,
-                           vectorized::ColumnVector<T>* res_ptr) {
-        auto& res_data = res_ptr->data;
-        DCHECK(res_data.empty());
-        res_data.resize(sel_size);
-        for (size_t i = 0; i < sel_size; i++) {
-            res_data[i] = T(data[sel[i]]);
-        }
-    }
-
-    void insert_many_default_type(const char* data_ptr, size_t num) {
-        auto old_size = data.size();
-        data.resize(old_size + num);
-        T* input_val_ptr = (T*)data_ptr;
-        for (int i = 0; i < num; i++) {
-            data[old_size + i] = input_val_ptr[i];
-        }
-    }
 
 public:
     bool is_numeric() const override { return IsNumber<T>; }
@@ -188,24 +168,22 @@ public:
         data.push_back(unaligned_load<T>(pos));
     }
 
-    // note(wb) type of data_ptr element should be same with current column_vector's T
-    void insert_many_in_copy_way(const char* data_ptr, size_t num) {
-        auto old_size = data.size();
-        data.resize(old_size + num);
-        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
-    }
-
-    void insert_raw_integers(T val, size_t n) {
+    void insert_many_vals(T val, size_t n) {
         auto old_size = data.size();
         data.resize(old_size + n);
         std::fill(data.data() + old_size, data.data() + old_size + n, val);
     }
 
     void insert_range_of_integer(T begin, T end) {
-        auto old_size = data.size();
-        data.resize(old_size + (end - begin));
-        for (int i = 0; i < end - begin; i++) {
-            data[old_size + i] = begin + i;
+        if constexpr (std::is_integral_v<T>) {
+            auto old_size = data.size();
+            data.resize(old_size + (end - begin));
+            for (int i = 0; i < end - begin; i++) {
+                data[old_size + i] = begin + i;
+            }
+        } else {
+            LOG(FATAL) << "double column not support insert_range_of_integer";
+            __builtin_unreachable();
         }
     }
 
@@ -244,16 +222,15 @@ public:
         } else if (IColumn::is_date_time) {
             insert_datetime_column(data_ptr, num);
         } else {
-            insert_many_in_copy_way(data_ptr, num);
+            insert_many_raw_data(data_ptr, num);
         }
     }
 
-    void insert_many_raw_data(const char* pos, size_t num) override {
-        if constexpr (std::is_same_v<T, vectorized::Int128>) {
-            insert_many_in_copy_way(pos, num);
-        } else {
-            insert_many_default_type(pos, num);
-        }
+    void insert_many_raw_data(const char* data_ptr, size_t num) override {
+        DCHECK(data_ptr);
+        auto old_size = data.size();
+        data.resize(old_size + num);
+        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 
     void insert_default() override { data.push_back(T()); }
@@ -306,7 +283,7 @@ public:
         } else {
             if (this->is_date_type() || this->is_datetime_type()) {
                 char buf[64];
-                const VecDateTimeValue& date_val = (const VecDateTimeValue&)data[idx];
+                const auto& date_val = (const VecDateTimeValue&)data[idx];
                 auto len = date_val.to_buffer(buf);
                 hash = HashUtil::zlib_crc_hash(buf, len, hash);
             } else {
@@ -330,9 +307,6 @@ public:
         }
     }
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-
-    void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                  const uint8_t* __restrict null_data) const override;
 
     void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
                                 uint32_t offset,
@@ -368,13 +342,7 @@ public:
 
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
 
-    UInt64 get64(size_t n) const override;
-
-    Float64 get_float64(size_t n) const override;
-
     void clear() override { data.clear(); }
-
-    UInt64 get_uint(size_t n) const override { return UInt64(data[n]); }
 
     bool get_bool(size_t n) const override { return bool(data[n]); }
 
@@ -395,55 +363,21 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    void fill(const value_type& element, size_t num) {
-        auto old_size = data.size();
-        auto new_size = old_size + num;
-        data.resize(new_size);
-        if constexpr (sizeof(value_type) == 1) {
-            memset(&data[old_size], element, sizeof(value_type) * num);
-        } else {
-            for (size_t i = 0; i < num; ++i) {
-                data[old_size + i] = element;
-            }
-        }
-    }
-
-    void insert_zeroed_elements(size_t num) {
-        auto old_size = data.size();
-        auto new_size = old_size + num;
-        data.resize(new_size);
-        memset(&data[old_size], 0, sizeof(value_type) * num);
-    }
-
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
-    //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
-
-    template <typename Type>
-    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
-
-    double get_ratio_of_default_rows(double sample_ratio) const override {
-        return this->template get_ratio_of_default_rows_impl<Self>(sample_ratio);
-    }
-
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
-
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
-
-    MutableColumns scatter(IColumn::ColumnIndex num_columns,
-                           const IColumn::Selector& selector) const override {
-        return this->template scatter_impl<Self>(num_columns, selector);
-    }
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         this->template append_data_by_selector_impl<Self>(res, selector);
     }
-
-    //    void gather(ColumnGathererStream & gatherer_stream) override;
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
+    }
 
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
@@ -469,10 +403,7 @@ public:
         data[self_row] = assert_cast<const Self&>(rhs).data[row];
     }
 
-    void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        data[self_row] = T();
-    }
+    void replace_column_null_data(const uint8_t* __restrict null_map) override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
@@ -480,32 +411,9 @@ public:
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
-    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);
-    }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
 protected:
     Container data;
 };
-
-template <typename T>
-template <typename Type>
-ColumnPtr ColumnVector<T>::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
-    size_t size = indexes.size();
-
-    if (limit == 0)
-        limit = size;
-    else
-        limit = std::min(size, limit);
-
-    auto res = this->create(limit);
-    typename Self::Container& res_data = res->get_data();
-    for (size_t i = 0; i < limit; ++i) res_data[i] = data[indexes[i]];
-
-    return res;
-}
 
 } // namespace doris::vectorized

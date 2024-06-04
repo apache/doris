@@ -79,8 +79,8 @@ suite("test_always_nullable_window_function") {
             avg(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) avg_value,
             max(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) max_value,
             min(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) min_value,
-            lag(state, 0, null) over (partition by myday order by time_col) lag_value,
-            lead(state, 0, null) over (partition by myday order by time_col) lead_value
+            lag(state, 1, null) over (partition by myday order by time_col) lag_value,
+            lead(state, 1, null) over (partition by myday order by time_col) lead_value
         from ${tableName} order by myday, time_col, state;
     """
     qt_select_empty_window """
@@ -104,8 +104,8 @@ suite("test_always_nullable_window_function") {
             avg(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) avg_value,
             max(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) max_value,
             min(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) min_value,
-            lag(state, 0, null) over (partition by myday order by time_col) lag_value,
-            lead(state, 0, null) over (partition by myday order by time_col) lead_value
+            lag(state, 1, null) over (partition by myday order by time_col) lag_value,
+            lead(state, 1, null) over (partition by myday order by time_col) lead_value
         from ${nullableTableName} order by myday, time_col, state;
     """
     qt_select_empty_window_nullable """
@@ -172,5 +172,11 @@ suite("test_always_nullable_window_function") {
             lead(state, 2, null) over (partition by myday order by time_col) lead_value
         from ${nullableTableName} order by myday, time_col, state;
     """
-
+    sql "set enable_nereids_planner = true"
+    qt_select_lead_lag """
+        select lag(state, 0, 22) over (partition by myday order by time_col) lag_value,
+               lead(state, 0, 33) over (partition by myday order by time_col) lead_value,
+               state,time_col,myday
+               from ${nullableTableName} order by myday, time_col, state;
+    """
 }

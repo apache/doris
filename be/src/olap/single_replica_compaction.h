@@ -22,23 +22,25 @@
 #include "common/status.h"
 #include "olap/compaction.h"
 #include "olap/rowset/pending_rowset_helper.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet.h"
 
 namespace doris {
 
+class DataDir;
+
 //  SingleReplicaCompaction is used to fetch peer replica compaction result.
-class SingleReplicaCompaction : public Compaction {
+class SingleReplicaCompaction final : public CompactionMixin {
 public:
-    SingleReplicaCompaction(const TabletSharedPtr& tablet, const CompactionType& compaction_type);
+    SingleReplicaCompaction(StorageEngine& engine, const TabletSharedPtr& tablet,
+                            CompactionType compaction_type);
     ~SingleReplicaCompaction() override;
 
     Status prepare_compact() override;
-    Status execute_compact_impl() override;
+    Status execute_compact() override;
+
+    inline CompactionType real_compact_type() const { return _compaction_type; }
 
 protected:
-    Status pick_rowsets_to_compact() override;
-    std::string compaction_name() const override { return "single replica compaction"; }
+    std::string_view compaction_name() const override { return "single replica compaction"; }
     ReaderType compaction_type() const override {
         return (_compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                        ? ReaderType::READER_CUMULATIVE_COMPACTION
@@ -48,7 +50,7 @@ protected:
 private:
     Status _do_single_replica_compaction();
     Status _do_single_replica_compaction_impl();
-    bool _find_rowset_to_fetch(const std::vector<Version>& peer_versions, Version* peer_version);
+    bool _find_rowset_to_fetch(const std::vector<Version>& peer_versions, Version* proper_version);
     Status _get_rowset_verisons_from_peer(const TReplicaInfo& addr,
                                           std::vector<Version>* peer_versions);
     Status _fetch_rowset(const TReplicaInfo& addr, const std::string& token,
@@ -59,12 +61,10 @@ private:
     Status _download_files(DataDir* data_dir, const std::string& remote_url_prefix,
                            const std::string& local_path);
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
-    Status _finish_clone(const string& clone_dir, const Version& version);
+    Status _finish_clone(const std::string& clone_dir, const Version& version);
+    std::string _mask_token(const std::string& str);
     CompactionType _compaction_type;
 
-    DISALLOW_COPY_AND_ASSIGN(SingleReplicaCompaction);
-
-private:
     std::vector<PendingRowsetGuard> _pending_rs_guards;
 };
 

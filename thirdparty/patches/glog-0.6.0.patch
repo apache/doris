@@ -1,22 +1,26 @@
 diff --git a/src/glog/logging.h.in b/src/glog/logging.h.in
-index 95a573b..57d2e9b 100644
+index 95a573b..aaa00c2 100644
 --- a/src/glog/logging.h.in
 +++ b/src/glog/logging.h.in
-@@ -425,6 +425,12 @@ typedef void(*CustomPrefixCallback)(std::ostream& s, const LogMessageInfo& l, vo
+@@ -425,6 +425,16 @@ typedef void(*CustomPrefixCallback)(std::ostream& s, const LogMessageInfo& l, vo
    using fLS::FLAGS_##name
  #endif
-
+ 
 +// Set max log file num
 +DECLARE_int32(log_filenum_quota);
++
++// Set max warn log file num
++#define GLOG_HAS_WARN_LOG_FILENUM_QUOTA
++DECLARE_int32(warn_log_filenum_quota);
 +
 +// Set log file split method
 +DECLARE_string(log_split_method);
 +
  // Set whether appending a timestamp to the log file name
  DECLARE_bool(timestamp_in_logfile_name);
-
+ 
 diff --git a/src/logging.cc b/src/logging.cc
-index 4028ccc..fd60fc3 100644
+index 4028ccc..e8d9e32 100644
 --- a/src/logging.cc
 +++ b/src/logging.cc
 @@ -34,6 +34,7 @@
@@ -35,23 +39,26 @@ index 4028ccc..fd60fc3 100644
  #ifdef HAVE_PWD_H
  # include <pwd.h>
  #endif
-@@ -204,6 +206,12 @@ GLOG_DEFINE_string(log_backtrace_at, "",
+@@ -204,6 +206,15 @@ GLOG_DEFINE_string(log_backtrace_at, "",
  GLOG_DEFINE_bool(log_utc_time, false,
      "Use UTC time for logging.");
-
+ 
 +GLOG_DEFINE_string(log_split_method, "day",
 +                   "split log by size, day, hour");
 +
 +GLOG_DEFINE_int32(log_filenum_quota, 10,
 +                  "max log file num in log dir");
 +
++GLOG_DEFINE_int32(warn_log_filenum_quota, -1,
++                  "max warn log file num in log dir, -1 means equal to log_filenum_quota");
++
  // TODO(hamaji): consider windows
  #define PATH_SEPARATOR '/'
-
-@@ -429,6 +437,15 @@ namespace  {
-
+ 
+@@ -429,6 +440,15 @@ namespace  {
+ 
  namespace {
-
+ 
 +typedef struct filetime {
 +    std::string name;
 +    time_t time;
@@ -64,25 +71,25 @@ index 4028ccc..fd60fc3 100644
  // Encapsulates all file-system related state
  class LogFileObject : public base::Logger {
   public:
-@@ -459,6 +476,7 @@ class LogFileObject : public base::Logger {
+@@ -459,6 +479,7 @@ class LogFileObject : public base::Logger {
    // can avoid grabbing a lock.  Usually Flush() calls it after
    // acquiring lock_.
    void FlushUnlocked();
 +  void CheckFileNumQuota();
-
+ 
   private:
    static const uint32 kRolloverAttemptFrequency = 0x20;
-@@ -476,6 +494,9 @@ class LogFileObject : public base::Logger {
+@@ -476,6 +497,9 @@ class LogFileObject : public base::Logger {
    unsigned int rollover_attempt_;
    int64 next_flush_time_;         // cycle count at which to flush log
    WallTime start_time_;
 +  std::list<Filetime> file_list_;
 +  bool inited_;
 +  struct ::tm tm_time_;
-
+ 
    // Actually create a logfile using the value of base_filename_ and the
    // optional argument time_pid_string
-@@ -665,7 +686,7 @@ inline void LogDestination::FlushLogFiles(int min_severity) {
+@@ -665,7 +689,7 @@ inline void LogDestination::FlushLogFiles(int min_severity) {
    // all this stuff.
    MutexLock l(&log_mutex);
    for (int i = min_severity; i < NUM_SEVERITIES; i++) {
@@ -91,7 +98,7 @@ index 4028ccc..fd60fc3 100644
      if (log != NULL) {
        log->logger_->Flush();
      }
-@@ -876,9 +897,12 @@ inline void LogDestination::LogToAllLogfiles(LogSeverity severity,
+@@ -876,9 +900,12 @@ inline void LogDestination::LogToAllLogfiles(LogSeverity severity,
    } else if (FLAGS_logtostderr) {  // global flag: never log to file
      ColoredWriteToStderr(severity, message, len);
    } else {
@@ -106,8 +113,8 @@ index 4028ccc..fd60fc3 100644
 +    } else {}
    }
  }
-
-@@ -976,6 +1000,7 @@ LogFileObject::LogFileObject(LogSeverity severity,
+ 
+@@ -976,6 +1003,7 @@ LogFileObject::LogFileObject(LogSeverity severity,
      file_length_(0),
      rollover_attempt_(kRolloverAttemptFrequency-1),
      next_flush_time_(0),
@@ -115,7 +122,7 @@ index 4028ccc..fd60fc3 100644
      start_time_(WallTime_Now()) {
    assert(severity >= 0);
    assert(severity < NUM_SEVERITIES);
-@@ -1045,11 +1070,11 @@ bool LogFileObject::CreateLogfile(const string& time_pid_string) {
+@@ -1045,11 +1073,11 @@ bool LogFileObject::CreateLogfile(const string& time_pid_string) {
    string_filename += filename_extension_;
    const char* filename = string_filename.c_str();
    //only write to files, create if non-existant.
@@ -132,7 +139,7 @@ index 4028ccc..fd60fc3 100644
    int fd = open(filename, flags, FLAGS_logfile_mode);
    if (fd == -1) return false;
  #ifdef HAVE_FCNTL
-@@ -1097,6 +1122,10 @@ bool LogFileObject::CreateLogfile(const string& time_pid_string) {
+@@ -1097,6 +1125,10 @@ bool LogFileObject::CreateLogfile(const string& time_pid_string) {
      }
    }
  #endif
@@ -143,10 +150,10 @@ index 4028ccc..fd60fc3 100644
    // We try to create a symlink called <program_name>.<severity>,
    // which is easier to use.  (Every time we create a new logfile,
    // we destroy the old symlink and create a new one, so it always
-@@ -1138,6 +1167,59 @@ bool LogFileObject::CreateLogfile(const string& time_pid_string) {
+@@ -1138,6 +1170,63 @@ bool LogFileObject::CreateLogfile(const string& time_pid_string) {
    return true;  // Everything worked
  }
-
+ 
 +void LogFileObject::CheckFileNumQuota() {
 +    struct dirent *entry;
 +    DIR *dp;
@@ -193,7 +200,11 @@ index 4028ccc..fd60fc3 100644
 +
 +    file_list_.sort();
 +
-+    while (FLAGS_log_filenum_quota > 0 && file_list_.size() >= FLAGS_log_filenum_quota) {
++    auto log_filenum_quota = FLAGS_log_filenum_quota;
++    if (severity_ == GLOG_WARNING && FLAGS_warn_log_filenum_quota > 0) {
++        log_filenum_quota = FLAGS_warn_log_filenum_quota;
++    }
++    while (log_filenum_quota > 0 && file_list_.size() >= log_filenum_quota) {
 +       // fprintf(stderr, "delete %s\n", file_list_.front().name.c_str());
 +        unlink(file_list_.front().name.c_str());
 +        file_list_.pop_front();
@@ -203,10 +214,10 @@ index 4028ccc..fd60fc3 100644
  void LogFileObject::Write(bool force_flush,
                            time_t timestamp,
                            const char* message,
-@@ -1149,13 +1231,55 @@ void LogFileObject::Write(bool force_flush,
+@@ -1149,13 +1238,55 @@ void LogFileObject::Write(bool force_flush,
      return;
    }
-
+ 
 -  if (file_length_ >> 20U >= MaxLogSize() || PidHasChanged()) {
 +  struct ::tm tm_time;
 +
@@ -237,7 +248,7 @@ index 4028ccc..fd60fc3 100644
      file_length_ = bytes_since_flush_ = dropped_mem_length_ = 0;
      rollover_attempt_ = kRolloverAttemptFrequency - 1;
    }
-
+ 
 +  if ((file_ == NULL) && (!inited_) && (FLAGS_log_split_method == "size")) {
 +    CheckFileNumQuota();
 +    const char* filename = file_list_.back().name.c_str();
@@ -260,16 +271,20 @@ index 4028ccc..fd60fc3 100644
    // If there's no destination file, make one before outputting
    if (file_ == NULL) {
      // Try to rollover the log file every 32 log messages.  The only time
-@@ -1164,7 +1288,15 @@ void LogFileObject::Write(bool force_flush,
+@@ -1164,7 +1295,19 @@ void LogFileObject::Write(bool force_flush,
      if (++rollover_attempt_ != kRolloverAttemptFrequency) return;
      rollover_attempt_ = 0;
-
+ 
 -    struct ::tm tm_time;
 +    if (!inited_) {
 +        CheckFileNumQuota();
 +        inited_ = true;
 +    } else {
-+        while (FLAGS_log_filenum_quota > 0 && file_list_.size() >= FLAGS_log_filenum_quota) {
++        auto log_filenum_quota = FLAGS_log_filenum_quota;
++        if (severity_ == GLOG_WARNING && FLAGS_warn_log_filenum_quota > 0) {
++            log_filenum_quota = FLAGS_warn_log_filenum_quota;
++        }
++        while (log_filenum_quota > 0 && file_list_.size() >= log_filenum_quota) {
 +            unlink(file_list_.front().name.c_str());
 +            file_list_.pop_front();
 +        }
@@ -277,7 +292,7 @@ index 4028ccc..fd60fc3 100644
      if (FLAGS_log_utc_time) {
        gmtime_r(&timestamp, &tm_time);
      } else {
-@@ -1176,13 +1308,19 @@ void LogFileObject::Write(bool force_flush,
+@@ -1176,13 +1319,19 @@ void LogFileObject::Write(bool force_flush,
      time_pid_stream.fill('0');
      time_pid_stream << 1900+tm_time.tm_year
                      << setw(2) << 1+tm_time.tm_mon
@@ -302,23 +317,23 @@ index 4028ccc..fd60fc3 100644
 +    tm_time_ = tm_time;
 +
      const string& time_pid_string = time_pid_stream.str();
-
+ 
      if (base_filename_selected_) {
-@@ -1216,9 +1354,7 @@ void LogFileObject::Write(bool force_flush,
+@@ -1216,9 +1365,7 @@ void LogFileObject::Write(bool force_flush,
        // deadlock. Simply use a name like invalid-user.
        if (uidname.empty()) uidname = "invalid-user";
-
+ 
 -      stripped_filename = stripped_filename+'.'+hostname+'.'
 -                          +uidname+".log."
 -                          +LogSeverityNames[severity_]+'.';
 +      stripped_filename = stripped_filename + "." + LogSeverityNames[severity_] + ".log.";
        // We're going to (potentially) try to put logs in several different dirs
        const vector<string> & log_dirs = GetLoggingDirectories();
-
-@@ -1243,36 +1379,6 @@ void LogFileObject::Write(bool force_flush,
+ 
+@@ -1243,36 +1390,6 @@ void LogFileObject::Write(bool force_flush,
        }
      }
-
+ 
 -    // Write a header message into the log file
 -    ostringstream file_header_stream;
 -    file_header_stream.fill('0');
@@ -350,5 +365,5 @@ index 4028ccc..fd60fc3 100644
 -    file_length_ += header_len;
 -    bytes_since_flush_ += header_len;
    }
-
+ 
    // Write to LOG file

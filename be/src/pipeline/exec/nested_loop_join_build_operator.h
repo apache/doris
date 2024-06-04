@@ -21,41 +21,13 @@
 
 #include "operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/join/vnested_loop_join_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class NestLoopJoinBuildOperatorBuilder final
-        : public OperatorBuilder<vectorized::VNestedLoopJoinNode> {
-public:
-    NestLoopJoinBuildOperatorBuilder(int32_t, ExecNode*);
-
-    OperatorPtr build_operator() override;
-    bool is_sink() const override { return true; }
-};
-
-class NestLoopJoinBuildOperator final : public StreamingOperator<NestLoopJoinBuildOperatorBuilder> {
-public:
-    NestLoopJoinBuildOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
-    bool can_write() override { return true; }
-};
-
-class NestedLoopJoinBuildSinkDependency final : public Dependency {
-public:
-    using SharedState = NestedLoopJoinSharedState;
-    NestedLoopJoinBuildSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "NestedLoopJoinBuildSinkDependency", true, query_ctx) {}
-    ~NestedLoopJoinBuildSinkDependency() override = default;
-};
+namespace doris::pipeline {
 
 class NestedLoopJoinBuildSinkOperatorX;
 
 class NestedLoopJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
+        : public JoinBuildSinkLocalState<NestedLoopJoinSharedState,
                                          NestedLoopJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(NestedLoopJoinBuildSinkLocalState);
@@ -64,8 +36,8 @@ public:
     ~NestedLoopJoinBuildSinkLocalState() = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
-    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs();
     vectorized::VExprContextSPtrs& filter_src_expr_ctxs() { return _filter_src_expr_ctxs; }
     RuntimeProfile::Counter* runtime_filter_compute_timer() {
         return _runtime_filter_compute_timer;
@@ -87,7 +59,7 @@ class NestedLoopJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState> {
 public:
     NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs);
+                                     const DescriptorTbl& descs, bool need_local_merge);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError(
                 "{} should not init with TDataSink",
@@ -99,18 +71,24 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+
+    DataDistribution required_data_distribution() const override {
+        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            return {ExchangeType::NOOP};
+        }
+        return _child_x->ignore_data_distribution() ? DataDistribution(ExchangeType::BROADCAST)
+                                                    : DataDistribution(ExchangeType::NOOP);
+    }
 
 private:
     friend class NestedLoopJoinBuildSinkLocalState;
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
 
-    const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+    bool _need_local_merge;
     const bool _is_output_left_side_only;
     RowDescriptor _row_descriptor;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

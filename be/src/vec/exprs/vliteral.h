@@ -42,13 +42,18 @@ public:
             init(node);
         }
     }
+
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+
     const std::string& expr_name() const override { return _expr_name; }
     std::string debug_string() const override;
 
     std::string value() const;
 
     const ColumnPtr& get_column_ptr() const { return _column_ptr; }
+
+    bool is_literal() const override { return true; }
 
 protected:
     ColumnPtr _column_ptr;

@@ -106,7 +106,7 @@ public class RepairVersionTest extends TestWithFeService {
         tablets.put(tablet.getId(), tTablet);
         Assertions.assertEquals(partition.getVisibleVersion(), replica.getVersion());
 
-        ReportHandler.tabletReport(replica.getBackendId(), tablets, 100L);
+        ReportHandler.tabletReport(replica.getBackendId(), tablets, Maps.newHashMap(), 100L);
 
         Assertions.assertEquals(partition.getVisibleVersion(), replica.getVersion());
         Assertions.assertEquals(-1L, replica.getLastFailedVersion());
@@ -136,11 +136,11 @@ public class RepairVersionTest extends TestWithFeService {
         Map<Long, TTablet> tablets = Maps.newHashMap();
         tablets.put(tablet.getId(), tTablet);
 
-        ReportHandler.tabletReport(replica.getBackendId(), tablets, 100L);
+        ReportHandler.tabletReport(replica.getBackendId(), tablets, Maps.newHashMap(), 100L);
         Assertions.assertEquals(-1L, replica.getLastFailedVersion());
 
         DebugPointUtil.addDebugPoint("Replica.regressive_version_immediately", new DebugPoint());
-        ReportHandler.tabletReport(replica.getBackendId(), tablets, 100L);
+        ReportHandler.tabletReport(replica.getBackendId(), tablets, Maps.newHashMap(), 100L);
         Assertions.assertEquals(replica.getVersion() + 1, replica.getLastFailedVersion());
 
         Assertions.assertEquals(partition.getVisibleVersion(), replica.getVersion());
@@ -150,7 +150,7 @@ public class RepairVersionTest extends TestWithFeService {
         createTable("CREATE TABLE test." + tableName + " (k INT) DISTRIBUTED BY HASH(k) "
                 + " BUCKETS 1 PROPERTIES ( \"replication_num\" = \"2\" )");
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName);
         Assertions.assertNotNull(tbl);
         Partition partition = tbl.getPartitions().iterator().next();
@@ -160,7 +160,7 @@ public class RepairVersionTest extends TestWithFeService {
         long visibleVersion = 2L;
         partition.updateVisibleVersion(visibleVersion);
         partition.setNextVersion(visibleVersion + 1);
-        tablet.getReplicas().forEach(replica -> replica.updateVersionInfo(visibleVersion, 1L, 1L, 1L));
+        tablet.getReplicas().forEach(replica -> replica.updateVersion(visibleVersion));
 
         Replica replica = tablet.getReplicas().iterator().next();
         Assertions.assertEquals(visibleVersion, replica.getVersion());

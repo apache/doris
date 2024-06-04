@@ -20,26 +20,20 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
 
-OperatorPtr PartitionSortSourceOperatorBuilder::build_operator() {
-    return std::make_shared<PartitionSortSourceOperator>(this, _node);
-}
-
 Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<PartitionSortSourceDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXLocalState<PartitionSortNodeSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
-    _shared_state->previous_row = std::make_unique<vectorized::SortCursorCmp>();
     return Status::OK();
 }
 
 Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* output_block,
-                                               SourceState& source_state) {
+                                               bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -49,11 +43,21 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
         if (local_state._shared_state->blocks_buffer.empty() == false) {
             local_state._shared_state->blocks_buffer.front().swap(*output_block);
             local_state._shared_state->blocks_buffer.pop();
-            //if buffer have no data, block reading and wait for signal again
+            //if buffer have no data and sink not eos, block reading and wait for signal again
             RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
                     local_state._conjuncts, output_block, output_block->columns()));
-            if (local_state._shared_state->blocks_buffer.empty()) {
-                local_state._dependency->block();
+            if (local_state._shared_state->blocks_buffer.empty() &&
+                local_state._shared_state->sink_eos == false) {
+                // add this mutex to check, as in some case maybe is doing block(), and the sink is doing set eos.
+                // so have to hold mutex to set block(), avoid to sink have set eos and set ready, but here set block() by mistake
+                std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+                if (local_state._shared_state->sink_eos == false) {
+                    local_state._dependency->block();
+                }
+            }
+            if (!output_block->empty()) {
+                COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
+                COUNTER_UPDATE(local_state.rows_returned_counter(), output_block->rows());
             }
             return Status::OK();
         }
@@ -69,10 +73,13 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
                                                            output_block->columns()));
     {
         std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
-        if (local_state._shared_state->blocks_buffer.empty() &&
-            local_state._sort_idx >= local_state._shared_state->partition_sorts.size()) {
-            source_state = SourceState::FINISHED;
-        }
+
+        *eos = local_state._shared_state->blocks_buffer.empty() &&
+               local_state._sort_idx >= local_state._shared_state->partition_sorts.size();
+    }
+    if (!output_block->empty()) {
+        COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
+        COUNTER_UPDATE(local_state.rows_returned_counter(), output_block->rows());
     }
     return Status::OK();
 }
@@ -89,7 +96,6 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
     }
     if (current_eos) {
         //current sort have eos, so get next idx
-        local_state._shared_state->previous_row->reset();
         auto rows = local_state._shared_state->partition_sorts[local_state._sort_idx]
                             ->get_output_rows();
         local_state._num_rows_returned += rows;

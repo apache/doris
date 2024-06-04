@@ -20,12 +20,13 @@
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <regex>
+#include <boost/regex.hpp>
 #include <utility>
 
 #include "CLucene/StdHeader.h"
 #include "CLucene/config/repl_wchar.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -36,16 +37,18 @@
 namespace doris::vectorized {
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
-    std::regex pattern(
-            R"delimiter((?:'([^']*)'|"([^"]*)"|([^,]*))\s*=\s*(?:'([^']*)'|"([^"]*)"|([^,]*)))delimiter");
-    std::smatch matches;
+    boost::regex pattern(
+            R"delimiter((?:'([^']*)'|"([^"]*)"|([^, ]*))\s*=\s*(?:'([^']*)'|"([^"]*)"|([^, ]*)))delimiter");
+    boost::smatch matches;
 
     std::string::const_iterator searchStart(str.cbegin());
-    while (std::regex_search(searchStart, str.cend(), matches, pattern)) {
-        std::string key =
-                matches[1].length() ? matches[1] : (matches[2].length() ? matches[2] : matches[3]);
-        std::string value =
-                matches[4].length() ? matches[4] : (matches[5].length() ? matches[5] : matches[6]);
+    while (boost::regex_search(searchStart, str.cend(), matches, pattern)) {
+        std::string key = matches[1].length()
+                                  ? matches[1].str()
+                                  : (matches[2].length() ? matches[2].str() : matches[3].str());
+        std::string value = matches[4].length()
+                                    ? matches[4].str()
+                                    : (matches[5].length() ? matches[5].str() : matches[6].str());
 
         result[key] = value;
 
@@ -79,10 +82,10 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
         auto reader = doris::segment_v2::InvertedIndexReader::create_reader(
                 &inverted_index_ctx, tokenize_str.to_string());
 
-        std::vector<std::string> query_tokens =
-                doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                        reader.get(), inverted_index_ctx.analyzer, "tokenize",
-                        doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+        std::vector<std::string> query_tokens;
+        doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                query_tokens, reader.get(), inverted_index_ctx.analyzer, "tokenize",
+                doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
         for (auto token : query_tokens) {
             const size_t old_size = column_string_chars.size();
             const size_t split_part_size = token.length();
@@ -140,8 +143,19 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
             inverted_index_ctx.char_filter_map =
                     get_parser_char_filter_map_from_properties(properties);
-            auto analyzer =
-                    doris::segment_v2::InvertedIndexReader::create_analyzer(&inverted_index_ctx);
+
+            std::unique_ptr<lucene::analysis::Analyzer> analyzer;
+            try {
+                analyzer = doris::segment_v2::InvertedIndexReader::create_analyzer(
+                        &inverted_index_ctx);
+            } catch (CLuceneError& e) {
+                return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                        "inverted index create analyzer failed: {}", e.what());
+            }
+            doris::segment_v2::FullTextIndexReader::setup_analyzer_lowercase(analyzer, properties);
+            doris::segment_v2::FullTextIndexReader::setup_analyzer_use_stopwords(analyzer,
+                                                                                 properties);
+
             inverted_index_ctx.analyzer = analyzer.get();
             _do_tokenize(*col_left, inverted_index_ctx, *dest_nested_column, dest_offsets,
                          dest_nested_null_map);

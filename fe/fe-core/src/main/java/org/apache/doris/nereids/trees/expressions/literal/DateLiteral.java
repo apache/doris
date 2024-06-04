@@ -27,12 +27,16 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.nereids.util.StandardDateFormat;
 
+import com.google.common.collect.ImmutableSet;
+
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
+import java.util.Set;
+import java.util.function.UnaryOperator;
 
 /**
  * Date literal in Nereids.
@@ -46,6 +50,10 @@ public class DateLiteral extends Literal {
     private static final DateLiteral MIN_DATE = new DateLiteral(0, 1, 1);
     private static final DateLiteral MAX_DATE = new DateLiteral(9999, 12, 31);
     private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+    private static final Set<Character> punctuations = ImmutableSet.of('!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
+            '-', '+', '=', '_', '{', '}', '[', ']', '|', '\\', ':', ';', '"', '\'', '<', '>', ',', '.', '?', '/', '~',
+            '`');
 
     protected long year;
     protected long month;
@@ -93,7 +101,7 @@ public class DateLiteral extends Literal {
 
     // normalize yymmdd -> yyyymmdd
     static String normalizeBasic(String s) {
-        java.util.function.UnaryOperator<String> normalizeTwoDigit = (input) -> {
+        UnaryOperator<String> normalizeTwoDigit = (input) -> {
             String yy = input.substring(0, 2);
             int year = Integer.parseInt(yy);
             if (year >= 0 && year <= 69) {
@@ -133,16 +141,35 @@ public class DateLiteral extends Literal {
         return s;
     }
 
+    private static boolean isPunctuation(char c) {
+        return punctuations.contains(c);
+    }
+
+    private static void replacePunctuation(String s, StringBuilder sb, char c, int idx) {
+        if (idx >= sb.length()) {
+            return;
+        }
+        if (isPunctuation(sb.charAt(idx))) {
+            sb.setCharAt(idx, c);
+        } else {
+            throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
+        }
+    }
+
     static String normalize(String s) {
+        // merge consecutive space
+        if (s.contains("  ")) {
+            s = s.replaceAll(" +", " ");
+        }
+
         StringBuilder sb = new StringBuilder();
 
         int i = 0;
+        // date and time contains 6 number part at most, so we just need normal 6 number part
+        int partNumber = 0;
 
         // handle two digit year
-        if (s.charAt(2) != '-' && s.charAt(4) != '-') {
-            throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
-        }
-        if (s.charAt(2) == '-') {
+        if (isPunctuation(s.charAt(2))) {
             String yy = s.substring(0, 2);
             int year = Integer.parseInt(yy);
             if (year >= 0 && year <= 69) {
@@ -152,23 +179,13 @@ public class DateLiteral extends Literal {
             }
             sb.append(yy);
             i = 2;
+            partNumber += 1;
         }
 
-        // normalized leading 0
-        while (i < s.length()) {
+        // normalize leading 0 for date and time
+        while (i < s.length() && partNumber < 6) {
             char c = s.charAt(i);
-
-            if (c == '.') {
-                // skip .microsecond, such as .0001 .000001
-                sb.append(c);  // Append the dot itself
-                i += 1;  // Skip the dot
-
-                // skip the microsecond part
-                while (i < s.length() && Character.isDigit(s.charAt(i))) {
-                    sb.append(s.charAt(i));
-                    i += 1;
-                }
-            } else if (Character.isDigit(c)) {
+            if (Character.isDigit(c)) {
                 // find consecutive digit
                 int j = i + 1;
                 while (j < s.length() && Character.isDigit(s.charAt(j))) {
@@ -176,54 +193,87 @@ public class DateLiteral extends Literal {
                 }
                 int len = j - i;
                 if (len == 4 || len == 2) {
-                    for (int k = i; k < j; k++) {
-                        sb.append(s.charAt(k));
-                    }
+                    sb.append(s, i, j);
                 } else if (len == 1) {
-                    sb.append('0');
-                    sb.append(c);
+                    if (partNumber == 0) {
+                        sb.append("000").append(c);
+                    } else {
+                        sb.append('0').append(c);
+                    }
                 } else {
                     throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
                 }
                 i = j;
+                partNumber += 1;
+            } else if (isPunctuation(c) || c == ' ' || c == 'T') {
+                i += 1;
+                if (partNumber < 3 && isPunctuation(c)) {
+                    sb.append('-');
+                } else if (partNumber == 3) {
+                    while (i < s.length() && (isPunctuation(s.charAt(i)) || s.charAt(i) == ' ' || s.charAt(i) == 'T')) {
+                        i += 1;
+                    }
+                    sb.append(' ');
+                } else if (partNumber > 3 && isPunctuation(c)) {
+                    sb.append(':');
+                } else {
+                    throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
+                }
             } else {
-                sb.append(c);
+                break;
+            }
+        }
+
+        // add missing Minute Second in Time part
+        if (sb.length() == 13) {
+            sb.append(":00:00");
+        } else if (sb.length() == 16) {
+            sb.append(":00");
+        }
+
+        // parse MicroSecond
+        // Keep up to 7 digits at most, 7th digit is use for overflow.
+        if (partNumber == 6 && i < s.length() && s.charAt(i) == '.') {
+            sb.append(s.charAt(i));
+            i += 1;
+            while (i < s.length() && Character.isDigit(s.charAt(i))) {
+                if (i - 19 <= 7) {
+                    sb.append(s.charAt(i));
+                }
                 i += 1;
             }
         }
 
-        int len = sb.length();
-        // Replace delimiter 'T' with ' '
-        if (len > 10 && sb.charAt(10) == 'T') {
-            sb.setCharAt(10, ' ');
-        }
-
-        // add missing Minute Second in Time part
-        if (len > 10 && sb.charAt(10) == ' ') {
-            if (len == 13 || len > 13 && sb.charAt(13) != ':') {
-                sb.insert(13, ":00:00");
-            } else if (len == 16 || (len > 16 && sb.charAt(16) != ':')) {
-                sb.insert(16, ":00");
-            }
-        }
-
-        len = sb.length();
-        int signIdx = sb.indexOf("+", 10); // from index:10, skip date part (it contains '-')
-        signIdx = signIdx == -1 ? sb.indexOf("-", 10) : signIdx;
-        if (signIdx != -1 && len - signIdx == 3) {
-            sb.append(":00");
-        }
+        sb.append(s.substring(i));
 
         return sb.toString();
     }
 
     protected static TemporalAccessor parse(String s) {
+        // fast parse '2022-01-01'
+        if (s.length() == 10 && s.charAt(4) == '-' && s.charAt(7) == '-') {
+            TemporalAccessor date = fastParseDate(s);
+            if (date != null) {
+                return date;
+            }
+        }
+
         String originalString = s;
         try {
             TemporalAccessor dateTime;
 
+            // remove suffix/prefix ' '
+            s = s.trim();
             // parse condition without '-' and ':'
-            if (!s.contains("-") && !s.contains(":")) {
+            boolean containsPunctuation = false;
+            int len = Math.min(s.length(), 11);
+            for (int i = 0; i < len; i++) {
+                if (isPunctuation(s.charAt(i))) {
+                    containsPunctuation = true;
+                    break;
+                }
+            }
+            if (!containsPunctuation) {
                 s = normalizeBasic(s);
                 // mysql reject "20200219 010101" "200219 010101", can't use ' ' spilt basic date time.
                 if (!s.contains("T")) {
@@ -301,12 +351,36 @@ public class DateLiteral extends Literal {
 
     @Override
     public String getStringValue() {
+        if (0 <= year && year <= 9999 && 0 <= month && month <= 99 && 0 <= day && day <= 99) {
+            char[] format = new char[] {'0', '0', '0', '0', '-', '0', '0', '-', '0', '0'};
+            int offset = 3;
+            long year = this.year;
+            while (year > 0) {
+                format[offset--] = (char) ('0' + (year % 10));
+                year /= 10;
+            }
+
+            offset = 6;
+            long month = this.month;
+            while (month > 0) {
+                format[offset--] = (char) ('0' + (month % 10));
+                month /= 10;
+            }
+
+            offset = 9;
+            long day = this.day;
+            while (day > 0) {
+                format[offset--] = (char) ('0' + (day % 10));
+                day /= 10;
+            }
+            return String.valueOf(format);
+        }
         return String.format("%04d-%02d-%02d", year, month, day);
     }
 
     @Override
     public String toSql() {
-        return String.format("'%s'", toString());
+        return "'" + getStringValue() + "'";
     }
 
     @Override
@@ -316,7 +390,7 @@ public class DateLiteral extends Literal {
 
     @Override
     public String toString() {
-        return String.format("%04d-%02d-%02d", year, month, day);
+        return getStringValue();
     }
 
     @Override
@@ -337,22 +411,19 @@ public class DateLiteral extends Literal {
     }
 
     public Expression plusDays(long days) {
-        return fromJavaDateType(DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusDays(days));
+        return fromJavaDateType(toJavaDateType().plusDays(days));
     }
 
     public Expression plusMonths(long months) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusMonths(months));
+        return fromJavaDateType(toJavaDateType().plusMonths(months));
     }
 
     public Expression plusWeeks(long weeks) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusWeeks(weeks));
+        return fromJavaDateType(toJavaDateType().plusWeeks(weeks));
     }
 
     public Expression plusYears(long years) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusYears(years));
+        return fromJavaDateType(toJavaDateType().plusYears(years));
     }
 
     public LocalDateTime toJavaDateType() {
@@ -395,6 +466,7 @@ public class DateLiteral extends Literal {
 
     /**
      * 2020-01-01
+     *
      * @return 2020-01-01 00:00:00
      */
     public DateTimeLiteral toBeginOfTheDay() {
@@ -403,14 +475,16 @@ public class DateLiteral extends Literal {
 
     /**
      * 2020-01-01
-     * @return 2020-01-01 24:00:00
+     *
+     * @return 2020-01-01 23:59:59
      */
     public DateTimeLiteral toEndOfTheDay() {
-        return new DateTimeLiteral(year, month, day, 24, 0, 0);
+        return new DateTimeLiteral(year, month, day, 23, 59, 59);
     }
 
     /**
      * 2020-01-01
+     *
      * @return 2020-01-02 0:0:0
      */
     public DateTimeLiteral toBeginOfTomorrow() {
@@ -420,5 +494,31 @@ public class DateLiteral extends Literal {
         } else {
             return toEndOfTheDay();
         }
+    }
+
+    private static TemporalAccessor fastParseDate(String date) {
+        Integer year = readNextInt(date, 0, 4);
+        Integer month = readNextInt(date, 5, 2);
+        Integer day = readNextInt(date, 8, 2);
+        if (year != null && month != null && day != null) {
+            return LocalDate.of(year, month, day);
+        } else {
+            return null;
+        }
+    }
+
+    private static Integer readNextInt(String str, int offset, int readLength) {
+        int value = 0;
+        int realReadLength = 0;
+        for (int i = offset; i < str.length(); i++) {
+            char c = str.charAt(i);
+            if ('0' <= c && c <= '9') {
+                realReadLength++;
+                value = value * 10 + (c - '0');
+            } else {
+                break;
+            }
+        }
+        return readLength == realReadLength ? value : null;
     }
 }

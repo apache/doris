@@ -25,7 +25,7 @@ import java.util.Map;
 public class StatisticsBuilder {
 
     private double rowCount;
-
+    private int widthInJoinCluster;
     private final Map<Expression, ColumnStatistic> expressionToColumnStats;
 
     public StatisticsBuilder() {
@@ -34,12 +34,18 @@ public class StatisticsBuilder {
 
     public StatisticsBuilder(Statistics statistics) {
         this.rowCount = statistics.getRowCount();
+        this.widthInJoinCluster = statistics.getWidthInJoinCluster();
         expressionToColumnStats = new HashMap<>();
         expressionToColumnStats.putAll(statistics.columnStatistics());
     }
 
     public StatisticsBuilder setRowCount(double rowCount) {
         this.rowCount = rowCount;
+        return this;
+    }
+
+    public StatisticsBuilder setWidthInJoinCluster(int widthInJoinCluster) {
+        this.widthInJoinCluster = widthInJoinCluster;
         return this;
     }
 
@@ -55,6 +61,6 @@ public class StatisticsBuilder {
     }
 
     public Statistics build() {
-        return new Statistics(rowCount, expressionToColumnStats);
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
     }
 }

@@ -18,17 +18,25 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.StructInfoMap;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -41,10 +49,21 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
+
+import java.util.BitSet;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * The common util for materialized view
@@ -63,7 +82,7 @@ public class MaterializedViewUtils {
         Slot columnExpr = null;
         // get column slot
         for (Slot outputSlot : outputExpressions) {
-            if (outputSlot.getName().equals(column)) {
+            if (outputSlot.getName().equalsIgnoreCase(column)) {
                 columnExpr = outputSlot;
                 break;
             }
@@ -78,17 +97,29 @@ public class MaterializedViewUtils {
         if (!columnSlot.isColumnFromTable()) {
             return Optional.empty();
         }
-        // check sql pattern
-        IncrementCheckerContext context = new IncrementCheckerContext(columnSlot);
-        materializedViewPlan.accept(MaterializedViewIncrementChecker.INSTANCE, context);
-        if (context.getRelatedTable() == null
-                || context.getRelatedTableColumn() == null
-                || !context.isPctPossible()) {
+        // Collect table relation map which is used to identify self join
+        List<CatalogRelation> catalogRelationObjs =
+                materializedViewPlan.collectToList(CatalogRelation.class::isInstance);
+        ImmutableMultimap.Builder<TableIdentifier, CatalogRelation> tableCatalogRelationMultimapBuilder =
+                ImmutableMultimap.builder();
+        for (CatalogRelation catalogRelation : catalogRelationObjs) {
+            tableCatalogRelationMultimapBuilder.put(new TableIdentifier(catalogRelation.getTable()), catalogRelation);
+        }
+        // Check sql pattern
+        IncrementCheckerContext checkContext =
+                new IncrementCheckerContext(columnSlot, tableCatalogRelationMultimapBuilder.build());
+        materializedViewPlan.accept(MaterializedViewIncrementChecker.INSTANCE, checkContext);
+        Multimap<TableIf, Column> partitionRelatedTableAndColumnMap =
+                checkContext.getPartitionRelatedTableAndColumnMap();
+        if (partitionRelatedTableAndColumnMap.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new RelatedTableInfo(new BaseTableInfo(context.getRelatedTable()),
-                context.isPctPossible(),
-                context.getRelatedTableColumn().getName()));
+        // TODO support to return only one related table info, support multi later
+        for (Map.Entry<TableIf, Column> entry : partitionRelatedTableAndColumnMap.entries()) {
+            return Optional.of(new RelatedTableInfo(new BaseTableInfo(entry.getKey()), true,
+                    entry.getValue().getName()));
+        }
+        return Optional.empty();
     }
 
     /**
@@ -120,6 +151,102 @@ public class MaterializedViewUtils {
      */
     public static boolean containTableQueryOperator(Plan analyzedPlan) {
         return analyzedPlan.accept(TableQueryOperatorChecker.INSTANCE, null);
+    }
+
+    /**
+     * Extract struct info from plan, support to get struct info from logical plan or plan in group.
+     */
+    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext,
+            BitSet materializedViewTableSet) {
+        // If plan belong to some group, construct it with group struct info
+        if (plan.getGroupExpression().isPresent()) {
+            Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
+            StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
+            // Refresh struct info in current level plan from top to bottom
+            structInfoMap.refresh(ownerGroup, cascadesContext);
+            structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
+
+            Set<BitSet> queryTableSets = structInfoMap.getTableMaps();
+            ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();
+            if (!queryTableSets.isEmpty()) {
+                for (BitSet queryTableSet : queryTableSets) {
+                    // TODO As only support MatchMode.COMPLETE, so only get equaled query table struct info
+                    if (!materializedViewTableSet.isEmpty()
+                            && !materializedViewTableSet.equals(queryTableSet)) {
+                        continue;
+                    }
+                    StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext,
+                            queryTableSet, ownerGroup, plan);
+                    if (structInfo != null) {
+                        structInfosBuilder.add(structInfo);
+                    }
+                }
+                return structInfosBuilder.build();
+            }
+        }
+        // if plan doesn't belong to any group, construct it directly
+        return ImmutableList.of(StructInfo.of(plan, cascadesContext));
+    }
+
+    /**
+     * Generate scan plan for materialized view
+     * if MaterializationContext is already rewritten by materialized view, then should generate in real time
+     * when query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
+     * should be different
+     */
+    public static Plan generateMvScanPlan(MTMV materializedView, CascadesContext cascadesContext) {
+        LogicalOlapScan mvScan = new LogicalOlapScan(
+                cascadesContext.getStatementContext().getNextRelationId(),
+                materializedView,
+                materializedView.getFullQualifiers(),
+                ImmutableList.of(),
+                materializedView.getBaseIndexId(),
+                PreAggStatus.on(),
+                // this must be empty, or it will be used to sample
+                ImmutableList.of(),
+                Optional.empty());
+        List<NamedExpression> mvProjects = mvScan.getOutput().stream().map(NamedExpression.class::cast)
+                .collect(Collectors.toList());
+        return new LogicalProject<Plan>(mvProjects, mvScan);
+    }
+
+    /**
+     * Optimize by rules, this support optimize by custom rules by define different rewriter according to different
+     * rules
+     */
+    public static Plan rewriteByRules(
+            CascadesContext cascadesContext,
+            Function<CascadesContext, Plan> planRewriter,
+            Plan rewrittenPlan, Plan originPlan) {
+        if (originPlan == null || rewrittenPlan == null) {
+            return null;
+        }
+        if (originPlan.getOutputSet().size() != rewrittenPlan.getOutputSet().size()) {
+            return rewrittenPlan;
+        }
+        // After RBO, slot order may change, so need originSlotToRewrittenExprId which record
+        // origin plan slot order
+        List<ExprId> originalRewrittenPlanExprIds =
+                rewrittenPlan.getOutput().stream().map(Slot::getExprId).collect(Collectors.toList());
+        // run rbo job on mv rewritten plan
+        CascadesContext rewrittenPlanContext = CascadesContext.initContext(
+                cascadesContext.getStatementContext(), rewrittenPlan,
+                cascadesContext.getCurrentJobContext().getRequiredProperties());
+        rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
+        Map<ExprId, Slot> exprIdToNewRewrittenSlot = Maps.newLinkedHashMap();
+        for (Slot slot : rewrittenPlan.getOutput()) {
+            exprIdToNewRewrittenSlot.put(slot.getExprId(), slot);
+        }
+        List<ExprId> rewrittenPlanExprIds = rewrittenPlan.getOutput().stream()
+                .map(Slot::getExprId).collect(Collectors.toList());
+        // If project order doesn't change, return rewrittenPlan directly
+        if (originalRewrittenPlanExprIds.equals(rewrittenPlanExprIds)) {
+            return rewrittenPlan;
+        }
+        // If project order change, return rewrittenPlan with reordered projects
+        return new LogicalProject<>(originalRewrittenPlanExprIds.stream()
+                .map(exprId -> (NamedExpression) exprIdToNewRewrittenSlot.get(exprId)).collect(Collectors.toList()),
+                rewrittenPlan);
     }
 
     private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
@@ -175,29 +302,60 @@ public class MaterializedViewUtils {
         @Override
         public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
                 IncrementCheckerContext context) {
-            return visit(join, context);
+            if (join.isMarkJoin()) {
+                return null;
+            }
+            Plan left = join.child(0);
+            Set<Column> leftColumnSet = left.getOutputSet().stream()
+                    .filter(slot -> slot instanceof SlotReference
+                            && slot.isColumnFromTable())
+                    .map(slot -> ((SlotReference) slot).getColumn().get())
+                    .collect(Collectors.toSet());
+            boolean useLeft = leftColumnSet.contains(context.getMvPartitionColumn().getColumn().get());
+            JoinType joinType = join.getJoinType();
+            if (joinType.isInnerJoin() || joinType.isCrossJoin()) {
+                return visit(join, context);
+            } else if ((joinType.isLeftJoin()
+                    || joinType.isLefSemiJoin()
+                    || joinType.isLeftAntiJoin()) && useLeft) {
+                return visit(join.left(), context);
+            } else if ((joinType.isRightJoin()
+                    || joinType.isRightAntiJoin()
+                    || joinType.isRightSemiJoin()) && !useLeft) {
+                return visit(join.right(), context);
+            }
+            return null;
         }
 
         @Override
         public Void visitLogicalRelation(LogicalRelation relation, IncrementCheckerContext context) {
-            if (!(relation instanceof LogicalCatalogRelation) || context.getRelatedTable() != null) {
-                return visit(relation, context);
+            if (!(relation instanceof LogicalCatalogRelation)) {
+                return null;
             }
             LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) relation;
             TableIf table = logicalCatalogRelation.getTable();
-            if (!(table instanceof OlapTable)) {
-                return visit(relation, context);
+            // if self join, self join can not partition track now, remove the partition column correspondingly
+            if (context.getRelationByTable(table).size() > 1) {
+                context.getPartitionRelatedTableAndColumnMap().removeAll(table);
+                return null;
             }
-            OlapTable olapTable = (OlapTable) table;
-            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-            Set<Column> partitionColumnSet = new HashSet<>(partitionInfo.getPartitionColumns());
-            if (PartitionType.UNPARTITIONED.equals(partitionInfo.getType())) {
-                return visit(relation, context);
+            // TODO: 2024/1/31 support only one partition referenced column, support multi later
+            if (!context.getPartitionRelatedTableAndColumnMap().isEmpty()) {
+                return null;
             }
+            if (!(table instanceof MTMVRelatedTableIf)) {
+                return null;
+            }
+            MTMVRelatedTableIf relatedTable = (MTMVRelatedTableIf) table;
+            PartitionType type = relatedTable.getPartitionType();
+            if (PartitionType.UNPARTITIONED.equals(type)) {
+                return null;
+            }
+            Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
             Column mvReferenceColumn = context.getMvPartitionColumn().getColumn().get();
-            if (partitionColumnSet.contains(mvReferenceColumn)) {
-                context.setRelatedTable(table);
-                context.setRelatedTableColumn(mvReferenceColumn);
+            if (partitionColumnSet.contains(mvReferenceColumn)
+                    && (!mvReferenceColumn.isAllowNull() || relatedTable.isPartitionColumnAllowNull())) {
+                context.addTableColumn(table, mvReferenceColumn);
             }
             return visit(relation, context);
         }
@@ -207,7 +365,7 @@ public class MaterializedViewUtils {
                 IncrementCheckerContext context) {
             Set<Expression> groupByExprSet = new HashSet<>(aggregate.getGroupByExpressions());
             if (groupByExprSet.isEmpty()) {
-                return visit(aggregate, context);
+                return null;
             }
             Set<Column> originalGroupbyExprSet = new HashSet<>();
             groupByExprSet.forEach(groupExpr -> {
@@ -216,7 +374,7 @@ public class MaterializedViewUtils {
                 }
             });
             if (!originalGroupbyExprSet.contains(context.getMvPartitionColumn().getColumn().get())) {
-                context.setPctPossible(false);
+                return null;
             }
             return visit(aggregate, context);
         }
@@ -227,15 +385,16 @@ public class MaterializedViewUtils {
             if (windowExpressions.isEmpty()) {
                 return visit(window, context);
             }
-            windowExpressions.forEach(expr -> checkWindowPartition(expr, context));
+            for (NamedExpression namedExpression : windowExpressions) {
+                if (!checkWindowPartition(namedExpression, context)) {
+                    return null;
+                }
+            }
             return super.visitLogicalWindow(window, context);
         }
 
         @Override
         public Void visit(Plan plan, IncrementCheckerContext context) {
-            if (!context.isPctPossible()) {
-                return null;
-            }
             if (plan instanceof LogicalProject
                     || plan instanceof LogicalFilter
                     || plan instanceof LogicalJoin
@@ -245,64 +404,58 @@ public class MaterializedViewUtils {
                     || plan instanceof LogicalWindow) {
                 return super.visit(plan, context);
             }
-            context.setPctPossible(false);
             return null;
         }
 
-        private void checkWindowPartition(Expression expression, IncrementCheckerContext context) {
-            expression.collectToList(expressionTreeNode -> expressionTreeNode instanceof WindowExpression)
-                    .forEach(windowObj -> {
-                        WindowExpression windowExpression = (WindowExpression) windowObj;
-                        List<Expression> partitionKeys = windowExpression.getPartitionKeys();
-                        Set<Column> originalPartitionbyExprSet = new HashSet<>();
-                        partitionKeys.forEach(groupExpr -> {
-                            if (groupExpr instanceof SlotReference && groupExpr.isColumnFromTable()) {
-                                originalPartitionbyExprSet.add(((SlotReference) groupExpr).getColumn().get());
-                            }
-                        });
-                        if (!originalPartitionbyExprSet.contains(context.getMvPartitionColumn().getColumn().get())) {
-                            context.setPctPossible(false);
-                        }
-                    });
+        private boolean checkWindowPartition(Expression expression, IncrementCheckerContext context) {
+            List<Object> windowExpressions =
+                    expression.collectToList(expressionTreeNode -> expressionTreeNode instanceof WindowExpression);
+            for (Object windowExpressionObj : windowExpressions) {
+                WindowExpression windowExpression = (WindowExpression) windowExpressionObj;
+                List<Expression> partitionKeys = windowExpression.getPartitionKeys();
+                Set<Column> originalPartitionbyExprSet = new HashSet<>();
+                partitionKeys.forEach(groupExpr -> {
+                    if (groupExpr instanceof SlotReference && groupExpr.isColumnFromTable()) {
+                        originalPartitionbyExprSet.add(((SlotReference) groupExpr).getColumn().get());
+                    }
+                });
+                if (!originalPartitionbyExprSet.contains(context.getMvPartitionColumn().getColumn().get())) {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 
     private static final class IncrementCheckerContext {
         private final SlotReference mvPartitionColumn;
-        private boolean pctPossible = true;
-        private TableIf relatedTable;
-        private Column relatedTableColumn;
+        private final Multimap<TableIdentifier, CatalogRelation> tableAndCatalogRelationMap;
+        private final Multimap<TableIf, Column> partitionRelatedTableAndColumnMap = HashMultimap.create();
 
-        public IncrementCheckerContext(SlotReference mvPartitionColumn) {
+        public IncrementCheckerContext(SlotReference mvPartitionColumn,
+                Multimap<TableIdentifier, CatalogRelation> tableAndCatalogRelationMap) {
             this.mvPartitionColumn = mvPartitionColumn;
+            this.tableAndCatalogRelationMap = tableAndCatalogRelationMap;
         }
 
         public SlotReference getMvPartitionColumn() {
             return mvPartitionColumn;
         }
 
-        public boolean isPctPossible() {
-            return pctPossible;
+        public void addTableColumn(TableIf relatedTable, Column partitionColumn) {
+            partitionRelatedTableAndColumnMap.put(relatedTable, partitionColumn);
         }
 
-        public void setPctPossible(boolean pctPossible) {
-            this.pctPossible = pctPossible;
+        public Multimap<TableIf, Column> getPartitionRelatedTableAndColumnMap() {
+            return partitionRelatedTableAndColumnMap;
         }
 
-        public TableIf getRelatedTable() {
-            return relatedTable;
+        public Collection<CatalogRelation> getRelationByTable(TableIf tableIf) {
+            return tableAndCatalogRelationMap.get(new TableIdentifier(tableIf));
         }
 
-        public void setRelatedTable(TableIf relatedTable) {
-            this.relatedTable = relatedTable;
-        }
-
-        public Column getRelatedTableColumn() {
-            return relatedTableColumn;
-        }
-
-        public void setRelatedTableColumn(Column relatedTableColumn) {
-            this.relatedTableColumn = relatedTableColumn;
+        public void addTableAndRelation(TableIf tableIf, CatalogRelation relation) {
+            tableAndCatalogRelationMap.put(new TableIdentifier(tableIf), relation);
         }
     }
 

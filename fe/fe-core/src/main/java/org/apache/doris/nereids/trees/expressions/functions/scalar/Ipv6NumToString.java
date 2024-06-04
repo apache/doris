@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -32,23 +33,24 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * scalar function Ipv6NumToString
+ * scalar function ipv6_num_to_string
  */
 public class Ipv6NumToString extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE));
+            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(IPv6Type.INSTANCE));
 
     public Ipv6NumToString(Expression arg0) {
-        super("ipv6numtostring", arg0);
+        super("ipv6_num_to_string", arg0);
     }
 
     @Override
     public Ipv6NumToString withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
-                "ipv6numtostring accept 1 args, but got %s (%s)",
+                "ipv6_num_to_string accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
         return new Ipv6NumToString(children.get(0));

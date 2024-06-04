@@ -43,6 +43,8 @@ class IColumn;
 class VExprContext;
 
 struct JdbcConnectorParam {
+    // use -1 as default value to find error earlier.
+    int64_t catalog_id = -1;
     std::string driver_path;
     std::string driver_class;
     std::string resource_name;
@@ -52,8 +54,13 @@ struct JdbcConnectorParam {
     std::string passwd;
     std::string query_string;
     std::string table_name;
-    bool use_transaction;
+    bool use_transaction = false;
     TOdbcTableType::type table_type;
+    int32_t connection_pool_min_size = -1;
+    int32_t connection_pool_max_size = -1;
+    int32_t connection_pool_max_wait_time = -1;
+    int32_t connection_pool_max_life_time = -1;
+    bool connection_pool_keep_alive = false;
 
     const TupleDescriptor* tuple_desc = nullptr;
 };
@@ -107,14 +114,14 @@ public:
 
     Status close(Status s = Status::OK()) override;
 
+    Status test_connection();
+    Status clean_datasource();
+
 protected:
     JdbcConnectorParam _conn_param;
 
 private:
     Status _register_func_id(JNIEnv* env);
-    Status _check_column_type();
-    Status _check_type(SlotDescriptor*, const std::string& type_str, int column_index);
-    std::string _jobject_to_string(JNIEnv* env, jobject jobj);
 
     jobject _get_reader_params(Block* block, JNIEnv* env, size_t column_size);
 
@@ -125,39 +132,34 @@ private:
                                   int rows);
     Status _cast_string_to_json(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                 int rows);
+    jobject _get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType);
 
     bool _closed = false;
+    jclass _executor_factory_clazz;
     jclass _executor_clazz;
-    jclass _executor_list_clazz;
-    jclass _executor_object_clazz;
-    jclass _executor_string_clazz;
     jobject _executor_obj;
+    jmethodID _executor_factory_ctor_id;
     jmethodID _executor_ctor_id;
     jmethodID _executor_stmt_write_id;
     jmethodID _executor_read_id;
     jmethodID _executor_has_next_id;
     jmethodID _executor_get_block_address_id;
     jmethodID _executor_block_rows_id;
-    jmethodID _executor_get_types_id;
     jmethodID _executor_close_id;
-    jmethodID _executor_get_list_id;
-    jmethodID _get_bytes_id;
-    jmethodID _to_string_id;
     jmethodID _executor_begin_trans_id;
     jmethodID _executor_finish_trans_id;
     jmethodID _executor_abort_trans_id;
+    jmethodID _executor_test_connection_id;
+    jmethodID _executor_clean_datasource_id;
 
     std::map<int, int> _map_column_idx_to_cast_idx_hll;
     std::vector<DataTypePtr> _input_hll_string_types;
-    std::vector<MutableColumnPtr> str_hll_cols; // for hll type to save data like string
 
     std::map<int, int> _map_column_idx_to_cast_idx_bitmap;
     std::vector<DataTypePtr> _input_bitmap_string_types;
-    std::vector<MutableColumnPtr> str_bitmap_cols; // for bitmap type to save data like string
 
     std::map<int, int> _map_column_idx_to_cast_idx_json;
     std::vector<DataTypePtr> _input_json_string_types;
-    std::vector<MutableColumnPtr> str_json_cols; // for json type to save data like string
 
     JdbcStatistic _jdbc_statistic;
 };

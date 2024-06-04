@@ -1,0 +1,69 @@
+From 031194784d540235dfa6ba56bd196a7aad92e30c Mon Sep 17 00:00:00 2001
+From: Kaijie Chen <ckj@apache.org>
+Date: Sun, 28 Jan 2024 15:58:31 +0800
+Subject: [PATCH] fix set connected for stream rpc
+
+---
+ src/brpc/policy/baidu_rpc_protocol.cpp | 25 ++++++++++++++++++-------
+ 1 file changed, 18 insertions(+), 7 deletions(-)
+
+diff --git a/src/brpc/policy/baidu_rpc_protocol.cpp b/src/brpc/policy/baidu_rpc_protocol.cpp
+index 0239960e..e8a90e34 100644
+--- a/src/brpc/policy/baidu_rpc_protocol.cpp
++++ b/src/brpc/policy/baidu_rpc_protocol.cpp
+@@ -25,6 +25,7 @@
+ #include "butil/iobuf.h"                         // butil::IOBuf
+ #include "butil/raw_pack.h"                      // RawPacker RawUnpacker
+ #include "brpc/controller.h"                    // Controller
++#include "brpc/errno.pb.h"
+ #include "brpc/socket.h"                        // Socket
+ #include "brpc/server.h"                        // Server
+ #include "brpc/span.h"
+@@ -212,7 +213,9 @@ void SendRpcResponse(int64_t correlation_id,
+         if (Socket::Address(response_stream_id, &stream_ptr) == 0) {
+             Stream* s = (Stream*)stream_ptr->conn();
+             s->FillSettings(meta.mutable_stream_settings());
+-            s->SetHostSocket(sock);
++            if (s->SetHostSocket(sock) != 0) {
++                LOG(WARNING) << "SetHostSocket failed";
++            }
+         } else {
+             LOG(WARNING) << "Stream=" << response_stream_id 
+                          << " was closed before sending response";
+@@ -234,6 +237,20 @@ void SendRpcResponse(int64_t correlation_id,
+     // Send rpc response over stream even if server side failed to create
+     // stream for some reasons.
+     if(cntl->has_remote_stream()){
++        if (sock->Failed()) {
++            LOG(WARNING) << "Fail to write into " << *sock;
++            cntl->SetFailed(EFAILEDSOCKET, "Fail to write into %s",
++                            sock->description().c_str());
++            if (stream_ptr) {
++                ((Stream *)stream_ptr->conn())->Close();
++            }
++            return;
++        }
++        if(stream_ptr) {
++            // Now it's ok the mark this server-side stream as connectted as all the
++            // written user data would follower the RPC response.
++            ((Stream*)stream_ptr->conn())->SetConnected();
++        }
+         // Send the response over stream to notify that this stream connection
+         // is successfully built.
+         // Response_stream can be INVALID_STREAM_ID when error occurs.
+@@ -249,12 +266,6 @@ void SendRpcResponse(int64_t correlation_id,
+             }
+             return;
+         }
+-
+-        if(stream_ptr) {
+-            // Now it's ok the mark this server-side stream as connectted as all the
+-            // written user data would follower the RPC response.
+-            ((Stream*)stream_ptr->conn())->SetConnected();
+-        }
+     } else{
+         // Have the risk of unlimited pending responses, in which case, tell
+         // users to set max_concurrency.
+-- 
+2.39.3
+

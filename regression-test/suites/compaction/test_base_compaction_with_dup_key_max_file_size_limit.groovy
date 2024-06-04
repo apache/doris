@@ -150,9 +150,9 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
             )
         """ 
 
-        def tablet = (sql """ show tablets from ${tableName}; """)[0]
-        String tablet_id = tablet[0]
-        String trigger_backend_id = tablet[2]
+        def tablet = (sql_return_maparray """ show tablets from ${tableName}; """)[0]
+        String tablet_id = tablet.TabletId
+        String trigger_backend_id = tablet.BackendId
 
         // rowsets:
         //      [0-1] 0

@@ -9,7 +9,7 @@ PhysicalResultSink
 
 -- !explain_union_empty_data --
 PhysicalResultSink
---PhysicalDistribute
+--PhysicalDistribute[DistributionSpecGather]
 ----hashAgg[LOCAL]
 ------PhysicalProject
 --------PhysicalOlapScan[nation]
@@ -36,7 +36,7 @@ PhysicalResultSink
 
 -- !explain_except_data_empty --
 PhysicalResultSink
---PhysicalDistribute
+--PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------hashAgg[LOCAL]
 --------PhysicalProject
@@ -44,12 +44,12 @@ PhysicalResultSink
 
 -- !explain_except_data_empty_data --
 PhysicalResultSink
---PhysicalDistribute
+--PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
-------PhysicalDistribute
+------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------PhysicalOlapScan[nation]
-------PhysicalDistribute
+------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------filter(( not (n_nationkey = 1)))
 ------------PhysicalOlapScan[nation]
@@ -72,11 +72,14 @@ PhysicalResultSink
 
 -- !prune_partition1 --
 PhysicalResultSink
---PhysicalProject
-----PhysicalEmptyRelation
+--PhysicalEmptyRelation
 
 -- !prune_partition2 --
 PhysicalResultSink
---PhysicalProject
-----PhysicalEmptyRelation
+--PhysicalEmptyRelation
+
+-- !join_with_empty_child --
+2	8	e	v	3
+4	7		at	2
+9	3		q	0
 

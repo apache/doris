@@ -72,6 +72,7 @@ option(USE_LIBCPP "Use libc++" OFF)
 option(USE_MEM_TRACKER, "Use memory tracker" ON)
 option(USE_UNWIND "Use libunwind" ON)
 option(USE_JEMALLOC "Use jemalloc" ON)
+option(USE_JEMALLOC_HOOK "Use jemalloc hook" ON)
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
@@ -87,6 +88,7 @@ message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
 message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
 message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
+message(STATUS "USE_JEMALLOC_HOOK is ${USE_JEMALLOC_HOOK}")
 message(STATUS "USE_UNWIND is ${USE_UNWIND}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
 
@@ -105,6 +107,10 @@ execute_process(COMMAND bash "-c" "uname -m"
                 CMAKE_BUILD_TARGET_ARCH
                 OUTPUT_STRIP_TRAILING_WHITESPACE)
 message(STATUS "Build target arch is ${CMAKE_BUILD_TARGET_ARCH}")
+
+if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "aarch64" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "arm64")
+    set (ARCH_ARM 1)
+endif()
 
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -176,9 +182,10 @@ SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
 add_subdirectory(${SRC_DIR}/apache-orc EXCLUDE_FROM_ALL)
 target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
 
-set(BUILD_STATIC_LIBRARIES ON)
-set(BUILD_SHARED_LIBRARIES OFF)
-set(BUILD_CONTRIBS_LIB ON)
+option(BUILD_STATIC_LIBRARIES "Build static libraries" ON)
+option(BUILD_SHARED_LIBRARIES "Build shared libraries" OFF)
+option(BUILD_CONTRIBS_LIB "Build contribs lib" ON)
+
 set(BOOST_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
@@ -275,9 +282,13 @@ if (COMPILER_CLANG)
                         -Wunused-volatile-lvalue
                         -Wunused-template
                         -Wunused-member-function
-                        -Wunused-macros)
-    add_compile_options(-Wno-vla-extension)
-    add_compile_options(-Wno-gnu-statement-expression)
+                        -Wunused-macros
+                        -Wconversion)
+    add_compile_options( -Wno-gnu-statement-expression
+                        -Wno-implicit-float-conversion
+                        -Wno-implicit-int-conversion
+                        -Wno-sign-conversion
+                        -Wno-shorten-64-to-32)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         if (NOT OS_MACOSX)
@@ -287,7 +298,7 @@ if (COMPILER_CLANG)
     endif()
 endif ()
 
-add_compile_options(-D__STDC_FORMAT_MACROS
+add_definitions(-D__STDC_FORMAT_MACROS
                     -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG
                     -DBOOST_SYSTEM_NO_DEPRECATED
                     -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1
@@ -302,6 +313,7 @@ if (RECORD_COMPILER_SWITCHES)
     add_compile_options(-frecord-gcc-switches)
 endif()
 
+# simd for architectures
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     add_compile_options(-msse4.2)
     if (USE_AVX2)
@@ -309,12 +321,17 @@ if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" 
     endif()
 endif()
 
+if (ARCH_ARM)
+    add_compile_options(-march=armv8-a+crc)
+endif()
+#
+
 if (WITH_MYSQL)
-    add_compile_options(-DDORIS_WITH_MYSQL)
+    add_definitions(-DDORIS_WITH_MYSQL)
 endif()
 
-if (WITH_LZO)
-    add_compile_options(-DDORIS_WITH_LZO)
+if (ENABLE_INJECTION_POINT)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_INJECTION_POINT")
 endif()
 
 # Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
@@ -322,25 +339,28 @@ endif()
 # Adding the option `USE_MEM_TRACKER=OFF sh build.sh` when compiling can turn off the memory tracker,
 # which will bring about a 2% performance improvement, which may be useful in performance POC.
 if (USE_MEM_TRACKER)
-    add_compile_options(-DUSE_MEM_TRACKER)
+    add_definitions(-DUSE_MEM_TRACKER)
 endif()
 
 # Compile with jemalloc.
 # Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc
 if (USE_JEMALLOC)
-    add_compile_options(-DUSE_JEMALLOC)
+    add_definitions(-DUSE_JEMALLOC)
+endif()
+if (USE_JEMALLOC_HOOK)
+    add_definitions(-DUSE_JEMALLOC_HOOK)
 endif()
 
 # Compile with libunwind
 if (USE_UNWIND)
-    add_compile_options(-DUSE_UNWIND)
+    add_definitions(-DUSE_UNWIND)
     if (COMPILER_CLANG)
         add_compile_options(-gdwarf-aranges)
     endif()
 endif()
 
 if (ENABLE_STACKTRACE)
-    add_compile_options(-DENABLE_STACKTRACE)
+    add_definitions(-DENABLE_STACKTRACE)
 endif()
 
 if (USE_DWARF)
@@ -423,11 +443,25 @@ if ("${DORIS_JAVA_HOME}" STREQUAL "")
     set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
 endif()
 
-include_directories(${DORIS_JAVA_HOME}/include)
-if (NOT OS_MACOSX)
-    include_directories(${DORIS_JAVA_HOME}/include/linux)
+execute_process(COMMAND chmod 755 ${BASE_DIR}/../tools/find_libjvm.sh)
+execute_process(COMMAND ${BASE_DIR}/../tools/find_libjvm.sh OUTPUT_VARIABLE LIBJVM_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
+FILE(GLOB_RECURSE LIB_JVM ${LIBJVM_PATH})
+if("${LIB_JVM}" STREQUAL "")
+    message(STATUS "there is no libjvm found!")
 else()
-    include_directories(${DORIS_JAVA_HOME}/include/darwin)
+    set(DORIS_DEPENDENCIES
+        ${DORIS_DEPENDENCIES}
+        jvm
+    )
+    add_library(jvm SHARED IMPORTED)
+    set_target_properties(jvm PROPERTIES IMPORTED_LOCATION ${LIB_JVM})
+    include_directories(${DORIS_JAVA_HOME}/include)
+    if (NOT OS_MACOSX)
+        include_directories(${DORIS_JAVA_HOME}/include/linux)
+    else()
+        include_directories(${DORIS_JAVA_HOME}/include/darwin)
+    endif()
+    add_definitions("-DLIBJVM")
 endif()
 
 if (NOT OS_MACOSX)
@@ -537,10 +571,6 @@ set(DORIS_DEPENDENCIES
     ${KRB5_LIBS}
 )
 
-if(WITH_LZO)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} lzo)
-endif()
-
 if (WITH_MYSQL)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} mysql)
 endif()
@@ -649,7 +679,8 @@ set(BUILD_SHARED_LIBS OFF)
 
 option(ENABLE_CLANG_COVERAGE "coverage option" OFF)
 if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLANG)
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
+    add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
+    add_link_options(-fprofile-instr-generate)
 endif ()
 
 if (MAKE_TEST)
@@ -756,4 +787,5 @@ get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTO
 foreach(dir ${dirs})
     message(STATUS "dir='${dir}'")
 endforeach()
+
 

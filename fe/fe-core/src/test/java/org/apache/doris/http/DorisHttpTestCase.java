@@ -93,7 +93,6 @@ public abstract class DorisHttpTestCase {
 
     private static HttpServer httpServer;
 
-    public static final String CLUSTER_NAME = "default_cluster";
     public static final String DB_NAME = "testDb";
     public static final String TABLE_NAME = "testTbl";
 
@@ -117,6 +116,7 @@ public abstract class DorisHttpTestCase {
     public static int HTTP_PORT;
 
     protected static String URI;
+    protected static String CloudURI;
 
     protected String rootAuth = Credentials.basic("root", "");
 
@@ -215,13 +215,13 @@ public abstract class DorisHttpTestCase {
             Auth auth = new Auth();
             AccessControllerManager accessManager = new AccessControllerManager(auth);
             //EasyMock.expect(catalog.getAuth()).andReturn(paloAuth).anyTimes();
-            Database db = new Database(testDbId, "default_cluster:testDb");
+            Database db = new Database(testDbId, "testDb");
             OlapTable table = newTable(TABLE_NAME);
-            db.createTable(table);
+            db.registerTable(table);
             OlapTable table1 = newTable(TABLE_NAME + 1);
-            db.createTable(table1);
+            db.registerTable(table1);
             EsTable esTable = newEsTable("es_table");
-            db.createTable(esTable);
+            db.registerTable(esTable);
 
             InternalCatalog internalCatalog = Deencapsulation.newInstance(InternalCatalog.class);
             new Expectations(internalCatalog) {
@@ -230,11 +230,11 @@ public abstract class DorisHttpTestCase {
                     minTimes = 0;
                     result = db;
 
-                    internalCatalog.getDbNullable("default_cluster:" + DB_NAME);
+                    internalCatalog.getDbNullable("" + DB_NAME);
                     minTimes = 0;
                     result = db;
 
-                    internalCatalog.getDbNullable("default_cluster:emptyDb");
+                    internalCatalog.getDbNullable("emptyDb");
                     minTimes = 0;
                     result = null;
 
@@ -244,7 +244,7 @@ public abstract class DorisHttpTestCase {
 
                     internalCatalog.getDbNames();
                     minTimes = 0;
-                    result = Lists.newArrayList("default_cluster:testDb");
+                    result = Lists.newArrayList("testDb");
                 }
             };
 
@@ -333,6 +333,7 @@ public abstract class DorisHttpTestCase {
             socket.setReuseAddress(true);
             HTTP_PORT = socket.getLocalPort();
             URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
+            CloudURI = "http://localhost:" + HTTP_PORT;
         } catch (Exception e) {
             throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
         } finally {

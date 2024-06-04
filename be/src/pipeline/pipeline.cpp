@@ -17,8 +17,8 @@
 
 #include "pipeline.h"
 
-#include <ostream>
-#include <typeinfo>
+#include <memory>
+#include <string>
 #include <utility>
 
 #include "pipeline/exec/operator.h"
@@ -26,34 +26,12 @@
 namespace doris::pipeline {
 
 void Pipeline::_init_profile() {
-    std::stringstream ss;
-    ss << "Pipeline"
-       << " (pipeline id=" << _pipeline_id << ")";
-    _pipeline_profile.reset(new RuntimeProfile(ss.str()));
-}
-
-Status Pipeline::build_operators() {
-    OperatorPtr pre;
-    for (auto& operator_t : _operator_builders) {
-        auto o = operator_t->build_operator();
-        if (pre) {
-            static_cast<void>(o->set_child(pre));
-        }
-        _operators.emplace_back(o);
-        pre = std::move(o);
-    }
-    return Status::OK();
-}
-
-Status Pipeline::add_operator(OperatorBuilderPtr& op) {
-    if (_operator_builders.empty() && !op->is_source()) {
-        return Status::InternalError("Should set source before other operator");
-    }
-    _operator_builders.emplace_back(op);
-    return Status::OK();
+    auto s = fmt::format("Pipeline (pipeline id={})", _pipeline_id);
+    _pipeline_profile = std::make_unique<RuntimeProfile>(std::move(s));
 }
 
 Status Pipeline::add_operator(OperatorXPtr& op) {
+    op->set_parallel_tasks(num_tasks());
     operatorXs.emplace_back(op);
     if (op->is_source()) {
         std::reverse(operatorXs.begin(), operatorXs.end());
@@ -62,22 +40,19 @@ Status Pipeline::add_operator(OperatorXPtr& op) {
 }
 
 Status Pipeline::prepare(RuntimeState* state) {
-    // TODO
     RETURN_IF_ERROR(operatorXs.back()->prepare(state));
     RETURN_IF_ERROR(operatorXs.back()->open(state));
     RETURN_IF_ERROR(_sink_x->prepare(state));
     RETURN_IF_ERROR(_sink_x->open(state));
-    return Status::OK();
-}
-
-Status Pipeline::set_sink(OperatorBuilderPtr& sink_) {
-    if (_sink) {
-        return Status::InternalError("set sink twice");
+    _name.append(std::to_string(id()));
+    _name.push_back('-');
+    for (auto& op : operatorXs) {
+        _name.append(std::to_string(op->node_id()));
+        _name.append(op->get_name());
     }
-    if (!sink_->is_sink()) {
-        return Status::InternalError("should set a sink operator but {}", typeid(sink_).name());
-    }
-    _sink = sink_;
+    _name.push_back('-');
+    _name.append(std::to_string(_sink_x->node_id()));
+    _name.append(_sink_x->get_name());
     return Status::OK();
 }
 

@@ -63,12 +63,11 @@ Status VExchangeNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     SCOPED_TIMER(_exec_timer);
     DCHECK_GT(_num_senders, 0);
-    _sub_plan_query_statistics_recvr.reset(new QueryStatisticsRecvr());
     CHECK(state->exec_env() != nullptr);
     CHECK(state->exec_env()->vstream_mgr() != nullptr);
     _stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, _input_row_desc, state->fragment_instance_id(), _id, _num_senders,
-            _runtime_profile.get(), _is_merging, _sub_plan_query_statistics_recvr);
+            _runtime_profile.get(), _is_merging);
 
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _row_descriptor, _row_descriptor));
@@ -81,11 +80,9 @@ Status VExchangeNode::alloc_resource(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
-        if (!state->enable_pipeline_exec()) {
-            RETURN_IF_ERROR(_stream_recvr->create_merger(_vsort_exec_exprs.lhs_ordering_expr_ctxs(),
-                                                         _is_asc_order, _nulls_first,
-                                                         state->batch_size(), _limit, _offset));
-        }
+        RETURN_IF_ERROR(_stream_recvr->create_merger(_vsort_exec_exprs.lhs_ordering_expr_ctxs(),
+                                                     _is_asc_order, _nulls_first,
+                                                     state->batch_size(), _limit, _offset));
     }
     return Status::OK();
 }
@@ -100,13 +97,6 @@ Status VExchangeNode::open(RuntimeState* state) {
 Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(runtime_profile()->total_time_counter());
-    if (_is_merging && state->enable_pipeline_exec() && !_is_ready) {
-        RETURN_IF_ERROR(_stream_recvr->create_merger(_vsort_exec_exprs.lhs_ordering_expr_ctxs(),
-                                                     _is_asc_order, _nulls_first,
-                                                     state->batch_size(), _limit, _offset));
-        _is_ready = true;
-        return Status::OK();
-    }
     auto status = _stream_recvr->get_next(block, eos);
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
     // In vsortrunmerger, it will set eos=true, and block not empty
@@ -145,20 +135,6 @@ void VExchangeNode::release_resource(RuntimeState* state) {
     ExecNode::release_resource(state);
 }
 
-Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
-    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
-    if (!statistics->collect_dml_statistics()) {
-        statistics->merge(_sub_plan_query_statistics_recvr.get());
-    }
-    return Status::OK();
-}
-Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics, int sender_id) {
-    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
-    if (!statistics->collect_dml_statistics()) {
-        statistics->merge(_sub_plan_query_statistics_recvr.get(), sender_id);
-    }
-    return Status::OK();
-}
 Status VExchangeNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();

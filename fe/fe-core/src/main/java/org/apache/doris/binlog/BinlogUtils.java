@@ -81,6 +81,7 @@ public class BinlogUtils {
         return dummy;
     }
 
+    // Compute the expired timestamp in milliseconds.
     public static long getExpiredMs(long ttlSeconds) {
         long currentSeconds = System.currentTimeMillis() / 1000;
         if (currentSeconds < ttlSeconds) {
@@ -89,5 +90,16 @@ public class BinlogUtils {
 
         long expireSeconds = currentSeconds - ttlSeconds;
         return expireSeconds * 1000;
+    }
+
+    public static String convertTimeToReadable(long time) {
+        return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date(time));
+    }
+
+    public static long getApproximateMemoryUsage(TBinlog binlog) {
+        /* object layout: header + body + padding */
+        final long objSize = 80; // 9 fields and 1 header
+        String data = binlog.getData();
+        return objSize + binlog.getTableIdsSize() * 8 + (data == null ? 0 : data.length());
     }
 }

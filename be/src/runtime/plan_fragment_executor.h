@@ -21,6 +21,7 @@
 #pragma once
 
 #include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
@@ -47,7 +48,6 @@ class DataSink;
 class DescriptorTbl;
 class ExecEnv;
 class ObjectPool;
-class QueryStatistics;
 struct ReportStatusRequest;
 
 namespace vectorized {
@@ -73,7 +73,7 @@ class Block;
 //
 // Aside from Cancel(), which may be called asynchronously, this class is not
 // thread-safe.
-class PlanFragmentExecutor {
+class PlanFragmentExecutor : public TaskExecutionContext {
 public:
     using report_status_callback = std::function<void(const ReportStatusRequest)>;
     // report_status_cb, if !empty(), is used to report the accumulated profile
@@ -111,15 +111,21 @@ public:
 
     Status execute();
 
-    const VecDateTimeValue& start_time() const { return _start_time; }
+    std::string elapsed_time_debug_string(timespec now) const {
+        auto start_time = _fragment_watcher.start_time();
+        char buffer[80];
+        strftime(buffer, 80, "%Y-%m-%d %H:%M:%S", localtime(&start_time.tv_sec));
+
+        return std::string(buffer) + "\t" +
+               std::to_string(_fragment_watcher.elapsed_time_seconds(now)) + "\n";
+    }
 
     // Closes the underlying plan fragment and frees up all resources allocated
     // in open()/get_next().
     void close();
 
     // Initiate cancellation. Must not be called until after prepare() returned.
-    void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
-                const std::string& msg = "");
+    void cancel(const Status& reason);
 
     // call these only after prepare()
     RuntimeState* runtime_state() { return _runtime_state.get(); }
@@ -135,22 +141,20 @@ public:
 
     void set_need_wait_execution_trigger() { _need_wait_execution_trigger = true; }
 
-    void set_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
-        _merge_controller_handler = handler;
-    }
-
     std::shared_ptr<QueryContext> get_query_ctx() { return _query_ctx; }
 
     TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
 
     TUniqueId query_id() const { return _query_ctx->query_id(); }
 
-    bool is_timeout(const VecDateTimeValue& now) const;
+    bool is_timeout(timespec now) const;
 
     bool is_canceled() { return _runtime_state->is_cancelled(); }
 
     Status update_status(Status status);
+
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_query_profile() const;
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile() const;
 
 private:
     ExecEnv* _exec_env = nullptr; // not owned
@@ -221,7 +225,7 @@ private:
 
     RuntimeProfile::Counter* _fragment_cpu_timer = nullptr;
 
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+    QueryThreadContext _query_thread_context;
 
     // If set the true, this plan fragment will be executed only after FE send execution start rpc.
     bool _need_wait_execution_trigger = false;
@@ -229,17 +233,10 @@ private:
     // Timeout of this instance, it is inited from query options
     int _timeout_second = -1;
 
-    VecDateTimeValue _start_time;
-
-    // It is shared with BufferControlBlock and will be called in two different
-    // threads. But their calls are all at different time, there is no problem of
-    // multithreaded access.
-    std::shared_ptr<QueryStatistics> _query_statistics;
-    bool _collect_query_statistics_with_every_batch;
+    MonotonicStopWatch _fragment_watcher;
 
     // Record the cancel information when calling the cancel() method, return it to FE
-    PPlanFragmentCancelReason _cancel_reason;
-    std::string _cancel_msg;
+    Status _cancel_reason;
 
     DescriptorTbl* _desc_tbl = nullptr;
 
@@ -275,16 +272,9 @@ private:
 
     const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
-    void _collect_query_statistics();
-
-    std::shared_ptr<QueryStatistics> _dml_query_statistics() {
-        if (_query_statistics && _query_statistics->collect_dml_statistics()) {
-            return _query_statistics;
-        }
-        return nullptr;
-    }
-
     void _collect_node_statistics();
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris

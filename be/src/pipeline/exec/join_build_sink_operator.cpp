@@ -19,27 +19,29 @@
 
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
+#include "pipeline/exec/partitioned_hash_join_sink_operator.h"
 
 namespace doris::pipeline {
 
-template <typename DependencyType, typename Derived>
-Status JoinBuildSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
+template <typename SharedStateArg, typename Derived>
+Status JoinBuildSinkLocalState<SharedStateArg, Derived>::init(RuntimeState* state,
                                                               LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<DependencyType>::init(state, info));
-    auto& p = PipelineXSinkLocalState<DependencyType>::_parent
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SharedStateArg>::init(state, info));
+    auto& p = PipelineXSinkLocalState<SharedStateArg>::_parent
                       ->template cast<typename Derived::Parent>();
 
-    PipelineXSinkLocalState<DependencyType>::profile()->add_info_string("JoinType",
+    PipelineXSinkLocalState<SharedStateArg>::profile()->add_info_string("JoinType",
                                                                         to_string(p._join_op));
-    _build_rows_counter = ADD_COUNTER(PipelineXSinkLocalState<DependencyType>::profile(),
+    _build_rows_counter = ADD_COUNTER(PipelineXSinkLocalState<SharedStateArg>::profile(),
                                       "BuildRows", TUnit::UNIT);
 
-    _publish_runtime_filter_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
+    _publish_runtime_filter_timer = ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(),
                                               "PublishRuntimeFilterTime");
-    _runtime_filter_compute_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
+    _runtime_filter_compute_timer = ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(),
                                               "RuntimeFilterComputeTime");
-
+    _runtime_filter_init_timer =
+            ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(), "RuntimeFilterInitTime");
     return Status::OK();
 }
 
@@ -68,7 +70,8 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
                               _join_op == TJoinOp::RIGHT_SEMI_JOIN),
           _is_left_semi_anti(_join_op == TJoinOp::LEFT_ANTI_JOIN ||
                              _join_op == TJoinOp::LEFT_SEMI_JOIN ||
-                             _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN),
+                             _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                             _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN),
           _is_outer_join(_match_all_build || _match_all_probe),
           _is_mark_join(tnode.__isset.nested_loop_join_node
                                 ? (tnode.nested_loop_join_node.__isset.is_mark
@@ -76,12 +79,17 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
                                            : false)
                         : tnode.hash_join_node.__isset.is_mark ? tnode.hash_join_node.is_mark
                                                                : false),
-          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+                                                !_is_mark_join),
+          _runtime_filter_descs(tnode.runtime_filters) {
     _init_join_op();
     if (_is_mark_join) {
         DCHECK(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||
-               _join_op == TJoinOp::CROSS_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN)
-                << "Mark join is only supported for null aware left semi/anti join and cross join "
+               _join_op == TJoinOp::CROSS_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+               _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN ||
+               _join_op == TJoinOp::RIGHT_SEMI_JOIN)
+                << "Mark join is only supported for null aware left semi/anti join and right semi "
+                   "join and cross join "
                    "but this is "
                 << _join_op;
     }
@@ -97,7 +105,8 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
     M(CROSS_JOIN)                    \
     M(RIGHT_SEMI_JOIN)               \
     M(RIGHT_ANTI_JOIN)               \
-    M(NULL_AWARE_LEFT_ANTI_JOIN)
+    M(NULL_AWARE_LEFT_ANTI_JOIN)     \
+    M(NULL_AWARE_LEFT_SEMI_JOIN)
 
 template <typename LocalStateType>
 void JoinBuildSinkOperatorX<LocalStateType>::_init_join_op() {
@@ -115,9 +124,12 @@ void JoinBuildSinkOperatorX<LocalStateType>::_init_join_op() {
 }
 
 template class JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<HashJoinBuildSinkDependency, HashJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState>;
 template class JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
+template class JoinBuildSinkLocalState<NestedLoopJoinSharedState,
                                        NestedLoopJoinBuildSinkLocalState>;
+template class JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>;
+template class JoinBuildSinkLocalState<PartitionedHashJoinSharedState,
+                                       PartitionedHashJoinSinkLocalState>;
 
 } // namespace doris::pipeline

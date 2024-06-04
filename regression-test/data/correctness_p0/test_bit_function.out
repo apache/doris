@@ -2,3 +2,152 @@
 -- !select --
 64	123713	123649	-322
 
+-- !bit_count --
+0
+1
+1
+2
+1
+2
+2
+3
+1
+2
+
+-- !bit_count --
+0
+
+-- !bit_count --
+8
+
+-- !bit_count --
+8
+
+-- !bit_count --
+16
+
+-- !bit_count --
+32
+
+-- !bit_count --
+64
+
+-- !bit_count --
+128
+
+-- !bit_count_TINYINT_MAX --
+7
+
+-- !bit_count_TINYINT_MIN --
+1
+
+-- !bit_count_SMALLINT_MAX --
+15
+
+-- !bit_count_SMALLINT_MIN --
+1
+
+-- !bit_count_INT_MAX --
+31
+
+-- !bit_count_INT_IN --
+1
+
+-- !bit_count_INT64_MAX --
+63
+
+-- !bit_count_INT64_MIN --
+1
+
+-- !bit_count_INT128_MAX --
+127	127
+
+-- !bit_count_INT128_MIN --
+1	1
+
+-- !select --
+1	1
+
+-- !bit_count --
+0
+1
+1
+2
+1
+2
+2
+3
+1
+2
+
+-- !bit_count --
+0
+
+-- !bit_count --
+8
+
+-- !bit_count --
+8
+
+-- !bit_count --
+16
+
+-- !bit_count --
+32
+
+-- !bit_count --
+64
+
+-- !bit_count --
+128
+
+-- !bit_count_TINYINT_MAX --
+7
+
+-- !bit_count_TINYINT_MIN --
+1
+
+-- !bit_count_SMALLINT_MAX --
+15
+
+-- !bit_count_SMALLINT_MIN --
+1
+
+-- !bit_count_INT_MAX --
+31
+
+-- !bit_count_INT_IN --
+1
+
+-- !bit_count_INT64_MAX --
+63
+
+-- !bit_count_INT64_MIN --
+1
+
+-- !bit_count_INT128_MAX --
+127	127
+
+-- !bit_count_INT128_MIN --
+1	1
+
+-- !select --
+1	1
+
+-- !bitxor --
+125	-127
+
+-- !bitxor --
+0	127	0	127
+1	126	-1	-128
+2	125	-2	-127
+3	124	-3	-126
+4	123	-4	-125
+
+-- !bitxor --
+0	0	0	0
+1	0	-1	0
+2	0	-2	0
+3	0	-3	0
+4	0	-4	0
+

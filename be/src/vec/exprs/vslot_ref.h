@@ -38,9 +38,13 @@ class VSlotRef final : public VExpr {
 public:
     VSlotRef(const TExprNode& node);
     VSlotRef(const SlotDescriptor* desc);
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+
     const std::string& expr_name() const override;
+    std::string expr_label() override;
     std::string debug_string() const override;
     bool is_constant() const override { return false; }
 
@@ -52,6 +56,7 @@ private:
     int _slot_id;
     int _column_id;
     const std::string* _column_name = nullptr;
+    const std::string _column_label;
 };
 } // namespace vectorized
 } // namespace doris

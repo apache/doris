@@ -20,30 +20,43 @@ package org.apache.doris.catalog.constraint;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.nereids.exceptions.MetaNotFoundException;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.Objects;
 
-class TableIdentifier {
+public class TableIdentifier {
+    @SerializedName(value = "dbId")
     private final long databaseId;
+    @SerializedName(value = "tId")
     private final long tableId;
+    @SerializedName(value = "cId")
+    private final long catalogId;
 
-    TableIdentifier(TableIf tableIf) {
+    public TableIdentifier(TableIf tableIf) {
         Preconditions.checkArgument(tableIf != null,
                 "Table can not be null in constraint");
-        databaseId = tableIf.getDatabase().getId();
         tableId = tableIf.getId();
+        databaseId = tableIf.getDatabase() == null ? 0L : tableIf.getDatabase().getId();
+        catalogId = tableIf.getDatabase() == null || tableIf.getDatabase().getCatalog() == null
+                ? 0L : tableIf.getDatabase().getCatalog().getId();
     }
 
-    TableIf toTableIf() {
-        DatabaseIf databaseIf = Env.getCurrentEnv().getCurrentCatalog().getDbNullable(databaseId);
+    public TableIf toTableIf() {
+        CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        if (catalogIf == null) {
+            throw new MetaNotFoundException(String.format("Can not find catalog %s in constraint", catalogId));
+        }
+        DatabaseIf<?> databaseIf = catalogIf.getDbNullable(databaseId);
         if (databaseIf == null) {
-            throw new RuntimeException(String.format("Can not find database %s in constraint", databaseId));
+            throw new MetaNotFoundException(String.format("Can not find database %s in constraint", databaseId));
         }
         TableIf tableIf = databaseIf.getTableNullable(tableId);
         if (tableIf == null) {
-            throw new RuntimeException(String.format("Can not find table %s in constraint", databaseId));
+            throw new MetaNotFoundException(String.format("Can not find table %s in constraint", databaseId));
         }
         return tableIf;
     }
@@ -57,12 +70,19 @@ class TableIdentifier {
             return false;
         }
         TableIdentifier that = (TableIdentifier) o;
-        return databaseId == that.databaseId
+        return catalogId == that.catalogId
+                && databaseId == that.databaseId
                 && tableId == that.tableId;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(databaseId, tableId);
+        return Objects.hash(catalogId, databaseId, tableId);
+    }
+
+    @Override
+    public String toString() {
+        TableIf tableIf = this.toTableIf();
+        return String.format("%s.%s", tableIf.getDatabase().getFullName(), tableIf.getName());
     }
 }

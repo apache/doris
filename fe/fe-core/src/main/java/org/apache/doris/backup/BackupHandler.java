@@ -19,6 +19,7 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.AbstractBackupStmt;
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
+import org.apache.doris.analysis.AlterRepositoryStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.BackupStmt.BackupType;
 import org.apache.doris.analysis.CancelBackupStmt;
@@ -49,6 +50,7 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.SnapshotTask;
@@ -222,6 +224,49 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 
+    public void alterRepository(AlterRepositoryStmt stmt) throws DdlException {
+        tryLock();
+        try {
+            Repository repo = repoMgr.getRepo(stmt.getName());
+            if (repo == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
+            }
+
+            if (repo.getRemoteFileSystem() instanceof S3FileSystem) {
+                Map<String, String> oldProperties = new HashMap<>(stmt.getProperties());
+                Status status = repo.alterRepositoryS3Properties(oldProperties);
+                if (!status.ok()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, status.getErrMsg());
+                }
+                RemoteFileSystem fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
+                        StorageBackend.StorageType.S3, oldProperties);
+                Repository newRepo = new Repository(repo.getId(), repo.getName(), repo.isReadOnly(),
+                        repo.getLocation(), fileSystem);
+                if (!newRepo.ping()) {
+                    LOG.warn("Failed to connect repository {}. msg: {}", repo.getName(), repo.getErrorMsg());
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Repo can not ping with new s3 properties");
+                }
+
+                Status st = repoMgr.alterRepo(newRepo, false /* not replay */);
+                if (!st.ok()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Failed to alter repository: " + st.getErrMsg());
+                }
+                for (AbstractJob job : getAllCurrentJobs()) {
+                    if (!job.isDone() && job.getRepoId() == repo.getId()) {
+                        job.updateRepo(newRepo);
+                    }
+                }
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                                                "Only support alter s3 repository");
+            }
+        } finally {
+            seqlock.unlock();
+        }
+    }
+
     // handle drop repository stmt
     public void dropRepository(DropRepositoryStmt stmt) throws DdlException {
         tryLock();
@@ -251,6 +296,11 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     // the entry method of submitting a backup or restore job
     public void process(AbstractBackupStmt stmt) throws DdlException {
+        if (Config.isCloudMode()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "BACKUP and RESTORE are not supported by the cloud mode yet");
+        }
+
         // check if repo exist
         String repoName = stmt.getRepoName();
         Repository repository = null;
@@ -334,14 +384,24 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Check if backup objects are valid
         // This is just a pre-check to avoid most of invalid backup requests.
         // Also calculate the signature for incremental backup check.
+        List<TableRef> tblRefsNotSupport = Lists.newArrayList();
         for (TableRef tblRef : tblRefs) {
             String tblName = tblRef.getName().getTbl();
             Table tbl = db.getTableOrDdlException(tblName);
-            if (tbl.getType() == TableType.VIEW || tbl.getType() == TableType.ODBC) {
+            if (tbl.getType() == TableType.VIEW || tbl.getType() == TableType.ODBC
+                    || tbl.getType() == TableType.MATERIALIZED_VIEW) {
                 continue;
             }
             if (tbl.getType() != TableType.OLAP) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
+                if (Config.ignore_backup_not_support_table_type) {
+                    LOG.warn("Table '{}' is a {} table, can not backup and ignore it."
+                            + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
+                            tblName, tbl.getType().toString());
+                    tblRefsNotSupport.add(tblRef);
+                    continue;
+                } else {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
+                }
             }
 
             OlapTable olapTbl = (OlapTable) tbl;
@@ -371,6 +431,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 tbl.readUnlock();
             }
         }
+
+        tblRefs.removeAll(tblRefsNotSupport);
 
         // Check if label already be used
         long repoId = -1;
@@ -471,6 +533,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     private void addBackupOrRestoreJob(long dbId, AbstractJob job) {
+        // If there are too many backup/restore jobs, it may cause OOM.  If the job num option is set to 0,
+        // skip all backup/restore jobs.
+        if (Config.max_backup_restore_job_num_per_db <= 0) {
+            return;
+        }
+
         jobLock.lock();
         try {
             Deque<AbstractJob> jobs = dbIdToBackupOrRestoreJobs.computeIfAbsent(dbId, k -> Lists.newLinkedList());
@@ -681,6 +749,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public void replayAddJob(AbstractJob job) {
+        LOG.info("replay backup/restore job: {}", job);
+
         if (job.isCancelled()) {
             AbstractJob existingJob = getCurrentJob(job.getDbId());
             if (existingJob == null || existingJob.isDone()) {
@@ -700,6 +770,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             // We use replayed job, not the existing job, to do the replayRun().
             // Because if we use the existing job to run again,
             // for example: In restore job, PENDING will transfer to SNAPSHOTING, not DOWNLOAD.
+            job.setEnv(env);
             job.replayRun();
         }
 

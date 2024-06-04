@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -32,21 +33,26 @@ import java.util.stream.Collectors;
  * function builder for java udaf
  */
 public class JavaUdafBuilder extends UdfBuilder {
-    private final JavaUdaf udf;
+    private final JavaUdaf udaf;
     private final int arity;
     private final boolean isVarArgs;
 
-    public JavaUdafBuilder(JavaUdaf udf) {
-        this.udf = udf;
-        this.isVarArgs = udf.hasVarArguments();
-        this.arity = udf.arity();
+    public JavaUdafBuilder(JavaUdaf udaf) {
+        this.udaf = udaf;
+        this.isVarArgs = udaf.hasVarArguments();
+        this.arity = udaf.arity();
     }
 
     @Override
     public List<DataType> getArgTypes() {
-        return Suppliers.memoize(() -> udf.getSignatures().get(0).argumentsTypes.stream()
+        return Suppliers.memoize(() -> udaf.getSignatures().get(0).argumentsTypes.stream()
                 .map(DataType.class::cast)
                 .collect(Collectors.toList())).get();
+    }
+
+    @Override
+    public Class<? extends BoundFunction> functionClass() {
+        return JavaUdaf.class;
     }
 
     @Override
@@ -66,7 +72,11 @@ public class JavaUdafBuilder extends UdfBuilder {
     }
 
     @Override
-    public BoundFunction build(String name, List<?> arguments) {
-        return udf.withChildren(arguments.stream().map(Expression.class::cast).collect(Collectors.toList()));
+    public Pair<JavaUdaf, JavaUdaf> build(String name, List<?> arguments) {
+        return Pair.ofSame((JavaUdaf) udaf.withChildren(
+                arguments.stream()
+                        .map(Expression.class::cast)
+                        .collect(Collectors.toList()))
+        );
     }
 }

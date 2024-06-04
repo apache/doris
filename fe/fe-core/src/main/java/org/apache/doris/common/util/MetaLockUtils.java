@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.MetaNotFoundException;
 
@@ -112,4 +113,27 @@ public class MetaLockUtils {
         }
     }
 
+    public static void commitLockTables(List<Table> tableList) {
+        for (Table table : tableList) {
+            table.commitLock();
+        }
+    }
+
+    public static void commitUnlockTables(List<Table> tableList) {
+        for (int i = tableList.size() - 1; i >= 0; i--) {
+            tableList.get(i).commitUnlock();
+        }
+    }
+
+    public static boolean tryCommitLockTables(List<Table> tableList, long timeout, TimeUnit unit) {
+        for (int i = 0; i < tableList.size(); i++) {
+            if (!tableList.get(i).tryCommitLock(timeout, unit)) {
+                for (int j = i - 1; j >= 0; j--) {
+                    tableList.get(j).commitUnlock();
+                }
+                return false;
+            }
+        }
+        return true;
+    }
 }

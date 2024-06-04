@@ -134,7 +134,7 @@ public:
         float compression = 2048;
         if (compression_arg) {
             auto compression_arg_val = compression_arg->get_value<Float32>();
-            if (compression_arg_val && compression_arg_val >= QUANTILE_STATE_COMPRESSION_MIN &&
+            if (compression_arg_val >= QUANTILE_STATE_COMPRESSION_MIN &&
                 compression_arg_val <= QUANTILE_STATE_COMPRESSION_MAX) {
                 compression = compression_arg_val;
             }
@@ -148,11 +148,9 @@ public:
             const DataTypePtr& nested_data_type =
                     static_cast<const DataTypeNullable*>(data_type.get())->get_nested_type();
             WhichDataType nested_which(nested_data_type);
-            static_cast<void>(
-                    execute_internal<true>(column, data_type, column_result, compression));
+            RETURN_IF_ERROR(execute_internal<true>(column, data_type, column_result, compression));
         } else {
-            static_cast<void>(
-                    execute_internal<false>(column, data_type, column_result, compression));
+            RETURN_IF_ERROR(execute_internal<false>(column, data_type, column_result, compression));
         }
         if (status.ok()) {
             block.replace_by_position(result, std::move(column_result));

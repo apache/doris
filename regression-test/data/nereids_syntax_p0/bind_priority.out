@@ -36,3 +36,58 @@ all	2
 4	5
 6	6
 
+-- !having_bind_child --
+1	10
+
+-- !having_bind_child2 --
+2	10
+
+-- !having_bind_child3 --
+2	10
+
+-- !having_bind_project --
+2	10
+
+-- !having_bind_project2 --
+
+-- !having_bind_project3 --
+
+-- !having_bind_project4 --
+2	11
+
+-- !having_bind_child4 --
+2	11
+
+-- !having_bind_child5 --
+2	11
+
+-- !having_bind_agg_fun --
+
+-- !having_bind_agg_fun --
+2	4
+3	3
+
+-- !having_bind_group_by --
+7	3
+
+-- !having_bind_group_by --
+7	3
+
+-- !having_bind_group_by --
+7	3
+
+-- !having_bind_group_by --
+4	5	3
+
+-- !having_bind_group_by --
+1	2
+
+-- !having_bind_group_by --
+2	1
+
+-- !sql --
+2	1
+
+-- !sql --
+2	1
+

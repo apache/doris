@@ -30,7 +30,7 @@ struct DecimalScaleParams {
         SCALE_DOWN,
     };
     ScaleType scale_type = ScaleType::NOT_INIT;
-    int32_t scale_factor = 1;
+    int64_t scale_factor = 1;
 
     template <typename DecimalPrimitiveType>
     static inline constexpr DecimalPrimitiveType get_scale_factor(int32_t n) {
@@ -38,9 +38,9 @@ struct DecimalScaleParams {
             return common::exp10_i32(n);
         } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal64>) {
             return common::exp10_i64(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal128>) {
+        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal128V2>) {
             return common::exp10_i128(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal128I>) {
+        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal128V3>) {
             return common::exp10_i128(n);
         } else {
             static_assert(!sizeof(DecimalPrimitiveType),

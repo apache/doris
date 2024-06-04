@@ -83,20 +83,19 @@ Status HeapSorter::append_block(Block* block) {
     }
     Block tmp_block = block->clone_empty();
     tmp_block.swap(*block);
-    HeapSortCursorBlockView block_view_val(std::move(tmp_block), _sort_description);
-    SharedHeapSortCursorBlockView* block_view =
-            new SharedHeapSortCursorBlockView(std::move(block_view_val));
-    block_view->ref();
-    Defer defer([&] { block_view->unref(); });
     size_t num_rows = tmp_block.rows();
+    auto block_view =
+            std::make_shared<HeapSortCursorBlockView>(std::move(tmp_block), _sort_description);
+    bool filtered = false;
     if (_heap_size == _heap->size()) {
         {
             SCOPED_TIMER(_topn_filter_timer);
-            _do_filter(block_view->value(), num_rows);
+            _do_filter(*block_view, num_rows);
         }
-        size_t remain_rows = block_view->value().block.rows();
+        size_t remain_rows = block_view->block.rows();
         _topn_filter_rows += (num_rows - remain_rows);
         COUNTER_SET(_topn_filter_rows_counter, _topn_filter_rows);
+        filtered = remain_rows == 0;
         for (size_t i = 0; i < remain_rows; ++i) {
             HeapSortCursorImpl cursor(i, block_view);
             _heap->replace_top_if_less(std::move(cursor));
@@ -115,8 +114,8 @@ Status HeapSorter::append_block(Block* block) {
             _heap->replace_top_if_less(std::move(cursor));
         }
     }
-    if (block_view->ref_count() > 1) {
-        _data_size += block_view->value().block.allocated_bytes();
+    if (!filtered) {
+        _data_size += block_view->block.allocated_bytes();
     }
     return Status::OK();
 }

@@ -114,7 +114,6 @@ void fill_block_with_array_string(vectorized::Block& block) {
 }
 
 void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_type) {
-    config::compress_rowbatches = true;
     // int
     {
         auto vec = vectorized::ColumnVector<Int32>::create();
@@ -166,7 +165,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
                               decimal_column.get())
                              ->get_data();
         for (int i = 0; i < 1024; ++i) {
-            __int128_t value = i * pow(10, 9) + i * pow(10, 8);
+            __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);
         }
         vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
@@ -188,7 +187,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         vectorized::DataTypePtr bitmap_data_type(std::make_shared<vectorized::DataTypeBitMap>());
         auto bitmap_column = bitmap_data_type->create_column();
         std::vector<BitmapValue>& container =
-                ((vectorized::ColumnComplexType<BitmapValue>*)bitmap_column.get())->get_data();
+                ((vectorized::ColumnBitmap*)bitmap_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             BitmapValue bv;
             for (int j = 0; j <= i; ++j) {
@@ -296,7 +295,6 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
 }
 
 TEST(BlockTest, SerializeAndDeserializeBlock) {
-    config::compress_rowbatches = true;
     serialize_and_deserialize_test(segment_v2::CompressionTypePB::SNAPPY);
     serialize_and_deserialize_test(segment_v2::CompressionTypePB::LZ4);
 }
@@ -324,7 +322,7 @@ TEST(BlockTest, dump_data) {
                                   decimal_column.get())
                                  ->get_data();
     for (int i = 0; i < 1024; ++i) {
-        __int128_t value = i * pow(10, 9) + i * pow(10, 8);
+        __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
         decimal_data.push_back(value);
     }
     vectorized::ColumnWithTypeAndName test_decimal(decimal_column->get_ptr(), decimal_data_type,
@@ -392,4 +390,57 @@ TEST(BlockTest, dump_data) {
     vectorized::Block::filter_block_internal(&block1, filter, block1.columns());
     EXPECT_EQ(size, block1.rows());
 }
+
+TEST(BlockTest, merge_with_shared_columns) {
+    auto vec = vectorized::ColumnVector<Int32>::create();
+    auto& int32_data = vec->get_data();
+    for (int i = 0; i < 1024; ++i) {
+        int32_data.push_back(i);
+    }
+    vectorized::DataTypePtr int32_type(std::make_shared<vectorized::DataTypeInt32>());
+    vectorized::ColumnWithTypeAndName test_k1(vec->get_ptr(), int32_type, "k1");
+
+    auto strcol = vectorized::ColumnString::create();
+    for (int i = 0; i < 1024; ++i) {
+        std::string is = std::to_string(i);
+        strcol->insert_data(is.c_str(), is.size());
+    }
+    vectorized::DataTypePtr string_type(std::make_shared<vectorized::DataTypeString>());
+    vectorized::ColumnWithTypeAndName test_v1(strcol->get_ptr(), string_type, "v1");
+
+    vectorized::ColumnWithTypeAndName test_v2(strcol->get_ptr(), string_type, "v2");
+
+    vectorized::Block src_block({test_k1, test_v1, test_v2});
+
+    auto vec_temp = vectorized::ColumnVector<Int32>::create();
+    auto& int32_data_temp = vec_temp->get_data();
+    for (int i = 0; i < 10; ++i) {
+        int32_data_temp.push_back(i);
+    }
+
+    vectorized::ColumnWithTypeAndName test_k1_temp(vec_temp->get_ptr(), int32_type, "k1");
+
+    auto strcol_temp = vectorized::ColumnString::create();
+    for (int i = 0; i < 10; ++i) {
+        std::string is = std::to_string(i);
+        strcol_temp->insert_data(is.c_str(), is.size());
+    }
+
+    vectorized::ColumnWithTypeAndName test_v1_temp(strcol_temp->get_ptr(), string_type, "v1");
+    vectorized::ColumnWithTypeAndName test_v2_temp(strcol_temp->get_ptr(), string_type, "v2");
+
+    vectorized::Block temp_block({test_k1_temp, test_v1_temp, test_v2_temp});
+
+    vectorized::MutableBlock mutable_block(&src_block);
+    auto status = mutable_block.merge(temp_block);
+    ASSERT_TRUE(status.ok());
+
+    src_block.set_columns(std::move(mutable_block.mutable_columns()));
+
+    for (auto& column : src_block.get_columns()) {
+        EXPECT_EQ(1034, column->size());
+    }
+    EXPECT_EQ(1034, src_block.rows());
+}
+
 } // namespace doris

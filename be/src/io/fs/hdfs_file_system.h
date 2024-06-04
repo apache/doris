@@ -39,88 +39,25 @@ class THdfsParams;
 
 namespace io {
 struct FileInfo;
+class HdfsHandler;
 
-class HdfsFileSystemHandle {
-public:
-    HdfsFileSystemHandle(hdfsFS fs, bool cached, bool is_kerberos)
-            : hdfs_fs(fs),
-              from_cache(cached),
-              _is_kerberos(is_kerberos),
-              _ref_cnt(0),
-              _create_time(_now()),
-              _last_access_time(0),
-              _invalid(false) {}
-
-    ~HdfsFileSystemHandle() {
-        DCHECK(_ref_cnt == 0);
-        if (hdfs_fs != nullptr) {
-            // DO NOT call hdfsDisconnect(), or we will meet "Filesystem closed"
-            // even if we create a new one
-            // hdfsDisconnect(hdfs_fs);
-        }
-        hdfs_fs = nullptr;
-    }
-
-    int64_t last_access_time() { return _last_access_time; }
-
-    void inc_ref() {
-        _ref_cnt++;
-        _last_access_time = _now();
-    }
-
-    void dec_ref() {
-        _ref_cnt--;
-        _last_access_time = _now();
-    }
-
-    int ref_cnt() { return _ref_cnt; }
-
-    bool invalid() {
-        return _invalid ||
-               (_is_kerberos &&
-                _now() - _create_time.load() > config::kerberos_expiration_time_seconds * 1000 / 2);
-    }
-
-    void set_invalid() { _invalid = true; }
-
-    hdfsFS hdfs_fs;
-    // When cache is full, and all handlers are in use, HdfsFileSystemCache will return an uncached handler.
-    // Client should delete the handler in such case.
-    const bool from_cache;
-
-private:
-    const bool _is_kerberos;
-    // the number of referenced client
-    std::atomic<int> _ref_cnt;
-    // For kerberos authentication, we need to save create time so that
-    // we can know if the kerberos ticket is expired.
-    std::atomic<uint64_t> _create_time;
-    // HdfsFileSystemCache try to remove the oldest handler when the cache is full
-    std::atomic<uint64_t> _last_access_time;
-    // Client will set invalid if error thrown, and HdfsFileSystemCache will not reuse this handler
-    std::atomic<bool> _invalid;
-
-    uint64_t _now() {
-        return std::chrono::duration_cast<std::chrono::milliseconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                .count();
-    }
-};
-
-class HdfsFileHandleCache;
+// Only accepts full path now.
+// Full path format: name_node/path_to_file
+// TODO(plat1ko): Support related path for cloud mode
 class HdfsFileSystem final : public RemoteFileSystem {
 public:
-    static Status create(const THdfsParams& hdfs_params, const std::string& path,
-                         RuntimeProfile* profile, std::shared_ptr<HdfsFileSystem>* fs);
+    static Result<std::shared_ptr<HdfsFileSystem>> create(const THdfsParams& hdfs_params,
+                                                          std::string fs_name, std::string id,
+                                                          RuntimeProfile* profile,
+                                                          std::string root_path = "");
+
+    static Result<std::shared_ptr<HdfsFileSystem>> create(
+            const std::map<std::string, std::string>& properties, std::string fs_name,
+            std::string id, RuntimeProfile* profile, std::string root_path = "");
 
     ~HdfsFileSystem() override;
 
-    HdfsFileSystemHandle* get_handle();
-
-    friend class HdfsFileHandleCache;
-
 protected:
-    Status connect_impl() override;
     Status create_file_impl(const Path& file, FileWriterPtr* writer,
                             const FileWriterOptions* opts) override;
     Status open_file_internal(const Path& file, FileReaderSPtr* reader,
@@ -134,29 +71,24 @@ protected:
     Status list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
                      bool* exists) override;
     Status rename_impl(const Path& orig_name, const Path& new_name) override;
-    Status rename_dir_impl(const Path& orig_name, const Path& new_name) override;
 
     Status upload_impl(const Path& local_file, const Path& remote_file) override;
     Status batch_upload_impl(const std::vector<Path>& local_files,
                              const std::vector<Path>& remote_files) override;
-    Status direct_upload_impl(const Path& remote_file, const std::string& content) override;
-    Status upload_with_checksum_impl(const Path& local_file, const Path& remote_file,
-                                     const std::string& checksum) override;
     Status download_impl(const Path& remote_file, const Path& local_file) override;
-    Status direct_download_impl(const Path& remote_file, std::string* content) override;
 
 private:
+    Status init();
+
     Status delete_internal(const Path& path, int is_recursive);
 
 private:
     friend class HdfsFileWriter;
-    HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path,
-                   RuntimeProfile* profile);
-    const THdfsParams& _hdfs_params;
+    HdfsFileSystem(const THdfsParams& hdfs_params, std::string fs_name, std::string id,
+                   RuntimeProfile* profile, std::string root_path);
+    const THdfsParams& _hdfs_params; // Only used in init, so we can use reference here
     std::string _fs_name;
-    // do not use std::shared_ptr or std::unique_ptr
-    // _fs_handle is managed by HdfsFileSystemCache
-    HdfsFileSystemHandle* _fs_handle = nullptr;
+    std::shared_ptr<HdfsHandler> _fs_handle = nullptr;
     RuntimeProfile* _profile = nullptr;
 };
 } // namespace io

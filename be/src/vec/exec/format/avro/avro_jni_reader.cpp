@@ -29,21 +29,17 @@ AvroJNIReader::AvroJNIReader(RuntimeState* state, RuntimeProfile* profile,
                              const TFileScanRangeParams& params,
                              const std::vector<SlotDescriptor*>& file_slot_descs,
                              const TFileRangeDesc& range)
-        : _file_slot_descs(file_slot_descs),
-          _state(state),
-          _profile(profile),
-          _params(params),
-          _range(range) {}
+        : JniReader(file_slot_descs, state, profile), _params(params), _range(range) {}
 
 AvroJNIReader::AvroJNIReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range,
                              const std::vector<SlotDescriptor*>& file_slot_descs)
-        : _file_slot_descs(file_slot_descs), _profile(profile), _params(params), _range(range) {}
+        : JniReader(file_slot_descs, nullptr, profile), _params(params), _range(range) {}
 
 AvroJNIReader::~AvroJNIReader() = default;
 
 Status AvroJNIReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_jni_connector->get_nex_block(block, read_rows, eof));
+    RETURN_IF_ERROR(_jni_connector->get_next_block(block, read_rows, eof));
     if (*eof) {
         RETURN_IF_ERROR(_jni_connector->close());
     }
@@ -89,6 +85,10 @@ Status AvroJNIReader::init_fetch_table_reader(
     if (type == TFileType::FILE_S3) {
         required_param.insert(_params.properties.begin(), _params.properties.end());
     }
+    required_param.insert(
+            std::make_pair("split_start_offset", std::to_string(_range.start_offset)));
+    required_param.insert(std::make_pair("split_size", std::to_string(_range.size)));
+    required_param.insert(std::make_pair("split_file_size", std::to_string(_range.file_size)));
     required_param.insert(std::make_pair("uri", _range.path));
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/avro/AvroJNIScanner",
                                                     required_param, column_names);

@@ -39,6 +39,7 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
         );"""
+        order_qt_show_db """ show databases from ${catalog_name}; """
         sql """drop database if exists ${internal_db_name}"""
         sql """create database if not exists ${internal_db_name}"""
         sql """use ${internal_db_name}"""
@@ -53,55 +54,46 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
         """
 
         sql """ switch ${catalog_name} """
-        def res_dbs_log = sql "show databases;"
-		for(int i = 0;i < res_dbs_log.size();i++) {
-			def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
-			log.info( "database = ${res_dbs_log[i][0]} => tables = "+tbs.toString())
-		}
-        try {
-            sql """ use ${ex_db_name} """
+        sql """ use ${ex_db_name} """
 
-            order_qt_test0  """ select * from student order by id; """
-            sql  """ insert into internal.${internal_db_name}.${inDorisTable} select * from student; """
-            order_qt_in_tb  """ select id, name, age from internal.${internal_db_name}.${inDorisTable} order by id; """
+        order_qt_test0  """ select * from student order by id; """
+        sql  """ insert into internal.${internal_db_name}.${inDorisTable} select * from student; """
+        order_qt_in_tb  """ select id, name, age from internal.${internal_db_name}.${inDorisTable} order by id; """
 
-            order_qt_test1  """ select * from test_int order by id; """
-            order_qt_test2  """ select * from test_float order by id; """
-            order_qt_test3  """ select * from test_char order by id; """
-            order_qt_test5  """ select * from test_time order by id; """
-            order_qt_test6  """ select * from test_money order by id; """
-            order_qt_test7  """ select * from test_decimal order by id; """
-            order_qt_test8  """ select * from test_text order by id; """
-            order_qt_dt  """ select * from DateAndTime; """
-            order_qt_filter1  """ select * from test_char where 1 = 1 order by id; """
-            order_qt_filter2  """ select * from test_char where 1 = 1 and id = 1  order by id; """
-            order_qt_filter3  """ select * from test_char where id = 1  order by id; """
-            order_qt_id """ select count(*) from (select * from t_id) as a; """
-            order_qt_all_type """ select * from all_type order by id; """
-            sql """ drop table if exists internal.${internal_db_name}.all_type; """
-            order_qt_ctas """ create table internal.${internal_db_name}.ctas_all_type PROPERTIES("replication_num" = "1") as select * from all_type; """
-            qt_desc_query_ctas """ desc internal.${internal_db_name}.ctas_all_type; """
-            order_qt_query_ctas """ select * from internal.${internal_db_name}.ctas_all_type order by id; """
+        order_qt_test1  """ select * from test_int order by id; """
+        order_qt_test2  """ select * from test_float order by id; """
+        order_qt_test3  """ select * from test_char order by id; """
+        order_qt_test5  """ select * from test_time order by id; """
+        order_qt_test6  """ select * from test_money order by id; """
+        order_qt_test7  """ select * from test_decimal order by id; """
+        order_qt_test8  """ select * from test_text order by id; """
+        order_qt_dt  """ select * from DateAndTime; """
+        order_qt_filter1  """ select * from test_char where 1 = 1 order by id; """
+        order_qt_filter2  """ select * from test_char where 1 = 1 and id = 1  order by id; """
+        order_qt_filter3  """ select * from test_char where id = 1  order by id; """
+        order_qt_filter4  """ select * from student where name not like '%doris%'  order by id; """
+        order_qt_id """ select count(*) from (select * from t_id) as a; """
+        order_qt_all_type """ select * from all_type order by id; """
+        sql """ drop table if exists internal.${internal_db_name}.all_type; """
+        order_qt_ctas """ create table internal.${internal_db_name}.ctas_all_type PROPERTIES("replication_num" = "1") as select * from all_type; """
+        qt_desc_query_ctas """ desc internal.${internal_db_name}.ctas_all_type; """
+        order_qt_query_ctas """ select * from internal.${internal_db_name}.ctas_all_type order by id; """
+        order_qt_desc_timestamp """desc dbo.test_timestamp; """
+        order_qt_query_timestamp """select count(timestamp_col) from dbo.test_timestamp; """
 
-            sql """ drop catalog if exists ${catalog_name} """
 
-            sql """ create catalog if not exists ${catalog_name} properties(
-                        "type"="jdbc",
-                        "user"="sa",
-                        "password"="Doris123456",
-                        "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;trustServerCertificate=false",
-                        "driver_url" = "${driver_url}",
-                        "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
-            );"""
+        sql """ drop catalog if exists ${catalog_name} """
 
-            order_qt_sql """ show databases from ${catalog_name} """
-        } finally {
-			res_dbs_log = sql "show databases;"
-			for(int i = 0;i < res_dbs_log.size();i++) {
-				def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
-				log.info( "database = ${res_dbs_log[i][0]} => tables = "+tbs.toString())
-			}
-		}
+        sql """ create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="sa",
+                    "password"="Doris123456",
+                    "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;trustServerCertificate=false",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+        );"""
+
+        order_qt_sql """ show databases from ${catalog_name} """
 
         sql """ drop catalog if exists ${catalog_name} """
     }

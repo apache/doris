@@ -68,46 +68,15 @@ struct NowFunctionName {
     static constexpr auto name = "now";
 };
 
-struct CurrentTimestampFunctionName {
-    static constexpr auto name = "current_timestamp";
-};
-
-struct LocalTimeFunctionName {
-    static constexpr auto name = "localtime";
-};
-
-struct LocalTimestampFunctionName {
-    static constexpr auto name = "localtimestamp";
-};
-
 using FunctionNow = FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<NowFunctionName, false>>;
-using FunctionCurrentTimestamp =
-        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<CurrentTimestampFunctionName, false>>;
-using FunctionLocalTime =
-        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<LocalTimeFunctionName, false>>;
-using FunctionLocalTimestamp =
-        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<LocalTimestampFunctionName, false>>;
 
 using FunctionNowWithPrecision =
         FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<NowFunctionName, true>>;
-using FunctionCurrentTimestampWithPrecision =
-        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<CurrentTimestampFunctionName, true>>;
-using FunctionLocalTimeWithPrecision =
-        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<LocalTimeFunctionName, true>>;
-using FunctionLocalTimestampWithPrecision =
-        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<LocalTimestampFunctionName, true>>;
 
 struct CurDateFunctionName {
     static constexpr auto name = "curdate";
 };
 
-struct CurrentDateFunctionName {
-    static constexpr auto name = "current_date";
-};
-
-FunctionBuilderPtr createCurrentDateFunctionBuilderFunction() {
-    return std::make_shared<CurrentDateFunctionBuilder<CurrentDateFunctionName>>();
-}
 FunctionBuilderPtr createCurDateFunctionBuilderFunction() {
     return std::make_shared<CurrentDateFunctionBuilder<CurDateFunctionName>>();
 }
@@ -115,12 +84,8 @@ FunctionBuilderPtr createCurDateFunctionBuilderFunction() {
 struct CurTimeFunctionName {
     static constexpr auto name = "curtime";
 };
-struct CurrentTimeFunctionName {
-    static constexpr auto name = "current_time";
-};
 
 using FunctionCurTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurTimeFunctionName>>;
-using FunctionCurrentTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurrentTimeFunctionName>>;
 using FunctionUtcTimeStamp = FunctionCurrentDateOrDateTime<UtcTimestampImpl>;
 using FunctionTimeToSec = FunctionCurrentDateOrDateTime<TimeToSecImpl>;
 using FunctionSecToTime = FunctionCurrentDateOrDateTime<SecToTimeImpl>;
@@ -142,8 +107,6 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubMinutes>();
     factory.register_function<FunctionSubHours>();
     factory.register_function<FunctionSubDays>();
-    factory.register_alias("days_sub", "date_sub");
-    factory.register_alias("days_sub", "subdate");
     factory.register_function<FunctionSubMonths>();
     factory.register_function<FunctionSubYears>();
     factory.register_function<FunctionSubQuarters>();
@@ -163,18 +126,9 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToWeekTwoArgs>();
 
     factory.register_function<FunctionNow>();
-    factory.register_function<FunctionCurrentTimestamp>();
-    factory.register_function<FunctionLocalTime>();
-    factory.register_function<FunctionLocalTimestamp>();
     factory.register_function<FunctionNowWithPrecision>();
-    factory.register_function<FunctionCurrentTimestampWithPrecision>();
-    factory.register_function<FunctionLocalTimeWithPrecision>();
-    factory.register_function<FunctionLocalTimestampWithPrecision>();
-    factory.register_function(CurrentDateFunctionName::name,
-                              &createCurrentDateFunctionBuilderFunction);
     factory.register_function(CurDateFunctionName::name, &createCurDateFunctionBuilderFunction);
     factory.register_function<FunctionCurTime>();
-    factory.register_function<FunctionCurrentTime>();
     factory.register_function<FunctionUtcTimeStamp>();
     factory.register_function<FunctionTimeToSec>();
     factory.register_function<FunctionSecToTime>();
@@ -186,6 +140,13 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_alias("days_add", "date_add");
     factory.register_alias("days_add", "adddate");
     factory.register_alias("months_add", "add_months");
+    factory.register_alias("days_sub", "date_sub");
+    factory.register_alias("days_sub", "subdate");
+    factory.register_alias("now", "current_timestamp");
+    factory.register_alias("now", "localtime");
+    factory.register_alias("now", "localtimestamp");
+    factory.register_alias("curdate", "current_date");
+    factory.register_alias("curtime", "current_time");
 }
 
 } // namespace doris::vectorized

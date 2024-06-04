@@ -69,7 +69,7 @@ namespace doris::vectorized {
         static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                \
                                     size_t input_rows_count, std::vector<BitmapValue>& res,       \
                                     IColumn* res_nulls) {                                         \
-            const ColumnUInt8::value_type* null_map_datas[col_size];                              \
+            std::vector<const ColumnUInt8::value_type*> null_map_datas(col_size);                 \
             int nullable_cols_count = 0;                                                          \
             ColumnUInt8::value_type* __restrict res_nulls_data = nullptr;                         \
             if (res_nulls) {                                                                      \
@@ -198,11 +198,7 @@ public:
         // result is null only when all columns is null for bitmap_or.
         // for count functions, result is always not null, and if the bitmap op result is null,
         // the count is 0
-        if (std::is_same_v<Impl, BitmapOr> || is_count()) {
-            return false;
-        } else {
-            return true;
-        }
+        return !static_cast<bool>(std::is_same_v<Impl, BitmapOr> || is_count());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -224,7 +220,7 @@ public:
                                  const ColumnNumbers& arguments, size_t result,
                                  size_t input_rows_count) const {
         size_t argument_size = arguments.size();
-        ColumnPtr argument_columns[argument_size];
+        std::vector<ColumnPtr> argument_columns(argument_size);
 
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
@@ -250,8 +246,8 @@ public:
         auto& vec_res = col_res->get_data();
         vec_res.resize(input_rows_count);
 
-        static_cast<void>(Impl::vector_vector(argument_columns, argument_size, input_rows_count,
-                                              vec_res, col_res_nulls));
+        RETURN_IF_ERROR(Impl::vector_vector(argument_columns.data(), argument_size,
+                                            input_rows_count, vec_res, col_res_nulls));
         if (!use_default_implementation_for_nulls() && result_info.type->is_nullable()) {
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(col_res_nulls)));

@@ -75,14 +75,15 @@ Status VStatisticsIterator::next_batch(Block* block) {
                               : std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
         if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
             size = std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
-            for (int i = 0; i < block->columns(); ++i) {
-                columns[i]->resize(size);
+            for (int i = 0; i < columns.size(); ++i) {
+                columns[i]->insert_many_defaults(size);
             }
         } else {
-            for (int i = 0; i < block->columns(); ++i) {
+            for (int i = 0; i < columns.size(); ++i) {
                 RETURN_IF_ERROR(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
             }
         }
+        block->set_columns(std::move(columns));
         _output_rows += size;
         return Status::OK();
     }
@@ -135,42 +136,48 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
 }
 
 // `advanced = false` when current block finished
-void VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
+Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     Block& src = *_block;
     Block& dst = *block;
     if (_cur_batch_num == 0) {
-        return;
+        return Status::OK();
     }
 
     // copy a row to dst block column by column
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
 
-    for (size_t i = 0; i < _num_columns; ++i) {
-        auto& s_col = src.get_by_position(i);
-        auto& d_col = dst.get_by_position(i);
+    RETURN_IF_CATCH_EXCEPTION({
+        for (size_t i = 0; i < _num_columns; ++i) {
+            auto& s_col = src.get_by_position(i);
+            auto& d_col = dst.get_by_position(i);
 
-        ColumnPtr& s_cp = s_col.column;
-        ColumnPtr& d_cp = d_col.column;
+            ColumnPtr& s_cp = s_col.column;
+            ColumnPtr& d_cp = d_col.column;
 
-        d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
-    }
+            d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
+        }
+    });
     const auto& tmp_pre_ctx_same_bit = get_pre_ctx_same();
     dst.set_same_bit(tmp_pre_ctx_same_bit.begin(), tmp_pre_ctx_same_bit.begin() + _cur_batch_num);
     _cur_batch_num = 0;
+    return Status::OK();
 }
 
-void VMergeIteratorContext::copy_rows(BlockView* view, bool advanced) {
+Status VMergeIteratorContext::copy_rows(BlockView* view, bool advanced) {
     if (_cur_batch_num == 0) {
-        return;
+        return Status::OK();
     }
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
 
     const auto& tmp_pre_ctx_same_bit = get_pre_ctx_same();
-    for (size_t i = 0; i < _cur_batch_num; ++i) {
-        view->push_back({_block, static_cast<int>(start + i), tmp_pre_ctx_same_bit[i]});
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (size_t i = 0; i < _cur_batch_num; ++i) {
+            view->push_back({_block, static_cast<int>(start + i), tmp_pre_ctx_same_bit[i]});
+        }
+    });
 
     _cur_batch_num = 0;
+    return Status::OK();
 }
 
 // This iterator will generate ordered data. For example for schema
@@ -291,7 +298,7 @@ Status VMergeIteratorContext::_load_next_block() {
         }
         for (auto it = _block_list.begin(); it != _block_list.end(); it++) {
             if (it->use_count() == 1) {
-                static_cast<void>(block_reset(*it));
+                RETURN_IF_ERROR(block_reset(*it));
                 _block = *it;
                 _block_list.erase(it);
                 break;
@@ -299,7 +306,7 @@ Status VMergeIteratorContext::_load_next_block() {
         }
         if (_block == nullptr) {
             _block = std::make_shared<Block>();
-            static_cast<void>(block_reset(_block));
+            RETURN_IF_ERROR(block_reset(_block));
         }
         Status st = _iter->next_batch(_block.get());
         if (!st.ok()) {
@@ -327,14 +334,14 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     _record_rowids = opts.record_rowids;
 
     for (auto& iter : _origin_iters) {
-        auto ctx = std::make_unique<VMergeIteratorContext>(std::move(iter), _sequence_id_idx,
+        auto ctx = std::make_shared<VMergeIteratorContext>(std::move(iter), _sequence_id_idx,
                                                            _is_unique, _is_reverse,
                                                            opts.read_orderby_key_columns);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
         }
-        _merge_heap.push(ctx.release());
+        _merge_heap.push(ctx);
     }
 
     _origin_iters.clear();
@@ -372,6 +379,7 @@ public:
 private:
     const Schema* _schema = nullptr;
     RowwiseIteratorUPtr _cur_iter = nullptr;
+    StorageReadOptions _read_options;
     std::vector<RowwiseIteratorUPtr> _origin_iters;
 };
 
@@ -385,10 +393,9 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
     // in the same order as the original segments.
     std::reverse(_origin_iters.begin(), _origin_iters.end());
 
-    for (auto& iter : _origin_iters) {
-        RETURN_IF_ERROR(iter->init(opts));
-    }
+    _read_options = opts;
     _cur_iter = std::move(_origin_iters.back());
+    RETURN_IF_ERROR(_cur_iter->init(_read_options));
     _schema = &_cur_iter->schema();
     return Status::OK();
 }
@@ -400,6 +407,7 @@ Status VUnionIterator::next_batch(Block* block) {
             _origin_iters.pop_back();
             if (!_origin_iters.empty()) {
                 _cur_iter = std::move(_origin_iters.back());
+                RETURN_IF_ERROR(_cur_iter->init(_read_options));
             } else {
                 _cur_iter = nullptr;
             }
@@ -421,9 +429,9 @@ Status VUnionIterator::current_block_row_locations(std::vector<RowLocation>* loc
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
                                        int sequence_id_idx, bool is_unique, bool is_reverse,
                                        uint64_t* merged_rows) {
-    if (inputs.size() == 1) {
-        return std::move(inputs[0]);
-    }
+    // when the size of inputs is 1, we also need to use VMergeIterator, because the
+    // next_block_view function only be implemented in VMergeIterator. The reason why
+    // the size of inputs is 1 is that the segment was filtered out by zone map or others.
     return std::make_unique<VMergeIterator>(std::move(inputs), sequence_id_idx, is_unique,
                                             is_reverse, merged_rows);
 }

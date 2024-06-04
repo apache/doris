@@ -21,48 +21,22 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vanalytic_eval_node.h"
+#include "pipeline/dependency.h"
 
 namespace doris {
-class ExecNode;
 
 namespace pipeline {
-class AnalyticSinkOperatorBuilder final : public OperatorBuilder<vectorized::VAnalyticEvalNode> {
-public:
-    AnalyticSinkOperatorBuilder(int32_t, ExecNode*);
-
-    OperatorPtr build_operator() override;
-
-    bool is_sink() const override { return true; }
-};
-
-class AnalyticSinkOperator final : public StreamingOperator<AnalyticSinkOperatorBuilder> {
-public:
-    AnalyticSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
-
-    bool can_write() override { return _node->can_write(); }
-};
-
-class AnalyticSinkDependency final : public Dependency {
-public:
-    using SharedState = AnalyticSharedState;
-    AnalyticSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AnalyticSinkDependency", true, query_ctx) {}
-    ~AnalyticSinkDependency() override = default;
-};
-
 class AnalyticSinkOperatorX;
 
-class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSinkDependency> {
+class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSharedState> {
     ENABLE_FACTORY_CREATOR(AnalyticSinkLocalState);
 
 public:
     AnalyticSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<AnalyticSinkDependency>(parent, state) {}
+            : PipelineXSinkLocalState<AnalyticSharedState>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class AnalyticSinkOperatorX;
@@ -70,11 +44,11 @@ private:
     bool _refresh_need_more_input() {
         auto need_more_input = _whether_need_next_partition(_shared_state->found_partition_end);
         if (need_more_input) {
-            _shared_state->source_dep->block();
+            _dependency->set_block_to_read();
             _dependency->set_ready();
         } else {
             _dependency->block();
-            _shared_state->source_dep->set_ready();
+            _dependency->set_ready_to_read();
         }
         return need_more_input;
     }
@@ -84,7 +58,6 @@ private:
                                                      bool need_check_first = false);
     bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
 
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 
@@ -94,7 +67,7 @@ private:
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
 public:
     AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                          const DescriptorTbl& descs);
+                          const DescriptorTbl& descs, bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<AnalyticSinkLocalState>::_name);
@@ -105,16 +78,16 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
-    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
-    ExchangeType get_local_exchange_type() const override {
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    DataDistribution required_data_distribution() const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
-            return ExchangeType::PASSTHROUGH;
+            return {ExchangeType::PASSTHROUGH};
         } else if (_order_by_eq_expr_ctxs.empty()) {
-            return _is_colocate ? ExchangeType::BUCKET_HASH_SHUFFLE : ExchangeType::HASH_SHUFFLE;
+            return _is_colocate
+                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
-        return ExchangeType::NOOP;
+        return DataSinkOperatorX<AnalyticSinkLocalState>::required_data_distribution();
     }
 
 private:

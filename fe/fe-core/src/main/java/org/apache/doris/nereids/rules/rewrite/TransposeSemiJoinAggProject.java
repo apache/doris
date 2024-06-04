@@ -33,6 +33,7 @@ public class TransposeSemiJoinAggProject extends OneRewriteRuleFactory {
         return logicalJoin(logicalProject(logicalAggregate()), any())
                 .whenNot(join -> ConnectContext.get().getSessionVariable().isDisableJoinReorder())
                 .when(join -> join.getJoinType().isLeftSemiOrAntiJoin())
+                .whenNot(join -> join.isMarkJoin())
                 .when(join -> join.left().isAllSlots())
                 .then(join -> {
                     LogicalProject<LogicalAggregate<Plan>> project = join.left();

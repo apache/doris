@@ -132,7 +132,9 @@ struct ToBitmap {
                         continue;
                     }
                 }
-                res_data[i].add(col->get_data()[i]);
+                if (auto value = col->get_data()[i]; value >= 0) {
+                    res_data[i].add(value);
+                }
             }
         }
     }
@@ -280,7 +282,7 @@ struct BitmapFromBase64 {
                 decode_buff.resize(curr_decode_buff_len);
                 last_decode_buff_len = curr_decode_buff_len;
             }
-            int outlen = base64_decode(src_str, src_size, decode_buff.data());
+            auto outlen = base64_decode(src_str, src_size, decode_buff.data());
             if (outlen < 0) {
                 res.emplace_back();
                 null_map[i] = 1;
@@ -361,7 +363,7 @@ public:
             const auto& str_column = static_cast<const ColumnString&>(*argument_column);
             const ColumnString::Chars& data = str_column.get_chars();
             const ColumnString::Offsets& offsets = str_column.get_offsets();
-            static_cast<void>(Impl::vector(data, offsets, res, null_map, input_rows_count));
+            RETURN_IF_ERROR(Impl::vector(data, offsets, res, null_map, input_rows_count));
         } else if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeArray>) {
             auto argument_type = remove_nullable(
                     assert_cast<const DataTypeArray&>(*block.get_by_position(arguments[0]).type)
@@ -375,19 +377,19 @@ public:
 
             WhichDataType which_type(argument_type);
             if (which_type.is_int8()) {
-                static_cast<void>(Impl::template vector<ColumnInt8>(
-                        offset_column_data, nested_column, nested_null_map, res, null_map));
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt8>(offset_column_data, nested_column,
+                                                                  nested_null_map, res, null_map));
             } else if (which_type.is_uint8()) {
-                static_cast<void>(Impl::template vector<ColumnUInt8>(
+                RETURN_IF_ERROR(Impl::template vector<ColumnUInt8>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else if (which_type.is_int16()) {
-                static_cast<void>(Impl::template vector<ColumnInt16>(
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt16>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else if (which_type.is_int32()) {
-                static_cast<void>(Impl::template vector<ColumnInt32>(
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt32>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else if (which_type.is_int64()) {
-                static_cast<void>(Impl::template vector<ColumnInt64>(
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt64>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
@@ -700,12 +702,7 @@ Status execute_bitmap_op_count_null_to_zero(
         size_t input_rows_count,
         const std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>&
                 exec_impl_func) {
-    NullPresence null_presence = get_null_presence(block, arguments);
-
-    if (null_presence.has_null_constant) {
-        block.get_by_position(result).column =
-                block.get_by_position(result).type->create_column_const(input_rows_count, 0);
-    } else if (null_presence.has_nullable) {
+    if (have_null_column(block, arguments)) {
         auto [temporary_block, new_args, new_result] =
                 create_block_with_nested_columns(block, arguments, result);
         RETURN_IF_ERROR(exec_impl_func(context, temporary_block, new_args, new_result,
@@ -996,7 +993,7 @@ struct BitmapToBase64 {
         for (size_t i = 0; i < size; ++i) {
             BitmapValue& bitmap_val = const_cast<BitmapValue&>(data[i]);
             auto ser_size = bitmap_val.getSizeInBytes();
-            output_char_size += ser_size * (int)(4.0 * ceil((double)ser_size / 3.0));
+            output_char_size += (int)(4.0 * ceil((double)ser_size / 3.0));
         }
         ColumnString::check_chars_length(output_char_size, size);
         chars.resize(output_char_size);
@@ -1015,8 +1012,8 @@ struct BitmapToBase64 {
             }
             bitmap_val.write_to(ser_buff.data());
 
-            int outlen = base64_encode((const unsigned char*)ser_buff.data(), cur_ser_size,
-                                       chars_data + encoded_offset);
+            auto outlen = base64_encode((const unsigned char*)ser_buff.data(), cur_ser_size,
+                                        chars_data + encoded_offset);
             DCHECK(outlen > 0);
 
             encoded_offset += (int)(4.0 * ceil((double)cur_ser_size / 3.0));

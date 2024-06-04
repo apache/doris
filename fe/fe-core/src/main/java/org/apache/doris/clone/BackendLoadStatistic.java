@@ -39,6 +39,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class BackendLoadStatistic {
     private static final Logger LOG = LogManager.getLogger(BackendLoadStatistic.class);
@@ -166,6 +168,7 @@ public class BackendLoadStatistic {
     private Map<TStorageMedium, Long> totalReplicaNumMap = Maps.newHashMap();
     private Map<TStorageMedium, LoadScore> loadScoreMap = Maps.newHashMap();
     private Map<TStorageMedium, Classification> clazzMap = Maps.newHashMap();
+    private Map<TStorageMedium, Classification> maxDiskClazzMap = Maps.newHashMap();
     private List<RootPathLoadStatistic> pathStatistics = Lists.newArrayList();
 
     public BackendLoadStatistic(long beId, Tag tag, SystemInfoService infoService,
@@ -227,6 +230,14 @@ public class BackendLoadStatistic {
         return clazzMap.getOrDefault(medium, Classification.INIT);
     }
 
+    public void setMaxDiskClazz(TStorageMedium medium, Classification clazz) {
+        this.maxDiskClazzMap.put(medium, clazz);
+    }
+
+    public Classification getMaxDiskClazz(TStorageMedium medium) {
+        return maxDiskClazzMap.getOrDefault(medium, Classification.INIT);
+    }
+
     public void init() throws LoadBalanceException {
         Backend be = infoService.getBackend(beId);
         if (be == null) {
@@ -246,9 +257,17 @@ public class BackendLoadStatistic {
                         + (diskInfo.getTotalCapacityB() - diskInfo.getAvailableCapacityB()));
             }
 
+            // Doris-compose put test all backends' disks on the same physical disk.
+            // Make a little change here.
+            long usedCapacityB = diskInfo.getDiskUsedCapacityB();
+            if (Config.be_rebalancer_fuzzy_test) {
+                usedCapacityB = Math.min(diskInfo.getTotalCapacityB(),
+                        usedCapacityB + Math.abs(diskInfo.getPathHash()) % 10000);
+            }
+
             RootPathLoadStatistic pathStatistic = new RootPathLoadStatistic(beId, diskInfo.getRootPath(),
                     diskInfo.getPathHash(), diskInfo.getStorageMedium(),
-                    diskInfo.getTotalCapacityB(), diskInfo.getDiskUsedCapacityB(), diskInfo.getState());
+                    diskInfo.getTotalCapacityB(), usedCapacityB, diskInfo.getState());
             pathStatistics.add(pathStatistic);
         }
 
@@ -295,20 +314,22 @@ public class BackendLoadStatistic {
             if (Math.abs(pathStat.getUsedPercent() - avgUsedPercent)
                     > Math.max(avgUsedPercent * Config.balance_load_score_threshold, 0.025)) {
                 if (pathStat.getUsedPercent() > avgUsedPercent) {
-                    pathStat.setClazz(Classification.HIGH);
+                    pathStat.setLocalClazz(Classification.HIGH);
                     highCounter++;
                 } else if (pathStat.getUsedPercent() < avgUsedPercent) {
-                    pathStat.setClazz(Classification.LOW);
+                    pathStat.setLocalClazz(Classification.LOW);
                     lowCounter++;
                 }
             } else {
-                pathStat.setClazz(Classification.MID);
+                pathStat.setLocalClazz(Classification.MID);
                 midCounter++;
             }
         }
 
-        LOG.debug("classify path by load. be id: {} storage: {} avg used percent: {}. low/mid/high: {}/{}/{}",
-                beId, medium, avgUsedPercent, lowCounter, midCounter, highCounter);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("classify path by load. be id: {} storage: {} avg used percent: {}. low/mid/high: {}/{}/{}",
+                    beId, medium, avgUsedPercent, lowCounter, midCounter, highCounter);
+        }
     }
 
     public void calcScore(Map<TStorageMedium, Double> avgClusterUsedCapacityPercentMap,
@@ -325,9 +346,11 @@ public class BackendLoadStatistic {
 
             loadScoreMap.put(medium, loadScore);
 
-            LOG.debug("backend {}, medium: {}, capacity coefficient: {}, replica coefficient: {}, load score: {}",
-                    beId, medium, loadScore.capacityCoefficient, loadScore.getReplicaNumCoefficient(),
-                    loadScore.score);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("backend {}, medium: {}, capacity coefficient: {}, replica coefficient: {}, load score: {}",
+                        beId, medium, loadScore.capacityCoefficient, loadScore.getReplicaNumCoefficient(),
+                        loadScore.score);
+            }
         }
     }
 
@@ -415,21 +438,28 @@ public class BackendLoadStatistic {
             RootPathLoadStatistic pathStatistic = pathStatistics.get(i);
             // if this is a supplement task, ignore the storage medium
             if (!isSupplement && medium != null && pathStatistic.getStorageMedium() != medium) {
-                LOG.debug("backend {} path {}'s storage medium {} is not {} storage medium, actual: {}",
-                        beId, pathStatistic.getPath(), pathStatistic.getStorageMedium(), medium);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("backend {} path {}'s storage medium {} is not {} storage medium, actual: {}",
+                            beId, pathStatistic.getPath(), pathStatistic.getStorageMedium(), medium);
+                }
                 continue;
             }
 
             BalanceStatus bStatus = pathStatistic.isFit(tabletSize, isSupplement);
             if (!bStatus.ok()) {
-                status.addErrMsgs(bStatus.getErrMsgs());
+                if (status != BalanceStatus.OK) {
+                    status.addErrMsgs(bStatus.getErrMsgs());
+                }
                 continue;
             }
 
-            result.add(pathStatistic);
+            if (result != null) {
+                result.add(pathStatistic);
+            }
+            status = BalanceStatus.OK;
         }
 
-        return result.isEmpty() ? status : BalanceStatus.OK;
+        return status;
     }
 
     /**
@@ -476,12 +506,14 @@ public class BackendLoadStatistic {
                 + Math.abs(currentDestPathScore - avgUsedPercent);
         double newDiff = Math.abs(newSrcPathScore - avgUsedPercent) + Math.abs(newDestPathScore - avgUsedPercent);
 
-        LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
-                        + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
-                        + " more balanced: {}",
-                tabletId, tabletSize, srcPath, destPath, medium, currentSrcPathScore, newSrcPathScore,
-                currentDestPathScore, newDestPathScore, avgUsedPercent, currentDiff, newDiff,
-                (newDiff < currentDiff));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
+                            + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
+                            + " more balanced: {}",
+                    tabletId, tabletSize, srcPath, destPath, medium, currentSrcPathScore, newSrcPathScore,
+                    currentDestPathScore, newDestPathScore, avgUsedPercent, currentDiff, newDiff,
+                    (newDiff < currentDiff));
+        }
 
         return newDiff < currentDiff;
     }
@@ -508,17 +540,19 @@ public class BackendLoadStatistic {
                 continue;
             }
 
-            if (pathStat.getClazz() == Classification.LOW) {
+            if (pathStat.getLocalClazz() == Classification.LOW) {
                 low.add(pathStat.getPathHash());
-            } else if (pathStat.getClazz() == Classification.HIGH) {
+            } else if (pathStat.getLocalClazz() == Classification.HIGH) {
                 high.add(pathStat.getPathHash());
             } else {
                 mid.add(pathStat.getPathHash());
             }
         }
 
-        LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
-                beId, low.size(), mid.size(), high.size());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
+                    beId, low.size(), mid.size(), high.size());
+        }
     }
 
     public void getPathStatisticByClass(List<RootPathLoadStatistic> low,
@@ -529,17 +563,19 @@ public class BackendLoadStatistic {
                 continue;
             }
 
-            if (pathStat.getClazz() == Classification.LOW) {
+            if (pathStat.getLocalClazz() == Classification.LOW) {
                 low.add(pathStat);
-            } else if (pathStat.getClazz() == Classification.HIGH) {
+            } else if (pathStat.getLocalClazz() == Classification.HIGH) {
                 high.add(pathStat);
             } else {
                 mid.add(pathStat);
             }
         }
 
-        LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
-                beId, low.size(), mid.size(), high.size());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
+                    beId, low.size(), mid.size(), high.size());
+        }
     }
 
     public void incrPathsCopingSize(Map<Long, Long> pathsCopingSize) {
@@ -569,9 +605,22 @@ public class BackendLoadStatistic {
         return pathStatistics;
     }
 
-    public long getAvailPathNum(TStorageMedium medium) {
-        return pathStatistics.stream().filter(
-                p -> p.getDiskState() == DiskState.ONLINE && p.getStorageMedium() == medium).count();
+    RootPathLoadStatistic getPathStatisticByPathHash(long pathHash) {
+        return pathStatistics.stream().filter(pathStat -> pathStat.getPathHash() == pathHash)
+                .findFirst().orElse(null);
+    }
+
+    public List<RootPathLoadStatistic> getAvailPaths(TStorageMedium medium) {
+        return getAvailPathStream(medium).collect(Collectors.toList());
+    }
+
+    public boolean hasAvailPathWithGlobalClazz(TStorageMedium medium, Classification globalClazz) {
+        return getAvailPathStream(medium).anyMatch(pathStat -> pathStat.getGlobalClazz() == globalClazz);
+    }
+
+    private Stream<RootPathLoadStatistic> getAvailPathStream(TStorageMedium medium) {
+        return pathStatistics.stream()
+                .filter(p -> p.getDiskState() == DiskState.ONLINE && p.getStorageMedium() == medium);
     }
 
     public boolean hasMedium(TStorageMedium medium) {
@@ -603,6 +652,7 @@ public class BackendLoadStatistic {
         long total = totalCapacityMap.getOrDefault(medium, 0L);
         info.add(String.valueOf(used));
         info.add(String.valueOf(total));
+        info.add(getMaxDiskClazz(medium).name());
         info.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(used * 100
                 / (double) total)));
         info.add(String.valueOf(totalReplicaNumMap.getOrDefault(medium, 0L)));
@@ -610,7 +660,7 @@ public class BackendLoadStatistic {
         info.add(String.valueOf(loadScore.capacityCoefficient));
         info.add(String.valueOf(loadScore.getReplicaNumCoefficient()));
         info.add(String.valueOf(loadScore.score));
-        info.add(clazzMap.getOrDefault(medium, Classification.INIT).name());
+        info.add(getClazz(medium).name());
         return info;
     }
 

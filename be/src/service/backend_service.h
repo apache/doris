@@ -18,7 +18,6 @@
 #pragma once
 
 #include <gen_cpp/BackendService.h>
-#include <stdint.h>
 
 #include <memory>
 #include <string>
@@ -30,6 +29,7 @@
 
 namespace doris {
 
+class StorageEngine;
 class ExecEnv;
 class ThriftServer;
 class TAgentResult;
@@ -63,29 +63,16 @@ class ThreadPool;
 
 // This class just forward rpc for actual handler
 // make this class because we can bind multiple service on single point
-class BackendService : public BackendServiceIf {
+class BaseBackendService : public BackendServiceIf {
 public:
-    BackendService(ExecEnv* exec_env);
+    BaseBackendService(ExecEnv* exec_env);
 
-    ~BackendService() override = default;
-
-    // NOTE: now we do not support multiple backend in one process
-    static Status create_service(ExecEnv* exec_env, int port,
-                                 std::unique_ptr<ThriftServer>* server);
+    ~BaseBackendService() override;
 
     // Agent service
     void submit_tasks(TAgentResult& return_value,
                       const std::vector<TAgentTaskRequest>& tasks) override {
         _agent_server->submit_tasks(return_value, tasks);
-    }
-
-    void make_snapshot(TAgentResult& return_value,
-                       const TSnapshotRequest& snapshot_request) override {
-        _agent_server->make_snapshot(return_value, snapshot_request);
-    }
-
-    void release_snapshot(TAgentResult& return_value, const std::string& snapshot_path) override {
-        _agent_server->release_snapshot(return_value, snapshot_path);
     }
 
     void publish_cluster_state(TAgentResult& result, const TAgentPublishRequest& request) override {
@@ -112,12 +99,6 @@ public:
 
     void erase_export_task(TStatus& t_status, const TUniqueId& task_id) override;
 
-    void get_tablet_stat(TTabletStatResult& result) override;
-
-    int64_t get_trash_used_capacity() override;
-
-    void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
-
     void submit_routine_load_task(TStatus& t_status,
                                   const std::vector<TRoutineLoadTask>& tasks) override;
 
@@ -130,10 +111,87 @@ public:
     // used for external service, close some context and release resource related with this context
     void close_scanner(TScanCloseResult& result_, const TScanCloseParams& params) override;
 
-    void get_stream_load_record(TStreamLoadRecordResult& result,
-                                const int64_t last_stream_record_time) override;
+    ////////////////////////////////////////////////////////////////////////////
+    // begin local backend functions
+    ////////////////////////////////////////////////////////////////////////////
+    void get_tablet_stat(TTabletStatResult& result) override;
 
-    void clean_trash() override;
+    int64_t get_trash_used_capacity() override;
+
+    void get_stream_load_record(TStreamLoadRecordResult& result,
+                                int64_t last_stream_record_time) override;
+
+    void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
+
+    void make_snapshot(TAgentResult& return_value,
+                       const TSnapshotRequest& snapshot_request) override;
+
+    void release_snapshot(TAgentResult& return_value, const std::string& snapshot_path) override;
+
+    void check_storage_format(TCheckStorageFormatResult& result) override;
+
+    void ingest_binlog(TIngestBinlogResult& result, const TIngestBinlogRequest& request) override;
+
+    void query_ingest_binlog(TQueryIngestBinlogResult& result,
+                             const TQueryIngestBinlogRequest& request) override;
+
+    void get_realtime_exec_status(TGetRealtimeExecStatusResponse& response,
+                                  const TGetRealtimeExecStatusRequest& request) override;
+
+    ////////////////////////////////////////////////////////////////////////////
+    // begin cloud backend functions
+    ////////////////////////////////////////////////////////////////////////////
+    void warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
+                             const TWarmUpCacheAsyncRequest& request) override;
+
+    void check_warm_up_cache_async(TCheckWarmUpCacheAsyncResponse& response,
+                                   const TCheckWarmUpCacheAsyncRequest& request) override;
+
+    // If another cluster load, FE need to notify the cluster to sync the load data
+    void sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
+                               const TSyncLoadForTabletsRequest& request) override;
+
+    void get_top_n_hot_partitions(TGetTopNHotPartitionsResponse& response,
+                                  const TGetTopNHotPartitionsRequest& request) override;
+
+    void warm_up_tablets(TWarmUpTabletsResponse& response,
+                         const TWarmUpTabletsRequest& request) override;
+
+    void stop_works() { _agent_server->stop_report_workers(); }
+
+protected:
+    Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
+
+    ExecEnv* _exec_env = nullptr;
+    std::unique_ptr<AgentServer> _agent_server;
+    std::unique_ptr<ThreadPool> _ingest_binlog_workers;
+};
+
+// `StorageEngine` mixin for `BaseBackendService`
+class BackendService final : public BaseBackendService {
+public:
+    // NOTE: now we do not support multiple backend in one process
+    static Status create_service(StorageEngine& engine, ExecEnv* exec_env, int port,
+                                 std::unique_ptr<ThriftServer>* server,
+                                 std::shared_ptr<doris::BackendService> service);
+
+    BackendService(StorageEngine& engine, ExecEnv* exec_env);
+
+    ~BackendService() override;
+
+    void get_tablet_stat(TTabletStatResult& result) override;
+
+    int64_t get_trash_used_capacity() override;
+
+    void get_stream_load_record(TStreamLoadRecordResult& result,
+                                int64_t last_stream_record_time) override;
+
+    void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
+
+    void make_snapshot(TAgentResult& return_value,
+                       const TSnapshotRequest& snapshot_request) override;
+
+    void release_snapshot(TAgentResult& return_value, const std::string& snapshot_path) override;
 
     void check_storage_format(TCheckStorageFormatResult& result) override;
 
@@ -143,10 +201,7 @@ public:
                              const TQueryIngestBinlogRequest& request) override;
 
 private:
-    Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
-    ExecEnv* _exec_env = nullptr;
-    std::unique_ptr<AgentServer> _agent_server;
-    std::unique_ptr<ThreadPool> _ingest_binlog_workers;
+    StorageEngine& _engine;
 };
 
 } // namespace doris

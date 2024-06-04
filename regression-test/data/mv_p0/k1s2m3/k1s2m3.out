@@ -37,36 +37,11 @@
 -- !select_mv --
 \N	\N
 -4	16
-1	1
 2	4
 3	\N
 
 -- !select_mv --
-\N	\N
--4	16
-1	1
-2	4
-3	\N
-
--- !select_mv --
-\N	\N
--4	16
-1	1
-2	4
-3	\N
-
--- !select_mv --
-\N	\N
--4	16
-1	1
-2	4
-3	\N
-
--- !select_mv --
-\N	\N
--4	16
-2	4
-3	\N
+0
 
 -- !select_star --
 \N	4	\N	d

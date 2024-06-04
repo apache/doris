@@ -60,6 +60,14 @@ std::string DataTypeDateV2::to_string(const IColumn& column, size_t row_num) con
     return std::string {buf};
 }
 
+std::string DataTypeDateV2::to_string(UInt32 int_val) const {
+    DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
+
+    char buf[64];
+    val.to_string(buf); // DateTime to_string the end is /0
+    return std::string {buf};
+}
+
 void DataTypeDateV2::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
@@ -135,6 +143,15 @@ std::string DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num)
     return buf; // DateTime to_string the end is /0
 }
 
+std::string DataTypeDateTimeV2::to_string(UInt64 int_val) const {
+    DateV2Value<DateTimeV2ValueType> val =
+            binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
+
+    char buf[64];
+    val.to_string(buf, _scale);
+    return buf; // DateTime to_string the end is /0
+}
+
 void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
                                    BufferWritable& ostr) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -151,9 +168,9 @@ void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
 }
 
 Status DataTypeDateTimeV2::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnUInt64*>(column);
+    auto* column_data = assert_cast<ColumnUInt64*>(column);
     UInt64 val = 0;
-    if (!read_datetime_v2_text_impl<UInt64>(val, rb)) {
+    if (!read_datetime_v2_text_impl<UInt64>(val, rb, _scale)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }

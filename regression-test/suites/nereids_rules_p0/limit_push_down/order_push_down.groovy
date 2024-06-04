@@ -17,33 +17,38 @@
 
 suite("order_push_down") {
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "use regression_test_nereids_rules_p0"
     sql """ SET inline_cte_referenced_threshold=0 """
-    sql "set disable_join_reorder=true"
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "SET disable_join_reorder=true"
     sql 'set be_number_for_test=3'
-    
+    sql "set disable_nereids_rules='push_down_top_n_distinct_through_union'"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
+
     //`limit 1 offset 1 + sort, project`:
     qt_limit_offset_sort_project """ explain shape plan SELECT t1.id FROM t1 ORDER BY id LIMIT 1 OFFSET 1; """
     //`limit 1 + sort, join`:
-    qt_limit_sort_join """ explain shape plan SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id ORDER BY t1.id LIMIT 1; """
+    qt_limit_sort_join """ explain shape plan SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id order by t1.msg LIMIT 1; """
     //`limit 1 + sort, semi join`:
-    qt_limit_sort_semi_join """ explain shape plan SELECT t1.id FROM t1 LEFT SEMI JOIN t2 ON t1.id = t2.id ORDER BY t1.id LIMIT 1; """
+    qt_limit_sort_semi_join """ explain shape plan SELECT t1.id FROM t1 LEFT SEMI JOIN t2 ON t1.id = t2.id order by t1.msg LIMIT 1; """
     // Right Semi Join with Order By
     qt_right_semi_join_order """ explain shape plan SELECT t2.id FROM t1 RIGHT SEMI JOIN t2 ON t1.id = t2.id ORDER BY t2.id LIMIT 1; """
     // Left Anti Join with Order By
-    qt_left_anti_join_order """ explain shape plan SELECT t1.id FROM t1 LEFT ANTI JOIN t2 ON t1.id = t2.id ORDER BY t1.id LIMIT 1; """
+    qt_left_anti_join_order """ explain shape plan SELECT t1.id FROM t1 LEFT ANTI JOIN t2 ON t1.id = t2.id order by t1.msg LIMIT 1; """
     // Right Anti Join with Order By
     qt_right_anti_join_order """ explain shape plan SELECT t2.id FROM t1 RIGHT ANTI JOIN t2 ON t1.id = t2.id ORDER BY t2.id LIMIT 1; """
     // Full Outer Join with Order By
-    qt_full_outer_join_order """ explain shape plan SELECT t1.id FROM t1 FULL OUTER JOIN t2 ON t1.id = t2.id ORDER BY t1.id LIMIT 1; """
+    qt_full_outer_join_order """ explain shape plan SELECT t1.id FROM t1 FULL OUTER JOIN t2 ON t1.id = t2.id order by t1.msg LIMIT 1; """
     // Left Outer Join with Order By
-    qt_left_outer_join_order """ explain shape plan SELECT t1.id FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id ORDER BY t1.id LIMIT 1; """
+    qt_left_outer_join_order """ explain shape plan SELECT t1.id FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id order by t1.msg LIMIT 1; """
     // Right Outer Join with Order By
     qt_right_outer_join_order """ explain shape plan SELECT t2.id FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id ORDER BY t2.id LIMIT 1; """
     // Cross Join with Order By
-    qt_cross_join_order """ explain shape plan SELECT t1.id FROM t1 CROSS JOIN t2 ORDER BY t1.id LIMIT 1; """
-    qt_limit_offset_sort_join """ explain shape plan SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id ORDER BY t1.id LIMIT 1 OFFSET 1; """
+    qt_cross_join_order """ explain shape plan SELECT t1.id FROM t1 CROSS JOIN t2 order by t1.msg LIMIT 1; """
+    qt_limit_offset_sort_join """ explain shape plan SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id order by t1.msg LIMIT 1 OFFSET 1; """
     // `limit 1 + sort, agg & scalar agg and having`:
     qt_limit_sort_agg_having """ explain shape plan SELECT distinct id c FROM t1 ORDER BY c LIMIT 1; """
     //`limit 1 offset 1, agg & scalar agg and having`:
@@ -75,11 +80,11 @@ suite("order_push_down") {
     // `limit 1, subquery with order by`:
     qt_limit_subquery_all_inside """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 order by id LIMIT 1) AS subq ;"""
     // `LIMIT` with Set Operation and `ORDER BY`:
-    qt_limit_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION SELECT t2.id FROM t2) u ORDER BY id LIMIT 1;"""
+    qt_limit_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION ALL SELECT t2.id FROM t2) u ORDER BY id LIMIT 1;"""
     // `LIMIT` with Set Operation and `ORDER BY`:
-    qt_limit_outside_order_inside_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION SELECT t2.id FROM t2 ORDER BY id) u  LIMIT 1;"""
+    qt_limit_outside_order_inside_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION ALL SELECT t2.id FROM t2 ORDER BY id) u  LIMIT 1;"""
     // `LIMIT` with Set Operation and `ORDER BY`:
-    qt_limit_inside_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION SELECT t2.id FROM t2 ORDER BY id LIMIT 1) u;"""
+    qt_limit_inside_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION ALL SELECT t2.id FROM t2 ORDER BY id LIMIT 1) u;"""
 
     // `LIMIT` with Set Operation and `OFFSET` with `ORDER BY`:
     qt_limit_offset_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 INTERSECT SELECT t2.id FROM t2) u ORDER BY id LIMIT 1 OFFSET 1;"""
@@ -97,10 +102,10 @@ suite("order_push_down") {
     qt_limit_offset_filter """explain shape plan SELECT t1.id FROM t1 WHERE id = 1 ORDER BY id LIMIT 1 OFFSET 1;"""
 
     // `LIMIT` with Projection, Filter, and `ORDER BY`:
-    qt_limit_project_filter """explain shape plan SELECT t1.id AS c FROM t1 WHERE t1.id > 100 ORDER BY t1.id LIMIT 1;"""
+    qt_limit_project_filter """explain shape plan SELECT t1.id AS c FROM t1 WHERE t1.id > 100 order by t1.msg LIMIT 1;"""
 
     // `LIMIT` with Join, Filter, and `ORDER BY`:
-    qt_limit_join_filter """explain shape plan SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id WHERE t1.id > 100 ORDER BY t1.id LIMIT 1;"""
+    qt_limit_join_filter """explain shape plan SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id WHERE t1.id > 100 order by t1.msg LIMIT 1;"""
 
     // `LIMIT` with Subquery and `ORDER BY`:
     qt_limit_subquery """explain shape plan SELECT * FROM (SELECT t1.id FROM t1) AS subq ORDER BY id LIMIT 1;"""
@@ -118,13 +123,13 @@ suite("order_push_down") {
     qt_limit_nested_subquery """explain shape plan SELECT * FROM (SELECT * FROM (SELECT t1.id FROM t1) AS subq1) AS subq2 ORDER BY id LIMIT 1;"""
 
     // `LIMIT` with Union, Filter, and `ORDER BY`:
-    qt_limit_union_filter """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 WHERE t1.id > 100 UNION SELECT t2.id FROM t2 WHERE t2.id > 100) u ORDER BY id LIMIT 1;"""
+    qt_limit_union_filter """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 WHERE t1.id > 100 UNION ALL SELECT t2.id FROM t2 WHERE t2.id > 100) u ORDER BY id LIMIT 1;"""
 
     // `LIMIT` with Union, Join, and `ORDER BY`:
-    qt_limit_union_join """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id UNION SELECT t3.id FROM t3 LEFT OUTER JOIN t4 ON t3.id = t4.id) u ORDER BY id LIMIT 1;"""
+    qt_limit_union_join """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id UNION ALL SELECT t3.id FROM t3 LEFT OUTER JOIN t4 ON t3.id = t4.id) u ORDER BY id LIMIT 1;"""
 
     // `LIMIT` with Union, Window function, and `ORDER BY`:
-    qt_limit_union_window """explain shape plan SELECT * FROM (SELECT id, msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t1 UNION SELECT id, msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t2) u ORDER BY id LIMIT 1;"""
+    qt_limit_union_window """explain shape plan SELECT * FROM (SELECT id, msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t1 UNION ALL SELECT id, msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t2) u ORDER BY id LIMIT 1;"""
 
     // `LIMIT` with Subquery, Join, Filter, and `ORDER BY`:
     qt_limit_subquery_join_filter """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id WHERE t1.id > 100) AS subq ORDER BY id LIMIT 1;"""
@@ -133,13 +138,13 @@ suite("order_push_down") {
     qt_limit_subqueryjoin_window """explain shape plan SELECT id, msg, ROW_NUMBER() OVER (PARTITION BY subq.id ORDER BY subq.id) AS row_num FROM (SELECT t1.id, t1.msg FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id) AS subq ORDER BY id LIMIT 1;"""
 
     // `LIMIT` with Subquery, Union, Filter, and `ORDER BY`:
-    qt_limit_subquery_union_filter """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 WHERE t1.id > 100 UNION SELECT t2.id FROM t2 WHERE t2.id > 100) AS subq ORDER BY id LIMIT 1;"""
+    qt_limit_subquery_union_filter """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 WHERE t1.id > 100 UNION ALL SELECT t2.id FROM t2 WHERE t2.id > 100) AS subq ORDER BY id LIMIT 1;"""
 
     // `LIMIT` with Subquery, Union, Join, and `ORDER BY`:
-    qt_limit_subquery_union_join """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id UNION SELECT t3.id FROM t3 JOIN t4 ON t3.id = t4.id) AS subq ORDER BY id LIMIT 1;"""
+    qt_limit_subquery_union_join """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id UNION ALL SELECT t3.id FROM t3 JOIN t4 ON t3.id = t4.id) AS subq ORDER BY id LIMIT 1;"""
 
     // `LIMIT` with Subquery, Union, Window function, and `ORDER BY`:
-    qt_limit_subquery_union_window """explain shape plan SELECT id, msg, ROW_NUMBER() OVER (PARTITION BY id ORDER BY id) AS row_num FROM (SELECT id, msg FROM t1 UNION SELECT id, msg FROM t2) AS subq ORDER BY id LIMIT 1;"""
+    qt_limit_subquery_union_window """explain shape plan SELECT id, msg, ROW_NUMBER() OVER (PARTITION BY id ORDER BY id) AS row_num FROM (SELECT id, msg FROM t1 UNION ALL SELECT id, msg FROM t2) AS subq ORDER BY id LIMIT 1;"""
 
     // `LIMIT` with Correlated Subquery and `ORDER BY`:
     qt_limit_correlated_subquery """explain shape plan SELECT t1.id FROM t1 WHERE EXISTS (SELECT 1 FROM t2 WHERE t2.id = t1.id ORDER BY id LIMIT 1);"""
@@ -166,10 +171,10 @@ suite("order_push_down") {
     qt_limit_cte_query_window """explain shape plan WITH cte AS (SELECT id FROM t1 WHERE id < 10) SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM cte ORDER BY id LIMIT 1;"""
 
     // `limit 1, project, filter`:
-    qt_limit_project_filter """explain shape plan SELECT t1.id AS c FROM t1 WHERE t1.id > 100 ORDER BY t1.id LIMIT 1;"""
+    qt_limit_project_filter """explain shape plan SELECT t1.id AS c FROM t1 WHERE t1.id > 100 order by t1.msg LIMIT 1;"""
 
     // `limit 1, join, filter`:
-    qt_limit_join_filter """explain shape plan SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id WHERE t1.id > 100 ORDER BY t1.id LIMIT 1;"""
+    qt_limit_join_filter """explain shape plan SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id WHERE t1.id > 100 order by t1.msg LIMIT 1;"""
 
     // `limit 1, subquery, join`:
     qt_limit_subquery_join """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id) AS subq ORDER BY subq.id LIMIT 1;"""
@@ -184,16 +189,16 @@ suite("order_push_down") {
     qt_limit_subquery_distinct """explain shape plan SELECT DISTINCT subq.id FROM (SELECT id FROM t1) AS subq ORDER BY subq.id LIMIT 1;"""
 
     // `limit 1, cross join`:
-    qt_limit_cross_join """explain shape plan SELECT t1.id FROM t1 INNER JOIN t2 on true ORDER BY t1.id LIMIT 1;"""
+    qt_limit_cross_join """explain shape plan SELECT t1.id FROM t1 INNER JOIN t2 on true order by t1.msg LIMIT 1;"""
 
     // `limit 1, multiple left outer join`:
-    qt_limit_multiple_left_outer_join """explain shape plan SELECT t1.id FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id LEFT OUTER JOIN t3 ON t1.id = t3.id ORDER BY t1.id LIMIT 1;"""
+    qt_limit_multiple_left_outer_join """explain shape plan SELECT t1.id FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id LEFT OUTER JOIN t3 ON t1.id = t3.id order by t1.msg LIMIT 1;"""
 
     // `limit 1, multiple right outer join`:
-    qt_limit_multiple_right_outer_join """explain shape plan SELECT t1.id FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id RIGHT OUTER JOIN t3 ON t1.id = t3.id ORDER BY t1.id LIMIT 1;"""
+    qt_limit_multiple_right_outer_join """explain shape plan SELECT t1.id FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id RIGHT OUTER JOIN t3 ON t1.id = t3.id order by t1.msg LIMIT 1;"""
 
     // `limit 1, multiple full outer join`:
-    qt_limit_multiple_full_outerjoin """explain shape plan SELECT t1.id FROM t1 FULL OUTER JOIN t2 ON t1.id = t2.id FULL OUTER JOIN t3 ON t1.id = t3.id ORDER BY t1.id LIMIT 1;"""
+    qt_limit_multiple_full_outerjoin """explain shape plan SELECT t1.id FROM t1 FULL OUTER JOIN t2 ON t1.id = t2.id FULL OUTER JOIN t3 ON t1.id = t3.id order by t1.msg LIMIT 1;"""
 
     // `limit 1, subquery, cross join`:
     qt_limit_subquery_cross_join """explain shape plan SELECT * FROM (SELECT t1.id FROM t1) AS subq CROSS JOIN t2 ORDER BY subq.id LIMIT 1;"""

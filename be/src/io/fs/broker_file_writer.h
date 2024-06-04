@@ -19,14 +19,11 @@
 
 #include <gen_cpp/PaloBrokerService_types.h>
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <map>
 #include <string>
 
 #include "common/status.h"
-#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "util/hash_util.hpp" // IWYU pragma: keep
 #include "util/slice.h"
@@ -36,33 +33,34 @@ namespace doris {
 class ExecEnv;
 
 namespace io {
-
-// Reader of broker file
-class BrokerFileWriter : public FileWriter {
+struct FileCacheAllocatorBuilder;
+class BrokerFileWriter final : public FileWriter {
 public:
-    BrokerFileWriter(ExecEnv* env, const TNetworkAddress& broker_address,
-                     const std::map<std::string, std::string>& properties, const std::string& path,
-                     int64_t start_offset, FileSystemSPtr fs);
-    virtual ~BrokerFileWriter();
+    // Create and open file writer
+    static Result<FileWriterPtr> create(ExecEnv* env, const TNetworkAddress& broker_address,
+                                        const std::map<std::string, std::string>& properties,
+                                        Path path);
 
-    Status close() override;
-    Status abort() override;
+    BrokerFileWriter(ExecEnv* env, const TNetworkAddress& broker_address, Path path, TBrokerFD fd);
+    ~BrokerFileWriter() override;
+    Status close(bool non_block = false) override;
+
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
-    Status write_at(size_t offset, const Slice& data) override {
-        return Status::NotSupported("not support");
-    }
+    const Path& path() const override { return _path; }
+    size_t bytes_appended() const override { return _cur_offset; }
+    State state() const override { return _state; }
+    FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
 private:
-    Status _open();
     Status _write(const uint8_t* buf, size_t buf_len, size_t* written_bytes);
+    Status _close_impl();
 
-private:
     ExecEnv* _env = nullptr;
     const TNetworkAddress _address;
-    const std::map<std::string, std::string>& _properties;
-    int64_t _cur_offset;
+    Path _path;
+    size_t _cur_offset = 0;
     TBrokerFD _fd;
+    State _state {State::OPENED};
 };
 
 } // end namespace io

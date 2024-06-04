@@ -134,6 +134,9 @@ public:
 
     virtual int64_t num_rows() const = 0;
 
+    virtual int64_t num_rows_updated() const = 0;
+    virtual int64_t num_rows_deleted() const = 0;
+    virtual int64_t num_rows_new_added() const = 0;
     virtual int64_t num_rows_filtered() const = 0;
 
     virtual RowsetId rowset_id() = 0;
@@ -155,10 +158,17 @@ public:
     virtual std::shared_ptr<PartialUpdateInfo> get_partial_update_info() = 0;
 
     virtual bool is_partial_update() = 0;
-    virtual const RowsetWriterContext& context() const = 0;
+
+    const RowsetWriterContext& context() { return _context; }
+
+    const RowsetMetaSharedPtr& rowset_meta() { return _rowset_meta; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
+
+protected:
+    RowsetWriterContext _context;
+    RowsetMetaSharedPtr _rowset_meta;
 };
 
 } // namespace doris

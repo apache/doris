@@ -40,6 +40,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaSchemataScanner::_s_columns = {
         {"DEFAULT_CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"DEFAULT_COLLATION_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"SQL_PATH", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"DEFAULT_ENCRYPTION", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
 SchemaSchemataScanner::SchemaSchemataScanner()
@@ -106,28 +107,28 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
         if (!_db_result.__isset.catalogs) {
             RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, null_datas));
         } else {
-            StringRef strs[dbs_num];
+            std::vector<StringRef> strs(dbs_num);
             for (int i = 0; i < dbs_num; ++i) {
                 strs[i] = StringRef(_db_result.catalogs[i].c_str(), _db_result.catalogs[i].size());
-                datas[i] = strs + i;
+                datas[i] = strs.data() + i;
             }
             RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
         }
     }
     // schema
     {
-        std::string db_names[dbs_num];
-        StringRef strs[dbs_num];
+        std::vector<std::string> db_names(dbs_num);
+        std::vector<StringRef> strs(dbs_num);
         for (int i = 0; i < dbs_num; ++i) {
             db_names[i] = SchemaHelper::extract_db_name(_db_result.dbs[i]);
             strs[i] = StringRef(db_names[i].c_str(), db_names[i].size());
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // DEFAULT_CHARACTER_SET_NAME
     {
-        std::string src = "utf8";
+        std::string src = "utf8mb4";
         StringRef str = StringRef(src.c_str(), src.size());
         for (int i = 0; i < dbs_num; ++i) {
             datas[i] = &str;
@@ -136,7 +137,7 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // DEFAULT_COLLATION_NAME
     {
-        std::string src = "utf8_general_ci";
+        std::string src = "utf8mb4_0900_bin";
         StringRef str = StringRef(src.c_str(), src.size());
         for (int i = 0; i < dbs_num; ++i) {
             datas[i] = &str;
@@ -145,6 +146,16 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // SQL_PATH
     { RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, null_datas)); }
+
+    // DEFAULT_ENCRYPTION
+    {
+        std::string src = "NO";
+        StringRef str = StringRef(src.c_str(), src.size());
+        for (int i = 0; i < dbs_num; ++i) {
+            datas[i] = &str;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
+    }
     return Status::OK();
 }
 

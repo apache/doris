@@ -40,9 +40,11 @@ public class TableProcDir implements ProcDirInterface {
     public static final String INDEX_SCHEMA = "index_schema";
     private static final String PARTITIONS = "partitions";
     private static final String TEMP_PARTITIONS = "temp_partitions";
+    private static final String INDEXES = "indexes";
 
     private static final ImmutableList<String> CHILDREN_NODES =
-            new ImmutableList.Builder<String>().add(PARTITIONS).add(TEMP_PARTITIONS).add(INDEX_SCHEMA).build();
+            new ImmutableList.Builder<String>().add(PARTITIONS).add(TEMP_PARTITIONS).add(INDEX_SCHEMA)
+                    .add(INDEXES).build();
 
     private DatabaseIf db;
     private TableIf table;
@@ -86,13 +88,15 @@ public class TableProcDir implements ProcDirInterface {
                 throw new AnalysisException("Table[" + table.getName() + "] is not a OLAP or ELASTICSEARCH table");
             }
         } else if (entryName.equals(TEMP_PARTITIONS)) {
-            if (table.getType() == TableType.OLAP) {
+            if (table instanceof OlapTable) {
                 return new PartitionsProcDir((Database) db, (OlapTable) table, true);
             } else {
                 throw new AnalysisException("Table[" + table.getName() + "] does not have temp partitions");
             }
         } else if (entryName.equals(INDEX_SCHEMA)) {
             return new IndexInfoProcDir(db, table);
+        } else if (entryName.equals(INDEXES)) {
+            return new IndexesProcNode(table);
         } else {
             throw new AnalysisException("Not implemented yet: " + entryName);
         }

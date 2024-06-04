@@ -17,6 +17,8 @@
 
 package org.apache.doris.external.elasticsearch;
 
+import org.apache.doris.datasource.es.EsNodeInfo;
+
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.Assert;

@@ -26,6 +26,7 @@ import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.security.SecureRandom;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class TabletLoadIndexRecorderMgr extends MasterDaemon {
@@ -33,6 +34,7 @@ public class TabletLoadIndexRecorderMgr extends MasterDaemon {
     private static final long TABLET_LOAD_INDEX_KEEP_MAX_TIME_MS = 86400000; // 1 * 24 * 60 * 60 * 1000, 1 days
     private static final long TABLET_LOAD_INDEX_EXPIRE_CHECK_INTERVAL_MS = 3600000; // 1 hour
     private static final int TIMES_FOR_UPDATE_TIMESTAMP = 1000;
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     // <<db_id, table_id, partition_id> -> load_tablet_record>
     // 0 =< load_tablet_index < number_buckets
@@ -58,7 +60,8 @@ public class TabletLoadIndexRecorderMgr extends MasterDaemon {
     public int getCurrentTabletLoadIndex(long dbId, long tableId, Partition partition) throws UserException {
         Triple<Long, Long, Long> key = Triple.of(dbId, tableId, partition.getId());
         return loadTabletRecordMap.compute(key, (k, existingRecord) ->
-                existingRecord == null ? new TabletLoadIndexRecord(partition.getVisibleVersion() - 1,
+                existingRecord == null ? new TabletLoadIndexRecord(RANDOM.nextInt(
+                    partition.getDistributionInfo().getBucketNum()),
                     partition.getDistributionInfo().getBucketNum()) : existingRecord).getAndIncrement();
     }
 

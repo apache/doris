@@ -72,8 +72,8 @@ suite("nereids_test_ctas") {
         ) as select test_varchar, lpad(test_text,10,'0') as test_text, test_datetime, test_default_timestamp from test_ctas;
     """
 
-    res = sql """SHOW CREATE TABLE `test_ctas2`"""
-    assertTrue(res.size() != 0)
+    def res1 = sql """SHOW CREATE TABLE `test_ctas2`"""
+    assertTrue(res1.size() != 0)
 
     qt_select """select count(*) from test_ctas2"""
 
@@ -250,8 +250,6 @@ suite("nereids_test_ctas") {
 
         sql 'insert into a values(1, \'ww\'), (2, \'zs\');'
         sql 'insert into b values(1, 22);'
-
-        sql 'set enable_nereids_planner=false'
 
         sql 'create table c properties("replication_num"="1") as select b.id, a.name, b.age from a left join b on a.id = b.id;'
 

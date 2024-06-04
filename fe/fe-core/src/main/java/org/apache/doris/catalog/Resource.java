@@ -48,6 +48,8 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     public static final String REFERENCE_SPLIT = "@";
     public static final String INCLUDE_DATABASE_LIST = "include_database_list";
     public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
+    public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
+    public static final String META_NAMES_MAPPING = "meta_names_mapping";
 
     public enum ResourceType {
         UNKNOWN,
@@ -109,6 +111,9 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         lock.readLock().unlock();
     }
 
+    // https://programmerr47.medium.com/gson-unsafe-problem-d1ff29d4696f
+    // Resource subclass also MUST define default ctor, otherwise when reloading object from json
+    // some not serialized field (i.e. `lock`) will be `null`.
     public Resource() {
     }
 
@@ -296,4 +301,6 @@ public abstract class Resource implements Writable, GsonPostProcessable {
             }
         });
     }
+
+    public void applyDefaultProperties() {}
 }

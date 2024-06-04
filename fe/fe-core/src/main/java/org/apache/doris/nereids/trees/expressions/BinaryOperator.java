@@ -24,7 +24,6 @@ import org.apache.doris.nereids.types.DataType;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Objects;
 
 /**
  * Abstract for all binary operator, include binary arithmetic, compound predicate, comparison predicate.
@@ -34,7 +33,11 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
     protected final String symbol;
 
     public BinaryOperator(List<Expression> children, String symbol) {
-        super(children);
+        this(children, symbol, false);
+    }
+
+    public BinaryOperator(List<Expression> children, String symbol, boolean inferred) {
+        super(children, inferred);
         this.symbol = symbol;
     }
 
@@ -58,22 +61,5 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
     @Override
     public String shapeInfo() {
         return "(" + left().shapeInfo() + " " + symbol + " " + right().shapeInfo() + ")";
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(symbol, left(), right());
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        BinaryOperator other = (BinaryOperator) o;
-        return Objects.equals(left(), other.left()) && Objects.equals(right(), other.right());
     }
 }

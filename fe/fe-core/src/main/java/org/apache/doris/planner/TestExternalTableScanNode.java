@@ -20,7 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.external.ExternalScanNode;
+import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
@@ -32,6 +32,8 @@ import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.stream.Collectors;
 
 public class TestExternalTableScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(TestExternalTableScanNode.class);
@@ -46,6 +48,12 @@ public class TestExternalTableScanNode extends ExternalScanNode {
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
         output.append(prefix).append("TABLE: ").append(tableName).append("\n");
+        if (useTopnFilter()) {
+            String topnFilterSources = String.join(",",
+                    topnFilterSortNodes.stream()
+                            .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
+            output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
+        }
         return output.toString();
     }
 
@@ -74,6 +82,7 @@ public class TestExternalTableScanNode extends ExternalScanNode {
         msg.test_external_scan_node = new TTestExternalScanNode();
         msg.test_external_scan_node.setTupleId(desc.getId().asInt());
         msg.test_external_scan_node.setTableName(tableName);
+        super.toThrift(msg);
     }
 
     @Override

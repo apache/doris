@@ -111,6 +111,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public static final String PARTIAL_COLUMNS = "partial_columns";
 
+    public static final String WORKLOAD_GROUP = "workload_group";
+
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
@@ -138,6 +140,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(SEND_BATCH_PARALLELISM)
             .add(LOAD_TO_SINGLE_TABLET)
             .add(PARTIAL_COLUMNS)
+            .add(WORKLOAD_GROUP)
             .build();
 
     private final LabelName labelName;
@@ -179,6 +182,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     private String escape;
 
+    private long workloadGroupId = -1;
+
     /**
      * support partial columns load(Only Unique Key Columns)
      */
@@ -194,9 +199,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
     public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
     public static final Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0 && v <= 1;
-    public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 1 && v <= 60;
+    public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 1;
     public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> v >= 200000;
-    public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024;
+    public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> v >= 100 * 1024 * 1024
+                                                            && v <= (long) (1024 * 1024 * 1024) * 10;
     public static final Predicate<Long> EXEC_MEM_LIMIT_PRED = (v) -> v >= 0L;
     public static final Predicate<Long> SEND_BATCH_PARALLELISM_PRED = (v) -> v > 0L;
 
@@ -327,6 +333,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public String getComment() {
         return comment;
+    }
+
+    public long getWorkloadGroupId() {
+        return workloadGroupId;
     }
 
     @Override
@@ -474,7 +484,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
         maxBatchIntervalS = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_INTERVAL_SEC_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_INTERVAL_SECOND, MAX_BATCH_INTERVAL_PRED,
-                MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 1 and 60");
+                MAX_BATCH_INTERVAL_SEC_PROPERTY + " should >= 1");
 
         maxBatchRows = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_ROWS_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS, MAX_BATCH_ROWS_PRED,
@@ -482,7 +492,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
         maxBatchSizeBytes = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_SIZE_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
-                MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
+                MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 10GB");
 
         strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
                 RoutineLoadJob.DEFAULT_STRICT_MODE,
@@ -504,6 +514,11 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         escape = jobProperties.get(LoadStmt.KEY_ESCAPE);
         if (escape != null && escape.length() != 1) {
             throw new AnalysisException("escape must be single-char");
+        }
+        String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
+        if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
+            this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
+                    .getWorkloadGroup(ConnectContext.get().getCurrentUserIdentity(), inputWorkloadGroupStr);
         }
 
         if (ConnectContext.get() != null) {

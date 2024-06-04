@@ -323,12 +323,12 @@ private:
             } else if (left_which_type.is_decimal64()) {
                 res = _execute_number_expanded<ColumnDecimal64>(offsets, *nested_column,
                                                                 *right_column, nested_null_map);
-            } else if (left_which_type.is_decimal128i()) {
-                res = _execute_number_expanded<ColumnDecimal128I>(offsets, *nested_column,
-                                                                  *right_column, nested_null_map);
-            } else if (left_which_type.is_decimal128()) {
-                res = _execute_number_expanded<ColumnDecimal128>(offsets, *nested_column,
-                                                                 *right_column, nested_null_map);
+            } else if (left_which_type.is_decimal128v3()) {
+                res = _execute_number_expanded<ColumnDecimal128V3>(offsets, *nested_column,
+                                                                   *right_column, nested_null_map);
+            } else if (left_which_type.is_decimal128v2()) {
+                res = _execute_number_expanded<ColumnDecimal128V2>(offsets, *nested_column,
+                                                                   *right_column, nested_null_map);
             } else if (left_which_type.is_decimal256()) {
                 res = _execute_number_expanded<ColumnDecimal256>(offsets, *nested_column,
                                                                  *right_column, nested_null_map);

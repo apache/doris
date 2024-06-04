@@ -44,7 +44,7 @@ import org.apache.hudi.io.storage.HoodieAvroHFileReader
 import org.apache.hudi.metadata.HoodieTableMetadataUtil
 import org.apache.hudi.{AvroConversionUtils, DataSourceReadOptions, DataSourceWriteOptions, HoodieSparkConfUtils, HoodieTableSchema, HoodieTableState}
 import org.apache.log4j.Logger
-import org.apache.spark.sql.adapter.Spark3_2Adapter
+import org.apache.spark.sql.adapter.Spark3_4Adapter
 import org.apache.spark.sql.avro.{HoodieAvroSchemaConverters, HoodieSparkAvroSchemaConverters}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
@@ -66,7 +66,7 @@ import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 
-class DorisSparkAdapter extends Spark3_2Adapter {
+class DorisSparkAdapter extends Spark3_4Adapter {
   override def getAvroSchemaConverters: HoodieAvroSchemaConverters = HoodieSparkAvroSchemaConverters
 }
 
@@ -125,6 +125,10 @@ class HoodieSplit(private val params: jutil.Map[String, String]) {
     conf
   }
 
+  def incrementalRead: Boolean = {
+    "true".equalsIgnoreCase(optParams.getOrElse("hoodie.datasource.read.incr.operation", "false"))
+  }
+
   // NOTE: In cases when Hive Metastore is used as catalog and the table is partitioned, schema in the HMS might contain
   //       Hive-specific partitioning columns created specifically for HMS to handle partitioning appropriately. In that
   //       case  we opt in to not be providing catalog's schema, and instead force Hudi relations to fetch the schema
@@ -168,6 +172,8 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
   protected val optParams: Map[String, String] = split.optParams
 
   protected val tableInformation: HoodieTableInformation = cache.get(split)
+
+  protected val timeline: HoodieTimeline = tableInformation.timeline
 
   protected val sparkSession: SparkSession = tableInformation.sparkSession
   protected val sqlContext: SQLContext = sparkSession.sqlContext
@@ -464,7 +470,7 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
                                              options: Map[String, String],
                                              hadoopConf: Configuration,
                                              appendPartitionValues: Boolean = false): PartitionedFile => Iterator[InternalRow] = {
-    val parquetFileFormat: ParquetFileFormat = sparkAdapter.createHoodieParquetFileFormat(appendPartitionValues).get
+    val parquetFileFormat: ParquetFileFormat = sparkAdapter.createLegacyHoodieParquetFileFormat(appendPartitionValues).get
     val readParquetFile: PartitionedFile => Iterator[Any] = parquetFileFormat.buildReaderWithPartitionValues(
       sparkSession = sparkSession,
       dataSchema = dataSchema,
@@ -492,7 +498,7 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
                                 hadoopConf: Configuration): PartitionedFile => Iterator[InternalRow] = {
     partitionedFile => {
       val reader = new HoodieAvroHFileReader(
-        hadoopConf, new Path(partitionedFile.filePath), new CacheConfig(hadoopConf))
+        hadoopConf, partitionedFile.filePath.toPath, new CacheConfig(hadoopConf))
 
       val requiredRowSchema = requiredDataSchema.structTypeSchema
       // NOTE: Schema has to be parsed at this point, since Avro's [[Schema]] aren't serializable
@@ -567,7 +573,7 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
 
     BaseFileReader(
       read = partitionedFile => {
-        val extension = FSUtils.getFileExtension(partitionedFile.filePath)
+        val extension = FSUtils.getFileExtension(partitionedFile.filePath.toString())
         if (tableBaseFileFormat.getFileExtension.equals(extension)) {
           read(partitionedFile)
         } else {
@@ -577,8 +583,6 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
       schema = schema
     )
   }
-
-  protected val timeline: HoodieTimeline = tableInformation.timeline
 
   protected def embedInternalSchema(conf: Configuration, internalSchemaOpt: Option[InternalSchema]): Configuration = {
     val internalSchema = internalSchemaOpt.getOrElse(InternalSchema.getEmptyInternalSchema)

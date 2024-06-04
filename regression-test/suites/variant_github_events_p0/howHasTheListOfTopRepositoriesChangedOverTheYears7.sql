@@ -13,11 +13,11 @@
 --     FROM
 --     (
 --         SELECT
---         lower(cast(v:repo.name as string)) AS repo,
---         year(cast(v:created_at as datetime)) AS year,
+--         lower(cast(v["repo"]["name"] as string)) AS repo,
+--         year(cast(v["created_at"] as datetime)) AS year,
 --         count() AS cnt
 --         FROM github_events
---         WHERE (cast(v:type as string) = 'WatchEvent') AND (year(cast(v:created_at as datetime)) >= 2015)
+--         WHERE (cast(v["type"] as string) = 'WatchEvent') AND (year(cast(v["created_at"] as datetime)) >= 2015)
 --         GROUP BY
 --             repo,
 --             year

@@ -85,7 +85,7 @@ public class TruncateTableTest {
     @Test
     public void testTruncateWithCaseInsensitivePartitionName() throws Exception {
         //now in order to support auto create partition, need set partition name is case sensitive
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         OlapTable tbl = db.getOlapTableOrDdlException("case_sensitive_table");
         long p20211006Id = tbl.getPartition("p20211006").getId();
         long p20211007Id = tbl.getPartition("P20211007").getId();

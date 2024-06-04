@@ -93,6 +93,10 @@ protected:
     // Times calls to get the next batch of rows from the input run.
     RuntimeProfile::Counter* _get_next_block_timer = nullptr;
 
+    std::vector<size_t> _indexs;
+    std::vector<Block*> _block_addrs;
+    std::vector<const IColumn*> _column_addrs;
+
 private:
     void init_timers(RuntimeProfile* profile);
 

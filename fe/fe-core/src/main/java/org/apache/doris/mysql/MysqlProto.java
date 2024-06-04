@@ -17,55 +17,27 @@
 
 package org.apache.doris.mysql;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AuthenticationException;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.LdapConfig;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.ldap.LdapAuthenticate;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.List;
 
 // MySQL protocol util
 public class MysqlProto {
     private static final Logger LOG = LogManager.getLogger(MysqlProto.class);
     public static final boolean SERVER_USE_SSL = Config.enable_ssl;
 
-    // scramble: data receive from server.
-    // randomString: data send by server in plug-in data field
-    // user_name#HIGH@cluster_name
-    private static boolean authenticate(ConnectContext context, byte[] scramble,
-            byte[] randomString, String qualifiedUser) {
-        String remoteIp = context.getMysqlChannel().getRemoteIp();
-        List<UserIdentity> currentUserIdentity = Lists.newArrayList();
-
-        try {
-            Env.getCurrentEnv().getAuth().checkPassword(qualifiedUser, remoteIp,
-                    scramble, randomString, currentUserIdentity);
-        } catch (AuthenticationException e) {
-            ErrorReport.report(e.errorCode, e.msgs);
-            return false;
-        }
-
-        context.setCurrentUserIdentity(currentUserIdentity.get(0));
-        context.setRemoteIP(remoteIp);
-        return true;
-    }
 
     private static String parseUser(ConnectContext context, byte[] scramble, String user) {
         String usePasswd = scramble.length == 0 ? "NO" : "YES";
@@ -75,8 +47,6 @@ public class MysqlProto {
             ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, "anonym@" + context.getRemoteIP(), usePasswd);
             return null;
         }
-
-        context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
 
         // check workload group level. user name may contains workload group level.
         // eg:
@@ -104,25 +74,10 @@ public class MysqlProto {
         channel.sendAndFlush(serializer.toByteBuffer());
     }
 
-    private static boolean useLdapAuthenticate(String qualifiedUser) {
-        // The root and admin are used to set the ldap admin password and cannot use ldap authentication.
-        if (qualifiedUser.equals(Auth.ROOT_USER) || qualifiedUser.equals(Auth.ADMIN_USER)) {
-            return false;
-        }
-        // If LDAP authentication is enabled and the user exists in LDAP, use LDAP authentication,
-        // otherwise use Doris authentication.
-        return LdapConfig.ldap_authentication_enabled && Env.getCurrentEnv().getAuth().getLdapManager()
-                .doesUserExist(qualifiedUser);
-    }
-
     /**
      * negotiate with client, use MySQL protocol
      * server ---handshake---> client
      * server <--- authenticate --- client
-     * if enable ldap: {
-     * server ---AuthSwitch---> client
-     * server <--- clear text password --- client
-     * }
      * server --- response(OK/ERR) ---> client
      * Exception:
      * IOException:
@@ -139,7 +94,9 @@ public class MysqlProto {
         try {
             channel.sendAndFlush(serializer.toByteBuffer());
         } catch (IOException e) {
-            LOG.debug("Send and flush channel exception, ignore.", e);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Send and flush channel exception, ignore.", e);
+            }
             return false;
         }
 
@@ -153,10 +110,14 @@ public class MysqlProto {
         ByteBuffer handshakeResponse;
 
         if (capability.isClientUseSsl()) {
-            LOG.debug("client is using ssl connection.");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("client is using ssl connection.");
+            }
             // During development, we set SSL mode to true by default.
             if (SERVER_USE_SSL) {
-                LOG.debug("server is also using ssl connection. Will use ssl mode for data exchange.");
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("server is also using ssl connection. Will use ssl mode for data exchange.");
+                }
                 MysqlSslContext mysqlSslContext = context.getMysqlSslContext();
                 mysqlSslContext.init();
                 channel.initSslBuffer();
@@ -189,7 +150,9 @@ public class MysqlProto {
 
                 // Set channel mode to ssl mode to handle socket packet in ssl format.
                 channel.setSslMode(true);
-                LOG.debug("switch to ssl mode.");
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("switch to ssl mode.");
+                }
                 handshakeResponse = channel.fetchOnePacket();
             } else {
                 handshakeResponse = clientRequestPacket;
@@ -230,77 +193,10 @@ public class MysqlProto {
             return false;
         }
 
-        boolean useLdapAuthenticate;
-        try {
-            useLdapAuthenticate = useLdapAuthenticate(qualifiedUser);
-        } catch (Exception e) {
-            LOG.warn("Check if user exists in ldap error.", e);
-            sendResponsePacket(context);
+        //  authenticate
+        if (!Env.getCurrentEnv().getAuthenticatorManager()
+                .authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket)) {
             return false;
-        }
-
-        if (useLdapAuthenticate) {
-            LOG.debug("user:{} start to ldap authenticate.", qualifiedUser);
-            // server send authentication switch packet to request password clear text.
-            // https://dev.mysql.com/doc/internals/en/authentication-method-change.html
-            serializer.reset();
-            MysqlAuthSwitchPacket mysqlAuthSwitchPacket = new MysqlAuthSwitchPacket();
-            mysqlAuthSwitchPacket.writeTo(serializer);
-            channel.sendAndFlush(serializer.toByteBuffer());
-
-            // Server receive password clear text.
-            ByteBuffer authSwitchResponse = channel.fetchOnePacket();
-            if (authSwitchResponse == null) {
-                return false;
-            }
-            MysqlClearTextPacket clearTextPacket = new MysqlClearTextPacket();
-            if (!clearTextPacket.readFrom(authSwitchResponse)) {
-                ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
-                sendResponsePacket(context);
-                return false;
-            }
-            if (!LdapAuthenticate.authenticate(context, clearTextPacket.getPassword(), qualifiedUser)) {
-                sendResponsePacket(context);
-                return false;
-            }
-        } else {
-            // Starting with MySQL 8.0.4, MySQL changed the default authentication plugin for MySQL client
-            // from mysql_native_password to caching_sha2_password.
-            // ref: https://mysqlserverteam.com/mysql-8-0-4-new-default-authentication-plugin-caching_sha2_password/
-            // So, User use mysql client or ODBC Driver after 8.0.4 have problem to connect to Doris
-            // with password.
-            // So Doris support the Protocol::AuthSwitchRequest to tell client to keep the default password plugin
-            // which Doris is using now.
-            // Note: Check the authPacket whether support plugin auth firstly,
-            // before we check AuthPlugin between doris and client to compatible with older version: like mysql 5.1
-            if (authPacket.getCapability().isPluginAuth()
-                    && !handshakePacket.checkAuthPluginSameAsDoris(authPacket.getPluginName())) {
-                // 1. clear the serializer
-                serializer.reset();
-                // 2. build the auth switch request and send to the client
-                handshakePacket.buildAuthSwitchRequest(serializer);
-                channel.sendAndFlush(serializer.toByteBuffer());
-                // Server receive auth switch response packet from client.
-                ByteBuffer authSwitchResponse = channel.fetchOnePacket();
-                if (authSwitchResponse == null) {
-                    // receive response failed.
-                    return false;
-                }
-                // 3. the client use default password plugin of Doris to dispose
-                // password
-                authPacket.setAuthResponse(readEofString(authSwitchResponse));
-            }
-
-            // NOTE: when we behind proxy, we need random string sent by proxy.
-            byte[] randomString = handshakePacket.getAuthPluginData();
-            if (Config.proxy_auth_enable && authPacket.getRandomString() != null) {
-                randomString = authPacket.getRandomString();
-            }
-            // check authenticate
-            if (!authenticate(context, authPacket.getAuthResponse(), randomString, qualifiedUser)) {
-                sendResponsePacket(context);
-                return false;
-            }
         }
 
         // set database
@@ -318,11 +214,27 @@ public class MysqlProto {
                 context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + db);
                 return false;
             }
-            String dbFullName = ClusterNamespace.getFullName(context.getClusterName(), dbName);
+
+            // mysql -d
+            if (Config.isCloudMode()) {
+                try {
+                    dbName = ((CloudEnv) Env.getCurrentEnv()).analyzeCloudCluster(dbName, context);
+                } catch (DdlException e) {
+                    context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+                    sendResponsePacket(context);
+                    return false;
+                }
+
+                if (dbName == null || dbName.isEmpty()) {
+                    return true;
+                }
+            }
+
+            String dbFullName = dbName;
 
             // check catalog and db exists
             if (catalogName != null) {
-                CatalogIf catalogIf = context.getEnv().getCatalogMgr().getCatalogNullable(catalogName);
+                CatalogIf catalogIf = context.getEnv().getCatalogMgr().getCatalog(catalogName);
                 if (catalogIf == null) {
                     context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + db);
                     return false;
@@ -442,5 +354,4 @@ public class MysqlProto {
         buffer.get();
         return buf;
     }
-
 }

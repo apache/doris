@@ -19,6 +19,7 @@ package org.apache.doris.journal.local;
 
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.journal.Journal;
+import org.apache.doris.journal.JournalBatch;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.persist.EditLogFileOutputStream;
@@ -83,7 +84,7 @@ public class LocalJournal implements Journal {
         try {
             storage = new Storage(imageDir);
             if (journalId.get() == storage.getEditsSeq()) {
-                System.out.println("Does not need to roll!");
+                LOG.warn("Does not need to roll! journalId: {}, editsSeq: {}", journalId.get(), storage.getEditsSeq());
                 return;
             }
             if (outputStream != null) {
@@ -137,6 +138,17 @@ public class LocalJournal implements Journal {
     public JournalCursor read(long fromKey, long toKey) {
         JournalCursor cursor = LocalJournalCursor.getJournalCursor(imageDir, fromKey, toKey);
         return cursor;
+    }
+
+    @Override
+    public synchronized long write(JournalBatch batch) throws IOException {
+        List<JournalBatch.Entity> entities = batch.getJournalEntities();
+        for (JournalBatch.Entity entity : entities) {
+            outputStream.write(entity.getOpCode(), entity.getBinaryData());
+        }
+        outputStream.setReadyToFlush();
+        outputStream.flush();
+        return journalId.getAndAdd(entities.size());
     }
 
     @Override
@@ -197,5 +209,10 @@ public class LocalJournal implements Journal {
     @Override
     public List<Long> getDatabaseNames() {
         throw new RuntimeException("Not Support");
+    }
+
+    @Override
+    public boolean exceedMaxJournalSize(short op, Writable writable) throws IOException  {
+        return false;
     }
 }

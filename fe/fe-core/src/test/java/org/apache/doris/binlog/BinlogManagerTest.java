@@ -20,6 +20,7 @@ package org.apache.doris.binlog;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
@@ -118,7 +119,7 @@ public class BinlogManagerTest {
         new MockUp<Env>() {
             @Mock
             public InternalCatalog getCurrentInternalCatalog() {
-                return new InternalCatalog();
+                return EnvFactory.getInstance().createInternalCatalog();
             }
         };
 
@@ -276,14 +277,9 @@ public class BinlogManagerTest {
         for (Map.Entry<Long, List<Long>> dbEntry : frameWork.entrySet()) {
             long dbId = dbEntry.getKey();
             for (long tableId : dbEntry.getValue()) {
-                if ((tableId / tableBaseId) % 2 != 0) {
-                    addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow));
-                    addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow));
-                    ++commitSeq;
-                } else {
-                    addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, 0, 0));
-                    addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, 0, 0));
-                }
+                addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow));
+                addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow));
+                ++commitSeq;
             }
         }
 

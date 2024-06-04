@@ -23,6 +23,7 @@ import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -58,7 +59,7 @@ public class IndexDefinition {
             Map<String, String> properties, String comment) {
         this.name = name;
         this.cols = Utils.copyRequiredList(cols);
-        this.indexType = IndexType.BITMAP;
+        this.indexType = IndexType.INVERTED;
         if (indexTypeName != null) {
             switch (indexTypeName) {
                 case "BITMAP": {
@@ -105,25 +106,27 @@ public class IndexDefinition {
             }
             if (!(colType.isDateLikeType() || colType.isDecimalLikeType()
                     || colType.isIntegralType() || colType.isStringLikeType()
-                    || colType.isBooleanType())) {
-                // TODO add colType.isVariantType() and colType.isAggState()
+                    || colType.isBooleanType() || colType.isVariantType() || colType.isIPType())) {
+                // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
-                        + " index. " + "invalid column: " + indexColName);
-            } else if (indexType == IndexType.INVERTED && ((keysType == KeysType.AGG_KEYS
-                    && !column.isKey())
-                    || (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite))) {
-                throw new AnalysisException(indexType.toString()
-                        + " index only used in columns of DUP_KEYS table"
-                        + " or UNIQUE_KEYS table with merge_on_write enabled"
-                        + " or key columns of AGG_KEYS table. invalid column: " + indexColName);
-            } else if (keysType == KeysType.AGG_KEYS && !column.isKey()
-                    && indexType != IndexType.INVERTED) {
-                throw new AnalysisException(indexType.toString()
-                        + " index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
-                        + " AGG_KEYS table. invalid column: " + indexColName);
+                        + " index. " + "invalid index: " + name);
+            }
+            if (!column.isKey()) {
+                if (keysType == KeysType.AGG_KEYS) {
+                    throw new AnalysisException("index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table"
+                        + " or key columns of AGG_KEYS table. invalid index: " + name);
+                } else if (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite
+                               && indexType == IndexType.INVERTED && properties != null
+                               && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
+                    throw new AnalysisException("INVERTED index with parser can NOT be used in value columns of"
+                        + " UNIQUE_KEYS table with merge_on_write disable. invalid index: " + name);
+                }
             }
 
             if (indexType == IndexType.INVERTED) {
+                if (!Config.enable_create_inverted_index_for_array && colType.isArrayType()) {
+                    throw new AnalysisException("inverted index does not support array type column: " + indexColName);
+                }
                 try {
                     InvertedIndexUtil.checkInvertedIndexParser(indexColName,
                             colType.toCatalogDataType().getPrimitiveType(), properties);
@@ -134,10 +137,6 @@ public class IndexDefinition {
                 if (!colType.isStringLikeType()) {
                     throw new AnalysisException(colType + " is not supported in ngram_bf index. "
                             + "invalid column: " + indexColName);
-                } else if ((keysType == KeysType.AGG_KEYS && !column.isKey())) {
-                    throw new AnalysisException(
-                            "ngram_bf index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
-                                    + " AGG_KEYS table. invalid column: " + indexColName);
                 }
                 if (properties.size() != 2) {
                     throw new AnalysisException(

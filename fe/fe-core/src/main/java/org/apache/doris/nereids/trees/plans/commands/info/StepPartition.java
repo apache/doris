@@ -23,8 +23,6 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
-import com.google.common.collect.Maps;
-
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -38,8 +36,9 @@ public class StepPartition extends PartitionDefinition {
     private final long unit;
     private final String unitString;
 
-    public StepPartition(List<Expression> fromExpression, List<Expression> toExpression, long unit,
-            String unitString) {
+    public StepPartition(boolean ifNotExists, String partitionName, List<Expression> fromExpression,
+            List<Expression> toExpression, long unit, String unitString) {
+        super(ifNotExists, partitionName);
         this.fromExpression = fromExpression;
         this.toExpression = toExpression;
         this.unit = unit;
@@ -68,10 +67,10 @@ public class StepPartition extends PartitionDefinition {
         try {
             if (unitString == null) {
                 return new MultiPartitionDesc(PartitionKeyDesc.createMultiFixed(fromValues, toValues, unit),
-                        replicaAllocation, Maps.newHashMap());
+                        replicaAllocation, properties);
             }
             return new MultiPartitionDesc(PartitionKeyDesc.createMultiFixed(fromValues, toValues, unit, unitString),
-                    replicaAllocation, Maps.newHashMap());
+                    replicaAllocation, properties);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }

@@ -49,6 +49,11 @@ public interface Journal {
     // Write a journal and sync to disk
     public long write(short op, Writable writable) throws IOException;
 
+    // Write a set of journal to disk in batch.
+    //
+    // Return the first id of the batched journals.
+    public long write(JournalBatch batch) throws IOException;
+
     // Get current journal number
     public long getJournalNum();
 
@@ -60,5 +65,7 @@ public interface Journal {
 
     // Get all the dbs' name
     public List<Long> getDatabaseNames();
+
+    public boolean exceedMaxJournalSize(short op, Writable writable) throws IOException;
 
 }

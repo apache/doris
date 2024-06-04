@@ -24,6 +24,7 @@ include "PlanNodes.thrift"
 include "AgentService.thrift"
 include "PaloInternalService.thrift"
 include "DorisExternalService.thrift"
+include "FrontendService.thrift"
 
 struct TExportTaskRequest {
     1: required PaloInternalService.TExecPlanFragmentParams params
@@ -33,9 +34,10 @@ struct TTabletStat {
     1: required i64 tablet_id
     // local data size
     2: optional i64 data_size
-    3: optional i64 row_num
-    4: optional i64 version_count
+    3: optional i64 row_count
+    4: optional i64 total_version_count
     5: optional i64 remote_data_size
+    6: optional i64 visible_version_count
 }
 
 struct TTabletStatResult {
@@ -67,6 +69,9 @@ struct TRoutineLoadTask {
     14: optional PlanNodes.TFileFormatType format
     15: optional PaloInternalService.TPipelineFragmentParams pipeline_params
     16: optional bool is_multi_table
+    17: optional bool memtable_on_sink_node;
+    18: optional string qualified_user
+    19: optional string cloud_cluster
 }
 
 struct TKafkaMetaProxyRequest {
@@ -123,6 +128,87 @@ struct TCheckStorageFormatResult {
     2: optional list<i64> v2_tablets;
 }
 
+struct TWarmUpCacheAsyncRequest {
+    1: required string host
+    2: required i32 brpc_port
+    3: required list<i64> tablet_ids
+}
+
+struct TWarmUpCacheAsyncResponse {
+    1: required Status.TStatus status
+}
+
+struct TCheckWarmUpCacheAsyncRequest {
+    1: optional list<i64> tablets
+}
+
+struct TCheckWarmUpCacheAsyncResponse {
+    1: required Status.TStatus status
+    2: optional map<i64, bool> task_done;
+}
+
+struct TSyncLoadForTabletsRequest {
+    1: required list<i64> tablet_ids
+}
+
+struct TSyncLoadForTabletsResponse {
+}
+
+struct THotPartition {
+    1: required i64 partition_id
+    2: required i64 last_access_time
+    3: optional i64 query_per_day
+    4: optional i64 query_per_week
+}
+
+struct THotTableMessage {
+    1: required i64 table_id
+    2: required i64 index_id
+    3: optional list<THotPartition> hot_partitions
+}
+
+struct TGetTopNHotPartitionsRequest {
+}
+
+struct TGetTopNHotPartitionsResponse {
+    1: required i64 file_cache_size
+    2: optional list<THotTableMessage> hot_tables
+}
+
+enum TDownloadType {
+    BE = 0,
+    S3 = 1,
+}
+
+enum TWarmUpTabletsRequestType {
+    SET_JOB = 0,
+    SET_BATCH = 1,
+    GET_CURRENT_JOB_STATE_AND_LEASE = 2,
+    CLEAR_JOB = 3,
+}
+
+struct TJobMeta {
+    1: required TDownloadType download_type
+    2: optional string be_ip
+    3: optional i32 brpc_port
+    4: optional list<i64> tablet_ids
+}
+
+struct TWarmUpTabletsRequest {
+    1: required i64 job_id
+    2: required i64 batch_id
+    3: optional list<TJobMeta> job_metas
+    4: required TWarmUpTabletsRequestType type
+}
+
+struct TWarmUpTabletsResponse {
+    1: required Status.TStatus status;
+    2: optional i64 job_id
+    3: optional i64 batch_id
+    4: optional i64 pending_job_size
+    5: optional i64 finish_job_size
+}
+
 struct TIngestBinlogRequest {
     1: optional i64 txn_id;
     2: optional i64 remote_tablet_id;
@@ -162,6 +248,8 @@ struct TQueryIngestBinlogResult {
 
 enum TTopicInfoType {
     WORKLOAD_GROUP
+    MOVE_QUERY_TO_GROUP
+    WORKLOAD_SCHED_POLICY
 }
 
 struct TWorkloadGroupInfo {
@@ -173,10 +261,58 @@ struct TWorkloadGroupInfo {
   6: optional string mem_limit
   7: optional bool enable_memory_overcommit
   8: optional bool enable_cpu_hard_limit
+  9: optional i32 scan_thread_num
+  10: optional i32 max_remote_scan_thread_num
+  11: optional i32 min_remote_scan_thread_num
+  12: optional i32 spill_threshold_low_watermark
+  13: optional i32 spill_threshold_high_watermark
+}
+
+enum TWorkloadMetricType {
+    QUERY_TIME
+    BE_SCAN_ROWS
+    BE_SCAN_BYTES
+    QUERY_BE_MEMORY_BYTES
+}
+
+enum TCompareOperator {
+    EQUAL
+    GREATER
+    GREATER_EQUAL
+    LESS
+    LESS_EQUAL
+}
+
+struct TWorkloadCondition {
+    1: optional TWorkloadMetricType metric_name
+    2: optional TCompareOperator op
+    3: optional string value
+}
+
+enum TWorkloadActionType {
+    MOVE_QUERY_TO_GROUP
+    CANCEL_QUERY
+}
+
+struct TWorkloadAction {
+    1: optional TWorkloadActionType action
+    2: optional string action_args
+}
+
+struct TWorkloadSchedPolicy {
+    1: optional i64 id
+    2: optional string name
+    3: optional i32 version
+    4: optional i32 priority
+    5: optional bool enabled
+    6: optional list<TWorkloadCondition> condition_list
+    7: optional list<TWorkloadAction> action_list
+    8: optional list<i64> wg_id_list
 }
 
 struct TopicInfo {
     1: optional TWorkloadGroupInfo workload_group_info
+    2: optional TWorkloadSchedPolicy workload_sched_policy
 }
 
 struct TPublishTopicRequest {
@@ -185,6 +321,16 @@ struct TPublishTopicRequest {
 
 struct TPublishTopicResult {
     1: required Status.TStatus status
+}
+
+struct TGetRealtimeExecStatusRequest {
+    // maybe query id or other unique id
+    1: optional Types.TUniqueId id
+}
+
+struct TGetRealtimeExecStatusResponse {
+    1: optional Status.TStatus status
+    2: optional FrontendService.TReportExecStatusParams report_exec_status_params
 }
 
 service BackendService {
@@ -236,13 +382,23 @@ service BackendService {
 
     TStreamLoadRecordResult get_stream_load_record(1: i64 last_stream_record_time);
 
-    oneway void clean_trash();
-
     // check tablet rowset type
     TCheckStorageFormatResult check_storage_format();
+
+    TWarmUpCacheAsyncResponse warm_up_cache_async(1: TWarmUpCacheAsyncRequest request);
+
+    TCheckWarmUpCacheAsyncResponse check_warm_up_cache_async(1: TCheckWarmUpCacheAsyncRequest request);
+
+    TSyncLoadForTabletsResponse sync_load_for_tablets(1: TSyncLoadForTabletsRequest request);
+
+    TGetTopNHotPartitionsResponse get_top_n_hot_partitions(1: TGetTopNHotPartitionsRequest request);
+
+    TWarmUpTabletsResponse warm_up_tablets(1: TWarmUpTabletsRequest request);
 
     TIngestBinlogResult ingest_binlog(1: TIngestBinlogRequest ingest_binlog_request);
     TQueryIngestBinlogResult query_ingest_binlog(1: TQueryIngestBinlogRequest query_ingest_binlog_request);
 
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
+
+    TGetRealtimeExecStatusResponse get_realtime_exec_status(1:TGetRealtimeExecStatusRequest request);
 }

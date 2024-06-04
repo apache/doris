@@ -65,7 +65,7 @@ public class DemoTest extends TestWithFeService {
         createTable("create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
 
         // 4. get and test the created db and table
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("db1");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         tbl.readLock();
         try {

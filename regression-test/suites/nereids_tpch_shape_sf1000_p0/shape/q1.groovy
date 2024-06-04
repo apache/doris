@@ -25,8 +25,10 @@ suite("q1") {
     sql 'set exec_mem_limit=21G'
     sql 'SET enable_pipeline_engine = true'
     sql 'set parallel_pipeline_task_num=8'
-sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
+    sql 'set be_number_for_test=3'
+    sql "set runtime_filter_type=8"
+    sql 'set enable_runtime_filter_prune=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     
 
     qt_select """

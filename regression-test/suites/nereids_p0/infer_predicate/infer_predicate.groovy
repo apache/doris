@@ -18,6 +18,8 @@
 suite("test_infer_predicate") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     sql 'drop table if exists infer_tb1;'
     sql 'drop table if exists infer_tb2;'
@@ -31,28 +33,28 @@ suite("test_infer_predicate") {
 
     explain {
         sql "select * from infer_tb1 inner join infer_tb2 where infer_tb2.k1 = infer_tb1.k2  and infer_tb2.k1 = 1;"
-        contains "PREDICATES: k2"
+        contains "PREDICATES: (k2"
     }
 
     explain {
         sql "select * from infer_tb1 inner join infer_tb2 where infer_tb1.k2 = infer_tb2.k1  and infer_tb2.k1 = 1;"
-        contains "PREDICATES: k2"
+        contains "PREDICATES: (k2"
     }
 
     explain {
         sql "select * from infer_tb1 inner join infer_tb2 where cast(infer_tb2.k4 as int) = infer_tb1.k2  and infer_tb2.k4 = 1;"
-        contains "PREDICATES: k2"
+        contains "PREDICATES: (CAST(k2"
     }
 
     explain {
         sql "select * from infer_tb1 inner join infer_tb3 where infer_tb3.k1 = infer_tb1.k2  and infer_tb3.k1 = '123';"
-        notContains "PREDICATES: k2"
+        notContains "PREDICATES: (k2"
     }
 
     explain {
         sql "select * from infer_tb1 left join infer_tb2 on infer_tb1.k1 = infer_tb2.k3 left join infer_tb3 on " +
                 "infer_tb2.k3 = infer_tb3.k2 where infer_tb1.k1 = 1;"
-        contains "PREDICATES: k3"
-        contains "PREDICATES: k2"
+        contains "PREDICATES: (k3"
+        contains "PREDICATES: (k2"
     }
 }

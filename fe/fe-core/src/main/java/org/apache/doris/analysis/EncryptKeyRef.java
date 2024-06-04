@@ -20,20 +20,22 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Strings;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
 
 public class EncryptKeyRef extends Expr {
-    private static final Logger LOG = LogManager.getLogger(EncryptKeyRef.class);
+    @SerializedName("ekn")
     private EncryptKeyName encryptKeyName;
     private EncryptKey encryptKey;
+
+    private EncryptKeyRef() {
+        // only for serde
+    }
 
     public EncryptKeyRef(EncryptKeyName encryptKeyName) {
         super();
@@ -45,6 +47,7 @@ public class EncryptKeyRef extends Expr {
         super(other);
         this.encryptKeyName = other.encryptKeyName;
         this.encryptKey = other.encryptKey;
+        this.type = Type.VARCHAR;
     }
 
     public EncryptKey getEncryptKey() {
@@ -59,7 +62,6 @@ public class EncryptKeyRef extends Expr {
         if ("".equals(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         } else {
-            dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
             Database database = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
 
             EncryptKey encryptKey = database.getEncryptKey(encryptKeyName.getKeyName());

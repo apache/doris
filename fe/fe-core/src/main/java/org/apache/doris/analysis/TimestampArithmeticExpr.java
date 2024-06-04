@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -56,14 +57,23 @@ public class TimestampArithmeticExpr extends Expr {
     }
 
     // Set for function call-like arithmetic.
-    private final String funcName;
+    @SerializedName("funcn")
+    private String funcName;
     // Keep the original string passed in the c'tor to resolve
     // ambiguities with other uses of IDENT during query parsing.
-    private final String timeUnitIdent;
+    @SerializedName("tui")
+    private String timeUnitIdent;
     // Indicates an expr where the interval comes first, e.g., 'interval b year + a'.
-    private final boolean intervalFirst;
+    @SerializedName("if")
+    private boolean intervalFirst;
+    @SerializedName("op")
     private ArithmeticExpr.Operator op;
+    @SerializedName("tu")
     private TimeUnit timeUnit;
+
+    private TimestampArithmeticExpr() {
+        // use for serde only
+    }
 
     // C'tor for function-call like arithmetic, e.g., 'date_add(a, interval b year)'.
     public TimestampArithmeticExpr(String funcName, Expr e1, Expr e2, String timeUnitIdent) {
@@ -145,6 +155,18 @@ public class TimestampArithmeticExpr extends Expr {
         }
         if (t1 == PrimitiveType.DATEV2) {
             return Type.DATEV2;
+        }
+        // could try cast to date first, then cast to datetime
+        if (t1 == PrimitiveType.VARCHAR || t1 == PrimitiveType.STRING) {
+            Expr expr = getChild(0);
+            if ((expr instanceof StringLiteral) && ((StringLiteral) expr).canConvertToDateType(Type.DATEV2)) {
+                try {
+                    setChild(0, new DateLiteral(((StringLiteral) expr).getValue(), Type.DATEV2));
+                } catch (AnalysisException e) {
+                    return Type.INVALID;
+                }
+                return Type.DATEV2;
+            }
         }
         if (PrimitiveType.isImplicitCast(t1, PrimitiveType.DATETIME)) {
             if (Config.enable_date_conversion) {
@@ -277,7 +299,9 @@ public class TimestampArithmeticExpr extends Expr {
                 }
             }
         }
-        LOG.debug("fn is {} name is {}", fn, funcOpName);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("fn is {} name is {}", fn, funcOpName);
+        }
     }
 
     @Override

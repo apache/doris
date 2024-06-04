@@ -72,6 +72,7 @@ Status MemoryScratchSink::prepare(RuntimeState* state) {
     _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
     init_sink_common_profile();
 
+    _timezone_obj = state->timezone_obj();
     return Status::OK();
 }
 
@@ -89,17 +90,13 @@ Status MemoryScratchSink::send(RuntimeState* state, Block* input_block, bool eos
     // After expr executed, use recaculated schema as final schema
     RETURN_IF_ERROR(convert_block_arrow_schema(block, &block_arrow_schema));
     RETURN_IF_ERROR(convert_to_arrow_batch(block, block_arrow_schema, arrow::default_memory_pool(),
-                                           &result));
+                                           &result, _timezone_obj));
     _queue->blocking_put(result);
     return Status::OK();
 }
 
 Status MemoryScratchSink::open(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
-}
-
-bool MemoryScratchSink::can_write() {
-    return _queue->size() < 10;
 }
 
 Status MemoryScratchSink::close(RuntimeState* state, Status exec_status) {

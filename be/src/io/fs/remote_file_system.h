@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <memory>
 #include <string>
 #include <utility>
@@ -28,30 +26,23 @@
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
 class RemoteFileSystem : public FileSystem {
 public:
     RemoteFileSystem(Path&& root_path, std::string&& id, FileSystemType type)
-            : FileSystem(std::move(root_path), std::move(id), type) {}
+            : FileSystem(std::move(id), type), _root_path(std::move(root_path)) {}
     ~RemoteFileSystem() override = default;
 
     Status upload(const Path& local_file, const Path& dest_file);
     Status batch_upload(const std::vector<Path>& local_files,
                         const std::vector<Path>& remote_files);
-    Status direct_upload(const Path& remote_file, const std::string& content);
-    Status upload_with_checksum(const Path& local_file, const Path& remote,
-                                const std::string& checksum);
     Status download(const Path& remote_file, const Path& local);
-    Status direct_download(const Path& remote_file, std::string* content);
 
-    Status connect();
+    // the root path of this fs.
+    const Path& root_path() const { return _root_path; }
 
 protected:
-    /// connect to remote file system
-    virtual Status connect_impl() = 0;
-
     Status open_file_impl(const Path& file, FileReaderSPtr* reader,
                           const FileReaderOptions* opts) override;
     /// upload load_file to remote remote_file
@@ -64,28 +55,25 @@ protected:
     virtual Status batch_upload_impl(const std::vector<Path>& local_files,
                                      const std::vector<Path>& remote_files) = 0;
 
-    /// save the content in "content" directly to remote file
-    virtual Status direct_upload_impl(const Path& remote_file, const std::string& content) = 0;
-
-    /// upload local_file to remote_file,
-    /// and the final remote file name is "remote_file.checksum"
-    virtual Status upload_with_checksum_impl(const Path& local_file, const Path& remote_file,
-                                             const std::string& checksum) = 0;
-
     /// download remote_file to local_file
     /// local_file should be an absolute path on local filesystem.
     virtual Status download_impl(const Path& remote_file, const Path& local_file) = 0;
-
-    /// save of content of remote_file directly into "content"
-    virtual Status direct_download_impl(const Path& remote_file, std::string* content) = 0;
 
     // The derived class should implement this method.
     // if file_size < 0, the file size should be fetched from file system
     virtual Status open_file_internal(const Path& file, FileReaderSPtr* reader,
                                       const FileReaderOptions& opts) = 0;
+
+    Path absolute_path(const Path& path) const override {
+        if (path.is_absolute()) {
+            return path;
+        }
+        return _root_path / path;
+    }
+
+    Path _root_path;
 };
 
 using RemoteFileSystemSPtr = std::shared_ptr<RemoteFileSystem>;
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

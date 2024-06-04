@@ -22,7 +22,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.util.HashMap;
@@ -48,11 +47,6 @@ public class HistogramTask extends BaseAnalysisTask {
             + "FROM "
             + "    `${dbName}`.`${tblName}`";
 
-    @VisibleForTesting
-    public HistogramTask() {
-        super();
-    }
-
     public HistogramTask(AnalysisInfo info) {
         super(info);
     }
@@ -75,12 +69,8 @@ public class HistogramTask extends BaseAnalysisTask {
 
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         StatisticsUtil.execUpdate(stringSubstitutor.replace(ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE));
-        Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(tbl.getId(), -1, col.getName());
-    }
-
-    @Override
-    protected void afterExecution() {
-        // DO NOTHING
+        Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(
+                tbl.getDatabase().getCatalog().getId(), tbl.getDatabase().getId(), tbl.getId(), -1, col.getName());
     }
 
     private String getSampleRateFunction() {

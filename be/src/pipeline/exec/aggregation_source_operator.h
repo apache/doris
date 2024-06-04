@@ -20,58 +20,17 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vaggregation_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
 
-class AggSourceOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
-public:
-    AggSourceOperatorBuilder(int32_t, ExecNode*);
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class AggSourceOperator final : public SourceOperator<AggSourceOperatorBuilder> {
-public:
-    AggSourceOperator(OperatorBuilderBase*, ExecNode*);
-    // if exec node split to: sink, source operator. the source operator
-    // should skip `alloc_resource()` function call, only sink operator
-    // call the function
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
-
-class AggSourceDependency final : public Dependency {
-public:
-    using SharedState = AggSharedState;
-    AggSourceDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AggSourceDependency", query_ctx) {}
-    ~AggSourceDependency() override = default;
-
-    void block() override {
-        if (_is_streaming_agg_state()) {
-            Dependency::block();
-        }
-    }
-
-private:
-    bool _is_streaming_agg_state() {
-        return ((SharedState*)Dependency::_shared_state.get())->data_queue != nullptr;
-    }
-};
-
 class AggSourceOperatorX;
 
-class AggLocalState final : public PipelineXLocalState<AggSourceDependency> {
+class AggLocalState final : public PipelineXLocalState<AggSharedState> {
 public:
-    using Base = PipelineXLocalState<AggSourceDependency>;
+    using Base = PipelineXLocalState<AggSharedState>;
     ENABLE_FACTORY_CREATOR(AggLocalState);
     AggLocalState(RuntimeState* state, OperatorXBase* parent);
     ~AggLocalState() override = default;
@@ -80,36 +39,21 @@ public:
     Status close(RuntimeState* state) override;
 
     void make_nullable_output_key(vectorized::Block* block);
+    template <bool limit>
+    Status merge_with_serialized_key_helper(vectorized::Block* block);
+    void do_agg_limit(vectorized::Block* block, bool* eos);
 
 protected:
     friend class AggSourceOperatorX;
-    friend class StreamingAggSourceOperatorX;
-    friend class StreamingAggSinkOperatorX;
-    friend class DistinctStreamingAggSourceOperatorX;
-    friend class DistinctStreamingAggSinkOperatorX;
 
-    Status _get_without_key_result(RuntimeState* state, vectorized::Block* block,
-                                   SourceState& source_state);
-    Status _serialize_without_key(RuntimeState* state, vectorized::Block* block,
-                                  SourceState& source_state);
+    Status _get_without_key_result(RuntimeState* state, vectorized::Block* block, bool* eos);
+    Status _serialize_without_key(RuntimeState* state, vectorized::Block* block, bool* eos);
     Status _get_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
-                                           SourceState& source_state);
+                                           bool* eos);
     Status _serialize_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
-                                                 SourceState& source_state);
-    Status _get_result_with_serialized_key_non_spill(RuntimeState* state, vectorized::Block* block,
-                                                     SourceState& source_state);
-    Status _get_result_with_spilt_data(RuntimeState* state, vectorized::Block* block,
-                                       SourceState& source_state);
-
-    Status _serialize_with_serialized_key_result_non_spill(RuntimeState* state,
-                                                           vectorized::Block* block,
-                                                           SourceState& source_state);
-    Status _serialize_with_serialized_key_result_with_spilt_data(RuntimeState* state,
-                                                                 vectorized::Block* block,
-                                                                 SourceState& source_state);
+                                                 bool* eos);
+    Status _create_agg_status(vectorized::AggregateDataPtr data);
     Status _destroy_agg_status(vectorized::AggregateDataPtr data);
-    Status _reset_hash_table();
-    Status _merge_spilt_data();
     void _make_nullable_output_key(vectorized::Block* block) {
         if (block->rows() != 0) {
             auto& shared_state = *Base ::_shared_state;
@@ -120,41 +64,53 @@ protected:
             }
         }
     }
+    void _find_in_hash_table(vectorized::AggregateDataPtr* places,
+                             vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
+    void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
+                                  vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
+    size_t _get_hash_table_size();
+
+    vectorized::PODArray<vectorized::AggregateDataPtr> _places;
+    std::vector<char> _deserialize_buffer;
 
     RuntimeProfile::Counter* _get_results_timer = nullptr;
     RuntimeProfile::Counter* _serialize_result_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
     RuntimeProfile::Counter* _serialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
 
-    using vectorized_get_result = std::function<Status(
-            RuntimeState* state, vectorized::Block* block, SourceState& source_state)>;
+    RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
+    RuntimeProfile::Counter* _merge_timer = nullptr;
+    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
+
+    using vectorized_get_result =
+            std::function<Status(RuntimeState* state, vectorized::Block* block, bool* eos)>;
 
     struct executor {
         vectorized_get_result get_result;
     };
 
     executor _executor;
-
-    vectorized::AggregatedDataVariants* _agg_data = nullptr;
 };
 
 class AggSourceOperatorX : public OperatorX<AggLocalState> {
 public:
     using Base = OperatorX<AggLocalState>;
     AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                       const DescriptorTbl& descs, bool is_streaming = false);
+                       const DescriptorTbl& descs);
     ~AggSourceOperatorX() = default;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
+    template <bool limit>
+    Status merge_with_serialized_key_helper(RuntimeState* state, vectorized::Block* block);
+
 private:
     friend class AggLocalState;
-    const bool _is_streaming;
 
     bool _needs_finalize;
     bool _without_key;

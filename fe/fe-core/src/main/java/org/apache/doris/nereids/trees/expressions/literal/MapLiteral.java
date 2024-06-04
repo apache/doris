@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
@@ -43,9 +45,18 @@ public class MapLiteral extends Literal {
     }
 
     public MapLiteral(List<Literal> keys, List<Literal> values) {
-        super(computeDataType(keys, values));
+        this(keys, values, computeDataType(keys, values));
+    }
+
+    /**
+     * create MAP Literal with keys, values and datatype
+     */
+    public MapLiteral(List<Literal> keys, List<Literal> values, DataType dataType) {
+        super(dataType);
         this.keys = ImmutableList.copyOf(Objects.requireNonNull(keys, "keys should not be null"));
         this.values = ImmutableList.copyOf(Objects.requireNonNull(values, "values should not be null"));
+        Preconditions.checkArgument(dataType instanceof MapType,
+                "dataType should be MapType, but we meet %s", dataType);
         Preconditions.checkArgument(keys.size() == values.size(),
                 "key size %s is not equal to value size %s", keys.size(), values.size());
     }
@@ -53,6 +64,28 @@ public class MapLiteral extends Literal {
     @Override
     public List<List<Literal>> getValue() {
         return ImmutableList.of(keys, values);
+    }
+
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (this.dataType.equals(targetType)) {
+            return this;
+        } else if (targetType instanceof MapType) {
+            // we should pass dataType to constructor because arguments maybe empty
+            return new MapLiteral(
+                    keys.stream()
+                            .map(k -> k.uncheckedCastTo(((MapType) targetType).getKeyType()))
+                            .map(Literal.class::cast)
+                            .collect(ImmutableList.toImmutableList()),
+                    values.stream()
+                            .map(v -> v.uncheckedCastTo(((MapType) targetType).getValueType()))
+                            .map(Literal.class::cast)
+                            .collect(ImmutableList.toImmutableList()),
+                    targetType
+            );
+        } else {
+            return super.uncheckedCastTo(targetType);
+        }
     }
 
     @Override

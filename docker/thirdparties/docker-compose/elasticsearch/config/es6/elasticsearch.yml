@@ -1,0 +1,62 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+cluster:
+  name: elasticsearch6
+  routing:
+    allocation:
+      disk:
+        threshold_enabled: true
+        watermark:
+          flood_stage: 200mb
+          low: 500mb
+          high: 300mb
+
+node:
+  name: 2bf5838228d8
+  master: true
+  data: true
+  ingest: true
+
+path:
+  data: /var/lib/elasticsearch/data
+  logs: /var/lib/elasticsearch/logs
+
+network:
+  host: 0.0.0.0
+
+
+http:
+  compression: true
+  cors:
+    enabled: false
+
+
+bootstrap:
+  memory_lock: false
+
+discovery:
+  zen:
+    minimum_master_nodes: 1
+
+
+action:
+  destructive_requires_name: false
+
+xpack:
+  security:
+    enabled: false

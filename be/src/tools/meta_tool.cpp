@@ -38,6 +38,7 @@
 #include "olap/options.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
@@ -46,6 +47,7 @@
 
 using std::filesystem::path;
 using doris::DataDir;
+using doris::StorageEngine;
 using doris::OlapMeta;
 using doris::Status;
 using doris::TabletMeta;
@@ -140,7 +142,7 @@ void delete_meta(DataDir* data_dir) {
     std::cout << "delete meta successfully" << std::endl;
 }
 
-Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
+Status init_data_dir(StorageEngine& engine, const std::string& dir, std::unique_ptr<DataDir>* ret) {
     std::string root_path;
     RETURN_IF_ERROR(doris::io::global_local_filesystem()->canonicalize(dir, &root_path));
     doris::StorePath path;
@@ -150,8 +152,7 @@ Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
         return Status::InternalError("parse root path failed");
     }
 
-    std::unique_ptr<DataDir> p(
-            new (std::nothrow) DataDir(path.path, path.capacity_bytes, path.storage_medium));
+    auto p = std::make_unique<DataDir>(engine, path.path, path.capacity_bytes, path.storage_medium);
     if (p == nullptr) {
         std::cout << "new data dir failed" << std::endl;
         return Status::InternalError("new data dir failed");
@@ -177,6 +178,7 @@ void batch_delete_meta(const std::string& tablet_file) {
     int err_num = 0;
     int delete_num = 0;
     int total_num = 0;
+    StorageEngine engine(doris::EngineOptions {});
     std::unordered_map<std::string, std::unique_ptr<DataDir>> dir_map;
     while (std::getline(infile, line)) {
         total_num++;
@@ -198,7 +200,7 @@ void batch_delete_meta(const std::string& tablet_file) {
         if (dir_map.find(dir) == dir_map.end()) {
             // new data dir, init it
             std::unique_ptr<DataDir> data_dir_p;
-            Status st = init_data_dir(dir, &data_dir_p);
+            Status st = init_data_dir(engine, dir, &data_dir_p);
             if (!st.ok()) {
                 std::cout << "invalid root path:" << FLAGS_root_path
                           << ", error: " << st.to_string() << std::endl;
@@ -350,8 +352,9 @@ int main(int argc, char** argv) {
             return -1;
         }
 
+        StorageEngine engine(doris::EngineOptions {});
         std::unique_ptr<DataDir> data_dir;
-        Status st = init_data_dir(FLAGS_root_path, &data_dir);
+        Status st = init_data_dir(engine, FLAGS_root_path, &data_dir);
         if (!st.ok()) {
             std::cout << "invalid root path:" << FLAGS_root_path << ", error: " << st.to_string()
                       << std::endl;

@@ -15,11 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H
-#define DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H
+#pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stdint.h>
 
 #include <atomic>
 #include <condition_variable>
@@ -30,15 +28,17 @@
 
 #include "common/status.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
 #include "olap/task/engine_task.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/time.h"
 
 namespace doris {
 
 class EnginePublishVersionTask;
 class TPublishVersionRequest;
+class StorageEngine;
 
 struct TabletPublishStatistics {
     int64_t submit_time_us = 0;
@@ -63,14 +63,16 @@ struct TabletPublishStatistics {
 
 class TabletPublishTxnTask {
 public:
-    TabletPublishTxnTask(EnginePublishVersionTask* engine_task, TabletSharedPtr tablet,
-                         RowsetSharedPtr rowset, int64_t partition_id, int64_t transaction_id,
-                         Version version, const TabletInfo& tablet_info);
-    ~TabletPublishTxnTask() = default;
+    TabletPublishTxnTask(StorageEngine& engine, EnginePublishVersionTask* engine_task,
+                         TabletSharedPtr tablet, RowsetSharedPtr rowset, int64_t partition_id,
+                         int64_t transaction_id, Version version, const TabletInfo& tablet_info);
+    ~TabletPublishTxnTask();
 
     void handle();
+    Status result() { return _result; }
 
 private:
+    StorageEngine& _engine;
     EnginePublishVersionTask* _engine_publish_version_task = nullptr;
 
     TabletSharedPtr _tablet;
@@ -80,15 +82,18 @@ private:
     Version _version;
     TabletInfo _tablet_info;
     TabletPublishStatistics _stats;
+    Status _result;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
-class EnginePublishVersionTask : public EngineTask {
+class EnginePublishVersionTask final : public EngineTask {
 public:
     EnginePublishVersionTask(
-            const TPublishVersionRequest& publish_version_req,
+            StorageEngine& engine, const TPublishVersionRequest& publish_version_req,
             std::set<TTabletId>* error_tablet_ids, std::map<TTabletId, TVersion>* succ_tablets,
             std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinous_version_tablets,
-            std::map<TTableId, int64_t>* table_id_to_num_delta_rows);
+            std::map<TTableId, std::map<TTabletId, int64_t>>*
+                    table_id_to_tablet_id_to_num_delta_rows);
     ~EnginePublishVersionTask() override = default;
 
     Status execute() override;
@@ -99,22 +104,27 @@ private:
     void _calculate_tbl_num_delta_rows(
             const std::unordered_map<int64_t, int64_t>& tablet_id_to_num_delta_rows);
 
+    StorageEngine& _engine;
     const TPublishVersionRequest& _publish_version_req;
     std::mutex _tablet_ids_mutex;
     std::set<TTabletId>* _error_tablet_ids = nullptr;
     std::map<TTabletId, TVersion>* _succ_tablets;
     std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinuous_version_tablets = nullptr;
-    std::map<TTableId, int64_t>* _table_id_to_num_delta_rows = nullptr;
+    std::map<TTableId, std::map<TTabletId, int64_t>>* _table_id_to_tablet_id_to_num_delta_rows =
+            nullptr;
 };
 
 class AsyncTabletPublishTask {
 public:
-    AsyncTabletPublishTask(TabletSharedPtr tablet, int64_t partition_id, int64_t transaction_id,
-                           int64_t version)
-            : _tablet(std::move(tablet)),
+    AsyncTabletPublishTask(StorageEngine& engine, TabletSharedPtr tablet, int64_t partition_id,
+                           int64_t transaction_id, int64_t version)
+            : _engine(engine),
+              _tablet(std::move(tablet)),
               _partition_id(partition_id),
               _transaction_id(transaction_id),
-              _version(version) {
+              _version(version),
+              _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                            "AsyncTabletPublishTask")) {
         _stats.submit_time_us = MonotonicMicros();
     }
     ~AsyncTabletPublishTask() = default;
@@ -122,13 +132,13 @@ public:
     void handle();
 
 private:
+    StorageEngine& _engine;
     TabletSharedPtr _tablet;
     int64_t _partition_id;
     int64_t _transaction_id;
     int64_t _version;
     TabletPublishStatistics _stats;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H

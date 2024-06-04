@@ -19,7 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.planner.external.paimon.PaimonPredicateConverter;
+import org.apache.doris.datasource.paimon.source.PaimonPredicateConverter;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 

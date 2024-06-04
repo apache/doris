@@ -136,4 +136,30 @@ suite("view_p0") {
     sql """CREATE VIEW IF NOT EXISTS `test_view_abc`(`a`) AS WITH T1 AS (SELECT 1 AS 'a'), T2 AS (SELECT 2 AS 'a') SELECT T1.a FROM T1 UNION ALL SELECT T2.a FROM T2;"""
 
     sql "drop view if exists test_view_abc;" 
+
+    sql """DROP TABLE IF EXISTS test_view_table2"""
+    
+    sql """ 
+        CREATE TABLE test_view_table2 (
+            c_date varchar(50)
+        ) 
+        ENGINE=OLAP
+        UNIQUE KEY(`c_date`)
+        distributed by hash(c_date) properties('replication_num'='1');
+    """
+
+    sql """ drop view if exists test_view_table2_view;"""
+    sql """CREATE VIEW `test_view_table2_view` 
+            AS
+            SELECT 
+                date_format(c_date,'%Y-%m-%d') AS `CREATE_DATE`
+            FROM 
+                test_view_table2
+            GROUP BY  
+                date_format(c_date, '%Y-%m-%d');
+    """
+
+    sql """select * from test_view_table2_view;"""
+    sql """ drop view if exists test_view_table2_view;"""
+    sql """DROP TABLE IF EXISTS test_view_table2"""
 }

@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.Config;
 
 import com.google.common.collect.Lists;
 import org.json.simple.JSONObject;
@@ -149,13 +148,14 @@ public class Diagnoser {
                         + replica.getLastFailedVersion());
             }
             // status
-            if (!replica.isAlive()) {
+            if (!replica.isAlive() || replica.isUserDrop()) {
                 statusErr.append("Replica on backend " + replica.getBackendId() + "'s state is " + replica.getState()
-                        + ", and is bad: " + (replica.isBad() ? "Yes" : "No"));
+                        + ", and is bad: " + (replica.isBad() ? "Yes" : "No")
+                        + ", and is going to drop: " + (replica.isUserDrop() ? "Yes" : "No"));
             }
-            if (replica.getVersionCount() > Config.min_version_count_indicate_replica_compaction_too_slow) {
+            if (replica.tooBigVersionCount()) {
                 compactionErr.append("Replica on backend " + replica.getBackendId() + "'s version count is too high: "
-                        + replica.getVersionCount());
+                        + replica.getVisibleVersionCount());
             }
         }
         results.add(Lists.newArrayList("ReplicaBackendStatus", (backendErr.length() == 0

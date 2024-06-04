@@ -37,6 +37,7 @@ public class ConstantExpressTest {
     public static void beforeClass() throws Exception {
         UtFrameUtils.startFEServer(runningDir);
         connectContext = UtFrameUtils.createDefaultCtx();
+        connectContext.getSessionVariable().setEnableFoldConstantByBe(false);
     }
 
     private static void testConstantExpressResult(String sql, String result) throws Exception {
@@ -175,7 +176,7 @@ public class ConstantExpressTest {
 
     @Test
     public void testConstantInPredicate() throws Exception {
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         // for constant NOT IN PREDICATE
         String sql = "select 1 not in (1, 2);";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);

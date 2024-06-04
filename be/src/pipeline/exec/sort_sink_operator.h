@@ -20,51 +20,23 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/core/field.h"
-#include "vec/exec/vsort_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class SortSinkOperatorBuilder final : public OperatorBuilder<vectorized::VSortNode> {
-public:
-    SortSinkOperatorBuilder(int32_t id, ExecNode* sort_node);
-
-    bool is_sink() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class SortSinkOperator final : public StreamingOperator<SortSinkOperatorBuilder> {
-public:
-    SortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
-
-    bool can_write() override { return true; }
-};
-
-class SortSinkDependency final : public Dependency {
-public:
-    using SharedState = SortSharedState;
-    SortSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "SortSinkDependency", true, query_ctx) {}
-    ~SortSinkDependency() override = default;
-};
+namespace doris::pipeline {
 
 enum class SortAlgorithm { HEAP_SORT, TOPN_SORT, FULL_SORT };
 
 class SortSinkOperatorX;
 
-class SortSinkLocalState : public PipelineXSinkLocalState<SortSinkDependency> {
+class SortSinkLocalState : public PipelineXSinkLocalState<SortSharedState> {
     ENABLE_FACTORY_CREATOR(SortSinkLocalState);
+    using Base = PipelineXSinkLocalState<SortSharedState>;
 
 public:
-    SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<SortSinkDependency>(parent, state) {}
+    SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class SortSinkOperatorX;
@@ -72,7 +44,7 @@ private:
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
 
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _sort_blocks_memory_usage = nullptr;
 
     // topn top value
     vectorized::Field old_top {vectorized::Field::Types::Null};
@@ -81,7 +53,7 @@ private:
 class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
 public:
     SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                      const DescriptorTbl& descs);
+                      const DescriptorTbl& descs, bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<SortSinkLocalState>::_name);
@@ -91,15 +63,28 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
-    ExchangeType get_local_exchange_type() const override {
-        if (_merge_by_exchange) {
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    DataDistribution required_data_distribution() const override {
+        if (_is_analytic_sort) {
+            return _is_colocate
+                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        } else if (_merge_by_exchange) {
             // The current sort node is used for the ORDER BY
-            return ExchangeType::PASSTHROUGH;
+            return {ExchangeType::PASSTHROUGH};
         }
-        return ExchangeType::NOOP;
+        return DataSinkOperatorX<SortSinkLocalState>::required_data_distribution();
     }
+
+    bool is_full_sort() const { return _algorithm == SortAlgorithm::FULL_SORT; }
+
+    size_t get_revocable_mem_size(RuntimeState* state) const;
+
+    Status prepare_for_spill(RuntimeState* state);
+
+    Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
+                                     int batch_size, bool* eos);
+    void reset(RuntimeState* state);
 
 private:
     friend class SortSinkLocalState;
@@ -115,13 +100,14 @@ private:
 
     bool _reuse_mem;
     const int64_t _limit;
-    const bool _use_topn_opt;
     SortAlgorithm _algorithm;
 
     const RowDescriptor _row_descriptor;
     const bool _use_two_phase_read;
     const bool _merge_by_exchange;
+    const bool _is_colocate = false;
+    const bool _is_analytic_sort = false;
+    const std::vector<TExpr> _partition_exprs;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

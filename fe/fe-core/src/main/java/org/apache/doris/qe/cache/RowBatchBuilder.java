@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TResultBatch;
 
@@ -117,10 +118,10 @@ public class RowBatchBuilder {
     }
 
     public InternalService.PUpdateCacheRequest buildSqlUpdateRequest(
-            String sql, long partitionKey, long lastVersion, long lastestTime, long partitionNum) {
+            PUniqueId cacheKeyMd5, long partitionKey, long lastVersion, long lastestTime, long partitionNum) {
         if (updateRequest == null) {
             updateRequest = InternalService.PUpdateCacheRequest.newBuilder()
-                    .setSqlKey(CacheProxy.getMd5(sql))
+                    .setSqlKey(cacheKeyMd5)
                     .setCacheType(InternalService.CacheType.SQL_CACHE).build();
         }
         updateRequest = updateRequest.toBuilder()

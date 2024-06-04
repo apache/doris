@@ -18,18 +18,13 @@
 import groovy.io.FileType
 import java.nio.file.Files
 import java.nio.file.Paths
-import java.net.URL
-import java.io.File
-import java.util.concurrent.locks.ReentrantLock
 
-suite("multi_thread_load") {
-    def lock = new ReentrantLock()
-
+suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resource fully```
     // get doris-db from s3
     def dirPath = context.file.parent
     def fatherPath = context.file.parentFile.parentFile.getPath()
     def fileName = "doris-dbgen"
-    def fileUrl = "http://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/doris-dbgen-23-10-18/doris-dbgen-23-10-20/doris-dbgen"
+    def fileUrl = "${getS3Url()}/regression/doris-dbgen-23-10-18/doris-dbgen-23-10-20/doris-dbgen"
     def filePath = Paths.get(dirPath, fileName)
     if (!Files.exists(filePath)) {
         new URL(fileUrl).withInputStream { inputStream ->
@@ -38,6 +33,21 @@ suite("multi_thread_load") {
         def file = new File(dirPath + "/" + fileName)
         file.setExecutable(true)
     }
+
+    def dir_file_exist = { String cur_dir ->
+        assertTrue(new File(cur_dir).exists())
+        def subFolders = Files.list(Paths.get(cur_dir)).filter {Files.isDirectory(it)}.toList()
+        for (def folder_it : subFolders) {
+            logger.info("folder_if: " + folder_it)
+            def folder = new File(folder_it.toString())
+            def files = folder.listFiles()
+            assertTrue(files.length==1)
+            files.each {file ->
+                logger.info("file.name: " + folder_it.toString() + "/" + file.name)
+            }
+        }
+    }
+
 
     def data_count = 20 // number of load tasks and threads
     def rows = 100  // total rows to load
@@ -77,7 +87,23 @@ suite("multi_thread_load") {
             def sout = new StringBuilder(), serr = new StringBuilder()
             proc.consumeProcessOutput(sout, serr)
             proc.waitForOrKill(7200000)
-            // logger.info("std out: " + sout + "std err: " + serr)
+            logger.info("std out: " + sout + ", std err: " + serr)
+        }
+
+        def table_exist = sql """select * from information_schema.tables where  TABLE_SCHEMA = "${realDb}" and TABLE_NAME = "${tableName}";"""
+        assertTrue(table_exist.size == 1)
+        dir_file_exist("""${dirPath}/${part_type}""")
+
+        for (int i = 0; i < data_count; i++) {
+            def dir_name = """${dirPath}/${part_type}/${part_type}_${i}"""
+            def directory = new File(dir_name)
+            assertTrue(directory.exists())
+            assertTrue(directory.isDirectory())
+
+            def files = directory.listFiles()
+            assertTrue(files.length == 1)
+            assertTrue(files[0].isFile())
+            logger.info("The file name is: + ${dirPath}/${part_type}/${part_type}_${i}/${files[0].name}")
         }
     }
 
@@ -155,10 +181,6 @@ suite("multi_thread_load") {
         proc.waitForOrKill(600000) // 10 minutes
     }
 
-    // for (int i = 0; i < data_count; i++) {
-    //     logger.info("try to run " + i + " : " + cm_list[i])
-    //     load_threads.add(Thread.startDaemon{concurrent_load(cm_list[i])})
-    // }
     load_threads.add(Thread.startDaemon{concurrent_load(cm_list[0])})
     load_threads.add(Thread.startDaemon{concurrent_load(cm_list[1])})
     load_threads.add(Thread.startDaemon{concurrent_load(cm_list[2])})

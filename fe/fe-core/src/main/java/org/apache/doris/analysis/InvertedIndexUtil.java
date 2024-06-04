@@ -20,8 +20,11 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 public class InvertedIndexUtil {
 
@@ -42,6 +45,14 @@ public class InvertedIndexUtil {
     public static String INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT = "char_filter_replacement";
 
     public static String INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE = "char_replace";
+
+    public static String INVERTED_INDEX_SUPPORT_PHRASE_KEY = "support_phrase";
+
+    public static String INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY = "ignore_above";
+
+    public static String INVERTED_INDEX_PARSER_LOWERCASE_KEY = "lower_case";
+
+    public static String INVERTED_INDEX_PARSER_STOPWORDS_KEY = "stopwords";
 
     public static String getInvertedIndexParser(Map<String, String> properties) {
         String parser = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_KEY);
@@ -95,9 +106,7 @@ public class InvertedIndexUtil {
         String parser = null;
         if (properties != null) {
             parser = properties.get(INVERTED_INDEX_PARSER_KEY);
-            if (parser == null && !properties.isEmpty()) {
-                throw new AnalysisException("invalid index properties, please check the properties");
-            }
+            checkInvertedIndexProperties(properties);
         }
 
         // default is "none" if not set
@@ -117,6 +126,82 @@ public class InvertedIndexUtil {
         } else if (!parser.equals(INVERTED_INDEX_PARSER_NONE)) {
             throw new AnalysisException("INVERTED index with parser: " + parser
                 + " is not supported for column: " + indexColName + " of type " + colType);
+        }
+    }
+
+    public static void checkInvertedIndexProperties(Map<String, String> properties) throws AnalysisException {
+        Set<String> allowedKeys = new HashSet<>(Arrays.asList(
+                INVERTED_INDEX_PARSER_KEY,
+                INVERTED_INDEX_PARSER_MODE_KEY,
+                INVERTED_INDEX_SUPPORT_PHRASE_KEY,
+                INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE,
+                INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN,
+                INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT,
+                INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY,
+                INVERTED_INDEX_PARSER_LOWERCASE_KEY,
+                INVERTED_INDEX_PARSER_STOPWORDS_KEY
+        ));
+
+        for (String key : properties.keySet()) {
+            if (!allowedKeys.contains(key)) {
+                throw new AnalysisException("Invalid inverted index property key: " + key);
+            }
+        }
+
+        String parser = properties.get(INVERTED_INDEX_PARSER_KEY);
+        String parserMode = properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
+        String supportPhrase = properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY);
+        String charFilterType = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
+        String charFilterPattern = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
+        String ignoreAbove = properties.get(INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY);
+        String lowerCase = properties.get(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
+        String stopWords = properties.get(INVERTED_INDEX_PARSER_STOPWORDS_KEY);
+
+        if (parser != null && !parser.matches("none|english|unicode|chinese|standard")) {
+            throw new AnalysisException("Invalid inverted index 'parser' value: " + parser
+                    + ", parser must be none, english, unicode or chinese");
+        }
+
+        if (!"chinese".equals(parser) && parserMode != null) {
+            throw new AnalysisException("parser_mode is only available for chinese parser");
+        }
+
+        if ("chinese".equals(parser) && (parserMode != null && !parserMode.matches("fine_grained|coarse_grained"))) {
+            throw new AnalysisException("Invalid inverted index 'parser_mode' value: " + parserMode
+                    + ", parser_mode must be fine_grained or coarse_grained");
+        }
+
+        if (supportPhrase != null && !supportPhrase.matches("true|false")) {
+            throw new AnalysisException("Invalid inverted index 'support_phrase' value: " + supportPhrase
+                    + ", support_phrase must be true or false");
+        }
+
+        if (INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE.equals(charFilterType) && (charFilterPattern == null
+                || charFilterPattern.isEmpty())) {
+            throw new AnalysisException("Missing 'char_filter_pattern' for 'char_replace' filter type");
+        }
+
+        if (ignoreAbove != null) {
+            try {
+                int ignoreAboveValue = Integer.parseInt(ignoreAbove);
+                if (ignoreAboveValue <= 0) {
+                    throw new AnalysisException("Invalid inverted index 'ignore_above' value: " + ignoreAboveValue
+                            + ", ignore_above must be positive");
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException(
+                        "Invalid inverted index 'ignore_above' value, ignore_above must be integer");
+            }
+        }
+
+        if (lowerCase != null && !lowerCase.matches("true|false")) {
+            throw new AnalysisException(
+                    "Invalid inverted index 'lower_case' value: " + lowerCase + ", lower_case must be true or false");
+        }
+
+        if (stopWords != null && !stopWords.matches("none")) {
+            throw new AnalysisException("Invalid inverted index 'stopWords' value: " + stopWords
+                    + ", stopWords must be none");
         }
     }
 }

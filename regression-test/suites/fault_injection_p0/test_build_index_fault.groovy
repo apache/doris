@@ -16,7 +16,10 @@
 // under the License.
 
 
-suite("test_build_index_fault", "inverted_index"){
+suite("test_build_index_fault", "inverted_index, nonConcurrent,p2"){
+    if (isCloudMode()) {
+        return // TODO enable this case after enable light index in cloud mode
+    }
     // prepare test table
     def timeout = 60000
     def delta_time = 1000
@@ -63,14 +66,17 @@ suite("test_build_index_fault", "inverted_index"){
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
-            def last_job_state = alter_res[alter_res.size()-1][7];
-            if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
-                logger.info(table_name + " last index job finished, state: " + last_job_state + ", detail: " + alter_res)
-                return last_job_state;
+            if (alter_res.size() > 0) {
+                def last_job_state = alter_res[alter_res.size()-1][7];
+                if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
+                    logger.info(table_name + " last index job finished, state: " + last_job_state + ", detail: " + alter_res)
+                    return last_job_state;
+                }
             }
             useTime = t
             sleep(delta_time)
         }
+        logger.info("wait_for_last_build_index_on_table_finish debug: " + alter_res)
         assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout")
         return "wait_timeout"
     }
@@ -79,15 +85,18 @@ suite("test_build_index_fault", "inverted_index"){
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
-            def last_job_state = alter_res[alter_res.size()-1][7];
-            if (last_job_state == "RUNNING") {
-                logger.info(table_name + " last index job running, state: " + last_job_state + ", detail: " + alter_res)
-                return last_job_state;
+            if (alter_res.size() > 0) {
+                def last_job_state = alter_res[alter_res.size()-1][7];
+                if (last_job_state == "RUNNING") {
+                    logger.info(table_name + " last index job running, state: " + last_job_state + ", detail: " + alter_res)
+                    return last_job_state;
+                }
             }
             useTime = t
             sleep(delta_time)
         }
-        assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout")
+        logger.info("wait_for_last_build_index_on_table_running debug: " + alter_res)
+        assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_running timeout")
         return "wait_timeout"
     }
 
@@ -183,7 +192,7 @@ suite("test_build_index_fault", "inverted_index"){
     // BUILD INDEX and expect state is FINISHED
     sql """ BUILD INDEX idx_comment ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
-    assertEquals(state, "FINISHED")
+    assertEquals("FINISHED", state)
     // check data
     qt_count3 """ SELECT COUNT() from ${tableName}; """
 
@@ -200,7 +209,7 @@ suite("test_build_index_fault", "inverted_index"){
     // BUILD INDEX again and expect state is FINISHED
     sql """ BUILD INDEX idx_comment ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
-    assertEquals(state, "FINISHED")
+    assertEquals("FINISHED", state)
     // check data
     qt_count4 """ SELECT COUNT() from ${tableName}; """
 
@@ -210,7 +219,7 @@ suite("test_build_index_fault", "inverted_index"){
     GetDebugPoint().enableDebugPointForAllBEs("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file")
     sql """ BUILD INDEX idx_title ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
-    assertEquals(state, "wait_timeout")
+    assertEquals("wait_timeout", state)
     // check data
     qt_count5 """ SELECT COUNT() from ${tableName}; """
 
@@ -218,7 +227,23 @@ suite("test_build_index_fault", "inverted_index"){
     GetDebugPoint().disableDebugPointForAllBEs("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file")
     // timeout * 10 for possible fe schedule delay
     state = wait_for_last_build_index_on_table_finish(tableName, timeout * 10)
-    assertEquals(state, "FINISHED")
+    assertEquals("FINISHED", state)
     // check data
     qt_count6 """ SELECT COUNT() from ${tableName}; """
+
+    // BUILD INDEX with error injection
+    sql """ ALTER TABLE ${tableName} ADD INDEX idx_url (`url`) USING INVERTED """
+    GetDebugPoint().enableDebugPointForAllBEs("IndexBuilder::handle_single_rowset")
+    sql """ BUILD INDEX idx_url ON ${tableName}; """
+    state = wait_for_last_build_index_on_table_finish(tableName, timeout)
+    assertEquals("wait_timeout", state)
+    // check data
+    qt_count7 """ SELECT COUNT() from ${tableName}; """
+
+    GetDebugPoint().disableDebugPointForAllBEs("IndexBuilder::handle_single_rowset")
+    // timeout * 10 for possible fe schedule delay
+    state = wait_for_last_build_index_on_table_finish(tableName, timeout * 10)
+    assertEquals("FINISHED", state)
+    // check data
+    qt_count8 """ SELECT COUNT() from ${tableName}; """
 }

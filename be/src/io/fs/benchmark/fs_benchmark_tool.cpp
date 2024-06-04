@@ -79,7 +79,7 @@ int read_conf(const std::string& conf, std::map<std::string, std::string>* conf_
                 std::string val = line.substr(pos + 1);
                 (*conf_map)[key] = val;
             } else {
-                std::cout << "invalid config item: " << line << std::endl;
+                std::cerr << "invalid config item: " << line << std::endl;
                 ok = false;
                 break;
             }
@@ -91,7 +91,7 @@ int read_conf(const std::string& conf, std::map<std::string, std::string>* conf_
             std::cout << it->first << " = " << it->second << std::endl;
         }
     } else {
-        std::cout << "failed to open conf file: " << conf << std::endl;
+        std::cerr << "failed to open conf file: " << conf << std::endl;
         return 1;
     }
     return ok ? 0 : 1;
@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
     std::map<std::string, std::string> conf_map;
     int res = read_conf(conf_file, &conf_map);
     if (res != 0) {
-        std::cout << "failed to read conf from file \"conf_file\"" << std::endl;
+        std::cerr << "failed to read conf from file \"conf_file\"" << std::endl;
         return 1;
     }
 
@@ -115,12 +115,14 @@ int main(int argc, char** argv) {
 
     // init s3 write buffer pool
     std::unique_ptr<doris::ThreadPool> s3_file_upload_thread_pool;
-    static_cast<void>(doris::ThreadPoolBuilder("S3FileUploadThreadPool")
-                              .set_min_threads(num_cores)
-                              .set_max_threads(num_cores)
-                              .build(&s3_file_upload_thread_pool));
-    doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();
-    s3_buffer_pool->init(524288000, 5242880, s3_file_upload_thread_pool.get());
+    doris::Status st = doris::ThreadPoolBuilder("S3FileUploadThreadPool")
+                               .set_min_threads(num_cores)
+                               .set_max_threads(num_cores)
+                               .build(&s3_file_upload_thread_pool);
+    if (!st.ok()) {
+        std::cerr << "init s3 write buffer pool failed" << std::endl;
+        return 1;
+    }
 
     try {
         doris::io::MultiBenchmark multi_bm(FLAGS_fs_type, FLAGS_operation, std::stoi(FLAGS_threads),
@@ -128,12 +130,12 @@ int main(int argc, char** argv) {
                                            conf_map);
         doris::Status st = multi_bm.init_env();
         if (!st) {
-            std::cout << "init env failed: " << st << std::endl;
+            std::cerr << "init env failed: " << st << std::endl;
             return 1;
         }
         st = multi_bm.init_bms();
         if (!st) {
-            std::cout << "init bms failed: " << st << std::endl;
+            std::cerr << "init bms failed: " << st << std::endl;
             return 1;
         }
 
@@ -142,10 +144,10 @@ int main(int argc, char** argv) {
         benchmark::Shutdown();
 
     } catch (std::invalid_argument const& ex) {
-        std::cout << "std::invalid_argument::what(): " << ex.what() << std::endl;
+        std::cerr << "std::invalid_argument::what(): " << ex.what() << std::endl;
         return 1;
     } catch (std::out_of_range const& ex) {
-        std::cout << "std::out_of_range::what(): " << ex.what() << std::endl;
+        std::cerr << "std::out_of_range::what(): " << ex.what() << std::endl;
         return 1;
     }
     return 0;

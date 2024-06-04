@@ -25,6 +25,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
 
@@ -364,7 +365,8 @@ const std::string* RuntimeProfile::get_info_string(const std::string& key) {
 
 #define ADD_COUNTER_IMPL(NAME, T)                                                                  \
     RuntimeProfile::T* RuntimeProfile::NAME(const std::string& name, TUnit::type unit,             \
-                                            const std::string& parent_counter_name) {              \
+                                            const std::string& parent_counter_name,                \
+                                            int64_t level) {                                       \
         DCHECK_EQ(_is_averaged_profile, false);                                                    \
         std::lock_guard<std::mutex> l(_counter_map_lock);                                          \
         if (_counter_map.find(name) != _counter_map.end()) {                                       \
@@ -372,7 +374,7 @@ const std::string* RuntimeProfile::get_info_string(const std::string& key) {
         }                                                                                          \
         DCHECK(parent_counter_name == ROOT_COUNTER ||                                              \
                _counter_map.find(parent_counter_name) != _counter_map.end());                      \
-        T* counter = _pool->add(new T(unit));                                                      \
+        T* counter = _pool->add(new T(unit, level));                                               \
         _counter_map[name] = counter;                                                              \
         std::set<std::string>* child_counters =                                                    \
                 find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>()); \
@@ -421,6 +423,25 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
     DCHECK(parent_counter_name == ROOT_COUNTER ||
            _counter_map.find(parent_counter_name) != _counter_map.end());
     Counter* counter = _pool->add(new Counter(type, 0, level));
+    _counter_map[name] = counter;
+    std::set<std::string>* child_counters =
+            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
+    child_counters->insert(name);
+    return counter;
+}
+
+RuntimeProfile::NonZeroCounter* RuntimeProfile::add_nonzero_counter(
+        const std::string& name, TUnit::type type, const std::string& parent_counter_name,
+        int64_t level) {
+    std::lock_guard<std::mutex> l(_counter_map_lock);
+    if (_counter_map.find(name) != _counter_map.end()) {
+        DCHECK(dynamic_cast<NonZeroCounter*>(_counter_map[name]));
+        return static_cast<NonZeroCounter*>(_counter_map[name]);
+    }
+
+    DCHECK(parent_counter_name == ROOT_COUNTER ||
+           _counter_map.find(parent_counter_name) != _counter_map.end());
+    NonZeroCounter* counter = _pool->add(new NonZeroCounter(type, level, parent_counter_name));
     _counter_map[name] = counter;
     std::set<std::string>* child_counters =
             find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
@@ -568,21 +589,12 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     if (this->is_set_sink()) {
         node.__set_is_sink(this->is_sink());
     }
-    CounterMap counter_map;
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
-        counter_map = _counter_map;
         node.child_counters_map = _child_counter_map;
-    }
-
-    for (std::map<std::string, Counter*>::const_iterator iter = counter_map.begin();
-         iter != counter_map.end(); ++iter) {
-        TCounter counter;
-        counter.name = iter->first;
-        counter.value = iter->second->value();
-        counter.type = iter->second->type();
-        counter.__set_level(iter->second->level());
-        node.counters.push_back(counter);
+        for (auto&& [name, counter] : _counter_map) {
+            counter->to_thrift(name, node.counters, node.child_counters_map);
+        }
     }
 
     {
@@ -616,7 +628,7 @@ int64_t RuntimeProfile::units_per_second(const RuntimeProfile::Counter* total_co
     }
 
     double secs = static_cast<double>(timer->value()) / 1000.0 / 1000.0 / 1000.0;
-    return total_counter->value() / secs;
+    return int64_t(total_counter->value() / secs);
 }
 
 int64_t RuntimeProfile::counter_sum(const std::vector<Counter*>* counters) {

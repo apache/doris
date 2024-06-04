@@ -20,9 +20,11 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.proc.ProcNodeInterface;
@@ -198,12 +200,45 @@ public class ShowAction extends RestBaseController {
         } else {
             for (long dbId : Env.getCurrentInternalCatalog().getDbIds()) {
                 DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-                if (db == null || !(db instanceof Database) || ((Database) db).isMysqlCompatibleDatabase()) {
+                if (db == null || !(db instanceof Database) || db instanceof MysqlCompatibleDatabase) {
                     continue;
                 }
                 totalSize += getDataSizeOfDatabase(db);
             }
             oneEntry.put("__total_size", totalSize);
+        }
+        return ResponseEntityBuilder.ok(oneEntry);
+    }
+
+    @RequestMapping(path = "/api/show_table_data", method = RequestMethod.GET)
+    public Object show_table_data(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        }
+
+        String dbName = request.getParameter(DB_KEY);
+        String tableName = request.getParameter(TABLE_KEY);
+        String singleReplica = request.getParameter(SINGLE_REPLICA_KEY);
+        boolean singleReplicaBool = Boolean.parseBoolean(singleReplica);
+        Map<String, Map<String, Long>> oneEntry = Maps.newHashMap();
+        if (dbName != null) {
+            String fullDbName = getFullDbName(dbName);
+            DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
+            if (db == null) {
+                return ResponseEntityBuilder.okWithCommonError("database " + fullDbName + " not found.");
+            }
+            Map<String, Long> tablesEntry = getDataSizeOfTables(db, tableName, singleReplicaBool);
+            oneEntry.put(ClusterNamespace.getNameFromFullName(fullDbName), tablesEntry);
+        } else {
+            for (long dbId : Env.getCurrentInternalCatalog().getDbIds()) {
+                DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+                if (db == null || !(db instanceof Database) || ((Database) db) instanceof MysqlCompatibleDatabase) {
+                    continue;
+                }
+                Map<String, Long> tablesEntry = getDataSizeOfTables(db, tableName, singleReplicaBool);
+                oneEntry.put(ClusterNamespace.getNameFromFullName(db.getFullName()), tablesEntry);
+            }
         }
         return ResponseEntityBuilder.ok(oneEntry);
     }
@@ -272,7 +307,7 @@ public class ShowAction extends RestBaseController {
             // sort by table name
             List<Table> tables = db.getTables();
             for (Table table : tables) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
                 table.readLock();
@@ -287,6 +322,46 @@ public class ShowAction extends RestBaseController {
             db.readUnlock();
         }
         return totalSize;
+    }
+
+    private Map<String, Long> getDataSizeOfTables(DatabaseIf db, String tableName, boolean singleReplica) {
+        Map<String, Long> oneEntry = Maps.newHashMap();
+        db.readLock();
+        try {
+            if (Strings.isNullOrEmpty(tableName)) {
+                List<Table> tables = db.getTables();
+                for (Table table : tables) {
+                    Map<String, Long> tableEntry = getDataSizeOfTable(table, singleReplica);
+                    oneEntry.putAll(tableEntry);
+                }
+            } else {
+                Table table = ((Database) db).getTableNullable(tableName);
+                if (table == null) {
+                    return oneEntry;
+                }
+                Map<String, Long> tableEntry = getDataSizeOfTable(table, singleReplica);
+                oneEntry.putAll(tableEntry);
+            }
+        } finally {
+            db.readUnlock();
+        }
+        return oneEntry;
+    }
+
+    private Map<String, Long> getDataSizeOfTable(Table table, boolean singleReplica) {
+        Map<String, Long> oneEntry = Maps.newHashMap();
+        if (table.getType() == TableType.VIEW || table.getType() == TableType.ODBC) {
+            oneEntry.put(table.getName(), 0L);
+        } else if (table.isManagedTable()) {
+            table.readLock();
+            try {
+                long tableSize = ((OlapTable) table).getDataSize(singleReplica);
+                oneEntry.put(table.getName(), tableSize);
+            } finally {
+                table.readUnlock();
+            }
+        }
+        return oneEntry;
     }
 
     private Map<String, Long> getDataSize() {

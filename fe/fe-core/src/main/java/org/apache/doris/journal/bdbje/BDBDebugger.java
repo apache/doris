@@ -212,6 +212,7 @@ public class BDBDebugger {
             db.close();
             if (status == OperationStatus.SUCCESS) {
                 byte[] retData = value.getData();
+                entityWrapper.size = retData.length;
                 DataInputStream in = new DataInputStream(new ByteArrayInputStream(retData));
                 JournalEntity entity = new JournalEntity();
                 try {
@@ -240,6 +241,7 @@ public class BDBDebugger {
 
     public static class JournalEntityWrapper {
         public Long journalId;
+        public Integer size;
         public JournalEntity entity;
         public String errMsg;
 

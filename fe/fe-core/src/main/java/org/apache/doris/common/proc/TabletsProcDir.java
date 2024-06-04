@@ -17,12 +17,12 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -52,8 +52,10 @@ public class TabletsProcDir implements ProcDirInterface {
             .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
             .add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State")
             .add("LstConsistencyCheckTime").add("CheckVersion")
-            .add("VersionCount").add("QueryHits").add("PathHash").add("MetaUrl").add("CompactionStatus")
-            .add("CooldownReplicaId").add("CooldownMetaId").build();
+            .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("PathHash").add("Path")
+            .add("MetaUrl").add("CompactionStatus")
+            .add("CooldownReplicaId").add("CooldownMetaId")
+            .build();
 
     private Table table;
     private MaterializedIndex index;
@@ -69,6 +71,12 @@ public class TabletsProcDir implements ProcDirInterface {
         ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getIdToBackend();
 
         List<List<Comparable>> tabletInfos = new ArrayList<List<Comparable>>();
+        Map<Long, String> pathHashToRoot = new HashMap<>();
+        for (Backend be : backendMap.values()) {
+            for (DiskInfo diskInfo : be.getDisks().values()) {
+                pathHashToRoot.put(diskInfo.getPathHash(), diskInfo.getRootPath());
+            }
+        }
         table.readLock();
         try {
             Map<Long, Long> replicaIdToQueryHits = new HashMap<>();
@@ -81,6 +89,7 @@ public class TabletsProcDir implements ProcDirInterface {
                 }
                 replicaIdToQueryHits = QueryStatsUtil.getMergedReplicasStats(replicaIds);
             }
+
             // get infos
             for (Tablet tablet : index.getTablets()) {
                 long tabletId = tablet.getId();
@@ -105,9 +114,11 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1); // lst consistency check time
                     tabletInfo.add(-1); // check version
                     tabletInfo.add(-1); // check version hash
-                    tabletInfo.add(-1); // version count
+                    tabletInfo.add(-1); // visible version count
+                    tabletInfo.add(-1); // total version count
                     tabletInfo.add(0L); // query hits
                     tabletInfo.add(-1); // path hash
+                    tabletInfo.add(FeConstants.null_string); // path
                     tabletInfo.add(FeConstants.null_string); // meta url
                     tabletInfo.add(FeConstants.null_string); // compaction status
                     tabletInfo.add(-1); // cooldown replica id
@@ -138,9 +149,11 @@ public class TabletsProcDir implements ProcDirInterface {
 
                         tabletInfo.add(TimeUtils.longToTimeString(tablet.getLastCheckTime()));
                         tabletInfo.add(tablet.getCheckedVersion());
-                        tabletInfo.add(replica.getVersionCount());
+                        tabletInfo.add(replica.getVisibleVersionCount());
+                        tabletInfo.add(replica.getTotalVersionCount());
                         tabletInfo.add(replicaIdToQueryHits.getOrDefault(replica.getId(), 0L));
                         tabletInfo.add(replica.getPathHash());
+                        tabletInfo.add(pathHashToRoot.getOrDefault(replica.getPathHash(), ""));
                         Backend be = backendMap.get(replica.getBackendId());
                         String host = (be == null ? Backend.DUMMY_IP : be.getHost());
                         int port = (be == null ? 0 : be.getHttpPort());
@@ -209,8 +222,12 @@ public class TabletsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid tablet id format: " + tabletIdStr);
         }
 
-        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-        List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
+        Tablet tablet = index.getTablet(tabletId);
+        if (tablet == null) {
+            throw new AnalysisException("Tablet[" + tabletId + "] does not exist");
+        }
+
+        List<Replica> replicas = tablet.getReplicas();
         return new ReplicasProcNode(tabletId, replicas);
     }
 

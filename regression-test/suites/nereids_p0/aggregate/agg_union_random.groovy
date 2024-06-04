@@ -20,6 +20,8 @@
 suite("agg_union_random") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     sql "DROP TABLE IF EXISTS test_random;"
     sql """
         create table test_random
@@ -42,7 +44,7 @@ suite("agg_union_random") {
                 RANDOM
 
             252:VOlapScanNode
-                TABLE: default_cluster:regression_test_nereids_p0_aggregate.test_random(test_random), PREAGGREGATION: ON
+                TABLE: regression_test_nereids_p0_aggregate.test_random(test_random), PREAGGREGATION: ON
                 partitions=0/1, tablets=0/0, tabletList=
                 cardinality=1, avgRowSize=0.0, numNodes=1
                 pushAggOp=NONE

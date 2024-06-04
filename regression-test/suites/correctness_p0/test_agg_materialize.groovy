@@ -20,7 +20,6 @@
 // and modified by Doris.
 
 suite("test_agg_materialize") {
-    sql "set enable_nereids_planner=false"
     qt_select """with tb1 as (select * from (select * from (select 1 k1) as t lateral view explode([1,2,3]) tmp1 as e1)t)
                     select count(*) from (select 1, count(*)
                         from tb1
@@ -34,7 +33,7 @@ suite("test_agg_materialize") {
     sql """drop table if exists c5749_bug_t;"""
     sql """CREATE TABLE `c5749_bug_t` (
             `org_code` varchar(255) NULL ,
-            `cash_amt` decimal(27, 9) NULL ,
+            `cash_amt` decimal(27, 9) NULL
             
             ) ENGINE=OLAP
             DUPLICATE KEY(`org_code`)
@@ -100,4 +99,59 @@ suite("test_agg_materialize") {
                     ORDER BY SPJ.org_code;
                     """
     sql """drop table if exists c5749_bug_t;"""
+
+    sql """drop table if exists table_test_count_distinct;"""
+    sql """CREATE TABLE `table_test_count_distinct` (
+        `special_zone_name` VARCHAR(65532) NULL,
+        `day` VARCHAR(65532) NOT NULL 
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`special_zone_name`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`special_zone_name`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );"""
+    sql """insert into
+            table_test_count_distinct
+            values
+            (
+                'a',
+                "2023-12-01"
+            );"""
+    qt_selectx"""SELECT
+                (COUNT(DISTINCT descript)) as c475859316,
+                (COUNT(DISTINCT day)) as c125327027
+                FROM
+                (
+                    SELECT
+                    descript,
+                    day
+                    FROM
+                    (
+                        with tmp2 as (
+                        select
+                            special_zone_name as descript,
+                            cast(day as datev2) as day
+                        from
+                            table_test_count_distinct
+                        union
+                        all
+                        select
+                            special_zone_name as descript,
+                            
+                            cast(day as datev2) as day
+                        from
+                            table_test_count_distinct
+                        )
+                        select
+                        t1.descript,
+                        t1.day
+                        from
+                        tmp2 t1
+
+                    ) t665446993
+                ) t1600566476
+                GROUP BY
+                day;"""
+    sql """drop table if exists table_test_count_distinct;"""
 }

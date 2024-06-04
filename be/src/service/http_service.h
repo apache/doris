@@ -29,6 +29,8 @@ namespace doris {
 class ExecEnv;
 class EvHttpServer;
 class WebPageHandler;
+class StorageEngine;
+class CloudStorageEngine;
 
 // HTTP service for Doris BE
 class HttpService {
@@ -43,6 +45,10 @@ public:
     int get_real_port() const;
 
 private:
+    void register_debug_point_handler();
+    void register_local_handler(StorageEngine& engine);
+    void register_cloud_handler(CloudStorageEngine& engine);
+
     ExecEnv* _env = nullptr;
     ObjectPool _pool;
 

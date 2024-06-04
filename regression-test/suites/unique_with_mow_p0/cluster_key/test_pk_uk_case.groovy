@@ -26,7 +26,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.time.format.DateTimeFormatter;
 
-suite("test_pk_uk_case") {
+suite("test_pk_uk_case_cluster_key") {
     def tableNamePk = "primary_key_pk_uk"
     def tableNameUk = "unique_key_pk_uk"
 
@@ -194,6 +194,9 @@ suite("test_pk_uk_case") {
         def result1 = sql """ SELECT count(*) FROM ${tableNameUk}; """
         logger.info("result:" + result0[0][0] + "|" + result1[0][0])
         assertEquals(result0[0], result1[0])
+        if (result0[0][0]!=result1[0][0]) {
+            logger.info("result:" + result0[0][0] + "|" + result1[0][0])
+        }
 
         result0 = sql """ SELECT
                             l_returnflag,

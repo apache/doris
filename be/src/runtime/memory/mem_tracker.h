@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "runtime/query_statistics.h"
 #include "util/pretty_printer.h"
 
 namespace doris {
@@ -69,7 +70,7 @@ public:
         MemCounter() : _current_value(0), _peak_value(0) {}
 
         void add(int64_t delta) {
-            auto value = _current_value.fetch_add(delta, std::memory_order_relaxed) + delta;
+            int64_t value = _current_value.fetch_add(delta, std::memory_order_relaxed) + delta;
             update_peak(value);
         }
 
@@ -78,8 +79,8 @@ public:
         }
 
         bool try_add(int64_t delta, int64_t max) {
-            auto cur_val = _current_value.load(std::memory_order_relaxed);
-            auto new_val = 0;
+            int64_t cur_val = _current_value.load(std::memory_order_relaxed);
+            int64_t new_val = 0;
             do {
                 new_val = cur_val + delta;
                 if (UNLIKELY(new_val > max)) {
@@ -99,7 +100,7 @@ public:
         }
 
         void update_peak(int64_t value) {
-            auto pre_value = _peak_value.load(std::memory_order_relaxed);
+            int64_t pre_value = _peak_value.load(std::memory_order_relaxed);
             while (value > pre_value && !_peak_value.compare_exchange_weak(
                                                 pre_value, value, std::memory_order_relaxed)) {
             }
@@ -138,6 +139,10 @@ public:
             return;
         }
         _consumption->add(bytes);
+        if (_query_statistics) {
+            _query_statistics->set_max_peak_memory_bytes(_consumption->peak_value());
+            _query_statistics->set_current_used_memory_bytes(_consumption->current_value());
+        }
     }
 
     void consume_no_update_peak(int64_t bytes) { // need extreme fast
@@ -147,6 +152,8 @@ public:
     void release(int64_t bytes) { _consumption->sub(bytes); }
 
     void set_consumption(int64_t bytes) { _consumption->set(bytes); }
+
+    std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
 
 public:
     virtual Snapshot make_snapshot() const;
@@ -180,6 +187,8 @@ protected:
 
     // Iterator into mem_tracker_pool for this object. Stored to have O(1) remove.
     std::list<MemTracker*>::iterator _tracker_group_it;
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris

@@ -54,9 +54,7 @@ suite("test_backup_restore_bloom_filter", "backup_restore") {
         PROPERTIES ("type" = "full")
         """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
 
@@ -70,13 +68,11 @@ suite("test_backup_restore_bloom_filter", "backup_restore") {
         PROPERTIES
         (
             "backup_timestamp" = "${snapshot}",
-            "replication_num" = "1"
+            "reserve_replica" = "true"
         )
         """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     def restore_index_comment = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
 

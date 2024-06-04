@@ -37,18 +37,19 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-CheckTabletSegmentAction::CheckTabletSegmentAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+CheckTabletSegmentAction::CheckTabletSegmentAction(ExecEnv* exec_env, StorageEngine& engine,
+                                                   TPrivilegeHier::type hier,
                                                    TPrivilegeType::type type)
-        : HttpHandlerWithAuth(exec_env, hier, type) {
-    _host = BackendOptions::get_localhost();
-}
+        : HttpHandlerWithAuth(exec_env, hier, type),
+          _engine(engine),
+          _host(BackendOptions::get_localhost()) {}
 
 void CheckTabletSegmentAction::handle(HttpRequest* req) {
     bool repair = false;
     std::string is_repair = req->param("repair");
     if (is_repair == "true") {
         repair = true;
-    } else if (is_repair != "" && is_repair != "false") {
+    } else if (!is_repair.empty() && is_repair != "false") {
         EasyJson result_ej;
         result_ej["status"] = "Fail";
         result_ej["msg"] = "Parameter 'repair' must be set to 'true' or 'false'";
@@ -58,8 +59,7 @@ void CheckTabletSegmentAction::handle(HttpRequest* req) {
     }
 
     LOG(INFO) << "start to check tablet segment.";
-    std::set<int64_t> bad_tablets =
-            StorageEngine::instance()->tablet_manager()->check_all_tablet_segment(repair);
+    std::set<int64_t> bad_tablets = _engine.tablet_manager()->check_all_tablet_segment(repair);
     LOG(INFO) << "finish to check tablet segment.";
 
     EasyJson result_ej;

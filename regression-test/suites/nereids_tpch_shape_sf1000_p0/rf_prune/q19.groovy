@@ -31,12 +31,15 @@ suite("q19") {
 
 
     
-sql 'set be_number_for_test=3'
+    sql 'set be_number_for_test=3'
+    sql "set runtime_filter_type=8"
 sql 'set forbid_unknown_col_stats=true'
 sql 'set enable_runtime_filter_prune=true'
 sql 'set enable_stats=true'
 sql 'set enable_left_zig_zag=false'
-    
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
+
     qt_select """
     explain shape plan
         select

@@ -125,12 +125,11 @@ std::string PrintFrontendInfos(const std::vector<TFrontendInfo>& fe_infos) {
 std::string PrintFrontendInfo(const TFrontendInfo& fe_info) {
     std::stringstream ss;
     fe_info.printTo(ss);
-
     return ss.str();
 }
 
 std::string PrintInstanceStandardInfo(const TUniqueId& qid, const TUniqueId& iid) {
-    return fmt::format("{}|{}", print_id(iid), print_id(qid));
+    return fmt::format("{}|{}", print_id(qid), print_id(iid));
 }
 
 } // namespace doris

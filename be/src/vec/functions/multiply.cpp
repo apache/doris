@@ -48,10 +48,18 @@ struct MultiplyImpl {
         return a * b;
     }
 
-    static void vector_vector(const ColumnDecimal128::Container::value_type* __restrict a,
-                              const ColumnDecimal128::Container::value_type* __restrict b,
-                              ColumnDecimal128::Container::value_type* c, size_t size) {
-        int8 sgn[size];
+    /*
+    select 999999999999999999999999999 * 999999999999999999999999999;
+    999999999999999999999999998000000000.000000000000000001 54 digits
+    */
+    template <bool check_overflow>
+    static void vector_vector(const ColumnDecimal128V2::Container::value_type* __restrict a,
+                              const ColumnDecimal128V2::Container::value_type* __restrict b,
+                              ColumnDecimal128V2::Container::value_type* c, size_t size) {
+        auto sng_uptr = std::unique_ptr<int8[]>(new int8[size]);
+        int8* sgn = sng_uptr.get();
+        auto max = DecimalV2Value::get_max_decimal();
+        auto min = DecimalV2Value::get_min_decimal();
 
         for (int i = 0; i < size; i++) {
             sgn[i] = ((DecimalV2Value(a[i]).value() > 0) && (DecimalV2Value(b[i]).value() > 0)) ||
@@ -64,14 +72,26 @@ struct MultiplyImpl {
         }
 
         for (int i = 0; i < size; i++) {
-            int128_t i128_mul_result;
-            if (common::mul_overflow(DecimalV2Value(a[i]).value(), DecimalV2Value(b[i]).value(),
-                                     i128_mul_result)) {
-                VLOG_DEBUG << "Decimal multiply overflow";
-                c[i] = (sgn[i] == -1) ? -DecimalV2Value::MAX_DECIMAL_VALUE
-                                      : DecimalV2Value::MAX_DECIMAL_VALUE;
-            } else {
+            if constexpr (check_overflow) {
+                int128_t i128_mul_result;
+                if (common::mul_overflow(DecimalV2Value(a[i]).value(), DecimalV2Value(b[i]).value(),
+                                         i128_mul_result)) {
+                    THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
+                            DecimalV2Value(a[i]).to_string(), "multiply",
+                            DecimalV2Value(b[i]).to_string(),
+                            DecimalV2Value(i128_mul_result).to_string(), "decimalv2");
+                }
                 c[i] = (i128_mul_result - sgn[i]) / DecimalV2Value::ONE_BILLION + sgn[i];
+                if (c[i].value > max.value() || c[i].value < min.value()) {
+                    THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
+                            DecimalV2Value(a[i]).to_string(), "multiply",
+                            DecimalV2Value(b[i]).to_string(),
+                            DecimalV2Value(i128_mul_result).to_string(), "decimalv2");
+                }
+            } else {
+                c[i] = (DecimalV2Value(a[i]).value() * DecimalV2Value(b[i]).value() - sgn[i]) /
+                               DecimalV2Value::ONE_BILLION +
+                       sgn[i];
             }
         }
     }

@@ -17,9 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -28,8 +27,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -39,15 +40,17 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Multimaps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.BinaryOperator;
@@ -72,18 +75,21 @@ import java.util.stream.Collectors;
  * 2. for `Or` expression (similar to `And`).
  * todo: support a > 10 and (a < 10 or a > 20 ) => a > 20
  */
-public class SimplifyRange extends AbstractExpressionRewriteRule {
-
+public class SimplifyRange implements ExpressionPatternRuleFactory {
     public static final SimplifyRange INSTANCE = new SimplifyRange();
 
     @Override
-    public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-        if (expr instanceof CompoundPredicate) {
-            ValueDesc valueDesc = expr.accept(new RangeInference(), null);
-            Expression simplifiedExpr = valueDesc.toExpression();
-            return simplifiedExpr == null ? valueDesc.expr : simplifiedExpr;
-        }
-        return expr;
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesTopType(CompoundPredicate.class).then(SimplifyRange::rewrite)
+        );
+    }
+
+    /** rewrite */
+    public static Expression rewrite(CompoundPredicate expr) {
+        ValueDesc valueDesc = expr.accept(new RangeInference(), null);
+        Expression simplifiedExpr = valueDesc.toExpression();
+        return simplifiedExpr == null ? valueDesc.expr : simplifiedExpr;
     }
 
     private static class RangeInference extends ExpressionVisitor<ValueDesc, Void> {
@@ -94,11 +100,20 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         }
 
         private ValueDesc buildRange(ComparisonPredicate predicate) {
-            Expression rewrite = ExpressionRuleExecutor.normalize(predicate);
-            Expression right = rewrite.child(1);
-            // only handle `NumericType`
-            if (right.isLiteral() && right.getDataType().isNumericType()) {
-                return ValueDesc.range((ComparisonPredicate) rewrite);
+            Expression right = predicate.child(1);
+            if (right.isNullLiteral()) {
+                // it's safe to return empty value if >, >=, <, <= and = with null
+                if ((predicate instanceof GreaterThan || predicate instanceof GreaterThanEqual
+                        || predicate instanceof LessThan || predicate instanceof LessThanEqual
+                        || predicate instanceof EqualTo)) {
+                    return new EmptyValue(predicate.child(0), predicate);
+                } else {
+                    return new UnknownValue(predicate);
+                }
+            }
+            // only handle `NumericType` and `DateLikeType`
+            if (right.isLiteral() && (right.getDataType().isNumericType() || right.getDataType().isDateLikeType())) {
+                return ValueDesc.range(predicate);
             }
             return new UnknownValue(predicate);
         }
@@ -130,9 +145,10 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
 
         @Override
         public ValueDesc visitInPredicate(InPredicate inPredicate, Void context) {
-            // only handle `NumericType`
+            // only handle `NumericType` and `DateLikeType`
             if (ExpressionUtils.isAllLiteral(inPredicate.getOptions())
-                    && ExpressionUtils.matchNumericType(inPredicate.getOptions())) {
+                    && (ExpressionUtils.matchNumericType(inPredicate.getOptions())
+                    || ExpressionUtils.matchDateLikeType(inPredicate.getOptions()))) {
                 return ValueDesc.discrete(inPredicate);
             }
             return new UnknownValue(inPredicate);
@@ -151,18 +167,23 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         private ValueDesc simplify(Expression originExpr, List<Expression> predicates,
                 BinaryOperator<ValueDesc> op, BinaryOperator<Expression> exprOp) {
 
-            Map<Expression, List<ValueDesc>> groupByReference = predicates.stream()
-                    .map(predicate -> predicate.accept(this, null))
-                    .collect(Collectors.groupingBy(p -> p.reference, LinkedHashMap::new, Collectors.toList()));
+            Multimap<Expression, ValueDesc> groupByReference
+                    = Multimaps.newListMultimap(new LinkedHashMap<>(), ArrayList::new);
+            for (Expression predicate : predicates) {
+                ValueDesc valueDesc = predicate.accept(this, null);
+                List<ValueDesc> valueDescs = (List<ValueDesc>) groupByReference.get(valueDesc.reference);
+                valueDescs.add(valueDesc);
+            }
 
             List<ValueDesc> valuePerRefs = Lists.newArrayList();
-            for (Entry<Expression, List<ValueDesc>> referenceValues : groupByReference.entrySet()) {
-                List<ValueDesc> valuePerReference = referenceValues.getValue();
+            for (Entry<Expression, Collection<ValueDesc>> referenceValues : groupByReference.asMap().entrySet()) {
+                List<ValueDesc> valuePerReference = (List) referenceValues.getValue();
 
                 // merge per reference
-                ValueDesc simplifiedValue = valuePerReference.stream()
-                        .reduce(op)
-                        .get();
+                ValueDesc simplifiedValue = valuePerReference.get(0);
+                for (int i = 1; i < valuePerReference.size(); i++) {
+                    simplifiedValue = op.apply(simplifiedValue, valuePerReference.get(i));
+                }
 
                 valuePerRefs.add(simplifiedValue);
             }
@@ -204,7 +225,7 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         public static ValueDesc intersect(RangeValue range, DiscreteValue discrete) {
             DiscreteValue result = new DiscreteValue(discrete.reference, discrete.expr);
             discrete.values.stream().filter(x -> range.range.contains(x)).forEach(result.values::add);
-            if (result.values.size() > 0) {
+            if (!result.values.isEmpty()) {
                 return result;
             }
             return new EmptyValue(range.reference, ExpressionUtils.and(range.expr, discrete.expr));
@@ -232,6 +253,7 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         }
 
         public static ValueDesc discrete(InPredicate in) {
+            // Set<Literal> literals = (Set) Utils.fastToImmutableSet(in.getOptions());
             Set<Literal> literals = in.getOptions().stream().map(Literal.class::cast).collect(Collectors.toSet());
             return new DiscreteValue(in.getCompareExpr(), in, literals);
         }
@@ -333,12 +355,19 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
                     result.add(new LessThan(reference, range.upperEndpoint()));
                 }
             }
-            return result.isEmpty() ? BooleanLiteral.TRUE : ExpressionUtils.and(result);
+            if (!result.isEmpty()) {
+                return ExpressionUtils.and(result);
+            } else if (reference.nullable()) {
+                // when reference is nullable, we should filter null slot.
+                return new Not(new IsNull(reference));
+            } else {
+                return BooleanLiteral.TRUE;
+            }
         }
 
         @Override
         public String toString() {
-            return range == null ? "UnknwonRange" : range.toString();
+            return range == null ? "UnknownRange" : range.toString();
         }
     }
 
@@ -407,7 +436,9 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
             // They are same processes, so must change synchronously.
             if (values.size() == 1) {
                 return new EqualTo(reference, values.iterator().next());
-            } else if (values.size() == 2) {
+
+                // this condition should as same as OrToIn, or else meet dead loop
+            } else if (values.size() < OrToIn.REWRITE_OR_TO_IN_PREDICATE_THRESHOLD) {
                 Iterator<Literal> iterator = values.iterator();
                 return new Or(new EqualTo(reference, iterator.next()), new EqualTo(reference, iterator.next()));
             } else {
@@ -458,10 +489,12 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
             if (sourceValues.isEmpty()) {
                 return expr;
             }
-            return sourceValues.stream()
-                    .map(ValueDesc::toExpression)
-                    .reduce(mergeExprOp)
-                    .get();
+
+            Expression result = sourceValues.get(0).toExpression();
+            for (int i = 1; i < sourceValues.size(); i++) {
+                result = mergeExprOp.apply(result, sourceValues.get(i).toExpression());
+            }
+            return result;
         }
     }
 }

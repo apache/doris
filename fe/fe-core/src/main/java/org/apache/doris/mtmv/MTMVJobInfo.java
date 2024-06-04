@@ -17,12 +17,12 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.util.LinkedList;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * MTMVJobInfo
@@ -31,11 +31,11 @@ public class MTMVJobInfo {
     @SerializedName("jobName")
     private String jobName;
     @SerializedName("ht")
-    private LinkedList<MTMVTask> historyTasks;
+    private ConcurrentLinkedQueue<MTMVTask> historyTasks;
 
     public MTMVJobInfo(String jobName) {
         this.jobName = jobName;
-        historyTasks = Lists.newLinkedList();
+        historyTasks = new ConcurrentLinkedQueue<>();
     }
 
     public String getJobName() {
@@ -43,18 +43,21 @@ public class MTMVJobInfo {
     }
 
     public void addHistoryTask(MTMVTask task) {
+        if (Config.max_persistence_task_count < 1) {
+            return;
+        }
         historyTasks.add(task);
-        if (historyTasks.size() > MTMVTask.MAX_HISTORY_TASKS_NUM) {
-            historyTasks.removeFirst();
+        if (historyTasks.size() > Config.max_persistence_task_count) {
+            historyTasks.poll();
         }
     }
 
-    public LinkedList<MTMVTask> getHistoryTasks() {
+    public ConcurrentLinkedQueue<MTMVTask> getHistoryTasks() {
         return historyTasks;
     }
 
-    @Override
-    public String toString() {
+    // toString() is not easy to find where to call the method
+    public String toInfoString() {
         return "MTMVJobInfo{"
                 + "jobName='" + jobName + '\''
                 + ", historyTasks=" + historyTasks

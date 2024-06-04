@@ -20,10 +20,9 @@
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <string>
-#include <type_traits>
 
 #include "olap/decimal12.h"
 #include "runtime/define_primitive_type.h"
@@ -37,7 +36,9 @@
 namespace doris {
 
 namespace vectorized {
-class ColumnString;
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 } // namespace vectorized
 
 class DecimalV2Value;
@@ -208,7 +209,7 @@ struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using CppType = DecimalV2Value;
     /// Different with compute layer, the DecimalV1 was stored as decimal12_t(12 bytes).
     using StorageFieldType = decimal12_t;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128>;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128V2>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
@@ -224,9 +225,9 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
-    using CppType = vectorized::Decimal128I;
+    using CppType = vectorized::Decimal128V3;
     using StorageFieldType = vectorized::Int128;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128I>;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128V3>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL256> {
@@ -243,13 +244,13 @@ struct PrimitiveTypeTraits<TYPE_LARGEINT> {
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV4> {
     using CppType = vectorized::IPv4;
-    using StorageFieldType = uint32_t;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnIPv4;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV6> {
     using CppType = vectorized::IPv6;
-    using StorageFieldType = uint64_t;
+    using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnIPv6;
 };
 template <>

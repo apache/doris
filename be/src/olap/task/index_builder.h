@@ -21,22 +21,30 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/pending_rowset_helper.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_writer.h"
-#include "olap/tablet.h"
-#include "olap/tablet_meta.h"
-#include "olap/utils.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/segment.h"
+#include "olap/tablet_fwd.h"
 #include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
+namespace segment_v2 {
+class InvertedIndexColumnWriter;
+class InvertedIndexFileWriter;
+} // namespace segment_v2
+namespace vectorized {
+class OlapBlockDataConvertor;
+}
 
+class StorageEngine;
 class RowsetWriter;
 
 using RowsetWriterUniquePtr = std::unique_ptr<RowsetWriter>;
 
 class IndexBuilder {
 public:
-    IndexBuilder(const TabletSharedPtr& tablet, const std::vector<TColumn>& columns,
+    IndexBuilder(StorageEngine& engine, TabletSharedPtr tablet, const std::vector<TColumn>& columns,
                  const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
                  bool is_drop_op = false);
     ~IndexBuilder();
@@ -61,11 +69,13 @@ private:
                          const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
 
 private:
+    StorageEngine& _engine;
     TabletSharedPtr _tablet;
     std::vector<TColumn> _columns;
     std::vector<doris::TOlapTableIndex> _alter_inverted_indexes;
+    std::vector<TabletIndex> _dropped_inverted_indexes;
     bool _is_drop_op;
-    std::set<int32_t> _alter_index_ids;
+    std::set<int64_t> _alter_index_ids;
     std::vector<RowsetSharedPtr> _input_rowsets;
     std::vector<RowsetSharedPtr> _output_rowsets;
     std::vector<PendingRowsetGuard> _pending_rs_guards;
@@ -75,6 +85,11 @@ private:
     std::unordered_map<std::pair<int64_t, int64_t>,
                        std::unique_ptr<segment_v2::InvertedIndexColumnWriter>>
             _inverted_index_builders;
+    std::unordered_map<int64_t, std::unique_ptr<InvertedIndexFileWriter>>
+            _inverted_index_file_writers;
+    // <rowset_id, segment_id>
+    std::unordered_map<std::pair<std::string, int64_t>, std::unique_ptr<InvertedIndexFileReader>>
+            _inverted_index_file_readers;
 };
 
 using IndexBuilderSharedPtr = std::shared_ptr<IndexBuilder>;

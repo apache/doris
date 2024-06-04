@@ -17,12 +17,19 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.combinator;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -38,7 +45,7 @@ import java.util.Objects;
  * AggState combinator state
  */
 public class StateCombinator extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable, Combinator, RollUpTrait {
 
     private final AggregateFunction nested;
     private final AggStateType returnType;
@@ -47,7 +54,7 @@ public class StateCombinator extends ScalarFunction
      * constructor of StateCombinator
      */
     public StateCombinator(List<Expression> arguments, AggregateFunction nested) {
-        super(nested.getName() + AggStateFunctionBuilder.STATE_SUFFIX, arguments);
+        super(nested.getName() + AggCombinerFunctionBuilder.STATE_SUFFIX, arguments);
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
         this.returnType = new AggStateType(nested.getName(), arguments.stream().map(arg -> {
@@ -83,7 +90,25 @@ public class StateCombinator extends ScalarFunction
         return returnType;
     }
 
+    @Override
     public AggregateFunction getNestedFunction() {
         return nested;
+    }
+
+    @Override
+    public Function constructRollUp(Expression param, Expression... varParams) {
+        String nestedName = AggCombinerFunctionBuilder.getNestedName(getName());
+        FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
+        // state combinator roll up result should be union combinator
+        String combinatorName = nestedName + AggCombinerFunctionBuilder.UNION_SUFFIX;
+        FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(combinatorName, param);
+        Pair<? extends Expression, ? extends BoundFunction> targetExpressionPair =
+                functionBuilder.build(combinatorName, param);
+        return (Function) targetExpressionPair.key();
+    }
+
+    @Override
+    public boolean canRollUp() {
+        return true;
     }
 }

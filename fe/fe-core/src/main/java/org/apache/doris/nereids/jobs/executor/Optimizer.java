@@ -22,6 +22,7 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import java.util.Objects;
@@ -49,14 +50,25 @@ public class Optimizer {
         cascadesContext.pushJob(new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
                 cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        boolean optimizeWithUnknownColStats = false;
+        if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
+            if (ConnectContext.get().getStatementContext().isHasUnknownColStats()) {
+                optimizeWithUnknownColStats = true;
+            }
+        }
         // DPHyp optimize
+        int maxTableCount = getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
+        if (optimizeWithUnknownColStats) {
+            // if column stats are unknown, 10~20 table-join is optimized by cascading framework
+            maxTableCount = 2 * maxTableCount;
+        }
         int maxJoinCount = cascadesContext.getMemo().countMaxContinuousJoin();
         cascadesContext.getStatementContext().setMaxContinuousJoin(maxJoinCount);
         boolean isDpHyp = getSessionVariable().enableDPHypOptimizer
-                || maxJoinCount > getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
+                || maxJoinCount > maxTableCount;
         cascadesContext.getStatementContext().setDpHyp(isDpHyp);
-        cascadesContext.getStatementContext().setOtherJoinReorder(false);
         if (!getSessionVariable().isDisableJoinReorder() && isDpHyp
+                && !cascadesContext.isLeadingDisableJoinReorder()
                 && maxJoinCount <= getSessionVariable().getMaxJoinNumberOfReorder()) {
             //RightNow, dphyper can only order 64 join operators
             dpHypOptimize();
@@ -73,7 +85,6 @@ public class Optimizer {
         // Due to EnsureProjectOnTopJoin, root group can't be Join Group, so DPHyp doesn't change the root group
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        cascadesContext.getStatementContext().setOtherJoinReorder(true);
     }
 
     private SessionVariable getSessionVariable() {

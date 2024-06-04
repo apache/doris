@@ -20,33 +20,16 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vselect_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class SelectOperatorBuilder final : public OperatorBuilder<vectorized::VSelectNode> {
-public:
-    SelectOperatorBuilder(int32_t id, ExecNode* select_node);
-
-    OperatorPtr build_operator() override;
-};
-
-class SelectOperator final : public StreamingOperator<SelectOperatorBuilder> {
-public:
-    SelectOperator(OperatorBuilderBase* operator_builder, ExecNode* select_node);
-};
+namespace doris::pipeline {
 
 class SelectOperatorX;
-class SelectLocalState final : public PipelineXLocalState<FakeDependency> {
+class SelectLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(SelectLocalState);
 
     SelectLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<FakeDependency>(state, parent) {}
+            : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~SelectLocalState() = default;
 
 private:
@@ -59,18 +42,17 @@ public:
                     const DescriptorTbl& descs)
             : StreamingOperatorX<SelectLocalState>(pool, tnode, operator_id, descs) {}
 
-    Status pull(RuntimeState* state, vectorized::Block* block, SourceState& source_state) override {
+    Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
                                                                block->columns()));
-        local_state.reached_limit(block, source_state);
+        local_state.reached_limit(block, eos);
         return Status::OK();
     }
 
     [[nodiscard]] bool is_source() const override { return false; }
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

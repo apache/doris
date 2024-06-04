@@ -103,4 +103,6 @@ null, null, null,
 null, null, null, null, null, null, null
 );
 
+insert into doris_test.lower_test values ('DORIS', 'Doris', 'doris');
+
 commit;

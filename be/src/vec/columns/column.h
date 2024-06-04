@@ -22,10 +22,9 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stdint.h>
 #include <sys/types.h>
 
-#include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <ostream>
 #include <string>
@@ -45,19 +44,6 @@
 #include "vec/core/types.h"
 
 class SipHash;
-
-#define SIP_HASHES_FUNCTION_COLUMN_IMPL()                                \
-    auto s = hashes.size();                                              \
-    DCHECK(s == size());                                                 \
-    if (null_data == nullptr) {                                          \
-        for (size_t i = 0; i < s; i++) {                                 \
-            update_hash_with_value(i, hashes[i]);                        \
-        }                                                                \
-    } else {                                                             \
-        for (size_t i = 0; i < s; i++) {                                 \
-            if (null_data[i] == 0) update_hash_with_value(i, hashes[i]); \
-        }                                                                \
-    }
 
 #define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                         \
     if (null_data == nullptr) {                                                      \
@@ -90,14 +76,13 @@ private:
     /// If you want to copy column for modification, look at 'mutate' method.
     virtual MutablePtr clone() const = 0;
 
-protected:
+public:
     // 64bit offsets now only Array type used, so we make it protected
     // to avoid use IColumn::Offset64 directly.
     // please use ColumnArray::Offset64 instead if we need.
     using Offset64 = UInt64;
     using Offsets64 = PaddedPODArray<Offset64>;
 
-public:
     // 32bit offsets for string
     using Offset = UInt32;
     using Offsets = PaddedPODArray<Offset>;
@@ -112,6 +97,11 @@ public:
       * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
       */
     virtual Ptr convert_to_full_column_if_const() const { return get_ptr(); }
+
+    /** If in join. the StringColumn size may overflow uint32_t, we need convert to uint64_t to ColumnString64
+  * The Column: ColumnString, ColumnNullable, ColumnArray, ColumnStruct need impl the code
+  */
+    virtual Ptr convert_column_if_overflow() { return get_ptr(); }
 
     /// If column isn't ColumnLowCardinality, return itself.
     /// If column is ColumnLowCardinality, transforms is to full column.
@@ -140,9 +130,13 @@ public:
 
     // shrink the end zeros for CHAR type or ARRAY<CHAR> type
     virtual MutablePtr get_shrinked_column() {
-        LOG(FATAL) << "Cannot clone_resized() column " << get_name();
+        LOG(FATAL) << "Cannot get_shrinked_column() column " << get_name();
         return nullptr;
     }
+
+    // check the column whether could shrinked
+    // now support only in char type, or the nested type in complex type: array{char}, struct{char}, map{char}
+    virtual bool could_shrinked_column() { return false; }
 
     /// Some columns may require finalization before using of other operations.
     virtual void finalize() {}
@@ -169,36 +163,11 @@ public:
     /// Is used to optimize some computations (in aggregation, for example).
     virtual StringRef get_data_at(size_t n) const = 0;
 
-    /// If column stores integers, it returns n-th element transformed to UInt64 using static_cast.
-    /// If column stores floating point numbers, bits of n-th elements are copied to lower bits of UInt64, the remaining bits are zeros.
-    /// Is used to optimize some computations (in aggregation, for example).
-    virtual UInt64 get64(size_t /*n*/) const {
-        LOG(FATAL) << "Method get64 is not supported for ";
-        return 0;
-    }
-
-    /// If column stores native numeric type, it returns n-th element casted to Float64
-    /// Is used in regression methods to cast each features into uniform type
-    virtual Float64 get_float64(size_t /*n*/) const {
-        LOG(FATAL) << "Method get_float64 is not supported for " << get_name();
-        return 0;
-    }
-
-    /** If column is numeric, return value of n-th element, casted to UInt64.
-      * For NULL values of Nullable column it is allowed to return arbitrary value.
-      * Otherwise throw an exception.
-      */
-    virtual UInt64 get_uint(size_t /*n*/) const {
-        LOG(FATAL) << "Method get_uint is not supported for " << get_name();
-        return 0;
-    }
-
     virtual Int64 get_int(size_t /*n*/) const {
         LOG(FATAL) << "Method get_int is not supported for " << get_name();
         return 0;
     }
 
-    virtual bool is_default_at(size_t n) const { return get64(n) == 0; }
     virtual bool is_null_at(size_t /*n*/) const { return false; }
 
     /** If column is numeric, return value of n-th element, casted to bool.
@@ -231,12 +200,23 @@ public:
     /// TODO: we need `insert_range_from_const` for every column type.
     virtual void insert_range_from(const IColumn& src, size_t start, size_t length) = 0;
 
+    /// Appends range of elements from other column with the same type.
+    /// Do not need throw execption in ColumnString overflow uint32, only
+    /// use in join
+    virtual void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                                   size_t length) {
+        insert_range_from(src, start, length);
+    }
+
     /// Appends one element from other column with the same type multiple times.
     virtual void insert_many_from(const IColumn& src, size_t position, size_t length) {
         for (size_t i = 0; i < length; ++i) {
             insert_from(src, position);
         }
     }
+
+    virtual void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
+                                          std::vector<size_t> positions);
 
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
@@ -336,22 +316,26 @@ public:
     virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                size_t max_row_byte_size) const {
         LOG(FATAL) << "serialize_vec not supported";
+        __builtin_unreachable();
     }
 
     virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                              const uint8_t* null_map) const {
         LOG(FATAL) << "serialize_vec_with_null_map not supported";
+        __builtin_unreachable();
     }
 
     // This function deserializes group-by keys into column in the vectorized way.
     virtual void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
         LOG(FATAL) << "deserialize_vec not supported";
+        __builtin_unreachable();
     }
 
     // Used in ColumnNullable::deserialize_vec
     virtual void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
                                                const uint8_t* null_map) {
         LOG(FATAL) << "deserialize_vec_with_null_map not supported";
+        __builtin_unreachable();
     }
 
     /// TODO: SipHash is slower than city or xx hash, rethink we should have a new interface
@@ -360,15 +344,6 @@ public:
     ///  passed bytes to hash must identify sequence of values unambiguously.
     virtual void update_hash_with_value(size_t n, SipHash& hash) const {
         LOG(FATAL) << get_name() << " update_hash_with_value siphash not supported";
-    }
-
-    /// Update state of hash function with value of n elements to avoid the virtual function call
-    /// null_data to mark whether need to do hash compute, null_data == nullptr
-    /// means all element need to do hash function, else only *null_data != 0 need to do hash func
-    /// do xxHash here, faster than other hash method
-    virtual void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                          const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << get_name() << " update_hashes_with_value siphash not supported";
     }
 
     /// Update state of hash function with value of n elements to avoid the virtual function call
@@ -436,13 +411,6 @@ public:
     using Permutation = PaddedPODArray<size_t>;
     virtual Ptr permute(const Permutation& perm, size_t limit) const = 0;
 
-    /// Creates new column with values column[indexes[:limit]]. If limit is 0, all indexes are used.
-    /// Indexes must be one of the ColumnUInt. For default implementation, see select_index_impl from ColumnsCommon.h
-    virtual Ptr index(const IColumn& indexes, size_t limit) const {
-        LOG(FATAL) << "column not support index";
-        __builtin_unreachable();
-    }
-
     /** Compares (*this)[n] and rhs[m]. Column rhs should have the same type.
       * Returns negative number, 0, or positive number (*this)[n] is less, equal, greater than rhs[m] respectively.
       * Is used in sortings.
@@ -453,9 +421,12 @@ public:
       * For example, if nan_direction_hint == -1 is used by descending sorting, NaNs will be at the end.
       *
       * For non Nullable and non floating point types, nan_direction_hint is ignored.
+      * For array/map/struct types, we compare with nested column element and offsets size
       */
-    virtual int compare_at(size_t n, size_t m, const IColumn& rhs,
-                           int nan_direction_hint) const = 0;
+    virtual int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "compare_at for " + std::string(get_family_name()));
+    }
 
     /**
      * To compare all rows in this column with another row (with row_id = rhs_row_id in column rhs)
@@ -474,7 +445,10 @@ public:
       * nan_direction_hint - see above.
       */
     virtual void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                 Permutation& res) const = 0;
+                                 Permutation& res) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_permutation for " + std::string(get_family_name()));
+    }
 
     /** Copies each element according offsets parameter.
       * (i-th element should be copied offsets[i] - offsets[i - 1] times.)
@@ -482,29 +456,12 @@ public:
       */
     virtual Ptr replicate(const Offsets& offsets) const = 0;
 
-    /** Copies each element according offsets parameter.
-      * (i-th element should be copied counts[i] times.)
-      * If `begin` and `count_sz` specified, it means elements in range [`begin`, `begin` + `count_sz`) will be replicated.
-      * If `count_sz` is -1, `begin` must be 0.
-      */
-    virtual void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const = 0;
-
     /// Appends one field multiple times. Can be optimized in inherited classes.
     virtual void insert_many(const Field& field, size_t length) {
         for (size_t i = 0; i < length; ++i) {
             insert(field);
         }
     }
-    /// Returns indices of values in column, that not equal to default value of column.
-    virtual void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                                 size_t limit) const {
-        LOG(FATAL) << "column not support get_indices_of_non_default_rows";
-        __builtin_unreachable();
-    }
-
-    template <typename Derived>
-    void get_indices_of_non_default_rows_impl(IColumn::Offsets64& indices, size_t from,
-                                              size_t limit) const;
 
     /// Returns column with @total_size elements.
     /// In result column values from current column are at positions from @offsets.
@@ -520,10 +477,11 @@ public:
       */
     using ColumnIndex = UInt64;
     using Selector = PaddedPODArray<ColumnIndex>;
-    virtual std::vector<MutablePtr> scatter(ColumnIndex num_columns,
-                                            const Selector& selector) const = 0;
 
     virtual void append_data_by_selector(MutablePtr& res, const Selector& selector) const = 0;
+
+    virtual void append_data_by_selector(MutablePtr& res, const Selector& selector, size_t begin,
+                                         size_t end) const = 0;
 
     /// Insert data from several other columns according to source mask (used in vertical merge).
     /// For now it is a helper to de-virtualize calls to insert*() functions inside gather loop
@@ -602,9 +560,6 @@ public:
     // true if column has null element [0,size)
     virtual bool has_null(size_t size) const { return false; }
 
-    /// It's a special kind of column, that contain single value, but is not a ColumnConst.
-    virtual bool is_dummy() const { return false; }
-
     virtual bool is_exclusive() const { return use_count() == 1; }
 
     /// Clear data of column, just like vector clear
@@ -627,9 +582,6 @@ public:
       * To avoid confusion between these cases, we don't have isContiguous method.
       */
 
-    /// Values in column have fixed size (including the case when values span many memory segments).
-    virtual bool values_have_fixed_size() const { return is_fixed_and_contiguous(); }
-
     /// Values in column are represented as continuous memory segment of fixed size. Implies values_have_fixed_size.
     virtual bool is_fixed_and_contiguous() const { return false; }
 
@@ -647,21 +599,18 @@ public:
 
     /// Returns ratio of values in column, that are equal to default value of column.
     /// Checks only @sample_ratio ratio of rows.
-    virtual double get_ratio_of_default_rows(double sample_ratio = 1.0) const {
-        LOG(FATAL) << fmt::format("get_ratio_of_default_rows of column {} are not implemented.",
-                                  get_name());
-        return 0.0;
-    }
-
-    /// Template is to devirtualize calls to 'isDefaultAt' method.
-    template <typename Derived>
-    double get_ratio_of_default_rows_impl(double sample_ratio) const;
+    virtual double get_ratio_of_default_rows(double sample_ratio = 1.0) const { return 0.0; }
 
     /// Column is ColumnVector of numbers or ColumnConst of it. Note that Nullable columns are not numeric.
     /// Implies is_fixed_and_contiguous.
     virtual bool is_numeric() const { return false; }
 
+    // Column is ColumnString/ColumnArray/ColumnMap or other variable length column at every row
+    virtual bool is_variable_length() const { return false; }
+
     virtual bool is_column_string() const { return false; }
+
+    virtual bool is_column_string64() const { return false; }
 
     virtual bool is_column_decimal() const { return false; }
 
@@ -675,8 +624,6 @@ public:
 
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
-
-    virtual bool low_cardinality() const { return false; }
 
     virtual void sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                              IColumn::Permutation& perms, EqualRange& range,
@@ -694,8 +641,7 @@ public:
     // ColumnString should replace according to 0,1,2... ,size,0,1,2...
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
 
-    // only used in ColumnNullable replace_column_data
-    virtual void replace_column_data_default(size_t self_row = 0) = 0;
+    virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
     virtual bool is_date_type() const { return is_date; }
     virtual bool is_datetime_type() const { return is_date_time; }
@@ -717,20 +663,18 @@ public:
     bool is_date_time = false;
 
 protected:
-    /// Template is to devirtualize calls to insert_from method.
-    /// In derived classes (that use final keyword), implement scatter method as call to scatter_impl.
-    template <typename Derived>
-    std::vector<MutablePtr> scatter_impl(ColumnIndex num_columns, const Selector& selector) const;
-
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const;
+    template <typename Derived>
+    void append_data_by_selector_impl(MutablePtr& res, const Selector& selector, size_t begin,
+                                      size_t end) const;
 };
 
 using ColumnPtr = IColumn::Ptr;
 using MutableColumnPtr = IColumn::MutablePtr;
 using Columns = std::vector<ColumnPtr>;
 using MutableColumns = std::vector<MutableColumnPtr>;
-
+using ColumnPtrs = std::vector<ColumnPtr>;
 using ColumnRawPtrs = std::vector<const IColumn*>;
 
 template <typename... Args>
@@ -747,6 +691,7 @@ struct IsMutableColumns<> {
     static const bool value = true;
 };
 
+// prefer assert_cast than check_and_get
 template <typename Type>
 const Type* check_and_get_column(const IColumn& column) {
     return typeid_cast<const Type*>(&column);
@@ -779,6 +724,6 @@ namespace doris {
 struct ColumnPtrWrapper {
     vectorized::ColumnPtr column_ptr;
 
-    ColumnPtrWrapper(vectorized::ColumnPtr col) : column_ptr(col) {}
+    ColumnPtrWrapper(vectorized::ColumnPtr col) : column_ptr(std::move(col)) {}
 };
 } // namespace doris

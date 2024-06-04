@@ -26,6 +26,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -54,6 +55,7 @@ public class KafkaProgress extends RoutineLoadProgress {
 
     // (partition id, begin offset)
     // the offset saved here is the next offset need to be consumed
+    @SerializedName(value = "pito")
     private Map<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
 
     public KafkaProgress() {
@@ -63,6 +65,11 @@ public class KafkaProgress extends RoutineLoadProgress {
     public KafkaProgress(TKafkaRLTaskProgress tKafkaRLTaskProgress) {
         super(LoadDataSourceType.KAFKA);
         this.partitionIdToOffset = tKafkaRLTaskProgress.getPartitionCmtOffset();
+    }
+
+    public KafkaProgress(Map<Integer, Long> partitionIdToOffset) {
+        super(LoadDataSourceType.KAFKA);
+        this.partitionIdToOffset = partitionIdToOffset;
     }
 
     public Map<Integer, Long> getPartitionIdToOffset(List<Integer> partitionIds) {
@@ -83,6 +90,10 @@ public class KafkaProgress extends RoutineLoadProgress {
 
     public Long getOffsetByPartition(int kafkaPartition) {
         return partitionIdToOffset.get(kafkaPartition);
+    }
+
+    public Map<Integer, Long> getOffsetByPartition() {
+        return partitionIdToOffset;
     }
 
     public boolean containsPartition(Integer kafkaPartition) {
@@ -191,8 +202,10 @@ public class KafkaProgress extends RoutineLoadProgress {
         // + 1 to point to the next msg offset to be consumed
         newProgress.partitionIdToOffset.entrySet().stream()
                 .forEach(entity -> this.partitionIdToOffset.put(entity.getKey(), entity.getValue() + 1));
-        LOG.debug("update kafka progress: {}, task: {}, job: {}",
-                newProgress.toJsonString(), DebugUtil.printId(attachment.getTaskId()), attachment.getJobId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("update kafka progress: {}, task: {}, job: {}",
+                    newProgress.toJsonString(), DebugUtil.printId(attachment.getTaskId()), attachment.getJobId());
+        }
     }
 
     @Override

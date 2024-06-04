@@ -19,7 +19,6 @@
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_CHECKSUM_TASK_H
 
 #include <gen_cpp/Types_types.h>
-#include <stdint.h>
 
 #include <memory>
 
@@ -27,29 +26,27 @@
 #include "olap/task/engine_task.h"
 
 namespace doris {
-class MemTrackerLimiter;
+class StorageEngine;
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
-class EngineChecksumTask : public EngineTask {
+class EngineChecksumTask final : public EngineTask {
 public:
-    virtual Status execute();
+    Status execute() override;
 
-public:
-    EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash, TVersion version,
-                       uint32_t* checksum);
+    EngineChecksumTask(StorageEngine& engine, TTabletId tablet_id, TSchemaHash schema_hash,
+                       TVersion version, uint32_t* checksum);
 
-    ~EngineChecksumTask() {}
+    ~EngineChecksumTask() override;
 
 private:
     Status _compute_checksum();
 
-private:
+    StorageEngine& _engine;
     TTabletId _tablet_id;
     TSchemaHash _schema_hash;
     TVersion _version;
     uint32_t* _checksum;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // EngineTask
 
 } // namespace doris

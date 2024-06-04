@@ -49,6 +49,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 public class ComputeSignatureHelperTest {
 
@@ -389,17 +390,17 @@ public class ComputeSignatureHelperTest {
                 new NullLiteral(),
                 new DateTimeV2Literal("2020-02-02 00:00:00.1234"));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
-        Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
-        Assertions.assertEquals(DateTimeV2Type.of(6),
+        Assertions.assertInstanceOf(MapType.class, signature.getArgType(0));
+        Assertions.assertEquals(DateTimeV2Type.of(4),
                 ((MapType) signature.getArgType(0)).getKeyType());
-        Assertions.assertEquals(DateTimeV2Type.of(6),
+        Assertions.assertEquals(DateTimeV2Type.of(4),
                 ((MapType) signature.getArgType(0)).getValueType());
-        Assertions.assertTrue(signature.getArgType(1) instanceof MapType);
-        Assertions.assertEquals(DateTimeV2Type.of(6),
+        Assertions.assertInstanceOf(MapType.class, signature.getArgType(1));
+        Assertions.assertEquals(DateTimeV2Type.of(4),
                 ((MapType) signature.getArgType(1)).getKeyType());
-        Assertions.assertEquals(DateTimeV2Type.of(6),
+        Assertions.assertEquals(DateTimeV2Type.of(4),
                 ((MapType) signature.getArgType(1)).getValueType());
-        Assertions.assertEquals(DateTimeV2Type.of(6),
+        Assertions.assertEquals(DateTimeV2Type.of(4),
                 signature.getArgType(2));
     }
 
@@ -417,6 +418,16 @@ public class ComputeSignatureHelperTest {
         @Override
         public int arity() {
             return 0;
+        }
+
+        @Override
+        public <T> Optional<T> getMutableState(String key) {
+            return Optional.empty();
+        }
+
+        @Override
+        public void setMutableState(String key, Object value) {
+
         }
 
         @Override

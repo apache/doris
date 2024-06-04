@@ -93,8 +93,8 @@ struct CaseWhenColumnHolder {
         pair_count = (end - begin) / 2 + 1; // when/then at [1: pair_count)
 
         for (int i = begin; i < end; i += 2) {
-            when_ptrs.emplace_back(OptionalPtr(block.get_by_position(arguments[i]).column));
-            then_ptrs.emplace_back(OptionalPtr(block.get_by_position(arguments[i + 1]).column));
+            when_ptrs.emplace_back(block.get_by_position(arguments[i]).column);
+            then_ptrs.emplace_back(block.get_by_position(arguments[i + 1]).column);
         }
 
         // if case_column/when_column is nullable. cast all case_column/when_column to nullable.
@@ -159,9 +159,9 @@ public:
         int rows_count = column_holder.rows_count;
 
         // `then` data index corresponding to each row of results, 0 represents `else`.
-        int then_idx[rows_count];
-        int* __restrict then_idx_ptr = then_idx;
-        memset(then_idx_ptr, 0, sizeof(then_idx));
+        auto then_idx_uptr = std::unique_ptr<int[]>(new int[rows_count]);
+        int* __restrict then_idx_ptr = then_idx_uptr.get();
+        memset(then_idx_ptr, 0, rows_count * sizeof(int));
 
         for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
             for (int i = 1; i < column_holder.pair_count; i++) {
@@ -189,7 +189,7 @@ public:
         }
 
         auto result_column_ptr = data_type->create_column();
-        update_result_normal<int, ColumnType, then_null>(result_column_ptr, then_idx,
+        update_result_normal<int, ColumnType, then_null>(result_column_ptr, then_idx_ptr,
                                                          column_holder);
         block.replace_by_position(result, std::move(result_column_ptr));
         return Status::OK();
@@ -206,9 +206,9 @@ public:
         int rows_count = column_holder.rows_count;
 
         // `then` data index corresponding to each row of results, 0 represents `else`.
-        uint8_t then_idx[rows_count];
-        uint8_t* __restrict then_idx_ptr = then_idx;
-        memset(then_idx_ptr, 0, sizeof(then_idx));
+        auto then_idx_uptr = std::unique_ptr<uint8_t[]>(new uint8_t[rows_count]);
+        uint8_t* __restrict then_idx_ptr = then_idx_uptr.get();
+        memset(then_idx_ptr, 0, rows_count);
 
         auto case_column_ptr = column_holder.when_ptrs[0].value_or(nullptr);
 
@@ -231,7 +231,7 @@ public:
                         }
                     }
                 } else {
-                    auto* __restrict cond_raw_data =
+                    const auto* __restrict cond_raw_data =
                             assert_cast<const ColumnUInt8*>(when_column_ptr.get())
                                     ->get_data()
                                     .data();
@@ -245,13 +245,13 @@ public:
             }
         }
 
-        return execute_update_result<ColumnType, then_null>(data_type, result, block, then_idx,
+        return execute_update_result<ColumnType, then_null>(data_type, result, block, then_idx_ptr,
                                                             column_holder);
     }
 
     template <typename ColumnType, bool then_null>
     Status execute_update_result(const DataTypePtr& data_type, size_t result, Block& block,
-                                 uint8* then_idx, CaseWhenColumnHolder& column_holder) const {
+                                 const uint8* then_idx, CaseWhenColumnHolder& column_holder) const {
         auto result_column_ptr = data_type->create_column();
 
         if constexpr (std::is_same_v<ColumnType, ColumnString> ||
@@ -261,6 +261,7 @@ public:
                       std::is_same_v<ColumnType, ColumnStruct> ||
                       std::is_same_v<ColumnType, ColumnObject> ||
                       std::is_same_v<ColumnType, ColumnHLL> ||
+                      std::is_same_v<ColumnType, ColumnQuantileState> ||
                       std::is_same_v<ColumnType, ColumnIPv4> ||
                       std::is_same_v<ColumnType, ColumnIPv6>) {
             // result_column and all then_column is not nullable.
@@ -281,7 +282,8 @@ public:
     }
 
     template <typename IndexType, typename ColumnType, bool then_null>
-    void update_result_normal(MutableColumnPtr& result_column_ptr, IndexType* then_idx,
+    void update_result_normal(MutableColumnPtr& result_column_ptr,
+                              const IndexType* __restrict then_idx,
                               CaseWhenColumnHolder& column_holder) const {
         std::vector<uint8_t> is_consts(column_holder.then_ptrs.size());
         std::vector<ColumnPtr> raw_columns(column_holder.then_ptrs.size());
@@ -314,9 +316,8 @@ public:
     void update_result_auto_simd(MutableColumnPtr& result_column_ptr,
                                  const uint8* __restrict then_idx,
                                  CaseWhenColumnHolder& column_holder) const {
-        for (size_t i = 0; i < column_holder.then_ptrs.size(); i++) {
-            column_holder.then_ptrs[i]->reset(
-                    column_holder.then_ptrs[i].value()->convert_to_full_column_if_const());
+        for (auto& then_ptr : column_holder.then_ptrs) {
+            then_ptr->reset(then_ptr.value()->convert_to_full_column_if_const());
         }
 
         size_t rows_count = column_holder.rows_count;

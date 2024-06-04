@@ -19,11 +19,13 @@ package org.apache.doris.nereids.jobs.joinorder;
 
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
 import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Test;
 
-public class TPCHTest extends TPCHTestBase {
+public class TPCHTest extends TPCHTestBase implements MemoPatternMatchSupported {
     @Test
     void testQ5() {
         PlanChecker.from(connectContext)
@@ -32,5 +34,42 @@ public class TPCHTest extends TPCHTestBase {
                 .deriveStats()
                 .dpHypOptimize()
                 .printlnBestPlanTree();
+    }
+
+
+    // count(*) projects on children key columns
+    @Test
+    void testCountStarProject() {
+        String sql = "select\n"
+                + "    count(*) as order_count\n"
+                + "from\n"
+                + "    orders\n"
+                + "where\n"
+                + "    o_orderdate >= date '1993-07-01'\n"
+                + "    and o_orderdate < date '1993-07-01' + interval '3' month\n"
+                + "    and exists (\n"
+                + "        select\n"
+                + "            *\n"
+                + "        from\n"
+                + "            lineitem\n"
+                + "        where\n"
+                + "            l_orderkey = o_orderkey\n"
+                + "            and l_commitdate < l_receiptdate\n"
+                + "    );";
+
+        // o_orderstatus is smaller than o_orderdate, but o_orderstatus is not used in this sql
+        // it is better to choose the column which is already used to represent count(*)
+        PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalResultSink(
+                                logicalAggregate(
+                                    logicalProject().when(
+                                            project -> project.getProjects().size() == 1
+                                                    && project.getProjects().get(0) instanceof SlotReference
+                                                    && "o_orderdate".equals(project.getProjects().get(0).toSql()))))
+                );
     }
 }

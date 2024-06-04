@@ -44,52 +44,69 @@ import java.util.Map;
  * the output column is the correlated column and the input column.
  * <pre>
  * before:
- *              apply
- *          /              \
- * Input(output:b)    agg(output:fn; group by:null)
+ *                 apply
+ *             /          \
+ *     Input(output:b)   Filter(this node's existence depends on having clause's existence)
+ *                              |
+ *                         agg(output:fn; group by:null)
  *                              |
  *              Filter(correlated predicate(Input.e = this.f)/Unapply predicate)
  *
  * end:
  *          apply(correlated predicate(Input.e = this.f))
  *         /              \
- * Input(output:b)    agg(output:fn,this.f; group by:this.f)
+ * Input(output:b)   Filter(this node's existence depends on having clause's existence)
+ *                             |
+ *                        agg(output:fn,this.f; group by:this.f)
  *                              |
  *                    Filter(Uncorrelated predicate)
  * </pre>
  */
-public class UnCorrelatedApplyAggregateFilter extends OneRewriteRuleFactory {
+public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     @Override
-    public Rule build() {
-        return logicalApply(any(), logicalAggregate(logicalFilter())).when(LogicalApply::isCorrelated).then(apply -> {
-            LogicalAggregate<LogicalFilter<Plan>> agg = apply.right();
-            LogicalFilter<Plan> filter = agg.child();
-            Map<Boolean, List<Expression>> split = Utils.splitCorrelatedConjuncts(
-                    filter.getConjuncts(), apply.getCorrelationSlot());
-            List<Expression> correlatedPredicate = split.get(true);
-            List<Expression> unCorrelatedPredicate = split.get(false);
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                logicalApply(any(), logicalAggregate(logicalFilter()))
+                        .when(LogicalApply::isCorrelated)
+                        .then(UnCorrelatedApplyAggregateFilter::pullUpCorrelatedFilter)
+                        .toRule(RuleType.UN_CORRELATED_APPLY_AGGREGATE_FILTER),
+                logicalApply(any(), logicalFilter(logicalAggregate(logicalFilter())))
+                        .when(LogicalApply::isCorrelated)
+                        .then(UnCorrelatedApplyAggregateFilter::pullUpCorrelatedFilter)
+                        .toRule(RuleType.UN_CORRELATED_APPLY_FILTER_AGGREGATE_FILTER));
+    }
 
-            // the representative has experienced the rule and added the correlated predicate to the apply node
-            if (correlatedPredicate.isEmpty()) {
-                return apply;
-            }
+    private static LogicalApply<?, ?> pullUpCorrelatedFilter(LogicalApply<?, ?> apply) {
+        boolean isRightChildAgg = apply.right() instanceof LogicalAggregate;
+        // locate agg node
+        LogicalAggregate<LogicalFilter<Plan>> agg =
+                isRightChildAgg ? (LogicalAggregate<LogicalFilter<Plan>>) (apply.right())
+                        : (LogicalAggregate<LogicalFilter<Plan>>) (apply.right().child(0));
+        LogicalFilter<Plan> filter = agg.child();
+        // split filter conjuncts to correlated and unCorrelated ones
+        Map<Boolean, List<Expression>> split =
+                Utils.splitCorrelatedConjuncts(filter.getConjuncts(), apply.getCorrelationSlot());
+        List<Expression> correlatedPredicate = split.get(true);
+        List<Expression> unCorrelatedPredicate = split.get(false);
 
-            List<NamedExpression> newAggOutput = new ArrayList<>(agg.getOutputExpressions());
-            List<Expression> newGroupby = Utils.getCorrelatedSlots(correlatedPredicate,
-                    apply.getCorrelationSlot());
-            newGroupby.addAll(agg.getGroupByExpressions());
-            newAggOutput.addAll(newGroupby.stream()
-                    .map(NamedExpression.class::cast)
-                    .collect(ImmutableList.toImmutableList()));
-            LogicalAggregate newAgg = new LogicalAggregate<>(
-                    newGroupby, newAggOutput,
-                    PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child()));
-            return new LogicalApply<>(apply.getCorrelationSlot(),
-                    apply.getSubqueryExpr(),
-                    ExpressionUtils.optionalAnd(correlatedPredicate),
-                    apply.getMarkJoinSlotReference(),
-                    apply.isNeedAddSubOutputToProjects(),
-                    apply.isInProject(), apply.left(), newAgg);
-        }).toRule(RuleType.UN_CORRELATED_APPLY_AGGREGATE_FILTER);
+        // the representative has experienced the rule and added the correlated predicate to the apply node
+        if (correlatedPredicate.isEmpty()) {
+            return apply;
+        }
+
+        // pull up correlated filter into apply node
+        List<NamedExpression> newAggOutput = new ArrayList<>(agg.getOutputExpressions());
+        List<Expression> newGroupby =
+                Utils.getCorrelatedSlots(correlatedPredicate, apply.getCorrelationSlot());
+        newGroupby.addAll(agg.getGroupByExpressions());
+        newAggOutput.addAll(newGroupby.stream().map(NamedExpression.class::cast)
+                .collect(ImmutableList.toImmutableList()));
+        LogicalAggregate newAgg = new LogicalAggregate<>(newGroupby, newAggOutput,
+                PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child()));
+        return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
+                ExpressionUtils.optionalAnd(correlatedPredicate), apply.getMarkJoinSlotReference(),
+                apply.isNeedAddSubOutputToProjects(), apply.isInProject(),
+                apply.isMarkJoinSlotNotNull(), apply.left(),
+                isRightChildAgg ? newAgg : apply.right().withChildren(newAgg));
     }
 }

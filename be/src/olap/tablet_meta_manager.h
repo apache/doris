@@ -73,7 +73,7 @@ public:
             OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func);
 
     static Status save_delete_bitmap(DataDir* store, TTabletId tablet_id,
-                                     DeleteBitmapPtr delete_bimap, int64_t version);
+                                     DeleteBitmapPtr delete_bitmap, int64_t version);
 
     static Status traverse_delete_bitmap(
             OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func);

@@ -17,61 +17,56 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.qe.ConnectContext;
+
+import org.apache.commons.collections.CollectionUtils;
+
+import java.util.Set;
 
 /**
  * Check whether a user is permitted to scan specific tables.
  */
-public class UserAuthentication extends OneAnalysisRuleFactory {
-
-    @Override
-    public Rule build() {
-        return logicalRelation()
-                .when(CatalogRelation.class::isInstance)
-                .thenApply(ctx -> checkPermission((CatalogRelation) ctx.root, ctx.connectContext))
-                .toRule(RuleType.RELATION_AUTHENTICATION);
-    }
-
-    private Plan checkPermission(CatalogRelation relation, ConnectContext connectContext) {
+public class UserAuthentication {
+    /** checkPermission. */
+    public static void checkPermission(TableIf table, ConnectContext connectContext, Set<String> columns)
+            throws UserException {
+        if (table == null) {
+            return;
+        }
         // do not check priv when replaying dump file
         if (connectContext.getSessionVariable().isPlayNereidsDump()) {
-            return null;
-        }
-        TableIf table = relation.getTable();
-        if (table == null) {
-            return null;
+            return;
         }
         String tableName = table.getName();
         DatabaseIf db = table.getDatabase();
-        // when table inatanceof FunctionGenTable,db will be null
+        // when table instanceof FunctionGenTable,db will be null
         if (db == null) {
-            return null;
+            return;
         }
         String dbName = db.getFullName();
         CatalogIf catalog = db.getCatalog();
         if (catalog == null) {
-            return null;
+            return;
         }
         String ctlName = catalog.getName();
-        // TODO: 2023/7/19 checkColumnsPriv
-        if (!connectContext.getEnv().getAccessManager().checkTblPriv(connectContext, ctlName, dbName,
-                tableName, PrivPredicate.SELECT)) {
-            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SELECT",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    ctlName + ": " + dbName + ": " + tableName);
-            throw new AnalysisException(message);
+        AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
+        UserIdentity userIdentity = connectContext.getCurrentUserIdentity();
+        if (CollectionUtils.isEmpty(columns)) {
+            if (!accessManager.checkTblPriv(userIdentity, ctlName, dbName, tableName, PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), tableName);
+            }
+        } else {
+            accessManager.checkColumnsPriv(userIdentity, ctlName, dbName, tableName, columns, PrivPredicate.SELECT);
         }
-        return null;
     }
-
 }

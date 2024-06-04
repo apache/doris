@@ -20,23 +20,41 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
-#include "bvar/bvar.h"
+#include "cloud/cloud_tablets_channel.h"
+#include "cloud/config.h"
+#include "common/logging.h"
 #include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
 bvar::Adder<int64_t> g_loadchannel_cnt("loadchannel_cnt");
 
 LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
-                         const std::string& sender_ip, int64_t backend_id, bool enable_profile)
+                         std::string sender_ip, int64_t backend_id, bool enable_profile)
         : _load_id(load_id),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
-          _sender_ip(sender_ip),
+          _sender_ip(std::move(sender_ip)),
           _backend_id(backend_id),
           _enable_profile(enable_profile) {
+    std::shared_ptr<QueryContext> query_context = nullptr;
+    WARN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_query_context(_load_id.to_thrift(),
+                                                                            &query_context),
+                  "");
+    if (query_context != nullptr) {
+        _query_thread_context = {_load_id.to_thrift(), query_context->query_mem_tracker};
+    } else {
+        _query_thread_context = {
+                _load_id.to_thrift(),
+                MemTrackerLimiter::create_shared(
+                        MemTrackerLimiter::Type::LOAD,
+                        fmt::format("(FromLoadChannel)Load#Id={}", _load_id.to_string()))};
+    }
     g_loadchannel_cnt << 1;
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
@@ -47,9 +65,14 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
 
 LoadChannel::~LoadChannel() {
     g_loadchannel_cnt << -1;
+    std::stringstream rows_str;
+    for (const auto& entry : _tablets_channels_rows) {
+        rows_str << ", index id: " << entry.first << ", total_received_rows: " << entry.second.first
+                 << ", num_rows_filtered: " << entry.second.second;
+    }
     LOG(INFO) << "load channel removed"
               << " load_id=" << _load_id << ", is high priority=" << _is_high_priority
-              << ", sender_ip=" << _sender_ip;
+              << ", sender_ip=" << _sender_ip << rows_str.str();
 }
 
 void LoadChannel::_init_profile() {
@@ -68,6 +91,13 @@ void LoadChannel::_init_profile() {
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
+    if (config::is_cloud_mode() && params.txn_expiration() <= 0) {
+        return Status::InternalError(
+                "The txn expiration of PTabletWriterOpenRequest is invalid, value={}",
+                params.txn_expiration());
+    }
+    SCOPED_ATTACH_TASK(_query_thread_context);
+
     int64_t index_id = params.index_id();
     std::shared_ptr<BaseTabletsChannel> channel;
     {
@@ -78,9 +108,14 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            // TODO(plat1ko): CloudTabletsChannel
-            channel = std::make_shared<TabletsChannel>(*StorageEngine::instance(), key, _load_id,
-                                                       _is_high_priority, _self_profile);
+            BaseStorageEngine& engine = ExecEnv::GetInstance()->storage_engine();
+            if (config::is_cloud_mode()) {
+                channel = std::make_shared<CloudTabletsChannel>(engine.to_cloud(), key, _load_id,
+                                                                _is_high_priority, _self_profile);
+            } else {
+                channel = std::make_shared<TabletsChannel>(engine.to_local(), key, _load_id,
+                                                           _is_high_priority, _self_profile);
+            }
             {
                 std::lock_guard<SpinLock> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
@@ -124,6 +159,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                               PTabletWriterAddBlockResult* response) {
     SCOPED_TIMER(_add_batch_timer);
     COUNTER_UPDATE(_add_batch_times, 1);
+    SCOPED_ATTACH_TASK(_query_thread_context);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<BaseTabletsChannel> channel;
@@ -140,6 +176,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     }
 
     // 3. handle eos
+    // if channel is incremental, maybe hang on close until all close request arrived.
     if (request.has_eos() && request.eos()) {
         st = _handle_eos(channel.get(), request, response);
         _report_profile(response);
@@ -161,12 +198,33 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     auto index_id = request.index_id();
 
     RETURN_IF_ERROR(channel->close(this, request, response, &finished));
+
+    // for init node, we close waiting(hang on) all close request and let them return together.
+    if (request.has_hang_wait() && request.hang_wait()) {
+        DCHECK(!channel->is_incremental_channel());
+        VLOG_TRACE << "reciever close waiting!" << request.sender_id();
+        int count = 0;
+        while (!channel->is_finished()) {
+            bthread_usleep(1000);
+            count++;
+        }
+        // now maybe finished or cancelled.
+        VLOG_TRACE << "reciever close wait finished!" << request.sender_id();
+        if (count >= 1000 * _timeout_s) { // maybe config::streaming_load_rpc_max_alive_time_sec
+            return Status::InternalError("Tablets channel didn't wait all close");
+        }
+    }
+
     if (finished) {
         std::lock_guard<std::mutex> l(_lock);
         {
             std::lock_guard<SpinLock> l(_tablets_channels_lock);
+            _tablets_channels_rows.insert(std::make_pair(
+                    index_id,
+                    std::make_pair(channel->total_received_rows(), channel->num_rows_filtered())));
             _tablets_channels.erase(index_id);
         }
+        VLOG_NOTICE << "load " << _load_id.to_string() << " closed tablets_channel " << index_id;
         _finished_channel_ids.emplace(index_id);
     }
     return Status::OK();

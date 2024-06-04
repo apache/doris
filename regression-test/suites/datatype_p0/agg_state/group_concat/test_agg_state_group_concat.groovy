@@ -21,7 +21,7 @@ suite("test_agg_state_group_concat") {
     sql """
             create table a_table(
                 k1 int null,
-                k2 agg_state group_concat(string)
+                k2 agg_state<group_concat(string)> generic
             )
             aggregate key (k1)
             distributed BY hash(k1) buckets 3

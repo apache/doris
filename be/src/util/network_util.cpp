@@ -33,6 +33,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <sstream>
 
 #ifdef __APPLE__
@@ -77,12 +78,60 @@ bool is_valid_ip(const std::string& ip) {
     return (inet_pton(AF_INET6, ip.data(), buf) > 0) || (inet_pton(AF_INET, ip.data(), buf) > 0);
 }
 
+bool parse_endpoint(const std::string& endpoint, std::string* host, uint16_t* port) {
+    auto p = endpoint.find_last_of(':');
+    if (p == std::string::npos || p + 1 == endpoint.size()) {
+        return false;
+    }
+
+    const char* port_base = endpoint.c_str() + p + 1;
+    char* end = nullptr;
+    long value = strtol(port_base, &end, 10);
+    if (port_base == end) {
+        return false;
+    } else if (*end) {
+        while (std::isspace(*end)) {
+            end++;
+        }
+        if (*end) {
+            return false;
+        }
+    } else if (value < 0 || 65535 < value) {
+        return false;
+    }
+
+    std::string::size_type i = 0;
+    const char* host_base = endpoint.c_str();
+    while (std::isspace(host_base[i])) {
+        i++;
+    }
+    if (i < p && host_base[i] == '[' && host_base[p - 1] == ']') {
+        i += 1;
+        p -= 1;
+    }
+    if (i >= p) {
+        return false;
+    }
+    *host = endpoint.substr(i, p - i);
+    *port = value;
+    return true;
+}
+
 Status hostname_to_ip(const std::string& host, std::string& ip) {
+    auto start = std::chrono::high_resolution_clock::now();
     Status status = hostname_to_ipv4(host, ip);
     if (status.ok()) {
         return status;
     }
-    return hostname_to_ipv6(host, ip);
+    status = hostname_to_ipv6(host, ip);
+
+    auto current = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(current - start);
+    if (duration.count() >= 500) {
+        LOG(WARNING) << "hostname_to_ip cost to mush time, cost_time:" << duration.count()
+                     << "ms hostname:" << host << " ip:" << ip;
+    }
+    return status;
 }
 
 Status hostname_to_ip(const std::string& host, std::string& ip, bool ipv6) {

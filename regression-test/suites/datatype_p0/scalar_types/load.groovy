@@ -302,8 +302,7 @@ suite("test_scalar_types_load", "p0") {
             `c_float`, `c_double`, `c_decimal`, `c_date`, `c_datetime`, `c_datev2`,
             `c_char`, `c_varchar`, `c_string` FROM tbl_scalar_types_dup"""
 
-
-    // define unique key table2 disable mow
+    // define unique key table2 enable mow
     testTable = "tbl_scalar_types_unique2_bitmapindex"
     sql "DROP TABLE IF EXISTS ${testTable}"
     sql """
@@ -319,8 +318,8 @@ suite("test_scalar_types_load", "p0") {
             `c_float` float NULL,
             `c_double` double NULL,
             `c_decimal` decimal(20, 3) NULL,
-            `c_date` datev1 NULL,
-            `c_datetime` datetimev1 NULL,
+            `c_date` date NULL,
+            `c_datetime` datetime NULL,
             `c_datev2` datev2 NULL,
             `c_char` char(15) NULL,
             `c_varchar` varchar(100) NULL,
@@ -347,7 +346,7 @@ suite("test_scalar_types_load", "p0") {
         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "false");
         """
 
-    // insert data into unique key table1 2 times
+    // insert data into unique key table2 2 times
     sql """INSERT INTO ${testTable} SELECT `c_datetimev2`, `c_bigint`, `c_decimalv3`,
             `c_bool`, `c_tinyint`, `c_smallint`, `c_int`, `c_largeint`,
             `c_float`, `c_double`, `c_decimal`, `c_date`, `c_datetime`, `c_datev2`,
@@ -449,7 +448,7 @@ suite("test_scalar_types_load", "p0") {
         DUPLICATE KEY(`k1`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
-        PROPERTIES("replication_num" = "1", "skip_write_index_on_load" = "true");
+        PROPERTIES("replication_num" = "1", "skip_write_index_on_load" = "false");
         """
 
     // insert data into dup table with index

@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <iomanip>
 #include <sstream>
 #include <tuple>
@@ -39,7 +40,13 @@ struct UInt128 {
 
     UInt128() = default;
     explicit UInt128(const UInt64 low_, const UInt64 high_) : low(low_), high(high_) {}
+    explicit UInt128(const Int128 rhs) : low(rhs % UINT64_MAX), high(rhs / UINT64_MAX) {}
     explicit UInt128(const UInt64 rhs) : low(rhs), high() {}
+    explicit UInt128(const int rhs) : low(rhs), high() {}
+    explicit UInt128(const int64_t rhs) : low(rhs), high() {}
+    explicit UInt128(const uint32_t rhs) : low(rhs), high() {}
+    explicit UInt128(const double rhs)
+            : low((UInt64)rhs % UINT64_MAX), high(UInt64(rhs / double(INT64_MAX))) {}
 
     auto tuple() const { return std::tie(high, low); }
 
@@ -177,7 +184,7 @@ struct UInt136 {
     UInt64 b;
     UInt64 c;
 
-    bool operator==(const UInt136 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
+    bool operator==(const UInt136& rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
 };
 #pragma pack()
 

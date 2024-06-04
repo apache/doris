@@ -20,12 +20,9 @@
 #include <glog/logging.h>
 #include <sys/types.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
-#include <new>
 #include <ostream>
-#include <string>
 #include <utility>
 
 #include "common/status.h"
@@ -50,15 +47,15 @@
 
 namespace doris {
 class FunctionContext;
-
-namespace vectorized {
-class ColumnString;
-} // namespace vectorized
 } // namespace doris
 template <typename, typename>
 struct DefaultHash;
 
 namespace doris::vectorized {
+
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 
 template <typename T>
 struct OverlapSetImpl {
@@ -217,14 +214,14 @@ public:
             ret = _execute_internal<ColumnDecimal64>(left_exec_data, right_exec_data,
                                                      dst_null_map_data,
                                                      dst_nested_col->get_data().data());
-        } else if (left_which_type.is_decimal128i()) {
-            ret = _execute_internal<ColumnDecimal128I>(left_exec_data, right_exec_data,
-                                                       dst_null_map_data,
-                                                       dst_nested_col->get_data().data());
-        } else if (left_which_type.is_decimal128()) {
-            ret = _execute_internal<ColumnDecimal128>(left_exec_data, right_exec_data,
-                                                      dst_null_map_data,
-                                                      dst_nested_col->get_data().data());
+        } else if (left_which_type.is_decimal128v3()) {
+            ret = _execute_internal<ColumnDecimal128V3>(left_exec_data, right_exec_data,
+                                                        dst_null_map_data,
+                                                        dst_nested_col->get_data().data());
+        } else if (left_which_type.is_decimal128v2()) {
+            ret = _execute_internal<ColumnDecimal128V2>(left_exec_data, right_exec_data,
+                                                        dst_null_map_data,
+                                                        dst_nested_col->get_data().data());
         } else if (left_which_type.is_decimal256()) {
             ret = _execute_internal<ColumnDecimal256>(left_exec_data, right_exec_data,
                                                       dst_null_map_data,
@@ -240,7 +237,7 @@ public:
     }
 
 private:
-    Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) const {
+    static Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) {
         for (ssize_t row = 0; row < data.offsets_ptr->size(); ++row) {
             if (dst_nullmap_data[row]) {
                 continue;

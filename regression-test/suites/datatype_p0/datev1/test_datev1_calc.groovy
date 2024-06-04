@@ -29,7 +29,7 @@ suite("test_datev1_calc", "nonConcurrent") {
     CREATE TABLE IF NOT EXISTS `${table1}` (
         `id` int,
         `value1` datev1 NULL COMMENT "",
-        `value2` datev1 NULL COMMENT "",
+        `value2` datev1 NULL COMMENT ""
       ) ENGINE=OLAP
       DUPLICATE KEY(`id`)
       COMMENT "OLAP"

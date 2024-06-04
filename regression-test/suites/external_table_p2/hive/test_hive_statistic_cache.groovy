@@ -16,6 +16,21 @@
 // under the License.
 
 suite("test_hive_statistic_cache", "p2,external,hive,external_remote,external_remote_hive") {
+
+    def wait_row_count_reported = { table, expected ->
+        for (int i = 0; i < 10; i++) {
+            result = sql """show table stats ${table}"""
+            logger.info("show table stats result: " + result)
+            assertTrue(result.size() == 1)
+            if (result[0][2] == "0") {
+                Thread.sleep(1000)
+                continue;
+            }
+            assertEquals(expected, result[0][2])
+            break;
+        }
+    }
+
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
@@ -38,30 +53,15 @@ suite("test_hive_statistic_cache", "p2,external,hive,external_remote,external_re
         sql """desc part""";
         sql """desc partsupp""";
         sql """desc supplier""";
-        Thread.sleep(1000);
-        def result = sql """show table cached stats customer"""
-        assertEquals(result[0][2], "150000000")
 
-        result = sql """show table cached stats lineitem"""
-        assertEquals(result[0][2], "5999989709")
-
-        result = sql """show table cached stats region"""
-        assertEquals(result[0][2], "5")
-
-        result = sql """show table cached stats nation"""
-        assertEquals(result[0][2], "25")
-
-        result = sql """show table cached stats orders"""
-        assertEquals(result[0][2], "1500000000")
-
-        result = sql """show table cached stats part"""
-        assertEquals(result[0][2], "200000000")
-
-        result = sql """show table cached stats partsupp"""
-        assertEquals(result[0][2], "800000000")
-
-        result = sql """show table cached stats supplier"""
-        assertEquals(result[0][2], "10000000")
+        wait_row_count_reported("customer", "150000000")
+        wait_row_count_reported("lineitem", "5999989709")
+        wait_row_count_reported("region", "5")
+        wait_row_count_reported("nation", "25")
+        wait_row_count_reported("orders", "1500000000")
+        wait_row_count_reported("part", "200000000")
+        wait_row_count_reported("partsupp", "800000000")
+        wait_row_count_reported("supplier", "10000000")
 
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""
@@ -73,173 +73,173 @@ suite("test_hive_statistic_cache", "p2,external,hive,external_remote,external_re
         Thread.sleep(5000);
         result = sql """show column cached stats `stats` (lo_orderkey)"""
         assertEquals(result[0][0], "lo_orderkey")
-        assertEquals(result[0][1], "100.0")
-        assertEquals(result[0][2], "26.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "1")
-        assertEquals(result[0][7], "98")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "26.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "1")
+        assertEquals(result[0][8], "98")
 
         result = sql """show column cached stats `stats` (lo_linenumber)"""
         assertEquals(result[0][0], "lo_linenumber")
-        assertEquals(result[0][1], "100.0")
-        assertEquals(result[0][2], "7.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "1")
-        assertEquals(result[0][7], "7")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "7.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "1")
+        assertEquals(result[0][8], "7")
 
         result = sql """show column cached stats `stats` (lo_custkey)"""
         assertEquals(result[0][0], "lo_custkey")
-        assertEquals(result[0][1], "100.0")
-        assertEquals(result[0][2], "26.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "67423")
-        assertEquals(result[0][7], "2735521")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "26.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "67423")
+        assertEquals(result[0][8], "2735521")
 
         result = sql """show column cached stats `stats` (lo_partkey)"""
         assertEquals(result[0][0], "lo_partkey")
-        assertEquals(result[0][1], "100.0")
         assertEquals(result[0][2], "100.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "2250")
-        assertEquals(result[0][7], "989601")
+        assertEquals(result[0][3], "100.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "2250")
+        assertEquals(result[0][8], "989601")
 
         result = sql """show column cached stats `stats` (lo_suppkey)"""
         assertEquals(result[0][0], "lo_suppkey")
-        assertEquals(result[0][1], "100.0")
         assertEquals(result[0][2], "100.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "4167")
-        assertEquals(result[0][7], "195845")
+        assertEquals(result[0][3], "100.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "4167")
+        assertEquals(result[0][8], "195845")
 
         result = sql """show column cached stats `stats` (lo_orderdate)"""
         assertEquals(result[0][0], "lo_orderdate")
-        assertEquals(result[0][1], "100.0")
-        assertEquals(result[0][2], "26.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "19920221")
-        assertEquals(result[0][7], "19980721")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "26.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "19920221")
+        assertEquals(result[0][8], "19980721")
 
         result = sql """show column cached stats `stats` (lo_orderpriority)"""
         assertEquals(result[0][0], "lo_orderpriority")
-        assertEquals(result[0][1], "100.0")
-        assertEquals(result[0][2], "5.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "880.0")
-        assertEquals(result[0][5], "8.8")
-        assertEquals(result[0][6], "'1-URGENT'")
-        assertEquals(result[0][7], "'5-LOW'")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "5.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "880.0")
+        assertEquals(result[0][6], "8.0")
+        assertEquals(result[0][7], "'1-URGENT'")
+        assertEquals(result[0][8], "'5-LOW'")
 
         result = sql """show column cached stats `stats` (lo_shippriority)"""
         assertEquals(result[0][0], "lo_shippriority")
-        assertEquals(result[0][1], "100.0")
-        assertEquals(result[0][2], "1.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "0")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "1.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
         assertEquals(result[0][7], "0")
+        assertEquals(result[0][8], "0")
 
         result = sql """show column cached stats `stats` (lo_extendedprice)"""
         assertEquals(result[0][0], "lo_extendedprice")
-        assertEquals(result[0][1], "100.0")
         assertEquals(result[0][2], "100.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "104300")
-        assertEquals(result[0][7], "9066094")
+        assertEquals(result[0][3], "100.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "104300")
+        assertEquals(result[0][8], "9066094")
 
         result = sql """show column cached stats `stats` (lo_ordtotalprice)"""
         assertEquals(result[0][0], "lo_ordtotalprice")
-        assertEquals(result[0][1], "100.0")
-        assertEquals(result[0][2], "26.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "3428256")
-        assertEquals(result[0][7], "36771805")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "26.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "3428256")
+        assertEquals(result[0][8], "36771805")
 
         result = sql """show column cached stats `stats` (lo_discount)"""
         assertEquals(result[0][0], "lo_discount")
-        assertEquals(result[0][1], "100.0")
-        assertEquals(result[0][2], "11.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "0")
-        assertEquals(result[0][7], "10")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "11.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "0")
+        assertEquals(result[0][8], "10")
 
         result = sql """show column cached stats `stats` (lo_revenue)"""
         assertEquals(result[0][0], "lo_revenue")
-        assertEquals(result[0][1], "100.0")
         assertEquals(result[0][2], "100.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "101171")
-        assertEquals(result[0][7], "8703450")
+        assertEquals(result[0][3], "100.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "101171")
+        assertEquals(result[0][8], "8703450")
 
         result = sql """show column cached stats `stats` (lo_supplycost)"""
         assertEquals(result[0][0], "lo_supplycost")
-        assertEquals(result[0][1], "100.0")
         assertEquals(result[0][2], "100.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "58023")
-        assertEquals(result[0][7], "121374")
+        assertEquals(result[0][3], "100.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "58023")
+        assertEquals(result[0][8], "121374")
 
         result = sql """show column cached stats `stats` (lo_tax)"""
         assertEquals(result[0][0], "lo_tax")
-        assertEquals(result[0][1], "100.0")
-        assertEquals(result[0][2], "9.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "0")
-        assertEquals(result[0][7], "8")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "9.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "0")
+        assertEquals(result[0][8], "8")
 
         result = sql """show column cached stats `stats` (lo_commitdate)"""
         assertEquals(result[0][0], "lo_commitdate")
-        assertEquals(result[0][1], "100.0")
-        assertEquals(result[0][2], "95.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "19920515")
-        assertEquals(result[0][7], "19981016")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "95.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "19920515")
+        assertEquals(result[0][8], "19981016")
 
         result = sql """show column cached stats `stats` (lo_shipmode)"""
         assertEquals(result[0][0], "lo_shipmode")
-        assertEquals(result[0][1], "100.0")
-        assertEquals(result[0][2], "7.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "421.0")
-        assertEquals(result[0][5], "4.21")
-        assertEquals(result[0][6], "'AIR'")
-        assertEquals(result[0][7], "'TRUCK'")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "7.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "421.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "'AIR'")
+        assertEquals(result[0][8], "'TRUCK'")
 
         result = sql """show column cached stats `stats` (lo_quantity)"""
         assertEquals(result[0][0], "lo_quantity")
-        assertEquals(result[0][1], "100.0")
-        assertEquals(result[0][2], "46.0")
-        assertEquals(result[0][3], "0.0")
-        assertEquals(result[0][4], "400.0")
-        assertEquals(result[0][5], "4.0")
-        assertEquals(result[0][6], "1")
-        assertEquals(result[0][7], "50")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "46.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "400.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "1")
+        assertEquals(result[0][8], "50")
     }
 }
 

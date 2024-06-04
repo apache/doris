@@ -32,7 +32,7 @@ suite("test_decimalv3_overflow") {
 	def tblName2 = "test_decimalv3_overflow2"
 	sql "drop table if exists ${tblName2}"
     sql """ CREATE  TABLE ${tblName2} (
-              `c2`  decimalv3(20, 2),
+              `c2`  decimalv3(20, 2)
           ) ENGINE=OLAP
         UNIQUE KEY(`c2`)
         DISTRIBUTED BY HASH(`c2`) BUCKETS 10
@@ -41,9 +41,7 @@ suite("test_decimalv3_overflow") {
         ); """
     sql "insert into ${tblName2} values(705091149953414452.46)"
 
-    // qt_sql1 """ select c2 / 10000 * c1 from ${tblName1}, ${tblName2}; """
-
-    sql """ select c2 / 10000 * c1 from ${tblName1}, ${tblName2}; """
+    qt_sql1 """ select c2 / 10000 * c1 from ${tblName1}, ${tblName2}; """
 
     //=======================================
     // decimal32
@@ -636,4 +634,19 @@ suite("test_decimalv3_overflow") {
     qt_except2 """
         select * from (select * from test_decimalv3_tb2 except select * from test_decimalv3_tb1) t order by 1;
     """
+    sql """ CREATE TABLE IF NOT EXISTS test4
+            (
+                id        BIGINT          NOT NULL COMMENT '',
+                price     DECIMAL(38, 18) NOT NULL COMMENT '',
+                size      DECIMAL(38, 18) NOT NULL COMMENT ''
+            ) UNIQUE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            PROPERTIES(
+                "replication_num"="1",
+                "compaction_policy" = "time_series",
+                "enable_unique_key_merge_on_write" = "true"
+            ); """
+    sql """ insert into test4 values(1, 62324, 0.00273) """
+    qt_sql """ select price, size, price * size from test4; """
+    sql "drop table if exists test4"
 }

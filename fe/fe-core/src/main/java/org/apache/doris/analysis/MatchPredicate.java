@@ -33,8 +33,7 @@ import org.apache.doris.thrift.TMatchPredicate;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
 import java.util.Map;
@@ -44,19 +43,14 @@ import java.util.Objects;
  * filed MATCH query_str
  */
 public class MatchPredicate extends Predicate {
-    private static final Logger LOG = LogManager.getLogger(MatchPredicate.class);
 
     public enum Operator {
         MATCH_ANY("MATCH_ANY", "match_any", TExprOpcode.MATCH_ANY),
         MATCH_ALL("MATCH_ALL", "match_all", TExprOpcode.MATCH_ALL),
         MATCH_PHRASE("MATCH_PHRASE", "match_phrase", TExprOpcode.MATCH_PHRASE),
         MATCH_PHRASE_PREFIX("MATCH_PHRASE_PREFIX", "match_phrase_prefix", TExprOpcode.MATCH_PHRASE_PREFIX),
-        MATCH_ELEMENT_EQ("MATCH_ELEMENT_EQ", "match_element_eq", TExprOpcode.MATCH_ELEMENT_EQ),
-        MATCH_ELEMENT_LT("MATCH_ELEMENT_LT", "match_element_lt", TExprOpcode.MATCH_ELEMENT_LT),
-        MATCH_ELEMENT_GT("MATCH_ELEMENT_GT", "match_element_gt", TExprOpcode.MATCH_ELEMENT_GT),
-        MATCH_ELEMENT_LE("MATCH_ELEMENT_LE", "match_element_le", TExprOpcode.MATCH_ELEMENT_LE),
-        MATCH_ELEMENT_GE("MATCH_ELEMENT_GE", "match_element_ge", TExprOpcode.MATCH_ELEMENT_GE);
-
+        MATCH_REGEXP("MATCH_REGEXP", "match_regexp", TExprOpcode.MATCH_REGEXP),
+        MATCH_PHRASE_EDGE("MATCH_PHRASE_EDGE", "match_phrase_edge", TExprOpcode.MATCH_PHRASE_EDGE);
 
         private final String description;
         private final String name;
@@ -86,34 +80,6 @@ public class MatchPredicate extends Predicate {
 
     public static void initBuiltins(FunctionSet functionSet) {
         String symbolNotUsed = "symbol_not_used";
-
-        for (Type t : Type.getNumericDateTimeTypes()) {
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_ELEMENT_EQ.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(new ArrayType(t), t),
-                    Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_ELEMENT_LT.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(new ArrayType(t), t),
-                    Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_ELEMENT_GT.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(new ArrayType(t), t),
-                    Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_ELEMENT_LE.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(new ArrayType(t), t),
-                    Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_ELEMENT_GE.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(new ArrayType(t), t),
-                    Type.BOOLEAN));
-        }
 
         for (Type t : Type.getStringTypes()) {
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
@@ -158,13 +124,40 @@ public class MatchPredicate extends Predicate {
                     symbolNotUsed,
                     Lists.<Type>newArrayList(new ArrayType(t), t),
                     Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_REGEXP.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(t, t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_REGEXP.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(new ArrayType(t), t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_PHRASE_EDGE.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(t, t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_PHRASE_EDGE.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(new ArrayType(t), t),
+                    Type.BOOLEAN));
         }
     }
 
-    private final Operator op;
+    @SerializedName("op")
+    private Operator op;
     private String invertedIndexParser;
     private String invertedIndexParserMode;
     private Map<String, String> invertedIndexCharFilter;
+
+    private MatchPredicate() {
+        // use for serde only
+        invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
+        invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+    }
 
     public MatchPredicate(Operator op, Expr e1, Expr e2) {
         super();
@@ -177,14 +170,6 @@ public class MatchPredicate extends Predicate {
         selectivity = Expr.DEFAULT_SELECTIVITY;
         invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
         invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
-    }
-
-    public Boolean isMatchElement(Operator op) {
-        return Objects.equals(op.getName(), Operator.MATCH_ELEMENT_EQ.getName())
-                || Objects.equals(op.getName(), Operator.MATCH_ELEMENT_LT.getName())
-                || Objects.equals(op.getName(), Operator.MATCH_ELEMENT_GT.getName())
-                || Objects.equals(op.getName(), Operator.MATCH_ELEMENT_LE.getName())
-                || Objects.equals(op.getName(), Operator.MATCH_ELEMENT_GE.getName());
     }
 
     protected MatchPredicate(MatchPredicate other) {
@@ -248,21 +233,15 @@ public class MatchPredicate extends Predicate {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-        if (isMatchElement(op) && !getChild(0).getType().isArrayType()) {
-            throw new AnalysisException(
-                    "left operand of " + op.toString() + " must be Array: " + toSql());
-        }
         if (getChild(0).getType().isObjectStored()) {
             throw new AnalysisException(
                     "left operand of " + op.toString() + " must not be Bitmap or HLL: " + toSql());
         }
-        if (!isMatchElement(op) && !getChild(1).getType().isStringType() && !getChild(1).getType().isNull()) {
-            throw new AnalysisException("right operand of " + op.toString() + " must be of type STRING: " + toSql());
-        }
 
-        if (!getChild(0).getType().isStringType() && !getChild(0).getType().isArrayType()) {
+        if (!getChild(0).getType().isStringType() && !getChild(0).getType().isArrayType()
+                    && !getChild(0).getType().isVariantType()) {
             throw new AnalysisException(
-                    "left operand of " + op.toString() + " must be of type STRING or ARRAY: " + toSql());
+                    "left operand of " + op.toString() + " must be of type STRING, ARRAY or VARIANT: " + toSql());
         }
 
         fn = getBuiltinFunction(op.toString(),
@@ -273,15 +252,10 @@ public class MatchPredicate extends Predicate {
         }
         Expr e1 = getChild(0);
         Expr e2 = getChild(1);
-        // Here we cast match_element_xxx value type from string to array item type.
-        // Because be need to know the actual TExprNodeType when doing Expr Literal transform
-        if (isMatchElement(op) && e1.type.isArrayType()) {
-            Type itemType = ((ArrayType) e1.type).getItemType();
-            try {
-                setChild(1, e2.castTo(itemType));
-            } catch (NumberFormatException nfe) {
-                throw new AnalysisException("Invalid number format literal: " + e2.getStringValue());
-            }
+
+        // CAST variant to right expr type
+        if (e1.type.isVariantType()) {
+            setChild(0, e1.castTo(e2.getType()));
         }
 
         if (e1 instanceof SlotRef) {
@@ -310,5 +284,4 @@ public class MatchPredicate extends Predicate {
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
     }
-
 }

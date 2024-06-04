@@ -44,4 +44,6 @@ suite("test_catalog_ddl", "p0,external,external_docker") {
         result = sql """show create catalog ${catalog1};"""
         assertEquals(result.size(), 1)
         assertTrue(result[0][1].contains("COMMENT \"alter_comment\""))
+
+        sql """drop catalog ${catalog1}"""
 }

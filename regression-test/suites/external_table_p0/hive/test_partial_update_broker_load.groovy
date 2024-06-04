@@ -23,7 +23,7 @@ suite("test_primary_key_partial_update_broker_load", "p0,external,hive,external_
         brokerName = getBrokerName()
         hdfsUser = getHdfsUser()
         hdfsPasswd = getHdfsPasswd()
-        hdfs_port = context.config.otherConfigs.get("hdfs_port")
+        hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
         externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         def load_from_hdfs = {testTable, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
             def result1= sql """
@@ -47,9 +47,9 @@ suite("test_primary_key_partial_update_broker_load", "p0,external,hive,external_
         }
 
         def wait_for_load_result = {checklabel, testTable ->
-            max_try_milli_secs = 10000
+            def max_try_milli_secs = 10000
             while(max_try_milli_secs) {
-                result = sql "show load where label = '${checklabel}'"
+                def result = sql "show load where label = '${checklabel}'"
                 if(result[0][2] == "FINISHED") {
                     break
                 } else {
@@ -81,7 +81,6 @@ suite("test_primary_key_partial_update_broker_load", "p0,external,hive,external_
         wait_for_load_result(test_load_label, tableName)
         qt_sql """select * from ${tableName} order by id;"""
 
-        sql "set enable_unified_load=true;"
         sql "sync;"
         def test_load_label2 = UUID.randomUUID().toString().replaceAll("-", "")
         load_from_hdfs(tableName, test_load_label2, "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/preinstalled_data/data_case/partial_update/update2.csv", "csv", brokerName, hdfsUser, hdfsPasswd)

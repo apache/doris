@@ -74,7 +74,7 @@ using namespace ErrorCode;
 namespace vectorized {
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static StorageEngine* k_engine = nullptr;
+static StorageEngine* engine_ref = nullptr;
 
 class OrderedDataCompactionTest : public ::testing::Test {
 protected:
@@ -82,27 +82,27 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(absolute_dir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(io::global_local_filesystem()
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
 
-        _data_dir = std::make_unique<DataDir>(absolute_dir);
-        static_cast<void>(_data_dir->update_capacity());
         doris::EngineOptions options;
-        k_engine = new StorageEngine(options);
-        ExecEnv::GetInstance()->set_storage_engine(k_engine);
+        auto engine = std::make_unique<StorageEngine>(options);
+        engine_ref = engine.get();
+        _data_dir = std::make_unique<DataDir>(*engine_ref, absolute_dir);
+        static_cast<void>(_data_dir->update_capacity());
+        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
         config::enable_ordered_data_compaction = true;
         config::ordered_data_compaction_min_segment_size = 10;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-            ExecEnv::GetInstance()->set_storage_engine(nullptr);
-        }
+        engine_ref = nullptr;
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
     TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS) {
@@ -200,7 +200,7 @@ protected:
         rowset_writer_context->data_dir = _data_dir.get();
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
-        rowset_writer_context->rowset_dir = rowset_dir;
+        rowset_writer_context->tablet_path = rowset_dir;
         rowset_writer_context->version = Version(inc_id, inc_id);
         rowset_writer_context->segments_overlap = overlap;
         rowset_writer_context->max_rows_per_segment = max_rows_per_segment;
@@ -234,9 +234,9 @@ protected:
         create_rowset_writer_context(tablet_schema, tablet->tablet_path(), overlap, UINT32_MAX,
                                      &writer_context);
 
-        std::unique_ptr<RowsetWriter> rowset_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, true, &rowset_writer);
-        EXPECT_TRUE(s.ok());
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
 
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
@@ -254,7 +254,7 @@ protected:
                 }
                 num_rows++;
             }
-            s = rowset_writer->add_block(&block);
+            auto s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_TRUE(s.ok());
@@ -271,6 +271,7 @@ protected:
         std::string json_rowset_meta = R"({
             "rowset_id": 540085,
             "tablet_id": 15674,
+            "partition_id": 10000,
             "txn_id": 4045,
             "tablet_schema_hash": 567997588,
             "rowset_type": "BETA_ROWSET",
@@ -307,7 +308,7 @@ protected:
         rsm->set_rowset_id(id);
         rsm->set_delete_predicate(del_pred);
         rsm->set_tablet_schema(tablet->tablet_schema());
-        RowsetSharedPtr rowset = std::make_shared<BetaRowset>(tablet->tablet_schema(), "", rsm);
+        RowsetSharedPtr rowset = std::make_shared<BetaRowset>(tablet->tablet_schema(), rsm, "");
         static_cast<void>(tablet->add_rowset(rowset));
     }
 
@@ -343,7 +344,7 @@ protected:
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
                                TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
-        TabletSharedPtr tablet(new Tablet(tablet_meta, _data_dir.get()));
+        TabletSharedPtr tablet(new Tablet(*engine_ref, tablet_meta, _data_dir.get()));
         static_cast<void>(tablet->init());
         if (has_delete_handler) {
             // delete data with key < 1000
@@ -431,14 +432,11 @@ TEST_F(OrderedDataCompactionTest, test_01) {
         input_rowsets.push_back(rowset);
     }
     //auto end_version = input_rowsets.back()->end_version();
-    CumulativeCompaction cu_compaction(tablet);
-    cu_compaction.set_input_rowset(input_rowsets);
+    CumulativeCompaction cu_compaction(*engine_ref, tablet);
+    cu_compaction._input_rowsets = std::move(input_rowsets);
     EXPECT_EQ(cu_compaction.handle_ordered_data_compaction(), true);
-    for (int i = 0; i < 100; ++i) {
-        LOG(INFO) << "stop";
-    }
 
-    RowsetSharedPtr out_rowset = cu_compaction.output_rowset();
+    auto& out_rowset = cu_compaction._output_rowset;
 
     // create output rowset reader
     RowsetReaderContext reader_context;

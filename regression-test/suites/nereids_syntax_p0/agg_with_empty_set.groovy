@@ -29,4 +29,5 @@ suite("agg_with_empty_set") {
         (select min(c_custkey) from customer)"""
     qt_select6 """select count(c_custkey), max(c_custkey), min(c_custkey), avg(c_custkey), sum(c_custkey) from customer where c_custkey < 
         (select min(c_custkey) from customer) having min(c_custkey) is null"""
+    qt_ditinct_sum """select sum(distinct ifnull(c_custkey, 0)) from customer where 1 = 0"""
 }

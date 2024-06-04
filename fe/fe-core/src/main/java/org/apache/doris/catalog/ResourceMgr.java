@@ -23,6 +23,7 @@ import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
@@ -77,7 +78,7 @@ public class ResourceMgr implements Writable {
         Resource resource = Resource.fromStmt(stmt);
         if (createResource(resource, stmt.isIfNotExists())) {
             Env.getCurrentEnv().getEditLog().logCreateResource(resource);
-            LOG.info("Create resource success. Resource: {}", resource);
+            LOG.info("Create resource success. Resource: {}", resource.getName());
         }
     }
 
@@ -95,6 +96,7 @@ public class ResourceMgr implements Writable {
     }
 
     public void replayCreateResource(Resource resource) {
+        resource.applyDefaultProperties();
         nameToResource.put(resource.getName(), resource);
     }
 
@@ -161,6 +163,11 @@ public class ResourceMgr implements Writable {
     }
 
     public Resource getResource(String name) {
+        // nameToResource == null iff this is in replay thread
+        // just return null to ignore this.
+        if (nameToResource == null) {
+            return null;
+        }
         return nameToResource.get(name);
     }
 
@@ -173,7 +180,8 @@ public class ResourceMgr implements Writable {
                 .collect(Collectors.toList());
     }
 
-    public List<List<Comparable>> getResourcesInfo(String name, boolean accurateMatch, Set<String> typeSets) {
+    public List<List<Comparable>> getResourcesInfo(PatternMatcher matcher,
+            String name, boolean accurateMatch, Set<String> typeSets) {
         List<List<String>> targetRows = procNode.fetchResult().getRows();
         List<List<Comparable>> returnRows = Lists.newArrayList();
 
@@ -184,6 +192,10 @@ public class ResourceMgr implements Writable {
 
             String resourceName = row.get(0);
             String resourceType = row.get(1);
+
+            if (matcher != null && !matcher.match(resourceName)) {
+                continue;
+            }
 
             if (name != null) {
                 if (accurateMatch && !resourceName.equals(name)) {

@@ -27,6 +27,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -71,9 +72,9 @@ public class MetaInfoActionV2 extends RestBaseController {
      *   "msg": "success",
      *   "code": 0,
      *   "data": [
-     *     "default_cluster:db1",
-     *     "default_cluster:doris_audit_db__",
-     *     "default_cluster:information_schema"
+     *     "db1",
+     *     "doris_audit_db__",
+     *     "information_schema"
      *   ],
      *   "count": 0
      * }
@@ -94,8 +95,9 @@ public class MetaInfoActionV2 extends RestBaseController {
         List<String> dbNameSet = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
-            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), fullName,
-                    PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullName,
+                            PrivPredicate.SHOW)) {
                 continue;
             }
             dbNameSet.add(db);
@@ -144,7 +146,8 @@ public class MetaInfoActionV2 extends RestBaseController {
         try {
             for (Table tbl : db.getTables()) {
                 if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(), PrivPredicate.SHOW)) {
+                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName,
+                                tbl.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
                 tblNames.add(tbl.getName());

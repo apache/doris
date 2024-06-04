@@ -119,6 +119,16 @@ public class CreateTableTest extends TestWithFeService {
                 .expectThrowsNoException(() -> createTable("create table test.tb7(key1 int, key2 varchar(10)) \n"
                         + "distributed by hash(key1) buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
+        ConfigBase.setMutableConfig("disable_storage_medium_check", "true");
+        ExceptionChecker
+                .expectThrowsNoException(() -> createTable("create table test.tb7_1(key1 int, key2 varchar(10))\n"
+                                + "PARTITION BY RANGE(`key1`) (\n"
+                                + "    PARTITION `p1` VALUES LESS THAN (\"10\"),\n"
+                                + "    PARTITION `p2` VALUES LESS THAN (\"20\"),\n"
+                                + "    PARTITION `p3` VALUES LESS THAN (\"30\"))\n"
+                                + "distributed by hash(key1)\n"
+                                + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
+
         ExceptionChecker
                 .expectThrowsNoException(() -> createTable("create table test.compression1(key1 int, key2 varchar(10)) \n"
                         + "distributed by hash(key1) buckets 1 \n"
@@ -198,7 +208,7 @@ public class CreateTableTest extends TestWithFeService {
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_col' = 'v1');"));
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
         Assert.assertTrue(tbl6.getColumn("k1").isKey());
         Assert.assertTrue(tbl6.getColumn("k2").isKey());
@@ -213,12 +223,24 @@ public class CreateTableTest extends TestWithFeService {
         Assert.assertTrue(tbl8.getColumn("k1").isKey());
         Assert.assertTrue(tbl8.getColumn("k2").isKey());
         Assert.assertFalse(tbl8.getColumn("v1").isKey());
-        Assert.assertTrue(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.REPLACE);
+        Assert.assertTrue(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
 
         OlapTable tbl13 = (OlapTable) db.getTableOrDdlException("tbl13");
-        Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.REPLACE);
+        Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
         Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getType() == Type.INT);
         Assert.assertEquals(tbl13.getSequenceMapCol(), "v1");
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl14\n" + "(k1 int, k2 int default 10)\n" + "duplicate key(k1)\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl15\n" + "(k1 int, k2 bigint default 11)\n" + "duplicate key(k1)\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl17\n" + "(k1 int, k2 decimal(10,2) default 10.3)\n" + "duplicate key(k1)\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
     }
 
     @Test
@@ -269,12 +291,27 @@ public class CreateTableTest extends TestWithFeService {
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class,
-                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
+                                + "or maybe all be on same host.\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable(
                                 "create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
                                         + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
+
+        ExceptionChecker
+                .expectThrowsWithMsg(DdlException.class,
+                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
+                                + "or maybe all be on same host.\n"
+                                + "Create failed replications:\n"
+                                + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
+                        () -> createTable("create table test.tb7_1(key1 int, key2 varchar(10))\n"
+                                + "PARTITION BY RANGE(`key1`) (\n"
+                                + "    PARTITION `p1` VALUES LESS THAN (\"10\"),\n"
+                                + "    PARTITION `p2` VALUES LESS THAN (\"20\"),\n"
+                                + "    PARTITION `p3` VALUES LESS THAN (\"30\"))\n"
+                                + "distributed by hash(key1)\n"
+                                + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class, "sequence column only support UNIQUE_KEYS",
@@ -714,7 +751,7 @@ public class CreateTableTest extends TestWithFeService {
             createTable("create table test.test_strLen(k1 CHAR, k2 CHAR(10) , k3 VARCHAR ,k4 VARCHAR(10))"
                     + " duplicate key (k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
         });
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tb = (OlapTable) db.getTableOrDdlException("test_strLen");
         Assert.assertEquals(1, tb.getColumn("k1").getStrLen());
         Assert.assertEquals(10, tb.getColumn("k2").getStrLen());
@@ -739,7 +776,7 @@ public class CreateTableTest extends TestWithFeService {
                         alterTableSync("alter table test.test_replica modify partition p1 set ('replication_num' = '4')");
                     });
 
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
             OlapTable tb = (OlapTable) db.getTableOrDdlException("test_replica");
             Partition p1 = tb.getPartition("p1");
             Assert.assertEquals(1, tb.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum());
@@ -761,7 +798,7 @@ public class CreateTableTest extends TestWithFeService {
                                   + " 'min_load_replica_num' = '1'\n"
                                   + ");"));
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tbl1 = (OlapTable) db.getTableOrDdlException("tbl_min_load_replica_num_1");
         Assert.assertEquals(1, tbl1.getMinLoadReplicaNum());
         Assert.assertEquals(2, (int) tbl1.getDefaultReplicaAllocation().getTotalReplicaNum());

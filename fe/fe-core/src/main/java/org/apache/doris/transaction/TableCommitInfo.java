@@ -17,22 +17,36 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TPartitionVersionInfo;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class TableCommitInfo implements Writable {
+    private static final Logger LOG = LogManager.getLogger(TableCommitInfo.class);
 
     @SerializedName(value = "tableId")
     private long tableId;
     @SerializedName(value = "idToPartitionCommitInfo")
     private Map<Long, PartitionCommitInfo> idToPartitionCommitInfo;
+    @SerializedName(value = "version")
+    private long version;
+    @SerializedName(value = "versionTime")
+    private long versionTime;
 
     public TableCommitInfo() {
 
@@ -45,18 +59,22 @@ public class TableCommitInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(tableId);
-        if (idToPartitionCommitInfo == null) {
-            out.writeBoolean(false);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
+    }
+
+    public static TableCommitInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_129) {
+            TableCommitInfo info = new TableCommitInfo();
+            info.readFields(in);
+            return info;
         } else {
-            out.writeBoolean(true);
-            out.writeInt(idToPartitionCommitInfo.size());
-            for (PartitionCommitInfo partitionCommitInfo : idToPartitionCommitInfo.values()) {
-                partitionCommitInfo.write(out);
-            }
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, TableCommitInfo.class);
         }
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         tableId = in.readLong();
         boolean hasPartitionInfo = in.readBoolean();
@@ -82,11 +100,44 @@ public class TableCommitInfo implements Writable {
         this.idToPartitionCommitInfo.put(info.getPartitionId(), info);
     }
 
-    public void removePartition(long partitionId) {
-        this.idToPartitionCommitInfo.remove(partitionId);
-    }
-
     public PartitionCommitInfo getPartitionCommitInfo(long partitionId) {
         return this.idToPartitionCommitInfo.get(partitionId);
+    }
+
+    public long getVersion() {
+        return version;
+    }
+
+    public void setVersion(long version) {
+        this.version = version;
+    }
+
+    public long getVersionTime() {
+        return versionTime;
+    }
+
+    public void setVersionTime(long versionTime) {
+        this.versionTime = versionTime;
+    }
+
+    public List<TPartitionVersionInfo> generateTPartitionVersionInfos() {
+        return idToPartitionCommitInfo
+                .values().stream()
+                .map(commitInfo -> {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("try to publish version info partitionid [{}], version [{}]",
+                                commitInfo.getPartitionId(), commitInfo.getVersion());
+                    }
+                    return new TPartitionVersionInfo(commitInfo.getPartitionId(),
+                            commitInfo.getVersion(), 0);
+                }).collect(Collectors.toList());
+    }
+
+    @Override
+    public String toString() {
+        return new StringBuilder("TableCommitInfo{tableId=").append(tableId)
+                .append(", idToPartitionCommitInfo=").append(idToPartitionCommitInfo)
+                .append(", version=").append(version).append(", versionTime=").append(versionTime)
+                .append('}').toString();
     }
 }

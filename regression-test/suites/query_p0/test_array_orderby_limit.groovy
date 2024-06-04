@@ -22,7 +22,7 @@ suite("test_array_char_orderby", "query") {
     sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
               `k1` INT(11) NULL,
-              `k2` array<array<char(50)>> NULL,
+              `k2` array<array<char(50)>> NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             COMMENT 'OLAP'
@@ -45,4 +45,20 @@ suite("test_array_char_orderby", "query") {
     }
 
     qt_select """ select * from ${testTable} order by k1 limit 1 """
+
+    sql "DROP TABLE IF EXISTS unpart_tbl_parquet_struct_3;"
+    sql """
+          CREATE TABLE unpart_tbl_parquet_struct_3 (
+            `col1` CHAR,
+            `col20` STRUCT<codes:ARRAY<INT>,props:MAP<STRING, ARRAY<CHAR(16)>>>
+            )ENGINE=OLAP
+          DUPLICATE KEY(`col1`)
+          COMMENT 'OLAP'
+          DISTRIBUTED BY HASH(`col1`) BUCKETS 5
+          PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+          );
+    """
+    sql """ insert into unpart_tbl_parquet_struct_3 values ('a',STRUCT(ARRAY(123, 456), MAP('key1', ARRAY('char1', 'char2'))) ); """
+    qt_select_2 """ select * from unpart_tbl_parquet_struct_3;"""
 }

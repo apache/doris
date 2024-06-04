@@ -40,7 +40,10 @@ public:
     const std::string kTestDir = "./ut_dir/zone_map_index_test";
 
     void SetUp() override {
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(kTestDir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(kTestDir);
+        ASSERT_TRUE(st.ok()) << st;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
@@ -153,8 +156,8 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     std::string filename = kTestDir + "/NormalTestIntPage";
     auto fs = io::global_local_filesystem();
 
-    TabletColumn int_column = create_int_key(0);
-    Field* field = FieldFactory::create(int_column);
+    TabletColumnPtr int_column = create_int_key(0);
+    Field* field = FieldFactory::create(*int_column);
 
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
     static_cast<void>(ZoneMapIndexWriter::create(field, builder));
@@ -207,25 +210,25 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
 
 // Test for string
 TEST_F(ColumnZoneMapTest, NormalTestVarcharPage) {
-    TabletColumn varchar_column = create_varchar_key(0);
-    Field* field = FieldFactory::create(varchar_column);
+    TabletColumnPtr varchar_column = create_varchar_key(0);
+    Field* field = FieldFactory::create(*varchar_column);
     test_string("NormalTestVarcharPage", field);
     delete field;
 }
 
 // Test for string
 TEST_F(ColumnZoneMapTest, NormalTestCharPage) {
-    TabletColumn char_column = create_char_key(0);
-    Field* field = FieldFactory::create(char_column);
+    TabletColumnPtr char_column = create_char_key(0);
+    Field* field = FieldFactory::create(*char_column);
     test_string("NormalTestCharPage", field);
     delete field;
 }
 
 // Test for zone map limit
 TEST_F(ColumnZoneMapTest, ZoneMapCut) {
-    TabletColumn varchar_column = create_varchar_key(0);
-    varchar_column.set_index_length(1024);
-    Field* field = FieldFactory::create(varchar_column);
+    TabletColumnPtr varchar_column = create_varchar_key(0);
+    varchar_column->set_index_length(1024);
+    Field* field = FieldFactory::create(*varchar_column);
     test_string("ZoneMapCut", field);
     delete field;
 }

@@ -15,9 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Test some keywords that may conflict.
-// For example, "bin" is used for function "bin",
-// and also used "show catalog recycle bin"
 suite("test_bugfix_block_reuse") {
     sql "drop table if exists test_bugfix_block_reuse;"
     sql """

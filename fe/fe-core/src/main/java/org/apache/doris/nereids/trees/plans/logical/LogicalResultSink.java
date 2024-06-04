@@ -73,6 +73,11 @@ public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
     }
 
     @Override
+    public LogicalResultSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
+        return new LogicalResultSink<>(outputExprs, child());
+    }
+
+    @Override
     public String toString() {
         return Utils.toSqlString("LogicalResultSink[" + id.asInt() + "]",
                 "outputExprs", outputExprs);

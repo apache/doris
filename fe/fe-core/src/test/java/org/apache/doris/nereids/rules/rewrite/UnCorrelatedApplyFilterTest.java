@@ -30,7 +30,7 @@ class UnCorrelatedApplyFilterTest extends TestWithFeService implements Generated
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("testApplyFilter");
-        connectContext.setDatabase("default_cluster:testApplyFilter");
+        connectContext.setDatabase("testApplyFilter");
         createTables(
                 "CREATE TABLE t1 (col1 int, col2 int) DISTRIBUTED BY HASH(col2)\n" + "BUCKETS 1\n" + "PROPERTIES(\n"
                         + "    \"replication_num\"=\"1\"\n" + ");",

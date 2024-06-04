@@ -17,12 +17,19 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.datasource.credentials.CloudCredential;
+import org.apache.doris.common.credentials.CloudCredential;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
 import software.amazon.awssdk.auth.signer.AwsS3V4Signer;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.core.client.config.SdkAdvancedClientOption;
@@ -38,8 +45,9 @@ import java.time.Duration;
 
 public class S3Util {
 
-    public static S3Client buildS3Client(URI endpoint, String region, CloudCredential credential) {
-        StaticCredentialsProvider scp;
+    public static S3Client buildS3Client(URI endpoint, String region, CloudCredential credential,
+            boolean isUsePathStyle) {
+        AwsCredentialsProvider scp;
         AwsCredentials awsCredential;
         if (!credential.isTemporary()) {
             awsCredential = AwsBasicCredentials.create(credential.getAccessKey(), credential.getSecretKey());
@@ -47,7 +55,16 @@ public class S3Util {
             awsCredential = AwsSessionCredentials.create(credential.getAccessKey(), credential.getSecretKey(),
                         credential.getSessionToken());
         }
-        scp = StaticCredentialsProvider.create(awsCredential);
+        if (!credential.isWhole()) {
+            scp = AwsCredentialsProviderChain.of(
+                    SystemPropertyCredentialsProvider.create(),
+                    EnvironmentVariableCredentialsProvider.create(),
+                    WebIdentityTokenFileCredentialsProvider.create(),
+                    ProfileCredentialsProvider.create(),
+                    InstanceProfileCredentialsProvider.create());
+        } else {
+            scp = StaticCredentialsProvider.create(awsCredential);
+        }
         EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
                 .builder()
                 .baseDelay(Duration.ofSeconds(1))
@@ -73,10 +90,9 @@ public class S3Util {
                 .region(Region.of(region))
                 .overrideConfiguration(clientConf)
                 // disable chunkedEncoding because of bos not supported
-                // use virtual hosted-style access
                 .serviceConfiguration(S3Configuration.builder()
                         .chunkedEncodingEnabled(false)
-                        .pathStyleAccessEnabled(false)
+                        .pathStyleAccessEnabled(isUsePathStyle)
                         .build())
                 .build();
     }

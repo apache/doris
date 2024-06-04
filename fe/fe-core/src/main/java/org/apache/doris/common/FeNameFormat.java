@@ -19,6 +19,7 @@ package org.apache.doris.common;
 
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.mysql.privilege.RoleManager;
@@ -28,12 +29,12 @@ import org.apache.doris.qe.VariableMgr;
 import com.google.common.base.Strings;
 
 public class FeNameFormat {
-    private static final String LABEL_REGEX = "^[-_A-Za-z0-9:]{1,128}$";
+    private static final String LABEL_REGEX = "^[-_A-Za-z0-9:]{1," + Config.label_regex_length + "}$";
     private static final String COMMON_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9-_]{0,63}$";
     private static final String UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z][a-zA-Z0-9-_]{0,63}$";
     private static final String TABLE_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9-_]*$";
     private static final String USER_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9.-_]*$";
-    private static final String COLUMN_NAME_REGEX = "^[_a-zA-Z@0-9\\s<>/][.a-zA-Z0-9_+-/><?@#$%^&*\"\\s,:]{0,255}$";
+    private static final String COLUMN_NAME_REGEX = "^[_a-zA-Z@0-9\\s/][.a-zA-Z0-9_+-/?@#$%^&*\"\\s,:]{0,255}$";
 
     private static final String UNICODE_LABEL_REGEX = "^[-_A-Za-z0-9:\\p{L}]{1,128}$";
     private static final String UNICODE_COMMON_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9-_\\p{L}]{0,63}$";
@@ -41,7 +42,7 @@ public class FeNameFormat {
     private static final String UNICODE_TABLE_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9-_\\p{L}]*$";
     private static final String UNICODE_USER_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9.-_\\p{L}]*$";
     private static final String UNICODE_COLUMN_NAME_REGEX
-            = "^[_a-zA-Z@0-9\\p{L}][.a-zA-Z0-9_+-/><?@#$%^&*\\p{L}]{0,255}$";
+            = "^[_a-zA-Z@0-9\\p{L}][.a-zA-Z0-9_+-/?@#$%^&*\\p{L}]{0,255}$";
 
     public static final String FORBIDDEN_PARTITION_NAME = "placeholder_";
 
@@ -126,12 +127,24 @@ public class FeNameFormat {
         }
     }
 
-    public static void checkResourceName(String resourceName) throws AnalysisException {
-        checkCommonName("resource", resourceName);
+    public static void checkResourceName(String resourceName, ResourceTypeEnum type) throws AnalysisException {
+        if (type == ResourceTypeEnum.GENERAL) {
+            checkCommonName("resource", resourceName);
+        } else {
+            checkCommonName("clusterName", resourceName);
+        }
+    }
+
+    public static void checkStorageVaultName(String vaultName) throws AnalysisException {
+        checkCommonName("vault", vaultName);
     }
 
     public static void checkWorkloadGroupName(String workloadGroupName) throws AnalysisException {
         checkCommonName("workload group", workloadGroupName);
+    }
+
+    public static void checkWorkloadSchedPolicyName(String policyName) throws AnalysisException {
+        checkCommonName("workload schedule policy", policyName);
     }
 
     public static void checkCommonName(String type, String name) throws AnalysisException {

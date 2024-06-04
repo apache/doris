@@ -128,7 +128,7 @@ private:
         auto* __restrict column_raw_data =
                 reinterpret_cast<const ColumnType*>(argument_column.get())->get_data().data();
 
-        if constexpr (std::is_same_v<ColumnType, ColumnDecimal128>) {
+        if constexpr (std::is_same_v<ColumnType, ColumnDecimal128V2>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 result_raw_data[i] =
                         Op<DecimalV2Value, DecimalV2Value>::apply(
@@ -138,7 +138,7 @@ private:
             }
         } else if constexpr (std::is_same_v<ColumnType, ColumnDecimal32> ||
                              std::is_same_v<ColumnType, ColumnDecimal64> ||
-                             std::is_same_v<ColumnType, ColumnDecimal128I> ||
+                             std::is_same_v<ColumnType, ColumnDecimal128V3> ||
                              std::is_same_v<ColumnType, ColumnDecimal256>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 using type = std::decay_t<decltype(result_raw_data[0].value)>;
@@ -175,7 +175,7 @@ struct FunctionFieldImpl {
         auto& res_data = static_cast<ColumnInt32*>(result_column)->get_data();
 
         const auto& column_size = arguments.size();
-        ColumnPtr argument_columns[column_size];
+        std::vector<ColumnPtr> argument_columns(column_size);
         for (int i = 0; i < column_size; ++i) {
             argument_columns[i] = block.get_by_position(arguments[i]).column;
         }
@@ -190,8 +190,7 @@ struct FunctionFieldImpl {
             for (int row = 0; row < input_rows_count; ++row) {
                 const auto& str_data = column_string.get_data_at(index_check_const(row, arg_const));
                 for (int col = 1; col < column_size; ++col) {
-                    auto [column, is_const] =
-                            unpack_if_const(block.safe_get_by_position(col).column);
+                    auto [column, is_const] = unpack_if_const(argument_columns[col]);
                     const auto& temp_data = assert_cast<const ColumnString&>(*column).get_data_at(
                             index_check_const(row, is_const));
                     if (EqualsOp<StringRef, StringRef>::apply(temp_data, str_data)) {
@@ -237,7 +236,7 @@ private:
         auto [argument_column_raw, argument_column_is_const] = unpack_if_const(argument_column);
         const auto& arg_data =
                 assert_cast<const ColumnType&>(*argument_column_raw).get_data().data()[0];
-        if constexpr (std::is_same_v<ColumnType, ColumnDecimal128>) {
+        if constexpr (std::is_same_v<ColumnType, ColumnDecimal128V2>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 res_data[i] |= (!res_data[i] *
                                 (EqualsOp<DecimalV2Value, DecimalV2Value>::apply(
@@ -246,7 +245,7 @@ private:
             }
         } else if constexpr (std::is_same_v<ColumnType, ColumnDecimal32> ||
                              std::is_same_v<ColumnType, ColumnDecimal64> ||
-                             std::is_same_v<ColumnType, ColumnDecimal128I> ||
+                             std::is_same_v<ColumnType, ColumnDecimal128V3> ||
                              std::is_same_v<ColumnType, ColumnDecimal256>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 using type = std::decay_t<decltype(first_raw_data[0].value)>;

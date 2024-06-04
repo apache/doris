@@ -15,17 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H
-#define DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H
+#pragma once
 
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
-#include "olap/txn_manager.h"
-#include "util/doris_metrics.h"
+#include "common/status.h"
 
 namespace doris {
+
+class MemTrackerLimiter;
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
@@ -33,7 +29,9 @@ class EngineTask {
 public:
     virtual ~EngineTask() = default;
     virtual Status execute() = 0;
+    std::shared_ptr<MemTrackerLimiter> mem_tracker() const { return _mem_tracker; }
+
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 } // end namespace doris
-#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H

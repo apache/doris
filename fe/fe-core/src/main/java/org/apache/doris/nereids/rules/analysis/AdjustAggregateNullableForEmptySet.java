@@ -46,21 +46,30 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
                 RuleType.ADJUST_NULLABLE_FOR_AGGREGATE_SLOT.build(
                         logicalAggregate()
                                 .then(agg -> {
-                                    List<NamedExpression> output = agg.getOutputExpressions().stream()
-                                            .map(ne -> ((NamedExpression) FunctionReplacer.INSTANCE.replace(ne,
-                                                    agg.getGroupByExpressions().isEmpty())))
-                                            .collect(ImmutableList.toImmutableList());
-                                    return agg.withAggOutput(output);
+                                    List<NamedExpression> outputExprs = agg.getOutputExpressions();
+                                    boolean noGroupBy = agg.getGroupByExpressions().isEmpty();
+                                    ImmutableList.Builder<NamedExpression> newOutput
+                                            = ImmutableList.builderWithExpectedSize(outputExprs.size());
+                                    for (NamedExpression ne : outputExprs) {
+                                        NamedExpression newExpr =
+                                                ((NamedExpression) FunctionReplacer.INSTANCE.replace(ne, noGroupBy));
+                                        newOutput.add(newExpr);
+                                    }
+                                    return agg.withAggOutput(newOutput.build());
                                 })
                 ),
                 RuleType.ADJUST_NULLABLE_FOR_HAVING_SLOT.build(
                         logicalHaving(logicalAggregate())
                                 .then(having -> {
-                                    Set<Expression> newConjuncts = having.getConjuncts().stream()
-                                            .map(ne -> FunctionReplacer.INSTANCE.replace(ne,
-                                                    having.child().getGroupByExpressions().isEmpty()))
-                                            .collect(ImmutableSet.toImmutableSet());
-                                    return new LogicalHaving<>(newConjuncts, having.child());
+                                    Set<Expression> conjuncts = having.getConjuncts();
+                                    boolean noGroupBy = having.child().getGroupByExpressions().isEmpty();
+                                    ImmutableSet.Builder<Expression> newConjuncts
+                                            = ImmutableSet.builderWithExpectedSize(conjuncts.size());
+                                    for (Expression expr : conjuncts) {
+                                        Expression newExpr = FunctionReplacer.INSTANCE.replace(expr, noGroupBy);
+                                        newConjuncts.add(newExpr);
+                                    }
+                                    return new LogicalHaving<>(newConjuncts.build(), having.child());
                                 })
                 )
         );
@@ -90,8 +99,7 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
         @Override
         public Expression visitNullableAggregateFunction(NullableAggregateFunction nullableAggregateFunction,
                 Boolean alwaysNullable) {
-            return nullableAggregateFunction.isDistinct() ? nullableAggregateFunction
-                    : nullableAggregateFunction.withAlwaysNullable(alwaysNullable);
+            return nullableAggregateFunction.withAlwaysNullable(alwaysNullable);
         }
     }
 }

@@ -23,7 +23,7 @@ suite('test_default_limit', "arrow_flight_sql") {
         create table baseall (
             k0 int,
             k1 int,
-            k2 int,
+            k2 int
         )
         distributed by hash(k0) buckets 16
         properties(
@@ -35,7 +35,7 @@ suite('test_default_limit', "arrow_flight_sql") {
         create table bigtable (
             k0 int,
             k1 int,
-            k2 int,
+            k2 int
         )
         distributed by hash(k0) buckets 16
         properties(
@@ -277,5 +277,19 @@ suite('test_default_limit', "arrow_flight_sql") {
             order by c.k1, baseall.k2 limit 8
         '''
         assertEquals(res.size(), 8)
+
+        // Test setting sql_select_limit with the string "DEFAULT"
+        sql 'set sql_select_limit = "DEFAULT"'
+        res = sql 'select * from baseall'
+        assertEquals(res.size(), 16)  // Expecting the default limit to show all rows
+
+        // Test setting sql_select_limit with an explicit numeric string
+        sql 'set sql_select_limit = "10"'
+        res = sql 'select * from baseall'
+        assertEquals(res.size(), 10)  // Expecting the limit to restrict the results to 10 rows
+
+        // Reset the sql_select_limit to no limit for further tests
+        sql 'set sql_select_limit = -1'
+
     }
 }

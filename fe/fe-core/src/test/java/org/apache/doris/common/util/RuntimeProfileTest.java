@@ -98,7 +98,7 @@ public class RuntimeProfileTest {
 
     @Test
     public void testCounter() {
-        RuntimeProfile profile = new RuntimeProfile();
+        RuntimeProfile profile = new RuntimeProfile("test counter");
         profile.addCounter("key", TUnit.UNIT, "");
         Assert.assertNotNull(profile.getCounterMap().get("key"));
         Assert.assertNull(profile.getCounterMap().get("key2"));

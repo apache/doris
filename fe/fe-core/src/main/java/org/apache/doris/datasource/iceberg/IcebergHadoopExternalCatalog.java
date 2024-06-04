@@ -23,10 +23,10 @@ import org.apache.doris.datasource.property.PropertyConverter;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 
-import java.util.HashMap;
 import java.util.Map;
 
 public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
@@ -38,23 +38,27 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
         String warehouse = props.get(CatalogProperties.WAREHOUSE_LOCATION);
         Preconditions.checkArgument(StringUtils.isNotEmpty(warehouse),
                 "Cannot initialize Iceberg HadoopCatalog because 'warehouse' must not be null or empty");
-        String nameService = StringUtils.substringBetween(warehouse, HdfsResource.HDFS_FILE_PREFIX, "/");
-        if (StringUtils.isEmpty(nameService)) {
-            throw new IllegalArgumentException("Unrecognized 'warehouse' location format"
-                    + " because name service is required.");
-        }
         catalogProperty = new CatalogProperty(resource, props);
-        catalogProperty.addProperty(HdfsResource.HADOOP_FS_NAME, HdfsResource.HDFS_FILE_PREFIX + nameService);
+        if (StringUtils.startsWith(warehouse, HdfsResource.HDFS_PREFIX)) {
+            String nameService = StringUtils.substringBetween(warehouse, HdfsResource.HDFS_FILE_PREFIX, "/");
+            if (StringUtils.isEmpty(nameService)) {
+                throw new IllegalArgumentException("Unrecognized 'warehouse' location format"
+                        + " because name service is required.");
+            }
+            catalogProperty.addProperty(HdfsResource.HADOOP_FS_NAME, HdfsResource.HDFS_FILE_PREFIX + nameService);
+        }
     }
 
     @Override
-    protected void initLocalObjectsImpl() {
+    protected void initCatalog() {
         icebergCatalogType = ICEBERG_HADOOP;
         HadoopCatalog hadoopCatalog = new HadoopCatalog();
-        hadoopCatalog.setConf(getConfiguration());
-        // initialize hive catalog
-        Map<String, String> catalogProperties = new HashMap<>();
-        String warehouse = catalogProperty.getProperties().get(CatalogProperties.WAREHOUSE_LOCATION);
+        Configuration conf = getConfiguration();
+        initS3Param(conf);
+        // initialize hadoop catalog
+        Map<String, String> catalogProperties = catalogProperty.getProperties();
+        String warehouse = catalogProperty.getHadoopProperties().get(CatalogProperties.WAREHOUSE_LOCATION);
+        hadoopCatalog.setConf(conf);
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         hadoopCatalog.initialize(icebergCatalogType, catalogProperties);
         catalog = hadoopCatalog;

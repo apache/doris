@@ -20,7 +20,6 @@ package org.apache.doris.load;
 import org.apache.doris.analysis.ShowStreamLoadStmt.StreamLoadState;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -28,12 +27,14 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.plugin.AuditEvent;
-import org.apache.doris.plugin.AuditEvent.EventType;
-import org.apache.doris.plugin.StreamLoadAuditEvent;
+import org.apache.doris.plugin.audit.AuditEvent;
+import org.apache.doris.plugin.audit.AuditEvent.EventType;
+import org.apache.doris.plugin.audit.StreamLoadAuditEvent;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStreamLoadRecord;
@@ -188,6 +189,13 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                     if (state != null && !String.valueOf(state).equalsIgnoreCase(streamLoadRecord.getStatus())) {
                         continue;
                     }
+                    // check auth
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    streamLoadRecord.getDb(), streamLoadRecord.getTable(),
+                                    PrivPredicate.LOAD)) {
+                        continue;
+                    }
                     streamLoadRecords.add(streamLoadRecord.getStreamLoadInfo());
                 } catch (Exception e) {
                     continue;
@@ -236,6 +244,9 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         int pullRecordSize = 0;
         Map<Long, Long> beIdToLastStreamLoad = Maps.newHashMap();
         for (Backend backend : backends.values()) {
+            if (!backend.isAlive()) {
+                continue;
+            }
             BackendService.Client client = null;
             TNetworkAddress address = null;
             boolean ok = false;
@@ -297,12 +308,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                                     String.valueOf(streamLoadItem.getLoadBytes()),
                                     startTime, finishTime, streamLoadItem.getUser(), streamLoadItem.getComment());
 
-                    String cluster = streamLoadItem.getCluster();
-                    if (Strings.isNullOrEmpty(cluster)) {
-                        cluster = SystemInfoService.DEFAULT_CLUSTER;
-                    }
-
-                    String fullDbName = ClusterNamespace.getFullName(cluster, streamLoadItem.getDb());
+                    String fullDbName = streamLoadItem.getDb();
                     Database db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
                     if (db == null) {
                         String dbName = fullDbName;

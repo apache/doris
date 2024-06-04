@@ -78,6 +78,10 @@ public class DownloadTask extends AgentTask {
         return brokerProperties;
     }
 
+    public void updateBrokerProperties(Map<String, String> brokerProperties) {
+        this.brokerProperties = new java.util.HashMap<>(brokerProperties);
+    }
+
     public TDownloadReq toThrift() {
         // these fields are required
         // 1: required i64 job_id

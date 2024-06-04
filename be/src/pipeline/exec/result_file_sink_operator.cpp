@@ -25,24 +25,8 @@
 #include "runtime/buffer_control_block.h"
 #include "runtime/result_buffer_mgr.h"
 #include "vec/sink/vdata_stream_sender.h"
-#include "vec/sink/vresult_file_sink.h"
-
-namespace doris {
-class DataSink;
-} // namespace doris
 
 namespace doris::pipeline {
-
-ResultFileSinkOperatorBuilder::ResultFileSinkOperatorBuilder(int32_t id, DataSink* sink)
-        : DataSinkOperatorBuilder(id, "ResultSinkOperator", sink) {};
-
-OperatorPtr ResultFileSinkOperatorBuilder::build_operator() {
-    return std::make_shared<ResultFileSinkOperator>(this, _sink);
-}
-
-ResultFileSinkOperator::ResultFileSinkOperator(OperatorBuilderBase* operator_builder,
-                                               DataSink* sink)
-        : DataSinkOperator(operator_builder, sink) {};
 
 ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent,
                                                    RuntimeState* state)
@@ -59,13 +43,11 @@ ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescr
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(
         int operator_id, const RowDescriptor& row_desc, const TResultFileSink& sink,
         const std::vector<TPlanFragmentDestination>& destinations,
-        bool send_query_statistics_with_every_batch, const std::vector<TExpr>& t_output_expr,
-        DescriptorTbl& descs)
+        const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs)
         : DataSinkOperatorX(operator_id, 0),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr),
           _dests(destinations),
-          _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
           _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false),
           _is_top_sink(false) {
     CHECK_EQ(destinations.size(), 1);
@@ -116,12 +98,12 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
     if (p._is_top_sink) {
         // create sender
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->fragment_instance_id(), p._buf_size, &_sender, state->enable_pipeline_exec(),
-                state->execution_timeout()));
+                state->fragment_instance_id(), p._buf_size, &_sender,
+                state->enable_pipeline_x_exec(), state->execution_timeout()));
         // create writer
         _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
                 p._file_opts.get(), p._storage_type, state->fragment_instance_id(),
-                _output_vexpr_ctxs, _sender.get(), nullptr, state->return_object_data_as_binary(),
+                _output_vexpr_ctxs, _sender, nullptr, state->return_object_data_as_binary(),
                 p._output_row_descriptor));
     } else {
         // init channel
@@ -134,10 +116,9 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
 
         std::map<int64_t, int64_t> fragment_id_to_channel_index;
         for (int i = 0; i < p._dests.size(); ++i) {
-            _channels.push_back(new vectorized::Channel(
-                    this, p._row_desc, p._dests[i].brpc_server, state->fragment_instance_id(),
-                    info.tsink.result_file_sink.dest_node_id, false,
-                    p._send_query_statistics_with_every_batch));
+            _channels.push_back(new vectorized::Channel(this, p._row_desc, p._dests[i].brpc_server,
+                                                        state->fragment_instance_id(),
+                                                        info.tsink.result_file_sink.dest_node_id));
         }
         std::random_device rd;
         std::mt19937 g(rd());
@@ -176,9 +157,9 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
     }
 
     Status final_status = exec_status;
-    // close the writer
-    if (_writer && _writer->need_normal_close()) {
-        Status st = _writer->close();
+    // For pipelinex engine, the writer is closed in async thread process_block
+    if (_writer) {
+        Status st = _writer->get_writer_status();
         if (!st.ok() && exec_status.ok()) {
             // close file writer failed, should return this error to client
             final_status = st;
@@ -187,12 +168,12 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
     if (p._is_top_sink) {
         // close sender, this is normal path end
         if (_sender) {
-            _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
+            _sender->update_return_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
             static_cast<void>(_sender->close(final_status));
         }
-        static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
+        state->exec_env()->result_mgr()->cancel_at_time(
                 time(nullptr) + config::result_buffer_cancelled_interval_time,
-                state->fragment_instance_id()));
+                state->fragment_instance_id());
     } else {
         if (final_status.ok()) {
             bool all_receiver_eof = true;
@@ -240,8 +221,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                                     status = channel->send_local_block(&cur_block);
                                 } else {
                                     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                    status = channel->send_broadcast_block(_block_holder.get(),
-                                                                           true);
+                                    status = channel->send_broadcast_block(_block_holder, true);
                                 }
                                 HANDLE_CHANNEL_STATUS(state, channel, status);
                             }
@@ -266,12 +246,11 @@ void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelP
     static_cast<void>(channel->close(state, Status::OK()));
 }
 
-Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
-                                     SourceState source_state) {
+Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    return local_state.sink(state, in_block, source_state);
+    return local_state.sink(state, in_block, eos);
 }
 
 } // namespace doris::pipeline

@@ -19,8 +19,12 @@ suite("test_decimal256_index") {
     sql "set enable_nereids_planner = true;"
     sql "set enable_decimal256 = true;"
 
-    def delta_time = 100
+    def timeout = 60000
+    def delta_time = 1000
+    def alter_res = "null"
+    def useTime = 0
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
@@ -33,6 +37,27 @@ suite("test_decimal256_index") {
             sleep(delta_time)
         }
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
+
+    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
+            def expected_finished_num = alter_res.size();
+            def finished_num = 0;
+            for (int i = 0; i < expected_finished_num; i++) {
+                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
+                if (alter_res[i][7] == "FINISHED") {
+                    ++finished_num;
+                }
+            }
+            if (finished_num == expected_finished_num) {
+                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
     }
 
     // test zonemap index
@@ -116,7 +141,12 @@ suite("test_decimal256_index") {
     sql "sync"
 
     sql """CREATE INDEX k2_bitmap_index ON test_decimal256_bitmap_index(k2) USING BITMAP;"""
-    wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 3000);
+    wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 10000);
+    if (!isCloudMode()) {
+        sql """BUILD INDEX k2_bitmap_index ON test_decimal256_bitmap_index;"""
+        wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 10000);
+        wait_for_build_index_on_partition_finish("test_decimal256_bitmap_index", 10000)
+    }
 
     qt_sql_bitmap_index_select_all """
         select * from test_decimal256_bitmap_index order by 1,2,3;

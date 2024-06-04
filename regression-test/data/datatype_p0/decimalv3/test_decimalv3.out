@@ -5,6 +5,12 @@
 -- !decimalv3 --
 100.00000000000000000000
 
+-- !decimalv3_view1 --
+1
+
+-- !decimalv3_view2 --
+1
+
 -- !aEb_test1 --
 0
 

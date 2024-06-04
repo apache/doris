@@ -65,6 +65,10 @@ public class Hint {
         return getStatus() == HintStatus.SYNTAX_ERROR;
     }
 
+    public boolean isUnUsed() {
+        return getStatus() == HintStatus.UNUSED;
+    }
+
     public String getHintName() {
         return hintName;
     }

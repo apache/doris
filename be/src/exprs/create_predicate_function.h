@@ -232,7 +232,7 @@ ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
     std::shared_ptr<BloomFilterFuncBase> filter_olap;
     filter_olap.reset(create_bloom_filter(PT));
     filter_olap->light_copy(filter.get());
-    return new BloomFilterColumnPredicate<PT>(column_id, filter, be_exec_version);
+    return new BloomFilterColumnPredicate<PT>(column_id, filter);
 }
 
 template <PrimitiveType PT>

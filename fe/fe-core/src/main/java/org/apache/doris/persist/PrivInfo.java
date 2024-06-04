@@ -23,11 +23,13 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
 import org.apache.doris.mysql.privilege.PrivBitSet;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -39,7 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class PrivInfo implements Writable {
+public class PrivInfo implements Writable, GsonPostProcessable {
     @SerializedName(value = "userIdent")
     private UserIdentity userIdent;
     @SerializedName(value = "tblPattern")
@@ -54,6 +56,8 @@ public class PrivInfo implements Writable {
     private byte[] passwd;
     @SerializedName(value = "role")
     private String role;
+    @SerializedName(value = "comment")
+    private String comment;
     @SerializedName(value = "colPrivileges")
     private Map<ColPrivilegeKey, Set<String>> colPrivileges;
     @SerializedName(value = "passwordOptions")
@@ -62,6 +66,9 @@ public class PrivInfo implements Writable {
     @SerializedName(value = "roles")
     private List<String> roles;
 
+    @SerializedName(value = "userId")
+    private String userId;
+
     private PrivInfo() {
 
     }
@@ -69,6 +76,11 @@ public class PrivInfo implements Writable {
     // For create user/set password/create role/drop role
     public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
             PasswordOptions passwordOptions) {
+        this(userIdent, privs, passwd, role, passwordOptions, null, null);
+    }
+
+    public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
+            PasswordOptions passwordOptions, String comment, String userId) {
         this.userIdent = userIdent;
         this.tblPattern = null;
         this.resourcePattern = null;
@@ -76,6 +88,13 @@ public class PrivInfo implements Writable {
         this.passwd = passwd;
         this.role = role;
         this.passwordOptions = passwordOptions;
+        this.comment = comment;
+        this.userId = userId;
+    }
+
+    public PrivInfo(String role, String comment) {
+        this.role = role;
+        this.comment = comment;
     }
 
     // For grant/revoke
@@ -148,6 +167,14 @@ public class PrivInfo implements Writable {
         return role;
     }
 
+    public String getComment() {
+        return comment;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
     public PasswordOptions getPasswordOptions() {
         return passwordOptions == null ? PasswordOptions.UNSET_OPTION : passwordOptions;
     }
@@ -158,6 +185,20 @@ public class PrivInfo implements Writable {
 
     public Map<ColPrivilegeKey, Set<String>> getColPrivileges() {
         return colPrivileges;
+    }
+
+    private void removeClusterPrefix() {
+        if (userIdent != null) {
+            userIdent.removeClusterPrefix();
+        }
+        if (roles != null) {
+            for (int i = 0; i < roles.size(); i++) {
+                roles.set(i, ClusterNamespace.getNameFromFullName(roles.get(i)));
+            }
+        }
+        if (role != null) {
+            role = ClusterNamespace.getNameFromFullName(role);
+        }
     }
 
     public static PrivInfo read(DataInput in) throws IOException {
@@ -204,5 +245,10 @@ public class PrivInfo implements Writable {
         }
 
         passwordOptions = PasswordOptions.UNSET_OPTION;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        removeClusterPrefix();
     }
 }

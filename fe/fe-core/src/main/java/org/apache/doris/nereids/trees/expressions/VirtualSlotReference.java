@@ -124,13 +124,13 @@ public class VirtualSlotReference extends SlotReference implements SlotNotFromCh
         if (this.nullable == newNullable) {
             return this;
         }
-        return new VirtualSlotReference(exprId, name, dataType, newNullable, qualifier,
+        return new VirtualSlotReference(exprId, name.get(), dataType, newNullable, qualifier,
                 originExpression, computeLongValueMethod);
     }
 
     @Override
     public VirtualSlotReference withQualifier(List<String> qualifier) {
-        return new VirtualSlotReference(exprId, name, dataType, nullable, qualifier,
+        return new VirtualSlotReference(exprId, name.get(), dataType, nullable, qualifier,
                 originExpression, computeLongValueMethod);
     }
 
@@ -142,7 +142,7 @@ public class VirtualSlotReference extends SlotReference implements SlotNotFromCh
 
     @Override
     public VirtualSlotReference withExprId(ExprId exprId) {
-        return new VirtualSlotReference(exprId, name, dataType, nullable, qualifier,
+        return new VirtualSlotReference(exprId, name.get(), dataType, nullable, qualifier,
                 originExpression, computeLongValueMethod);
     }
 }

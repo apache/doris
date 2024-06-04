@@ -25,8 +25,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.MapType;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
@@ -40,9 +40,9 @@ import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
@@ -169,15 +169,24 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         try {
             BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
         } catch (UserException e) {
-            throw new AnalysisException("parse file failed, path = " + path, e);
+            throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
         }
     }
 
     //The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
+        Map<String, String> mergedProperties = Maps.newHashMap();
+        if (properties.containsKey("resource")) {
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(properties.get("resource"));
+            if (resource == null) {
+                throw new AnalysisException("Can not find resource: " + properties.get("resource"));
+            }
+            mergedProperties = resource.getCopiedProperties();
+        }
+        mergedProperties.putAll(properties);
         // Copy the properties, because we will remove the key from properties.
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        copiedProps.putAll(properties);
+        copiedProps.putAll(mergedProperties);
 
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         String defaultColumnSeparator = FileFormatConstants.DEFAULT_COLUMN_SEPARATOR;
@@ -256,7 +265,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (FileFormatUtils.isCsv(formatString)) {
             FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
                     FileFormatConstants.PROP_CSV_SCHEMA, ""));
-            LOG.debug("get csv schema: {}", csvSchema);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get csv schema: {}", csvSchema);
+            }
         }
 
         pathPartitionKeys = Optional.ofNullable(
@@ -330,13 +341,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (this.fileFormatType == TFileFormatType.FORMAT_WAL) {
             List<Column> fileColumns = new ArrayList<>();
             Table table = Env.getCurrentInternalCatalog().getTableByTableId(tableId);
-            List<Column> tableColumns = table.getBaseSchema(false);
-            for (int i = 1; i <= tableColumns.size(); i++) {
-                fileColumns.add(new Column("c" + i, tableColumns.get(i - 1).getDataType(), true));
-            }
-            Column deleteSignColumn = ((OlapTable) table).getDeleteSignColumn();
-            if (deleteSignColumn != null) {
-                fileColumns.add(new Column("c" + (tableColumns.size() + 1), deleteSignColumn.getDataType(), true));
+            List<Column> tableColumns = table.getBaseSchema(true);
+            for (int i = 0; i < tableColumns.size(); i++) {
+                Column column = new Column(tableColumns.get(i).getName(), tableColumns.get(i).getType(), true);
+                column.setUniqueId(tableColumns.get(i).getUniqueId());
+                fileColumns.add(column);
             }
             return fileColumns;
         }
@@ -380,12 +389,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     protected Backend getBackend() {
-        ConnectContext ctx = ConnectContext.get();
         // For the http stream task, we should obtain the be for processing the task
-        long backendId = ctx.getBackendId();
         if (getTFileType() == TFileType.FILE_STREAM) {
+            long backendId = ConnectContext.get().getBackendId();
             Backend be = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
-            if (be.isAlive()) {
+            if (be == null || !be.isAlive()) {
+                LOG.warn("Backend {} is not alive", backendId);
+                return null;
+            } else {
                 return be;
             }
         }
@@ -475,15 +486,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         if (getTFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
-            String fsNmae = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
-            tHdfsParams.setFsName(fsNmae);
+            String fsName = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
+            tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }
 
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            if (fileStatus.isIsDir() || fileStatus.size == 0) {
+            if (isFileContentEmpty(fileStatus)) {
                 continue;
             }
             firstFile = fileStatus;
@@ -515,7 +526,43 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return InternalService.PFetchTableSchemaRequest.newBuilder()
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
     }
+
+    private boolean isFileContentEmpty(TBrokerFileStatus fileStatus) {
+        if (fileStatus.isIsDir() || fileStatus.size == 0) {
+            return true;
+        }
+        if (Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON) {
+            int magicNumberBytes = 0;
+            switch (compressionType) {
+                case GZ:
+                    magicNumberBytes = 20;
+                    break;
+                case LZO:
+                case LZOP:
+                    magicNumberBytes = 42;
+                    break;
+                case DEFLATE:
+                    magicNumberBytes = 8;
+                    break;
+                case SNAPPYBLOCK:
+                case LZ4BLOCK:
+                case LZ4FRAME:
+                    magicNumberBytes = 4;
+                    break;
+                case BZ2:
+                    magicNumberBytes = 14;
+                    break;
+                case UNKNOWN:
+                case PLAIN:
+                default:
+                    break;
+            }
+            // fileStatus.size may be -1 in http_stream
+            if (fileStatus.size >= 0 && fileStatus.size <= magicNumberBytes) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
-
-
 

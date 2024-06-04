@@ -20,7 +20,6 @@
 #include <gen_cpp/Types_types.h>
 
 #include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath> // IWYU pragma: keep
 #include <memory>
@@ -32,7 +31,6 @@
 #include "exec/table_connector.h"
 #include "gutil/strings/substitute.h"
 #include "jni.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
@@ -46,14 +44,12 @@
 #include "vec/exec/jni_connector.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
-const char* JDBC_EXECUTOR_CLASS = "org/apache/doris/jdbc/JdbcExecutor";
+const char* JDBC_EXECUTOR_FACTORY_CLASS = "org/apache/doris/jdbc/JdbcExecutorFactory";
 const char* JDBC_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* JDBC_EXECUTOR_STMT_WRITE_SIGNATURE = "(Ljava/util/Map;)I";
 const char* JDBC_EXECUTOR_HAS_NEXT_SIGNATURE = "()Z";
-const char* JDBC_EXECUTOR_GET_TYPES_SIGNATURE = "()Ljava/util/List;";
 const char* JDBC_EXECUTOR_CLOSE_SIGNATURE = "()V";
 const char* JDBC_EXECUTOR_TRANSACTION_SIGNATURE = "()V";
 
@@ -69,11 +65,6 @@ JdbcConnector::~JdbcConnector() {
     }
 }
 
-#define GET_BASIC_JAVA_CLAZZ(JAVA_TYPE, CPP_TYPE) \
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, JAVA_TYPE, &_executor_##CPP_TYPE##_clazz));
-
-#define DELETE_BASIC_JAVA_CLAZZ_REF(CPP_TYPE) env->DeleteGlobalRef(_executor_##CPP_TYPE##_clazz);
-
 Status JdbcConnector::close(Status /*unused*/) {
     SCOPED_RAW_TIMER(&_jdbc_statistic._connector_close_timer);
     _closed = true;
@@ -81,16 +72,13 @@ Status JdbcConnector::close(Status /*unused*/) {
         return Status::OK();
     }
     if (_is_in_transaction) {
-        static_cast<void>(abort_trans());
+        RETURN_IF_ERROR(abort_trans());
     }
-    JNIEnv* env;
+    JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    env->DeleteGlobalRef(_executor_clazz);
-    DELETE_BASIC_JAVA_CLAZZ_REF(object)
-    DELETE_BASIC_JAVA_CLAZZ_REF(string)
-    DELETE_BASIC_JAVA_CLAZZ_REF(list)
-#undef DELETE_BASIC_JAVA_CLAZZ_REF
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_close_id);
+    env->DeleteGlobalRef(_executor_factory_clazz);
+    env->DeleteGlobalRef(_executor_clazz);
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     env->DeleteGlobalRef(_executor_obj);
     return Status::OK();
@@ -104,10 +92,29 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, JDBC_EXECUTOR_CLASS, &_executor_clazz));
-    GET_BASIC_JAVA_CLAZZ("java/util/List", list)
-    GET_BASIC_JAVA_CLAZZ("java/lang/Object", object)
-    GET_BASIC_JAVA_CLAZZ("java/lang/String", string)
+    RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, JDBC_EXECUTOR_FACTORY_CLASS,
+                                                   &_executor_factory_clazz));
+
+    _executor_factory_ctor_id =
+            env->GetStaticMethodID(_executor_factory_clazz, "getExecutorClass",
+                                   "(Lorg/apache/doris/thrift/TOdbcTableType;)Ljava/lang/String;");
+    if (_executor_factory_ctor_id == nullptr) {
+        return Status::InternalError("Failed to find method ID for getExecutorClass");
+    }
+
+    jobject jtable_type = _get_java_table_type(env, _conn_param.table_type);
+
+    jstring executor_name = (jstring)env->CallStaticObjectMethod(
+            _executor_factory_clazz, _executor_factory_ctor_id, jtable_type);
+    if (executor_name == nullptr) {
+        return Status::InternalError("getExecutorClass returned null");
+    }
+    const char* executor_name_str = env->GetStringUTFChars(executor_name, nullptr);
+
+    RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, executor_name_str, &_executor_clazz));
+    env->DeleteLocalRef(jtable_type);
+    env->ReleaseStringUTFChars(executor_name, executor_name_str);
+    env->DeleteLocalRef(executor_name);
 
 #undef GET_BASIC_JAVA_CLAZZ
     RETURN_IF_ERROR(_register_func_id(env));
@@ -117,7 +124,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     {
         std::string local_location;
         std::hash<std::string> hash_str;
-        auto function_cache = UserFunctionCache::instance();
+        auto* function_cache = UserFunctionCache::instance();
         if (_conn_param.resource_name.empty()) {
             // for jdbcExternalTable, _conn_param.resource_name == ""
             // so, we use _conn_param.driver_path as key of jarpath
@@ -135,14 +142,26 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
 
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
+        ctor_params.__set_catalog_id(_conn_param.catalog_id);
         ctor_params.__set_jdbc_url(_conn_param.jdbc_url);
         ctor_params.__set_jdbc_user(_conn_param.user);
         ctor_params.__set_jdbc_password(_conn_param.passwd);
         ctor_params.__set_jdbc_driver_class(_conn_param.driver_class);
         ctor_params.__set_driver_path(local_location);
-        ctor_params.__set_batch_size(read ? state->batch_size() : 0);
+        if (state == nullptr) {
+            ctor_params.__set_batch_size(read ? 1 : 0);
+        } else {
+            ctor_params.__set_batch_size(read ? state->batch_size() : 0);
+        }
         ctor_params.__set_op(read ? TJdbcOperation::READ : TJdbcOperation::WRITE);
         ctor_params.__set_table_type(_conn_param.table_type);
+        ctor_params.__set_connection_pool_min_size(_conn_param.connection_pool_min_size);
+        ctor_params.__set_connection_pool_max_size(_conn_param.connection_pool_max_size);
+        ctor_params.__set_connection_pool_max_wait_time(_conn_param.connection_pool_max_wait_time);
+        ctor_params.__set_connection_pool_max_life_time(_conn_param.connection_pool_max_life_time);
+        ctor_params.__set_connection_pool_cache_clear_time(
+                config::jdbc_connection_pool_cache_clear_time_sec);
+        ctor_params.__set_connection_pool_keep_alive(_conn_param.connection_pool_keep_alive);
 
         jbyteArray ctor_params_bytes;
         // Pushed frame will be popped when jni_frame goes out-of-scope.
@@ -159,9 +178,26 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     RETURN_ERROR_IF_EXC(env);
     RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, _executor_obj, &_executor_obj));
     _is_open = true;
-    static_cast<void>(begin_trans());
+    RETURN_IF_ERROR(begin_trans());
 
     return Status::OK();
+}
+
+Status JdbcConnector::test_connection() {
+    RETURN_IF_ERROR(open(nullptr, true));
+
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+
+    env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_test_connection_id);
+    return JniUtil::GetJniExceptionMsg(env);
+}
+
+Status JdbcConnector::clean_datasource() {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_clean_datasource_id);
+    return JniUtil::GetJniExceptionMsg(env);
 }
 
 Status JdbcConnector::query() {
@@ -192,9 +228,6 @@ Status JdbcConnector::query() {
     }
 
     LOG(INFO) << "JdbcConnector::query has exec success: " << _sql_str;
-    if (_conn_param.table_type != TOdbcTableType::NEBULA) {
-        RETURN_IF_ERROR(_check_column_type());
-    }
     return Status::OK();
 }
 
@@ -334,12 +367,6 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 _executor_get_block_address_id));
     RETURN_IF_ERROR(
             register_id(_executor_clazz, "getCurBlockRows", "()I", _executor_block_rows_id));
-    RETURN_IF_ERROR(register_id(_executor_list_clazz, "get", "(I)Ljava/lang/Object;",
-                                _executor_get_list_id));
-    RETURN_IF_ERROR(register_id(_executor_string_clazz, "getBytes", "(Ljava/lang/String;)[B",
-                                _get_bytes_id));
-    RETURN_IF_ERROR(
-            register_id(_executor_object_clazz, "toString", "()Ljava/lang/String;", _to_string_id));
 
     RETURN_IF_ERROR(register_id(_executor_clazz, "openTrans", JDBC_EXECUTOR_TRANSACTION_SIGNATURE,
                                 _executor_begin_trans_id));
@@ -347,207 +374,11 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 _executor_finish_trans_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "rollbackTrans",
                                 JDBC_EXECUTOR_TRANSACTION_SIGNATURE, _executor_abort_trans_id));
-    RETURN_IF_ERROR(register_id(_executor_clazz, "getResultColumnTypeNames",
-                                JDBC_EXECUTOR_GET_TYPES_SIGNATURE, _executor_get_types_id));
+    RETURN_IF_ERROR(
+            register_id(_executor_clazz, "testConnection", "()V", _executor_test_connection_id));
+    RETURN_IF_ERROR(
+            register_id(_executor_clazz, "cleanDataSource", "()V", _executor_clean_datasource_id));
     return Status::OK();
-}
-
-Status JdbcConnector::_check_column_type() {
-    SCOPED_RAW_TIMER(&_jdbc_statistic._check_type_timer);
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    jobject type_lists =
-            env->CallNonvirtualObjectMethod(_executor_obj, _executor_clazz, _executor_get_types_id);
-    auto column_size = _tuple_desc->slots().size();
-    for (int column_index = 0, materialized_column_index = 0; column_index < column_size;
-         ++column_index) {
-        auto slot_desc = _tuple_desc->slots()[column_index];
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-        jobject column_type =
-                env->CallObjectMethod(type_lists, _executor_get_list_id, materialized_column_index);
-
-        const std::string& type_str = _jobject_to_string(env, column_type);
-        RETURN_IF_ERROR(_check_type(slot_desc, type_str, column_index));
-        env->DeleteLocalRef(column_type);
-        materialized_column_index++;
-    }
-    env->DeleteLocalRef(type_lists);
-    return JniUtil::GetJniExceptionMsg(env);
-}
-
-/* type mapping: https://doris.apache.org/zh-CN/docs/dev/ecosystem/external-table/jdbc-of-doris?_highlight=jdbc
-
-Doris            MYSQL                      PostgreSQL                  Oracle                      SQLServer
-
-BOOLEAN      java.lang.Boolean          java.lang.Boolean                                       java.lang.Boolean
-TINYINT      java.lang.Integer                                                                  java.lang.Short
-SMALLINT     java.lang.Integer          java.lang.Integer           java.math.BigDecimal        java.lang.Short
-INT          java.lang.Integer          java.lang.Integer           java.math.BigDecimal        java.lang.Integer
-BIGINT       java.lang.Long             java.lang.Long                                          java.lang.Long
-LARGET       java.math.BigInteger
-DECIMAL      java.math.BigDecimal       java.math.BigDecimal        java.math.BigDecimal        java.math.BigDecimal
-VARCHAR      java.lang.String           java.lang.String            java.lang.String            java.lang.String
-DOUBLE       java.lang.Double           java.lang.Double            java.lang.Double            java.lang.Double
-FLOAT        java.lang.Float            java.lang.Float                                         java.lang.Float
-DATE         java.sql.Date              java.sql.Date                                           java.sql.Date
-DATETIME     java.sql.Timestamp         java.sql.Timestamp          java.sql.Timestamp          java.sql.Timestamp
-
-NOTE: because oracle always use number(p,s) to create all numerical type, so it's java type maybe java.math.BigDecimal
-*/
-
-Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& type_str,
-                                  int column_index) {
-    const std::string error_msg = fmt::format(
-            "Fail to convert jdbc type of {} to doris type {} on column: {}. You need to "
-            "check this column type between external table and doris table.",
-            type_str, slot_desc->type().debug_string(), slot_desc->col_name());
-    switch (slot_desc->type().type) {
-    case TYPE_BOOLEAN: {
-        if (type_str != "java.lang.Boolean" && type_str != "java.lang.Byte" &&
-            type_str != "java.lang.Integer") {
-            return Status::InternalError(error_msg);
-        }
-        break;
-    }
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT: {
-        if (type_str != "java.lang.Short" && type_str != "java.lang.Integer" &&
-            type_str != "java.math.BigDecimal" && type_str != "java.lang.Byte" &&
-            type_str != "com.clickhouse.data.value.UnsignedByte" &&
-            type_str != "com.clickhouse.data.value.UnsignedShort" && type_str != "java.lang.Long") {
-            return Status::InternalError(error_msg);
-        }
-        break;
-    }
-    case TYPE_BIGINT:
-    case TYPE_LARGEINT: {
-        if (type_str != "java.lang.Long" && type_str != "java.math.BigDecimal" &&
-            type_str != "java.math.BigInteger" && type_str != "java.lang.String" &&
-            type_str != "com.clickhouse.data.value.UnsignedInteger" &&
-            type_str != "com.clickhouse.data.value.UnsignedLong") {
-            return Status::InternalError(error_msg);
-        }
-        break;
-    }
-    case TYPE_FLOAT: {
-        if (type_str != "java.lang.Float" && type_str != "java.math.BigDecimal") {
-            return Status::InternalError(error_msg);
-        }
-        break;
-    }
-    case TYPE_DOUBLE: {
-        if (type_str != "java.lang.Double" && type_str != "java.math.BigDecimal") {
-            return Status::InternalError(error_msg);
-        }
-        break;
-    }
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING: {
-        //now here break directly
-        break;
-    }
-    case TYPE_DATE:
-    case TYPE_DATEV2:
-    case TYPE_TIMEV2:
-    case TYPE_DATETIME:
-    case TYPE_DATETIMEV2: {
-        if (type_str != "java.sql.Timestamp" && type_str != "java.time.LocalDateTime" &&
-            type_str != "java.sql.Date" && type_str != "java.time.LocalDate" &&
-            type_str != "oracle.sql.TIMESTAMP" && type_str != "java.time.OffsetDateTime") {
-            return Status::InternalError(error_msg);
-        }
-        break;
-    }
-    case TYPE_DECIMALV2:
-    case TYPE_DECIMAL32:
-    case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I:
-    case TYPE_DECIMAL256: {
-        if (type_str != "java.math.BigDecimal") {
-            return Status::InternalError(error_msg);
-        }
-        break;
-    }
-    case TYPE_ARRAY: {
-        if (type_str != "java.sql.Array" && type_str != "java.lang.String" &&
-            type_str != "java.lang.Object") {
-            return Status::InternalError(error_msg);
-        }
-        break;
-    }
-    case TYPE_JSONB: {
-        if (type_str != "java.lang.String" && type_str != "org.postgresql.util.PGobject") {
-            return Status::InternalError(error_msg);
-        }
-
-        _map_column_idx_to_cast_idx_json[column_index] = _input_json_string_types.size();
-        if (slot_desc->is_nullable()) {
-            _input_json_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
-        } else {
-            _input_json_string_types.push_back(std::make_shared<DataTypeString>());
-        }
-        str_json_cols.push_back(
-                _input_json_string_types[_map_column_idx_to_cast_idx_json[column_index]]
-                        ->create_column());
-        break;
-    }
-    case TYPE_HLL: {
-        if (type_str != "java.lang.String") {
-            return Status::InternalError(error_msg);
-        }
-
-        _map_column_idx_to_cast_idx_hll[column_index] = _input_hll_string_types.size();
-        if (slot_desc->is_nullable()) {
-            _input_hll_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
-        } else {
-            _input_hll_string_types.push_back(std::make_shared<DataTypeString>());
-        }
-
-        str_hll_cols.push_back(
-                _input_hll_string_types[_map_column_idx_to_cast_idx_hll[column_index]]
-                        ->create_column());
-        break;
-    }
-    case TYPE_OBJECT: {
-        if (type_str != "java.lang.String") {
-            return Status::InternalError(error_msg);
-        }
-
-        _map_column_idx_to_cast_idx_bitmap[column_index] = _input_bitmap_string_types.size();
-        if (slot_desc->is_nullable()) {
-            _input_bitmap_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
-        } else {
-            _input_bitmap_string_types.push_back(std::make_shared<DataTypeString>());
-        }
-
-        str_bitmap_cols.push_back(
-                _input_bitmap_string_types[_map_column_idx_to_cast_idx_bitmap[column_index]]
-                        ->create_column());
-        break;
-    }
-    default: {
-        return Status::InternalError(error_msg);
-    }
-    }
-    return Status::OK();
-}
-
-std::string JdbcConnector::_jobject_to_string(JNIEnv* env, jobject jobj) {
-    jobject jstr = env->CallObjectMethod(jobj, _to_string_id);
-    auto coding = env->NewStringUTF("UTF-8");
-    const jbyteArray stringJbytes = (jbyteArray)env->CallObjectMethod(jstr, _get_bytes_id, coding);
-    size_t length = (size_t)env->GetArrayLength(stringJbytes);
-    jbyte* pBytes = env->GetByteArrayElements(stringJbytes, nullptr);
-    std::string str = std::string((char*)pBytes, length);
-    env->ReleaseByteArrayElements(stringJbytes, pBytes, JNI_ABORT);
-    env->DeleteLocalRef(stringJbytes);
-    env->DeleteLocalRef(jstr);
-    env->DeleteLocalRef(coding);
-    return str;
 }
 
 jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t column_size) {
@@ -617,11 +448,11 @@ Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t 
         RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
 
         if (slot_desc->type().is_hll_type()) {
-            static_cast<void>(_cast_string_to_hll(slot_desc, block, column_index, num_rows));
+            RETURN_IF_ERROR(_cast_string_to_hll(slot_desc, block, column_index, num_rows));
         } else if (slot_desc->type().is_json_type()) {
-            static_cast<void>(_cast_string_to_json(slot_desc, block, column_index, num_rows));
+            RETURN_IF_ERROR(_cast_string_to_json(slot_desc, block, column_index, num_rows));
         } else if (slot_desc->type().is_bitmap_type()) {
-            static_cast<void>(_cast_string_to_bitmap(slot_desc, block, column_index, num_rows));
+            RETURN_IF_ERROR(_cast_string_to_bitmap(slot_desc, block, column_index, num_rows));
         }
     }
     return Status::OK();
@@ -629,6 +460,13 @@ Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t 
 
 Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block* block,
                                           int column_index, int rows) {
+    _map_column_idx_to_cast_idx_hll[column_index] = _input_hll_string_types.size();
+    if (slot_desc->is_nullable()) {
+        _input_hll_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
+    } else {
+        _input_hll_string_types.push_back(std::make_shared<DataTypeString>());
+    }
+
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
     std::string _target_data_type_name = _target_data_type->get_name();
     DataTypePtr _cast_param_data_type = _target_data_type;
@@ -649,7 +487,7 @@ Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block
     Block cast_block(argument_template);
     int result_idx = cast_block.columns();
     cast_block.insert({nullptr, make_nullable(_target_data_type), "cast_result"});
-    static_cast<void>(func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows));
+    RETURN_IF_ERROR(func_cast->execute(nullptr, cast_block, {0}, result_idx, rows));
 
     auto res_col = cast_block.get_by_position(result_idx).column;
     block->get_by_position(column_index).type = _target_data_type;
@@ -666,6 +504,13 @@ Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block
 
 Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Block* block,
                                              int column_index, int rows) {
+    _map_column_idx_to_cast_idx_bitmap[column_index] = _input_bitmap_string_types.size();
+    if (slot_desc->is_nullable()) {
+        _input_bitmap_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
+    } else {
+        _input_bitmap_string_types.push_back(std::make_shared<DataTypeString>());
+    }
+
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
     std::string _target_data_type_name = _target_data_type->get_name();
     DataTypePtr _cast_param_data_type = _target_data_type;
@@ -686,7 +531,7 @@ Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Bl
     Block cast_block(argument_template);
     int result_idx = cast_block.columns();
     cast_block.insert({nullptr, make_nullable(_target_data_type), "cast_result"});
-    static_cast<void>(func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows));
+    RETURN_IF_ERROR(func_cast->execute(nullptr, cast_block, {0}, result_idx, rows));
 
     auto res_col = cast_block.get_by_position(result_idx).column;
     block->get_by_position(column_index).type = _target_data_type;
@@ -701,8 +546,15 @@ Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Bl
     return Status::OK();
 }
 
+// Deprecated, this code is retained only for compatibility with query problems that may be encountered when upgrading the version that maps JSON to JSONB to this version, and will be deleted in subsequent versions.
 Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Block* block,
                                            int column_index, int rows) {
+    _map_column_idx_to_cast_idx_json[column_index] = _input_json_string_types.size();
+    if (slot_desc->is_nullable()) {
+        _input_json_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
+    } else {
+        _input_json_string_types.push_back(std::make_shared<DataTypeString>());
+    }
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
     std::string _target_data_type_name = _target_data_type->get_name();
     DataTypePtr _cast_param_data_type = _target_data_type;
@@ -723,7 +575,7 @@ Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Bloc
     Block cast_block(argument_template);
     int result_idx = cast_block.columns();
     cast_block.insert({nullptr, make_nullable(_target_data_type), "cast_result"});
-    static_cast<void>(func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows));
+    RETURN_IF_ERROR(func_cast->execute(nullptr, cast_block, {0}, result_idx, rows));
 
     auto res_col = cast_block.get_by_position(result_idx).column;
     block->get_by_position(column_index).type = _target_data_type;
@@ -738,4 +590,12 @@ Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Bloc
     return Status::OK();
 }
 
+jobject JdbcConnector::_get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType) {
+    jclass enumClass = env->FindClass("org/apache/doris/thrift/TOdbcTableType");
+    jmethodID findByValueMethod = env->GetStaticMethodID(
+            enumClass, "findByValue", "(I)Lorg/apache/doris/thrift/TOdbcTableType;");
+    jobject javaEnumObj =
+            env->CallStaticObjectMethod(enumClass, findByValueMethod, static_cast<jint>(tableType));
+    return javaEnumObj;
+}
 } // namespace doris::vectorized

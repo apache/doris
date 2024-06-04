@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.datasource.hive.event;
 
 import org.apache.doris.catalog.Env;
@@ -29,6 +28,7 @@ import org.apache.hadoop.hive.metastore.messaging.json.JSONAlterTableMessage;
 
 import java.security.SecureRandom;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * MetastoreEvent for ALTER_TABLE event type
@@ -65,6 +65,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
                     (JSONAlterTableMessage) MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
                             .getAlterTableMessage(event.getMessage());
             tableAfter = Preconditions.checkNotNull(alterTableMessage.getTableObjAfter());
+            tableAfter.setTableName(tableAfter.getTableName().toLowerCase(Locale.ROOT));
             tableBefore = Preconditions.checkNotNull(alterTableMessage.getTableObjBefore());
             tblNameAfter = tableAfter.getTableName();
         } catch (Exception e) {
@@ -97,9 +98,10 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return;
         }
         Env.getCurrentEnv().getCatalogMgr()
-                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                .unregisterExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-                .createExternalTableFromEvent(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
+                .registerExternalTableFromEvent(
+                            tableAfter.getDbName(), tableAfter.getTableName(), catalogName, eventTime, true);
     }
 
     private void processRename() throws DdlException {
@@ -115,9 +117,10 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return;
         }
         Env.getCurrentEnv().getCatalogMgr()
-                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                .unregisterExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-                .createExternalTableFromEvent(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
+                .registerExternalTableFromEvent(
+                            tableAfter.getDbName(), tableAfter.getTableName(), catalogName, eventTime, true);
 
     }
 
@@ -153,9 +156,9 @@ public class AlterTableEvent extends MetastoreTableEvent {
                 return;
             }
             //The scope of refresh can be narrowed in the future
-            Env.getCurrentEnv().getCatalogMgr()
-                    .refreshExternalTableFromEvent(tableBefore.getDbName(), tableBefore.getTableName(),
-                                catalogName, eventTime, true);
+            Env.getCurrentEnv().getRefreshManager()
+                    .refreshExternalTableFromEvent(catalogName, tableBefore.getDbName(), tableBefore.getTableName(),
+                            eventTime);
         } catch (Exception e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);

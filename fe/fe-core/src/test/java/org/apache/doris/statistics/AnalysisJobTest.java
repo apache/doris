@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -81,7 +80,7 @@ public class AnalysisJobTest {
 
         new MockUp<AnalysisJob>() {
             @Mock
-            protected void writeBuf() {
+            protected void flushBuffer() {
                 writeBufInvokeTimes.incrementAndGet();
             }
 
@@ -112,7 +111,7 @@ public class AnalysisJobTest {
 
         new MockUp<AnalysisJob>() {
             @Mock
-            protected void writeBuf() {
+            protected void flushBuffer() {
                 writeBufInvokeTimes.incrementAndGet();
             }
 
@@ -185,13 +184,7 @@ public class AnalysisJobTest {
             protected void syncLoadStats() {
             }
         };
-        new Expectations() {
-            {
-                job.syncLoadStats();
-                times = 1;
-            }
-        };
-        job.writeBuf();
+        job.flushBuffer();
 
         Assertions.assertEquals(0, job.queryFinished.size());
     }
@@ -217,7 +210,7 @@ public class AnalysisJobTest {
         job.buf.add(new ColStatsData());
         job.queryFinished = new HashSet<>();
         job.queryFinished.add(task2);
-        job.writeBuf();
+        job.flushBuffer();
         Assertions.assertEquals(0, job.queryFinished.size());
     }
 

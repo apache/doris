@@ -19,6 +19,7 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
@@ -43,14 +44,14 @@ public class DbUsedDataQuotaInfoCollector extends MasterDaemon {
     private void updateAllDatabaseUsedDataQuota() {
         Env env = Env.getCurrentEnv();
         List<Long> dbIdList = env.getInternalCatalog().getDbIds();
-        GlobalTransactionMgr globalTransactionMgr = env.getGlobalTransactionMgr();
+        GlobalTransactionMgrIface globalTransactionMgr = env.getGlobalTransactionMgr();
         for (Long dbId : dbIdList) {
             Database db = env.getInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 LOG.warn("Database [" + dbId + "] does not exist, skip to update database used data quota");
                 continue;
             }
-            if (db.isMysqlCompatibleDatabase()) {
+            if (db instanceof MysqlCompatibleDatabase) {
                 continue;
             }
             try {

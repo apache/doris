@@ -34,7 +34,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -72,11 +71,11 @@ public class CooldownConfHandlerTest extends TestWithFeService {
         Env.getCurrentEnv().getAuth().createUser(createUserStmt);
         List<AccessPrivilegeWithCols> privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
         TablePattern tablePattern = new TablePattern("*", "*", "*");
-        tablePattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        tablePattern.analyze();
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
         Env.getCurrentEnv().getAuth().grant(grantStmt);
         useUser("test_cooldown");
-        Database db = Env.getCurrentInternalCatalog().getDb(SystemInfoService.DEFAULT_CLUSTER + ":" + "test")
+        Database db = Env.getCurrentInternalCatalog().getDb("test")
                 .orElse(null);
         assert db != null;
         dbId = db.getId();

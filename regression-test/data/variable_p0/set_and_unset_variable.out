@@ -3,6 +3,12 @@
 0
 
 -- !cmd --
+0
+
+-- !cmd --
+0
+
+-- !cmd --
 wait_timeout	1000	28800	1
 
 -- !cmd --
@@ -15,37 +21,37 @@ wait_timeout	28800	28800	0
 0
 
 -- !cmd --
-runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER	1
+runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER,MIN_MAX	1
 
 -- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
-
--- !cmd --
-0
-
--- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
-
--- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
+runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
 
 -- !cmd --
 0
 
 -- !cmd --
-runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER	1
+runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
 
 -- !cmd --
-runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER	1
+runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
 
 -- !cmd --
 0
 
 -- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
+runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER,MIN_MAX	1
 
 -- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
+runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER,MIN_MAX	1
+
+-- !cmd --
+0
+
+-- !cmd --
+runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
+
+-- !cmd --
+runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
 
 -- !cmd --
 0
@@ -117,7 +123,7 @@ deprecated_enable_local_exchange	true	true	0
 0
 
 -- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
+runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
 
 -- !cmd --
 experimental_enable_agg_state	false	false	0
@@ -144,7 +150,7 @@ show_hidden_columns	false	false	0
 0
 
 -- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
+runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
 
 -- !cmd --
 experimental_enable_agg_state	false	false	0
@@ -154,4 +160,28 @@ deprecated_enable_local_exchange	true	true	0
 
 -- !cmd --
 show_hidden_columns	false	false	0
+
+-- !cmd --
+read_only	true	true	0
+
+-- !cmd --
+0
+
+-- !cmd --
+read_only	true	true	0
+
+-- !cmd --
+read_only	true	true	0
+
+-- !cmd --
+super_read_only	true	true	0
+
+-- !cmd --
+0
+
+-- !cmd --
+super_read_only	true	true	0
+
+-- !cmd --
+super_read_only	true	true	0
 

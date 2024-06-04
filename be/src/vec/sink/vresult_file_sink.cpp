@@ -32,7 +32,6 @@
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
-class QueryStatistics;
 class TExpr;
 } // namespace doris
 
@@ -45,15 +44,13 @@ VResultFileSink::VResultFileSink(const RowDescriptor& row_desc,
 VResultFileSink::VResultFileSink(RuntimeState* state, ObjectPool* pool, int sender_id,
                                  const RowDescriptor& row_desc, const TResultFileSink& sink,
                                  const std::vector<TPlanFragmentDestination>& destinations,
-                                 bool send_query_statistics_with_every_batch,
                                  const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs)
         : AsyncWriterSink<VFileResultWriter, VRESULT_FILE_SINK>(row_desc, t_output_expr),
           _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false) {
     _is_top_sink = false;
     CHECK_EQ(destinations.size(), 1);
     _stream_sender.reset(new VDataStreamSender(state, pool, sender_id, row_desc, sink.dest_node_id,
-                                               destinations,
-                                               send_query_statistics_with_every_batch));
+                                               destinations));
 }
 
 Status VResultFileSink::init(const TDataSink& tsink) {
@@ -81,13 +78,12 @@ Status VResultFileSink::prepare(RuntimeState* state) {
     if (_is_top_sink) {
         // create sender
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec(),
+                state->fragment_instance_id(), _buf_size, &_sender, false,
                 state->execution_timeout()));
         // create writer
         _writer.reset(new (std::nothrow) VFileResultWriter(
                 _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_vexpr_ctxs,
-                _sender.get(), nullptr, state->return_object_data_as_binary(),
-                _output_row_descriptor));
+                _sender, nullptr, state->return_object_data_as_binary(), _output_row_descriptor));
     } else {
         // init channel
         _output_block =
@@ -116,23 +112,25 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
     }
 
     Status final_status = exec_status;
-    // close the writer
-    if (_writer && _writer->need_normal_close()) {
-        Status st = _writer->close();
-        if (!st.ok() && exec_status.ok()) {
-            // close file writer failed, should return this error to client
-            final_status = st;
-        }
+    Status writer_st = Status::OK();
+    if (_writer) {
+        writer_st = _writer->close(exec_status);
     }
+
+    if (!writer_st.ok() && exec_status.ok()) {
+        // close file writer failed, should return this error to client
+        final_status = writer_st;
+    }
+
     if (_is_top_sink) {
         // close sender, this is normal path end
         if (_sender) {
-            _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
-            static_cast<void>(_sender->close(final_status));
+            _sender->update_return_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
+            RETURN_IF_ERROR(_sender->close(final_status));
         }
-        static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
+        state->exec_env()->result_mgr()->cancel_at_time(
                 time(nullptr) + config::result_buffer_cancelled_interval_time,
-                state->fragment_instance_id()));
+                state->fragment_instance_id());
     } else {
         if (final_status.ok()) {
             auto st = _stream_sender->send(state, _output_block.get(), true);
@@ -146,14 +144,6 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
 
     _closed = true;
     return Status::OK();
-}
-
-void VResultFileSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
-    if (_is_top_sink) {
-        _sender->set_query_statistics(statistics);
-    } else {
-        _stream_sender->set_query_statistics(statistics);
-    }
 }
 
 } // namespace doris::vectorized

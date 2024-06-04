@@ -107,6 +107,7 @@ public:
         static const UInt32 max_scale = max_decimal_precision<Decimal256>();
         if (scale_a > max_scale || scale_b > max_scale) {
             LOG(FATAL) << "Bad scale of decimal field";
+            __builtin_unreachable();
         }
 
         Shift shift;
@@ -189,8 +190,6 @@ private:
 
     template <bool scale_left, bool scale_right>
     static ColumnPtr apply(const ColumnPtr& c0, const ColumnPtr& c1, CompareInt scale) {
-        auto c_res = ColumnUInt8::create();
-
         if constexpr (_actual) {
             bool c0_is_const = is_column_const(*c0);
             bool c1_is_const = is_column_const(*c1);
@@ -205,8 +204,8 @@ private:
                 return DataTypeUInt8().create_column_const(c0->size(), to_field(res));
             }
 
+            auto c_res = ColumnUInt8::create(c0->size());
             ColumnUInt8::Container& vec_res = c_res->get_data();
-            vec_res.resize(c0->size());
 
             if (c0_is_const) {
                 const ColumnConst* c0_const = check_and_get_column_const<ColVecA>(c0.get());
@@ -215,6 +214,7 @@ private:
                     constant_vector<scale_left, scale_right>(a, c1_vec->get_data(), vec_res, scale);
                 else {
                     LOG(FATAL) << "Wrong column in Decimal comparison";
+                    __builtin_unreachable();
                 }
             } else if (c1_is_const) {
                 const ColumnConst* c1_const = check_and_get_column_const<ColVecB>(c1.get());
@@ -223,6 +223,7 @@ private:
                     vector_constant<scale_left, scale_right>(c0_vec->get_data(), b, vec_res, scale);
                 else {
                     LOG(FATAL) << "Wrong column in Decimal comparison";
+                    __builtin_unreachable();
                 }
             } else {
                 if (const ColVecA* c0_vec = check_and_get_column<ColVecA>(c0.get())) {
@@ -231,18 +232,21 @@ private:
                                                                c1_vec->get_data(), vec_res, scale);
                     else {
                         LOG(FATAL) << "Wrong column in Decimal comparison";
+                        __builtin_unreachable();
                     }
                 } else {
                     LOG(FATAL) << "Wrong column in Decimal comparison";
+                    __builtin_unreachable();
                 }
             }
+            return c_res;
+        } else {
+            return ColumnUInt8::create();
         }
-
-        return c_res;
     }
 
     template <bool scale_left, bool scale_right>
-    static NO_INLINE UInt8 apply(A a, B b, CompareInt scale [[maybe_unused]]) {
+    static UInt8 apply(A a, B b, CompareInt scale [[maybe_unused]]) {
         CompareInt x = a;
         CompareInt y = b;
 
@@ -259,6 +263,7 @@ private:
 
             if (overflow) {
                 LOG(FATAL) << "Can't compare";
+                __builtin_unreachable();
             }
         } else {
             if constexpr (scale_left) x *= scale;

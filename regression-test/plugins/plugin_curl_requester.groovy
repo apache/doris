@@ -17,6 +17,7 @@
 
 import org.apache.doris.regression.suite.Suite
 import org.apache.doris.regression.util.Http
+import org.apache.doris.regression.util.NodeType
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 Suite.metaClass.curl = { String method, String url /* param */-> 
@@ -31,13 +32,37 @@ Suite.metaClass.curl = { String method, String url /* param */->
     }
     
     Integer timeout = 10; // 10 seconds;
+    Integer maxRetries = 10; // Maximum number of retries
+    Integer retryCount = 0; // Current retry count
+    Integer sleepTime = 5000; // Sleep time in milliseconds
 
     String cmd = String.format("curl --max-time %d -X %s %s", timeout, method, url).toString()
     logger.info("curl cmd: " + cmd)
-    def process = cmd.execute()
-    int code = process.waitFor()
-    String err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-    String out = process.getText()
+    def process
+    int code
+    String err
+    String out
+
+    while (retryCount < maxRetries) {
+        process = cmd.execute()
+        code = process.waitFor()
+        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
+        out = process.getText()
+
+        // If the command was successful, break the loop
+        if (code == 0) {
+            break
+        }
+
+        // If the command was not successful, increment the retry count, sleep for a while and try again
+        retryCount++
+        sleep(sleepTime)
+    }
+
+    // If the command was not successful after maxRetries attempts, log the failure and return the result
+    if (code != 0) {
+        logger.error("Command curl failed after " + maxRetries + " attempts. code: "  + code + ", err: " + err)
+    }
 
     return [code, out, err]
 }
@@ -53,6 +78,10 @@ logger.info("Added 'show_be_config' function to Suite")
 
 Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_id  /* param */->
     return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id))
+}
+
+Suite.metaClass.be_get_overall_compaction_status{ String ip, String port  /* param */->
+    return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port))
 }
 
 logger.info("Added 'be_get_compaction_status' function to Suite")
@@ -97,10 +126,38 @@ Suite.metaClass.update_all_be_config = { String key, Object value ->
     backendId_to_backendIP.each { beId, beIp ->
         def port = backendId_to_backendHttpPort.get(beId)
         def url = "http://${beIp}:${port}/api/update_config?${key}=${value}"
-        def result = Http.http_post(url, null, true)
+        def result = Http.POST(url, null, true)
         assert result.size() == 1, result.toString()
         assert result[0].status == "OK", result.toString()
     }
 }
 
 logger.info("Added 'update_all_be_config' function to Suite")
+
+
+Suite.metaClass._be_report = { String ip, int port, String reportName ->
+    def url = "http://${ip}:${port}/api/report/${reportName}"
+    def result = Http.GET(url, true)
+    Http.checkHttpResult(result, NodeType.BE)
+}
+
+// before report, be need random sleep 5s
+Suite.metaClass.be_report_disk = { String ip, int port ->
+    _be_report(ip, port, "disk")
+}
+
+logger.info("Added 'be_report_disk' function to Suite")
+
+// before report, be need random sleep 5s
+Suite.metaClass.be_report_tablet = { String ip, int port ->
+    _be_report(ip, port, "tablet")
+}
+
+logger.info("Added 'be_report_tablet' function to Suite")
+
+// before report, be need random sleep 5s
+Suite.metaClass.be_report_task = { String ip, int port ->
+    _be_report(ip, port, "task")
+}
+
+logger.info("Added 'be_report_task' function to Suite")

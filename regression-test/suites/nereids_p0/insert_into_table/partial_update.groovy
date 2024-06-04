@@ -56,7 +56,7 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
             qt_1 """ select * from ${tableName} order by id; """
             test {
                 sql """insert into ${tableName} values(2,400),(1,200),(4,400)"""
-                exception ""
+                exception "You must explicitly specify the columns to be updated when updating partial columns using the INSERT statement."
             }
             sql "set enable_unique_key_partial_update=false;"
             sql "sync;"
@@ -122,7 +122,7 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
             // but field `name` is not nullable and doesn't have default value
             test {
                 sql """insert into ${tableName3}(id,score) values(2,400),(1,200),(4,400)"""
-                exception "INTERNAL_ERROR"
+                exception "the unmentioned column `name` should have default value or be nullable"
             }
             sql "set enable_unique_key_partial_update=false;"
             sql "sync;"
@@ -241,6 +241,43 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
             }
             qt_7 "select * from ${tableName7} order by k1;"
             sql """ DROP TABLE IF EXISTS ${tableName7}; """
+
+            def tableName8 = "nereids_partial_update_native_insert_stmt8"
+            sql "set enable_unique_key_partial_update=false;"
+            sql "set enable_insert_strict = true;"
+            sql "sync;"
+            sql """ DROP TABLE IF EXISTS ${tableName8} """
+            sql """create table ${tableName8} (
+                k int null,
+                v int null,
+                v2 int null,
+                v3 int null
+            ) unique key (k) distributed by hash(k) buckets 1
+            properties("replication_num" = "1",
+            "enable_unique_key_merge_on_write"="true",
+            "disable_auto_compaction"="true",
+            "store_row_column" = "${use_row_store}"); """
+            sql "insert into ${tableName8} values(1,1,3,4),(2,2,4,5),(3,3,2,3),(4,4,1,2);"
+            qt_8 "select * from ${tableName8} order by k;"
+
+            def tableName9 = "nereids_partial_update_native_insert_stmt9"
+            sql """ DROP TABLE IF EXISTS ${tableName9} """
+            sql """create table ${tableName9} (
+                k int null,
+                v int null
+            ) unique key (k) distributed by hash(k) buckets 1
+            properties("replication_num" = "1",
+            "enable_unique_key_merge_on_write"="true",
+            "disable_auto_compaction"="true",
+            "store_row_column" = "${use_row_store}"); """
+            sql "insert into ${tableName9} values(1,100),(2,200),(3,300),(4,400);"
+            qt_9 "select * from ${tableName9} order by k;"
+
+            sql "set enable_unique_key_partial_update=true;"
+            sql "set enable_insert_strict = true;"
+            sql "sync;"
+            sql "insert into ${tableName8}(k,v) select k,v from ${tableName9};"
+            qt_10 "select * from ${tableName8} order by k;"
 
             sql "set enable_unique_key_partial_update=false;"
             sql "set enable_insert_strict = false;"

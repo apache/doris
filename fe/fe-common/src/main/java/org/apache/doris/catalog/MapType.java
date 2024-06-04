@@ -126,9 +126,11 @@ public class MapType extends Type {
             return false;
         }
 
-        if ((keyType.isNull() || ((MapType) t).getKeyType().isNull())
-                && (valueType.isNull() || ((MapType) t).getKeyType().isNull())) {
-            return true;
+        if (((MapType) t).getIsKeyContainsNull() != getIsKeyContainsNull()) {
+            return false;
+        }
+        if (((MapType) t).getIsValueContainsNull() != getIsValueContainsNull()) {
+            return false;
         }
 
         return keyType.matchesType(((MapType) t).keyType)
@@ -247,5 +249,10 @@ public class MapType extends Type {
     @Override
     public int hashCode() {
         return Objects.hash(keyType, valueType);
+    }
+
+    @Override
+    public boolean isSupported() {
+        return keyType.isSupported() && !keyType.isNull() && valueType.isSupported() && !valueType.isNull();
     }
 }

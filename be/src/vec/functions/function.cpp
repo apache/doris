@@ -48,44 +48,36 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     ColumnPtr src_not_nullable = src;
     MutableColumnPtr mutable_result_null_map_column;
 
-    if (auto* nullable = check_and_get_column<ColumnNullable>(*src)) {
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*src)) {
         src_not_nullable = nullable->get_nested_column_ptr();
         result_null_map_column = nullable->get_null_map_column_ptr();
     }
 
     for (const auto& arg : args) {
         const ColumnWithTypeAndName& elem = block.get_by_position(arg);
-        if (!elem.type->is_nullable()) {
+        if (!elem.type->is_nullable() || is_column_const(*elem.column)) {
             continue;
         }
 
-        bool is_const = is_column_const(*elem.column);
-        /// Const Nullable that are NULL.
-        if (is_const && assert_cast<const ColumnConst*>(elem.column.get())->only_null()) {
-            return block.get_by_position(result).type->create_column_const(input_rows_count,
-                                                                           Null());
-        }
-        if (is_const) {
-            continue;
-        }
-
-        if (auto* nullable = assert_cast<const ColumnNullable*>(elem.column.get())) {
+        if (const auto* nullable = assert_cast<const ColumnNullable*>(elem.column.get());
+            nullable->has_null()) {
             const ColumnPtr& null_map_column = nullable->get_null_map_column_ptr();
-            if (!result_null_map_column) {
+            if (!result_null_map_column) { // NOLINT(bugprone-use-after-move)
                 result_null_map_column = null_map_column->clone_resized(input_rows_count);
-            } else {
-                if (!mutable_result_null_map_column) {
-                    mutable_result_null_map_column =
-                            std::move(result_null_map_column)->assume_mutable();
-                }
-
-                NullMap& result_null_map =
-                        assert_cast<ColumnUInt8&>(*mutable_result_null_map_column).get_data();
-                const NullMap& src_null_map =
-                        assert_cast<const ColumnUInt8&>(*null_map_column).get_data();
-
-                VectorizedUtils::update_null_map(result_null_map, src_null_map);
+                continue;
             }
+
+            if (!mutable_result_null_map_column) {
+                mutable_result_null_map_column =
+                        std::move(result_null_map_column)->assume_mutable();
+            }
+
+            NullMap& result_null_map =
+                    assert_cast<ColumnUInt8&>(*mutable_result_null_map_column).get_data();
+            const NullMap& src_null_map =
+                    assert_cast<const ColumnUInt8&>(*null_map_column).get_data();
+
+            VectorizedUtils::update_null_map(result_null_map, src_null_map);
         }
     }
 
@@ -99,58 +91,22 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
         return ColumnNullable::create(src, ColumnUInt8::create(input_rows_count, 0));
     }
 
-    bool update_null_data = false;
-    auto full_column = src_not_nullable->convert_to_full_column_if_const();
-    if (const auto* nullable = check_and_get_column<const ColumnNullable>(full_column.get())) {
-        const auto& nested_column = nullable->get_nested_column();
-        update_null_data = nested_column.is_numeric() || nested_column.is_column_decimal();
-    } else {
-        update_null_data = full_column->is_numeric() || full_column->is_column_decimal();
-    }
-    auto result_column = ColumnNullable::create(full_column, result_null_map_column);
-    if (update_null_data) {
-        auto* res_nullable_column =
-                assert_cast<ColumnNullable*>(std::move(*result_column).mutate().get());
-        res_nullable_column->update_null_data();
-    }
-    return result_column;
+    return ColumnNullable::create(src_not_nullable, result_null_map_column);
 }
 
-NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {
-    NullPresence res;
-
-    for (const auto& arg : args) {
-        const auto& elem = block.get_by_position(arg);
-
-        if (!res.has_nullable) {
-            res.has_nullable = elem.type->is_nullable();
-        }
-        if (!res.has_null_constant) {
-            res.has_null_constant = elem.type->only_null();
-        }
-    }
-
-    return res;
+bool have_null_column(const Block& block, const ColumnNumbers& args) {
+    return std::ranges::any_of(args, [&block](const auto& elem) {
+        return block.get_by_position(elem).type->is_nullable();
+    });
 }
 
-[[maybe_unused]] NullPresence get_null_presence(const ColumnsWithTypeAndName& args) {
-    NullPresence res;
-
-    for (const auto& elem : args) {
-        if (!res.has_nullable) {
-            res.has_nullable = elem.type->is_nullable();
-        }
-        if (!res.has_null_constant) {
-            res.has_null_constant = elem.type->only_null();
-        }
-    }
-
-    return res;
+bool have_null_column(const ColumnsWithTypeAndName& args) {
+    return std::ranges::any_of(args, [](const auto& elem) { return elem.type->is_nullable(); });
 }
 
 inline Status PreparedFunctionImpl::_execute_skipped_constant_deal(
         FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
-        size_t input_rows_count, bool dry_run) {
+        size_t input_rows_count, bool dry_run) const {
     bool executed = false;
     RETURN_IF_ERROR(default_implementation_for_nulls(context, block, args, result, input_rows_count,
                                                      dry_run, &executed));
@@ -167,7 +123,7 @@ inline Status PreparedFunctionImpl::_execute_skipped_constant_deal(
 
 Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
-        size_t input_rows_count, bool dry_run, bool* executed) {
+        size_t input_rows_count, bool dry_run, bool* executed) const {
     *executed = false;
     ColumnNumbers args_expect_const = get_arguments_that_are_always_constant();
 
@@ -185,7 +141,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         return Status::OK();
     }
 
-    // now all columns is const.
+    // now all columns are const.
     Block temporary_block;
 
     size_t arguments_size = args.size();
@@ -231,39 +187,52 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
 
 Status PreparedFunctionImpl::default_implementation_for_nulls(
         FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
-        size_t input_rows_count, bool dry_run, bool* executed) {
+        size_t input_rows_count, bool dry_run, bool* executed) const {
     *executed = false;
     if (args.empty() || !use_default_implementation_for_nulls()) {
         return Status::OK();
     }
 
-    NullPresence null_presence = get_null_presence(block, args);
-
-    if (null_presence.has_null_constant) {
+    if (std::ranges::any_of(args, [&block](const auto& elem) {
+            return block.get_by_position(elem).column->only_null();
+        })) {
         block.get_by_position(result).column =
                 block.get_by_position(result).type->create_column_const(input_rows_count, Null());
         *executed = true;
         return Status::OK();
     }
 
-    if (null_presence.has_nullable) {
-        auto [temporary_block, new_args, new_result] =
-                create_block_with_nested_columns(block, args, result);
-        RETURN_IF_ERROR(execute_without_low_cardinality_columns(
-                context, temporary_block, new_args, new_result, temporary_block.rows(), dry_run));
-        block.get_by_position(result).column =
-                wrap_in_nullable(temporary_block.get_by_position(new_result).column, block, args,
-                                 result, input_rows_count);
+    if (have_null_column(block, args)) {
+        bool need_to_default = need_replace_null_data_to_default();
+        if (context) {
+            need_to_default &= context->check_overflow_for_decimal();
+        }
+        // extract nested column from nulls
+        ColumnNumbers new_args;
+        for (auto arg : args) {
+            new_args.push_back(block.columns());
+            block.insert(block.get_by_position(arg).get_nested(need_to_default));
+            DCHECK(!block.get_by_position(new_args.back()).column->is_nullable());
+        }
+        RETURN_IF_ERROR(execute_without_low_cardinality_columns(context, block, new_args, result,
+                                                                block.rows(), dry_run));
+        // after run with nested, wrap them in null.
+        block.get_by_position(result).column = wrap_in_nullable(
+                block.get_by_position(result).column, block, args, result, input_rows_count);
+
+        while (!new_args.empty()) {
+            block.erase(new_args.back());
+            new_args.pop_back();
+        }
         *executed = true;
         return Status::OK();
     }
-    *executed = false;
     return Status::OK();
 }
 
 Status PreparedFunctionImpl::execute_without_low_cardinality_columns(
         FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
-        size_t input_rows_count, bool dry_run) {
+        size_t input_rows_count, bool dry_run) const {
     bool executed = false;
 
     RETURN_IF_ERROR(default_implementation_for_constant_arguments(
@@ -277,7 +246,7 @@ Status PreparedFunctionImpl::execute_without_low_cardinality_columns(
 
 Status PreparedFunctionImpl::execute(FunctionContext* context, Block& block,
                                      const ColumnNumbers& args, size_t result,
-                                     size_t input_rows_count, bool dry_run) {
+                                     size_t input_rows_count, bool dry_run) const {
     return execute_without_low_cardinality_columns(context, block, args, result, input_rows_count,
                                                    dry_run);
 }
@@ -299,12 +268,7 @@ DataTypePtr FunctionBuilderImpl::get_return_type_without_low_cardinality(
     check_number_of_arguments(arguments.size());
 
     if (!arguments.empty() && use_default_implementation_for_nulls()) {
-        NullPresence null_presence = get_null_presence(arguments);
-
-        if (null_presence.has_null_constant) {
-            return make_nullable(std::make_shared<DataTypeNothing>());
-        }
-        if (null_presence.has_nullable) {
+        if (have_null_column(arguments)) {
             ColumnNumbers numbers(arguments.size());
             std::iota(numbers.begin(), numbers.end(), 0);
             auto [nested_block, _] =

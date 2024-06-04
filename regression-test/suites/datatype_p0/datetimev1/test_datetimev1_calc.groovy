@@ -29,7 +29,7 @@ suite("test_datetimev1_calc", "nonConcurrent") {
     CREATE TABLE IF NOT EXISTS `${table1}` (
         `id` int,
         `value1` datetimev1 NULL COMMENT "",
-        `value2` datetimev1 NULL COMMENT "",
+        `value2` datetimev1 NULL COMMENT ""
       ) ENGINE=OLAP
       DUPLICATE KEY(`id`)
       COMMENT "OLAP"
@@ -44,15 +44,9 @@ suite("test_datetimev1_calc", "nonConcurrent") {
     sql """insert into ${table1} values
             (1, '2010-10-01 11:12:13', '2010-10-02 22:22:22'),
             (2, '2010-10-02 12:13:14', '2010-10-02 22:22:22'),
-            (3, '2010-10-03 13:14:15', '2010-10-03 33:33:33'),
-            (4, '2010-10-04 14:24:34', '2010-10-04 44:44:44'),
             (5, '2010-10-05 15:35:45', '2010-10-06 16:16:16'),
-            (6, '2010-10-06 44:45:46', '2010-10-06 55:56:57'),
-            (7, '2010-10-07 23:21:20', '2010-10-08 30:31:34'),
-            (8, null, null),
-            (9, null, '2010-10-09 44:46:48'),
-            (null, '2010-10-09 19:20:21', null),
-            (10, null, '2010-10-10 51:31:21');
+            (8, null, null), 
+            (null, '2010-10-09 19:20:21', null)
     """
     qt_select_all "select * from ${table1} order by 1, 2, 3"
 

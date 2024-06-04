@@ -53,10 +53,10 @@ public:
     static void create_global_instance(size_t capacity);
 
     // get cache schema key, delimiter with SCHEMA_DELIMITER
-    static std::string get_schema_key(int32_t tablet_id, const TabletSchemaSPtr& schema,
+    static std::string get_schema_key(int64_t tablet_id, const TabletSchemaSPtr& schema,
                                       const std::vector<uint32_t>& column_ids, int32_t version,
                                       Type type);
-    static std::string get_schema_key(int32_t tablet_id, const std::vector<TColumn>& columns,
+    static std::string get_schema_key(int64_t tablet_id, const std::vector<TColumn>& columns,
                                       int32_t version, Type type);
 
     // Get a shared cached schema from cache, schema_key is a subset of column unique ids
@@ -65,11 +65,10 @@ public:
         if (!instance() || schema_key.empty()) {
             return {};
         }
-        auto lru_handle = _cache->lookup(schema_key);
+        auto* lru_handle = lookup(schema_key);
         if (lru_handle) {
-            Defer release([cache = _cache.get(), lru_handle] { cache->release(lru_handle); });
-            auto value = (CacheValue*)_cache->value(lru_handle);
-            value->last_visit_time = UnixMillis();
+            Defer release([cache = this, lru_handle] { cache->release(lru_handle); });
+            auto* value = (CacheValue*)LRUCachePolicy::value(lru_handle);
             VLOG_DEBUG << "use cache schema";
             if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
                 return value->tablet_schema;
@@ -87,8 +86,7 @@ public:
         if (!instance() || key.empty()) {
             return;
         }
-        CacheValue* value = new CacheValue;
-        value->last_visit_time = UnixMillis();
+        auto* value = new CacheValue;
         if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
             value->type = Type::TABLET_SCHEMA;
             value->tablet_schema = schema;
@@ -96,19 +94,18 @@ public:
             value->type = Type::SCHEMA;
             value->schema = schema;
         }
-        auto deleter = [](const doris::CacheKey& key, void* value) {
-            CacheValue* cache_value = (CacheValue*)value;
-            delete cache_value;
-        };
-        auto lru_handle =
-                _cache->insert(key, value, 1, deleter, CachePriority::NORMAL, schema->mem_size());
-        _cache->release(lru_handle);
+
+        auto lru_handle = insert(key, value, 1, schema->mem_size(), CachePriority::NORMAL);
+        release(lru_handle);
     }
 
     // Try to prune the cache if expired.
     Status prune();
 
-    struct CacheValue : public LRUCacheValueBase {
+    class CacheValue : public LRUCacheValueBase {
+    public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::SCHEMA_CACHE) {}
+
         Type type;
         // either tablet_schema or schema
         TabletSchemaSPtr tablet_schema = nullptr;

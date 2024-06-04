@@ -222,7 +222,8 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
             if (ok) {
                 // The local time zone can change by session variable `time_zone`
                 // We should use the user specified time zone, not the actual system local time zone.
-                success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp), time_zone);
+                success = true;
+                dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp), time_zone);
             }
         } else if (str_length == 19) {
             // YYYY-MM-DDTHH:MM:SS
@@ -231,8 +232,8 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
                 const bool ok =
                         cctz::parse("%Y-%m-%dT%H:%M:%S", str_date, cctz::utc_time_zone(), &tp);
                 if (ok) {
-                    success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp),
-                                                   time_zone);
+                    success = true;
+                    dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp), time_zone);
                 }
             } else {
                 // YYYY-MM-DD HH:MM:SS
@@ -243,7 +244,8 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
             // string long like "1677895728000"
             int64_t time_long = std::atol(str_date.c_str());
             if (time_long > 0) {
-                success = dt_val.from_unixtime(time_long / 1000, time_zone);
+                success = true;
+                dt_val.from_unixtime(time_long / 1000, time_zone);
             }
         } else {
             // YYYY-MM-DD or others
@@ -255,9 +257,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
         }
 
     } else {
-        if (!dt_val.from_unixtime(col.GetInt64() / 1000, time_zone)) {
-            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-        }
+        dt_val.from_unixtime(col.GetInt64() / 1000, time_zone);
     }
     if constexpr (is_datetime_v1) {
         if (type == TYPE_DATE) {
@@ -471,7 +471,13 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
     if (obj.HasMember("fields")) {
         pure_doc_value = true;
     }
-    const rapidjson::Value& line = obj.HasMember(FIELD_SOURCE) ? obj[FIELD_SOURCE] : obj["fields"];
+    // obj may be neither have `_source` nor `fields` field.
+    const rapidjson::Value* line = nullptr;
+    if (obj.HasMember(FIELD_SOURCE)) {
+        line = &obj[FIELD_SOURCE];
+    } else if (obj.HasMember("fields")) {
+        line = &obj["fields"];
+    }
 
     for (int i = 0; i < tuple_desc->slots().size(); ++i) {
         const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
@@ -496,17 +502,18 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         const char* col_name = pure_doc_value ? docvalue_context.at(slot_desc->col_name()).c_str()
                                               : slot_desc->col_name().c_str();
 
-        rapidjson::Value::ConstMemberIterator itr = line.FindMember(col_name);
-        if (itr == line.MemberEnd() && slot_desc->is_nullable()) {
-            auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
-            nullable_column->insert_data(nullptr, 0);
-            continue;
-        } else if (itr == line.MemberEnd() && !slot_desc->is_nullable()) {
-            std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
-            return Status::RuntimeError(details);
+        if (line == nullptr || line->FindMember(col_name) == line->MemberEnd()) {
+            if (slot_desc->is_nullable()) {
+                auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
+                nullable_column->insert_data(nullptr, 0);
+                continue;
+            } else {
+                std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
+                return Status::RuntimeError(details);
+            }
         }
 
-        const rapidjson::Value& col = line[col_name];
+        const rapidjson::Value& col = (*line)[col_name];
 
         PrimitiveType type = slot_desc->type().type;
 

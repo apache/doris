@@ -39,7 +39,9 @@ import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterJobStatusStmt;
 import org.apache.doris.analysis.AlterPolicyStmt;
+import org.apache.doris.analysis.AlterRepositoryStmt;
 import org.apache.doris.analysis.AlterResourceStmt;
+import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
@@ -47,16 +49,19 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterUserStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
+import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
+import org.apache.doris.analysis.CancelCloudWarmUpStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelJobTaskStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CleanProfileStmt;
 import org.apache.doris.analysis.CleanQueryStatsStmt;
+import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
 import org.apache.doris.analysis.CreateDbStmt;
@@ -71,12 +76,15 @@ import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
+import org.apache.doris.analysis.CreateStageStmt;
+import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.CreateWorkloadGroupStmt;
+import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
@@ -90,10 +98,12 @@ import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
+import org.apache.doris.analysis.DropStageStmt;
 import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.DropWorkloadGroupStmt;
+import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
@@ -110,22 +120,38 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.RevokeStmt;
+import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.StopSyncJobStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
+import org.apache.doris.analysis.UnsetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.load.CloudLoadManager;
+import org.apache.doris.cloud.load.CopyJob;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.job.exception.JobException;
+import org.apache.doris.load.EtlStatus;
+import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.loadv2.JobState;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.sync.SyncJobManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.statistics.StatisticsRepository;
 
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * Use for execute ddl.
@@ -137,6 +163,7 @@ public class DdlExecutor {
      * Execute ddl.
      **/
     public static void execute(Env env, DdlStmt ddlStmt) throws Exception {
+        checkDdlStmtSupported(ddlStmt);
         if (ddlStmt instanceof CreateDbStmt) {
             env.createDb((CreateDbStmt) ddlStmt);
         } else if (ddlStmt instanceof DropDbStmt) {
@@ -170,7 +197,13 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CancelExportStmt) {
             env.getExportMgr().cancelExportJob((CancelExportStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelLoadStmt) {
-            env.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
+            CancelLoadStmt cs = (CancelLoadStmt) ddlStmt;
+            // cancel all
+            try {
+                env.getJobManager().cancelLoadJob(cs);
+            } catch (JobException e) {
+                env.getLoadManager().cancelLoadJob(cs);
+            }
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             env.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof PauseRoutineLoadStmt) {
@@ -190,6 +223,12 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterJobStatusStmt) {
             AlterJobStatusStmt stmt = (AlterJobStatusStmt) ddlStmt;
             try {
+                // drop job
+                if (stmt.isDrop()) {
+                    env.getJobManager().unregisterJob(stmt.getJobName(), stmt.isIfExists());
+                    return;
+                }
+                // alter job status
                 env.getJobManager().alterJobStatus(stmt.getJobName(), stmt.getJobStatus());
             } catch (Exception e) {
                 throw new DdlException(e.getMessage());
@@ -215,6 +254,8 @@ public class DdlExecutor {
             env.getAuth().revoke(stmt);
         } else if (ddlStmt instanceof CreateRoleStmt) {
             env.getAuth().createRole((CreateRoleStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterRoleStmt) {
+            env.getAuth().alterRole((AlterRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRoleStmt) {
             env.getAuth().dropRole((DropRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof SetUserPropertyStmt) {
@@ -285,6 +326,12 @@ public class DdlExecutor {
             env.getWorkloadGroupMgr().createWorkloadGroup((CreateWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().dropWorkloadGroup((DropWorkloadGroupStmt) ddlStmt);
+        }  else if (ddlStmt instanceof CreateWorkloadSchedPolicyStmt) {
+            env.getWorkloadSchedPolicyMgr().createWorkloadSchedPolicy((CreateWorkloadSchedPolicyStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterWorkloadSchedPolicyStmt) {
+            env.getWorkloadSchedPolicyMgr().alterWorkloadSchedPolicy((AlterWorkloadSchedPolicyStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropWorkloadSchedPolicyStmt) {
+            env.getWorkloadSchedPolicyMgr().dropWorkloadSchedPolicy((DropWorkloadSchedPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateDataSyncJobStmt) {
             CreateDataSyncJobStmt createSyncJobStmt = (CreateDataSyncJobStmt) ddlStmt;
             SyncJobManager syncJobMgr = env.getSyncJobManager();
@@ -345,11 +392,16 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropMaterializedViewStmt) {
             env.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshCatalogStmt) {
-            env.getCatalogMgr().refreshCatalog((RefreshCatalogStmt) ddlStmt);
+            env.getRefreshManager().handleRefreshCatalog((RefreshCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshLdapStmt) {
             env.getAuth().refreshLdap((RefreshLdapStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterUserStmt) {
             env.getAuth().alterUser((AlterUserStmt) ddlStmt);
+        } else if (ddlStmt instanceof CancelCloudWarmUpStmt) {
+            if (Config.isCloudMode()) {
+                CancelCloudWarmUpStmt stmt = (CancelCloudWarmUpStmt) ddlStmt;
+                ((CloudEnv) env).cancelCloudWarmUp(stmt);
+            }
         } else if (ddlStmt instanceof CleanProfileStmt) {
             ProfileManager.getInstance().cleanProfile();
         } else if (ddlStmt instanceof DropStatsStmt) {
@@ -379,9 +431,140 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropAnalyzeJobStmt) {
             DropAnalyzeJobStmt analyzeJobStmt = (DropAnalyzeJobStmt) ddlStmt;
             Env.getCurrentEnv().getAnalysisManager().dropAnalyzeJob(analyzeJobStmt);
+        } else if (ddlStmt instanceof AlterRepositoryStmt) {
+            env.getBackupHandler().alterRepository((AlterRepositoryStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateStorageVaultStmt) {
+            env.getStorageVaultMgr().createStorageVaultResource((CreateStorageVaultStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateStageStmt) {
+            ((CloudEnv) env).createStage((CreateStageStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropStageStmt) {
+            ((CloudEnv) env).dropStage((DropStageStmt) ddlStmt);
+        } else if (ddlStmt instanceof CopyStmt) {
+            executeCopyStmt(env, (CopyStmt) ddlStmt);
+        } else if (ddlStmt instanceof SetDefaultStorageVaultStmt) {
+            env.getStorageVaultMgr().setDefaultStorageVault((SetDefaultStorageVaultStmt) ddlStmt);
+        } else if (ddlStmt instanceof UnsetDefaultStorageVaultStmt) {
+            env.getStorageVaultMgr().unsetDefaultStorageVault();
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");
+        }
+    }
+
+    private static void executeCopyStmt(Env env, CopyStmt copyStmt) throws Exception {
+        CopyJob job = (CopyJob) (((CloudLoadManager) env.getLoadManager()).createLoadJobFromStmt(copyStmt));
+        if (!copyStmt.isAsync()) {
+            // wait for execute finished
+            waitJobCompleted(job);
+            if (job.getState() == JobState.UNKNOWN || job.getState() == JobState.CANCELLED) {
+                QueryState queryState = new QueryState();
+                FailMsg failMsg = job.getFailMsg();
+                EtlStatus loadingStatus = job.getLoadingStatus();
+                List<List<String>> result = Lists.newArrayList();
+                List<String> entry = Lists.newArrayList();
+                entry.add(job.getCopyId());
+                entry.add(job.getState().toString());
+                entry.add(failMsg == null ? "" : failMsg.getCancelType().toString());
+                entry.add(failMsg == null ? "" : failMsg.getMsg());
+                entry.add("");
+                entry.add("");
+                entry.add("");
+                entry.add(loadingStatus.getTrackingUrl());
+                result.add(entry);
+                queryState.setResultSet(new ShowResultSet(copyStmt.getMetaData(), result));
+                copyStmt.getAnalyzer().getContext().setState(queryState);
+                return;
+            } else if (job.getState() == JobState.FINISHED) {
+                EtlStatus loadingStatus = job.getLoadingStatus();
+                Map<String, String> counters = loadingStatus.getCounters();
+                QueryState queryState = new QueryState();
+                List<List<String>> result = Lists.newArrayList();
+                List<String> entry = Lists.newArrayList();
+                entry.add(job.getCopyId());
+                entry.add(job.getState().toString());
+                entry.add("");
+                entry.add("");
+                entry.add(counters.getOrDefault(LoadJob.DPP_NORMAL_ALL, "0"));
+                entry.add(counters.getOrDefault(LoadJob.DPP_ABNORMAL_ALL, "0"));
+                entry.add(counters.getOrDefault(LoadJob.UNSELECTED_ROWS, "0"));
+                entry.add(loadingStatus.getTrackingUrl());
+                result.add(entry);
+                queryState.setResultSet(new ShowResultSet(copyStmt.getMetaData(), result));
+                copyStmt.getAnalyzer().getContext().setState(queryState);
+                return;
+            }
+        }
+        QueryState queryState = new QueryState();
+        List<List<String>> result = Lists.newArrayList();
+        List<String> entry = Lists.newArrayList();
+        entry.add(job.getCopyId());
+        entry.add(job.getState().toString());
+        entry.add("");
+        entry.add("");
+        entry.add("");
+        entry.add("");
+        entry.add("");
+        entry.add("");
+        result.add(entry);
+        queryState.setResultSet(new ShowResultSet(copyStmt.getMetaData(), result));
+        copyStmt.getAnalyzer().getContext().setState(queryState);
+    }
+
+    private static void waitJobCompleted(CopyJob job) throws InterruptedException {
+        // check the job is completed or not.
+        // sleep 10ms, 1000 times(10s)
+        // sleep 100ms, 1000 times(100s + 10s = 110s)
+        // sleep 1000ms, 1000 times(1000s + 110s = 1110s)
+        // sleep 5000ms...
+        long retry = 0;
+        long currentInterval = 10;
+        while (!job.isCompleted()) {
+            Thread.sleep(currentInterval);
+            if (retry > 3010) {
+                continue;
+            }
+            retry++;
+            if (retry > 3000) {
+                currentInterval = 5000;
+            } else if (retry > 2000) {
+                currentInterval = 1000;
+            } else if (retry > 1000) {
+                currentInterval = 100;
+            }
+        }
+    }
+
+    private static void checkDdlStmtSupported(DdlStmt ddlStmt) throws DdlException {
+        // check stmt has been supported in cloud mode
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+
+        if (ddlStmt instanceof AdminSetConfigStmt) {
+            if (!ConnectContext.get().getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER)) {
+                LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
+                throw new DdlException("Unsupported operation");
+            }
+        }
+
+        if (ddlStmt instanceof BackupStmt
+                || ddlStmt instanceof RestoreStmt
+                || ddlStmt instanceof CancelBackupStmt
+                || ddlStmt instanceof CreateRepositoryStmt
+                || ddlStmt instanceof DropRepositoryStmt
+                || ddlStmt instanceof AdminRepairTableStmt
+                || ddlStmt instanceof AdminCancelRepairTableStmt
+                || ddlStmt instanceof AdminCompactTableStmt
+                || ddlStmt instanceof AdminCheckTabletsStmt
+                || ddlStmt instanceof AdminSetReplicaStatusStmt
+                || ddlStmt instanceof AdminCleanTrashStmt
+                || ddlStmt instanceof AdminRebalanceDiskStmt
+                || ddlStmt instanceof AdminCancelRebalanceDiskStmt
+                || ddlStmt instanceof AlterResourceStmt
+                || ddlStmt instanceof AlterPolicyStmt
+                || ddlStmt instanceof AlterSystemStmt) {
+            LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
+            throw new DdlException("Unsupported operation");
         }
     }
 }

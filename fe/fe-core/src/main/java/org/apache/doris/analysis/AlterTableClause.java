@@ -38,4 +38,6 @@ public abstract class AlterTableClause extends AlterClause {
     public void setTableName(TableName tableName) {
         this.tableName = tableName;
     }
+
+    public abstract boolean allowOpMTMV();
 }

@@ -81,6 +81,7 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (arguments.empty()) {
             LOG(FATAL) << "Incorrect number of arguments for array_enumerate_uniq function";
+            __builtin_unreachable();
         }
         bool is_nested_nullable = false;
         for (size_t i = 0; i < arguments.size(); ++i) {
@@ -196,14 +197,14 @@ public:
                 _execute_number<ColumnDecimal32>(data_columns, *offsets, null_map, dst_values);
             } else if (which.is_decimal64()) {
                 _execute_number<ColumnDecimal64>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_decimal128i()) {
-                _execute_number<ColumnDecimal128I>(data_columns, *offsets, null_map, dst_values);
+            } else if (which.is_decimal128v3()) {
+                _execute_number<ColumnDecimal128V3>(data_columns, *offsets, null_map, dst_values);
             } else if (which.is_decimal256()) {
                 _execute_number<ColumnDecimal256>(data_columns, *offsets, null_map, dst_values);
             } else if (which.is_date_time_v2()) {
                 _execute_number<ColumnDateTimeV2>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_decimal128()) {
-                _execute_number<ColumnDecimal128>(data_columns, *offsets, null_map, dst_values);
+            } else if (which.is_decimal128v2()) {
+                _execute_number<ColumnDecimal128V2>(data_columns, *offsets, null_map, dst_values);
             } else if (which.is_string()) {
                 _execute_string(data_columns, *offsets, null_map, dst_values);
             }

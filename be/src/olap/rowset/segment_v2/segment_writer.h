@@ -34,6 +34,7 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet.h"
@@ -63,6 +64,7 @@ class FileWriter;
 } // namespace io
 
 namespace segment_v2 {
+class InvertedIndexFileWriter;
 
 extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;
@@ -105,7 +107,13 @@ public:
 
     size_t get_inverted_index_file_size() const { return _inverted_index_file_size; }
     uint32_t num_rows_written() const { return _num_rows_written; }
+
+    // for partial update
+    int64_t num_rows_updated() const { return _num_rows_updated; }
+    int64_t num_rows_deleted() const { return _num_rows_deleted; }
+    int64_t num_rows_new_added() const { return _num_rows_new_added; }
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
+
     uint32_t row_count() const { return _row_count; }
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
@@ -128,7 +136,8 @@ public:
     void set_mow_context(std::shared_ptr<MowContext> mow_context);
     Status fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
                                 const std::vector<bool>& use_default_or_null_flag,
-                                bool has_default_or_nullable, const size_t& segment_start_pos);
+                                bool has_default_or_nullable, const size_t& segment_start_pos,
+                                const vectorized::Block* block);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -181,8 +190,9 @@ private:
     uint32_t _max_row_per_segment;
     SegmentWriterOptions _opts;
 
-    // Not owned. owned by RowsetWriter
+    // Not owned. owned by RowsetWriter or SegmentFlusher
     io::FileWriter* _file_writer = nullptr;
+    std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
 
     SegmentFooterPB _footer;
     size_t _num_key_columns;
@@ -208,6 +218,11 @@ private:
     bool _has_key = true;
     // _num_rows_written means row count already written in this current column group
     uint32_t _num_rows_written = 0;
+
+    /** for partial update stats **/
+    int64_t _num_rows_updated = 0;
+    int64_t _num_rows_new_added = 0;
+    int64_t _num_rows_deleted = 0;
     // number of rows filtered in strict mode partial update
     int64_t _num_rows_filtered = 0;
     // _row_count means total row count of this segment
@@ -223,8 +238,6 @@ private:
     // group every rowset-segment row id to speed up reader
     PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
-
-    // record row locations here and used when memtable flush
 };
 
 } // namespace segment_v2

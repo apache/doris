@@ -96,4 +96,3 @@ class CostV1 implements Cost {
         return sb.toString();
     }
 }
-

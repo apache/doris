@@ -17,14 +17,14 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
-import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -35,7 +35,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
@@ -57,40 +57,52 @@ public class JdbcMySQLClient extends JdbcClient {
                 String versionComment = rs.getString("Value");
                 isDoris = versionComment.toLowerCase().contains("doris");
             }
-        } catch (SQLException e) {
-            throw new JdbcClientException("Failed to determine MySQL Version Comment", e);
+        } catch (SQLException | JdbcClientException e) {
+            closeClient();
+            throw new JdbcClientException("Failed to initialize JdbcMySQLClient: %s", e.getMessage());
         } finally {
             close(rs, stmt, conn);
         }
     }
 
-    @Override
-    protected String getDatabaseQuery() {
-        return "SHOW DATABASES";
+    protected JdbcMySQLClient(JdbcClientConfig jdbcClientConfig, String dbType) {
+        super(jdbcClientConfig);
+        convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
+        this.dbType = dbType;
     }
 
     @Override
-    protected List<String> getSpecifiedDatabase(Connection conn) {
-        List<String> databaseNames = Lists.newArrayList();
+    public List<String> getDatabaseNameList() {
+        Connection conn = getConnection();
+        ResultSet rs = null;
+        List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
-            databaseNames.add(conn.getCatalog());
+            if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
+                String currentDatabase = conn.getCatalog();
+                remoteDatabaseNames.add(currentDatabase);
+            } else {
+                rs = conn.getMetaData().getCatalogs();
+                while (rs.next()) {
+                    remoteDatabaseNames.add(rs.getString("TABLE_CAT"));
+                }
+            }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get specified database name from jdbc", e);
+            throw new JdbcClientException("failed to get database name list from jdbc", e);
         } finally {
-            close(conn);
+            close(rs, conn);
         }
-        return databaseNames;
+        return filterDatabaseNames(remoteDatabaseNames);
     }
 
     @Override
-    protected void processTable(String dbName, String tableName, String[] tableTypes,
-                                Consumer<ResultSet> resultSetConsumer) {
+    protected void processTable(String remoteDbName, String remoteTableName, String[] tableTypes,
+            Consumer<ResultSet> resultSetConsumer) {
         Connection conn = null;
         ResultSet rs = null;
         try {
             conn = super.getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
-            rs = databaseMetaData.getTables(dbName, null, tableName, tableTypes);
+            rs = databaseMetaData.getTables(remoteDbName, null, remoteTableName, tableTypes);
             resultSetConsumer.accept(rs);
         } catch (SQLException e) {
             throw new JdbcClientException("Failed to process table", e);
@@ -105,129 +117,67 @@ public class JdbcMySQLClient extends JdbcClient {
     }
 
     @Override
-    protected ResultSet getColumns(DatabaseMetaData databaseMetaData, String catalogName, String schemaName,
-                                   String tableName) throws SQLException {
-        return databaseMetaData.getColumns(schemaName, null, tableName, null);
+    protected ResultSet getRemoteColumns(DatabaseMetaData databaseMetaData, String catalogName, String remoteDbName,
+            String remoteTableName) throws SQLException {
+        return databaseMetaData.getColumns(remoteDbName, null, remoteTableName, null);
     }
 
     /**
      * get all columns of one table
      */
     @Override
-    public List<JdbcFieldSchema> getJdbcColumnsInfo(String dbName, String tableName) {
+    public List<JdbcFieldSchema> getJdbcColumnsInfo(String localDbName, String localTableName) {
         Connection conn = getConnection();
         ResultSet rs = null;
-        List<JdbcFieldSchema> tableSchema = com.google.common.collect.Lists.newArrayList();
-        String finalDbName = getRealDatabaseName(dbName);
-        String finalTableName = getRealTableName(dbName, tableName);
+        List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
+        String remoteDbName = getRemoteDatabaseName(localDbName);
+        String remoteTableName = getRemoteTableName(localDbName, localTableName);
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
-            rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
-            List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, dbName, tableName);
-            Map<String, String> mapFieldtoType = null;
-            while (rs.next()) {
-                lowerColumnToRealColumn.putIfAbsent(finalDbName, new ConcurrentHashMap<>());
-                lowerColumnToRealColumn.get(finalDbName).putIfAbsent(finalTableName, new ConcurrentHashMap<>());
-                JdbcFieldSchema field = new JdbcFieldSchema();
-                String columnName = rs.getString("COLUMN_NAME");
-                if (isLowerCaseTableNames) {
-                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName)
-                            .put(columnName.toLowerCase(), columnName);
-                    columnName = columnName.toLowerCase();
-                } else {
-                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName).put(columnName, columnName);
-                }
-                field.setColumnName(columnName);
-                field.setDataType(rs.getInt("DATA_TYPE"));
+            rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
 
-                // in mysql-jdbc-connector-8.0.*, TYPE_NAME of the HLL column in doris will be "UNKNOWN"
-                // in mysql-jdbc-connector-5.1.*, TYPE_NAME of the HLL column in doris will be "HLL"
-                // in mysql-jdbc-connector-8.0.*, TYPE_NAME of BITMAP column in doris will be "BIT"
-                // in mysql-jdbc-connector-5.1.*, TYPE_NAME of BITMAP column in doris will be "BITMAP"
-                field.setDataTypeName(rs.getString("TYPE_NAME"));
-                if (isDoris) {
-                    mapFieldtoType = getColumnsDataTypeUseQuery(dbName, tableName);
-                    field.setDataTypeName(mapFieldtoType.get(rs.getString("COLUMN_NAME")));
-                }
-                field.setKey(primaryKeys.contains(field.getColumnName()));
-                field.setColumnSize(rs.getInt("COLUMN_SIZE"));
-                field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
-                field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
-                /*
-                   Whether it is allowed to be NULL
-                   0 (columnNoNulls)
-                   1 (columnNullable)
-                   2 (columnNullableUnknown)
-                 */
-                field.setAllowNull(rs.getInt("NULLABLE") != 0);
-                field.setRemarks(rs.getString("REMARKS"));
-                field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
-                String isAutoincrement = rs.getString("IS_AUTOINCREMENT");
-                field.setAutoincrement("YES".equalsIgnoreCase(isAutoincrement));
-                field.setDefaultValue(rs.getString("COLUMN_DEF"));
+            Map<String, String> mapFieldtoType = Maps.newHashMap();
+            if (isDoris) {
+                mapFieldtoType = getColumnsDataTypeUseQuery(remoteDbName, remoteTableName);
+            }
+
+            while (rs.next()) {
+                JdbcFieldSchema field = new JdbcFieldSchema(rs, mapFieldtoType);
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, tableName,
-                Util.getRootCauseMessage(e));
+            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
+                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }
         return tableSchema;
     }
 
-    @Override
-    public List<Column> getColumnsFromJdbc(String dbName, String tableName) {
-        List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(dbName, tableName);
-        List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
-        for (JdbcFieldSchema field : jdbcTableSchema) {
-            DefaultValueExprDef defaultValueExprDef = null;
-            if (field.getDefaultValue() != null) {
-                String colDefaultValue = field.getDefaultValue().toLowerCase();
-                // current_timestamp()
-                if (colDefaultValue.startsWith("current_timestamp")) {
-                    long precision = 0;
-                    if (colDefaultValue.contains("(")) {
-                        String substring = colDefaultValue.substring(18, colDefaultValue.length() - 1).trim();
-                        precision = substring.isEmpty() ? 0 : Long.parseLong(substring);
-                    }
-                    defaultValueExprDef = new DefaultValueExprDef("now", precision);
-                }
-            }
-            dorisTableSchema.add(new Column(field.getColumnName(),
-                    jdbcTypeToDoris(field), field.isKey(), null,
-                    field.isAllowNull(), field.isAutoincrement(), field.getDefaultValue(), field.getRemarks(),
-                    true, defaultValueExprDef, -1, null));
-        }
-        return dorisTableSchema;
+    protected String getCatalogName(Connection conn) throws SQLException {
+        return null;
     }
 
-    protected List<String> getPrimaryKeys(DatabaseMetaData databaseMetaData, String catalogName,
-                                          String dbName, String tableName) throws SQLException {
-        ResultSet rs = null;
-        List<String> primaryKeys = Lists.newArrayList();
-
-        rs = databaseMetaData.getPrimaryKeys(dbName, null, tableName);
-        while (rs.next()) {
-            String columnName = rs.getString("COLUMN_NAME");
-            primaryKeys.add(columnName);
-        }
-        rs.close();
-
-        return primaryKeys;
+    protected Set<String> getFilterInternalDatabases() {
+        return ImmutableSet.<String>builder()
+                .add("information_schema")
+                .add("performance_schema")
+                .add("mysql")
+                .add("sys")
+                .build();
     }
 
     @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         // For Doris type
         if (isDoris) {
-            return dorisTypeToDoris(fieldSchema.getDataTypeName().toUpperCase());
+            return dorisTypeToDoris(fieldSchema.getDataTypeName().orElse("unknown").toUpperCase());
         }
         // For mysql type: "INT UNSIGNED":
-        // fieldSchema.getDataTypeName().split(" ")[0] == "INT"
-        // fieldSchema.getDataTypeName().split(" ")[1] == "UNSIGNED"
-        String[] typeFields = fieldSchema.getDataTypeName().split(" ");
+        // fieldSchema.getDataTypeName().orElse("unknown").split(" ")[0] == "INT"
+        // fieldSchema.getDataTypeName().orElse("unknown").split(" ")[1] == "UNSIGNED"
+        String[] typeFields = fieldSchema.getDataTypeName().orElse("unknown").split(" ");
         String mysqlType = typeFields[0];
         // For unsigned int, should extend the type.
         if (typeFields.length > 1 && "UNSIGNED".equals(typeFields[1])) {
@@ -242,8 +192,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 case "BIGINT":
                     return Type.LARGEINT;
                 case "DECIMAL": {
-                    int precision = fieldSchema.getColumnSize() + 1;
-                    int scale = fieldSchema.getDecimalDigits();
+                    int precision = fieldSchema.getColumnSize().orElse(0) + 1;
+                    int scale = fieldSchema.getDecimalDigits().orElse(0);
                     return createDecimalOrStringType(precision, scale);
                 }
                 case "DOUBLE":
@@ -280,7 +230,7 @@ public class JdbcMySQLClient extends JdbcClient {
             case "DATETIME": {
                 // mysql can support microsecond
                 // use columnSize to calculate the precision of timestamp/datetime
-                int columnSize = fieldSchema.getColumnSize();
+                int columnSize = fieldSchema.getColumnSize().orElse(0);
                 int scale = columnSize > 19 ? columnSize - 20 : 0;
                 if (scale > 6) {
                     scale = 6;
@@ -295,24 +245,23 @@ public class JdbcMySQLClient extends JdbcClient {
             case "DOUBLE":
                 return Type.DOUBLE;
             case "DECIMAL": {
-                int precision = fieldSchema.getColumnSize();
-                int scale = fieldSchema.getDecimalDigits();
+                int precision = fieldSchema.getColumnSize().orElse(0);
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
                 return createDecimalOrStringType(precision, scale);
             }
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.columnSize);
+                charType.setLength(fieldSchema.getColumnSize().orElse(0));
                 return charType;
             case "VARCHAR":
-                return ScalarType.createVarcharType(fieldSchema.columnSize);
+                return ScalarType.createVarcharType(fieldSchema.getColumnSize().orElse(0));
             case "BIT":
-                if (fieldSchema.getColumnSize() == 1) {
+                if (fieldSchema.getColumnSize().orElse(0) == 1) {
                     return Type.BOOLEAN;
                 } else {
                     return ScalarType.createStringType();
                 }
             case "JSON":
-                return ScalarType.createJsonbType();
             case "TIME":
             case "TINYTEXT":
             case "TEXT":
@@ -341,15 +290,15 @@ public class JdbcMySQLClient extends JdbcClient {
     /**
      * get all columns like DatabaseMetaData.getColumns in mysql-jdbc-connector
      */
-    private Map<String, String> getColumnsDataTypeUseQuery(String dbName, String tableName) {
+    private Map<String, String> getColumnsDataTypeUseQuery(String remoteDbName, String remoteTableName) {
         Connection conn = getConnection();
         ResultSet resultSet = null;
         Map<String, String> fieldtoType = Maps.newHashMap();
 
         StringBuilder queryBuf = new StringBuilder("SHOW FULL COLUMNS FROM ");
-        queryBuf.append(tableName);
+        queryBuf.append(remoteTableName);
         queryBuf.append(" FROM ");
-        queryBuf.append(dbName);
+        queryBuf.append(remoteDbName);
         try (Statement stmt = conn.createStatement()) {
             resultSet = stmt.executeQuery(queryBuf.toString());
             while (resultSet.next()) {
@@ -360,8 +309,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 fieldtoType.put(fieldName, typeName);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get column list from jdbc for table %s:%s", tableName,
-                Util.getRootCauseMessage(e));
+            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
+                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
         } finally {
             close(resultSet, conn);
         }
@@ -430,9 +379,8 @@ public class JdbcMySQLClient extends JdbcClient {
             }
             case "STRING":
             case "TEXT":
-                return ScalarType.createStringType();
             case "JSON":
-                return ScalarType.createJsonbType();
+                return ScalarType.createStringType();
             case "HLL":
                 return ScalarType.createHllType();
             case "BITMAP":

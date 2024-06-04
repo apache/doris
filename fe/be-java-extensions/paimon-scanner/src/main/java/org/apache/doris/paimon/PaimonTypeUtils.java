@@ -25,6 +25,7 @@ import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BinaryType;
 import org.apache.paimon.types.BooleanType;
 import org.apache.paimon.types.CharType;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeDefaultVisitor;
 import org.apache.paimon.types.DateType;
@@ -48,6 +49,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Convert paimon type to doris type.
@@ -98,7 +100,16 @@ public class PaimonTypeUtils {
 
         @Override
         public PaimonColumnType visit(DecimalType decimalType) {
-            return new PaimonColumnType(Type.DECIMAL128, decimalType.getPrecision(), decimalType.getScale());
+            int precision = decimalType.getPrecision();
+            Type type;
+            if (precision <= ColumnType.MAX_DECIMAL32_PRECISION) {
+                type = Type.DECIMAL32;
+            } else if (precision <= ColumnType.MAX_DECIMAL64_PRECISION) {
+                type = Type.DECIMAL64;
+            } else {
+                type = Type.DECIMAL128;
+            }
+            return new PaimonColumnType(type, decimalType.getPrecision(), decimalType.getScale());
         }
 
         @Override
@@ -181,7 +192,13 @@ public class PaimonTypeUtils {
 
         @Override
         public PaimonColumnType visit(RowType rowType) {
-            return this.defaultMethod(rowType);
+            PaimonColumnType paimonColumnType = new PaimonColumnType(Type.STRUCT);
+            List<DataField> fields = rowType.getFields();
+            List<ColumnType> childTypes = fields.stream()
+                    .map(field -> fromPaimonType(field.name(), field.type()))
+                    .collect(Collectors.toList());
+            paimonColumnType.setChildTypes(childTypes);
+            return paimonColumnType;
         }
 
         @Override

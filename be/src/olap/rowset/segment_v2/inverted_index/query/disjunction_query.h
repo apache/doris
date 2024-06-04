@@ -17,32 +17,27 @@
 
 #pragma once
 
-#include <CLucene.h>
-#include <CLucene/index/IndexReader.h>
-#include <CLucene/index/IndexVersion.h>
-#include <CLucene/index/Term.h>
-#include <CLucene/search/query/TermIterator.h>
-
-#include "roaring/roaring.hh"
+#include "olap/rowset/segment_v2/inverted_index/query/query.h"
 
 CL_NS_USE(index)
+CL_NS_USE(search)
 
-namespace doris {
+namespace doris::segment_v2 {
 
-class DisjunctionQuery {
+class DisjunctionQuery : public Query {
 public:
-    DisjunctionQuery(IndexReader* reader);
-    ~DisjunctionQuery();
+    DisjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
+                     const TQueryOptions& query_options);
+    ~DisjunctionQuery() override = default;
 
-    void add(const std::wstring& field_name, const std::vector<std::string>& terms);
-    void search(roaring::Roaring& roaring);
+    void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
+    void search(roaring::Roaring& roaring) override;
 
 private:
-    IndexReader* _reader = nullptr;
-    std::vector<std::wstring*> _wsterms;
-    std::vector<Term*> _terms;
-    std::vector<TermDocs*> _term_docs;
-    std::vector<TermIterator> _term_iterators;
+    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+
+    std::wstring _field_name;
+    std::vector<std::string> _terms;
 };
 
-} // namespace doris
+} // namespace doris::segment_v2

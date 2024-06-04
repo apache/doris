@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -81,7 +82,7 @@ public abstract class AlterHandler extends MasterDaemon {
         lock.unlock();
     }
 
-    protected void addAlterJobV2(AlterJobV2 alterJob) {
+    protected void addAlterJobV2(AlterJobV2 alterJob) throws AnalysisException {
         this.alterJobsV2.put(alterJob.getJobId(), alterJob);
         LOG.info("add {} job {}", alterJob.getType(), alterJob.getJobId());
     }
@@ -173,16 +174,16 @@ public abstract class AlterHandler extends MasterDaemon {
     /*
      * entry function. handle alter ops
      */
-    public abstract void process(String rawSql, List<AlterClause> alterClauses, String clusterName, Database db,
+    public abstract void process(String rawSql, List<AlterClause> alterClauses, Database db,
                                  OlapTable olapTable)
             throws UserException;
 
     /*
      * entry function. handle alter ops
      */
-    public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
+    public void process(List<AlterClause> alterClauses, Database db, OlapTable olapTable)
             throws UserException {
-        process("", alterClauses, clusterName, db, olapTable);
+        process("", alterClauses, db, olapTable);
     }
 
     /*
@@ -241,8 +242,7 @@ public abstract class AlterHandler extends MasterDaemon {
                     task.getSignature(), replica, task.getVersion());
             boolean versionChanged = false;
             if (replica.getVersion() < task.getVersion()) {
-                replica.updateVersionInfo(task.getVersion(), replica.getDataSize(), replica.getRemoteDataSize(),
-                        replica.getRowCount());
+                replica.updateVersion(task.getVersion());
                 versionChanged = true;
             }
 
@@ -262,13 +262,14 @@ public abstract class AlterHandler extends MasterDaemon {
     }
 
     // replay the alter job v2
-    public void replayAlterJobV2(AlterJobV2 alterJob) {
+    public void replayAlterJobV2(AlterJobV2 alterJob) throws AnalysisException {
         AlterJobV2 existingJob = alterJobsV2.get(alterJob.getJobId());
         if (existingJob == null) {
             // This is the first time to replay the alter job, so just using the replayed alterJob to call replay();
             alterJob.replay(alterJob);
             alterJobsV2.put(alterJob.getJobId(), alterJob);
         } else {
+            existingJob.failedTabletBackends = alterJob.failedTabletBackends;
             existingJob.replay(alterJob);
         }
     }

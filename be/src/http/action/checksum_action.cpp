@@ -27,6 +27,7 @@
 #include "http/http_channel.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
+#include "olap/storage_engine.h"
 #include "olap/task/engine_checksum_task.h"
 
 namespace doris {
@@ -37,9 +38,9 @@ const std::string TABLET_ID = "tablet_id";
 const std::string TABLET_VERSION = "version";
 const std::string SCHEMA_HASH = "schema_hash";
 
-ChecksumAction::ChecksumAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+ChecksumAction::ChecksumAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
                                TPrivilegeType::type type)
-        : HttpHandlerWithAuth(exec_env, hier, type) {}
+        : HttpHandlerWithAuth(exec_env, hier, type), _engine(engine) {}
 
 void ChecksumAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
@@ -104,7 +105,8 @@ int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int32_t 
                                     HttpRequest* req) {
     Status res = Status::OK();
     uint32_t checksum;
-    EngineChecksumTask engine_task(tablet_id, schema_hash, version, &checksum);
+    EngineChecksumTask engine_task(_engine, tablet_id, schema_hash, version, &checksum);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     res = engine_task.execute();
     if (!res.ok()) {
         LOG(WARNING) << "checksum failed. status: " << res << ", signature: " << tablet_id;

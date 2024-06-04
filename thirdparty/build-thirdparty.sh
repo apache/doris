@@ -38,9 +38,9 @@ export TP_DIR="${curdir}"
 
 # include custom environment variables
 if [[ -f "${DORIS_HOME}/env.sh" ]]; then
-    export BUILD_THIRDPARTY_WIP=1
+    export DO_NOT_CHECK_JAVA_ENV=1
     . "${DORIS_HOME}/env.sh"
-    export BUILD_THIRDPARTY_WIP=
+    export DO_NOT_CHECK_JAVA_ENV=
 fi
 
 # Check args
@@ -147,7 +147,7 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-"${TP_DIR}/download-thirdparty.sh"
+eval "${TP_DIR}/download-thirdparty.sh ${packages[*]}"
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
@@ -434,7 +434,7 @@ build_protobuf() {
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -Dprotobuf_BUILD_SHARED_LIBS=OFF \
         -Dprotobuf_BUILD_TESTS=OFF \
-        -Dprotobuf_WITH_ZLIB_DEFAULT=ON \
+        -DZLIB_LIBRARY="${TP_LIB_DIR}/libz.a" \
         -Dprotobuf_ABSL_PROVIDER=package \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ../..
 
@@ -484,7 +484,8 @@ build_glog() {
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DWITH_UNWIND=OFF \
-            -DBUILD_SHARED_LIBS=OFF
+            -DBUILD_SHARED_LIBS=OFF \
+            -DWITH_TLS=OFF
 
         cmake --build build --target install
     fi
@@ -830,7 +831,7 @@ build_brpc() {
 }
 
 # rocksdb
-build_rocksdb() {
+build_rocksdb_base() {
     check_if_source_exist "${ROCKSDB_SOURCE}"
 
     cd "${TP_SOURCE_DIR}/${ROCKSDB_SOURCE}"
@@ -851,9 +852,34 @@ build_rocksdb() {
     ${warning_defaulted_function_deleted} ${warning_unused_but_set_variable} -Wno-pessimizing-move -Wno-range-loop-construct" \
         LDFLAGS="${ldflags}" \
         PORTABLE=1 make USE_RTTI=1 -j "${PARALLEL}" static_lib
-    cp librocksdb.a ../../installed/lib/librocksdb.a
-    cp -r include/rocksdb ../../installed/include/
-    strip_lib librocksdb.a
+}
+
+build_rocksdb() {
+    build_rocksdb_base
+    rm -rf "${TP_LIB_DIR}/librocksdb_jemalloc_no_prefix.a"
+    rm -rf "${TP_INCLUDE_DIR}/rocksdb_jemalloc_no_prefix"
+    cp librocksdb.a "${TP_LIB_DIR}/librocksdb_jemalloc_no_prefix.a"
+    cp -r include/rocksdb "${TP_INCLUDE_DIR}/rocksdb_jemalloc_no_prefix"
+    strip_lib librocksdb_jemalloc_no_prefix.a
+    # for compatibility with previous doris version
+    rm -rf "${TP_LIB_DIR}/librocksdb.a"
+    rm -rf "${TP_INCLUDE_DIR}/rocksdb"
+    cp "${TP_LIB_DIR}/librocksdb_jemalloc_no_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
+    cp -r "${TP_INCLUDE_DIR}/rocksdb_jemalloc_no_prefix" "${TP_INCLUDE_DIR}/rocksdb"
+}
+
+build_rocksdb_jemalloc_with_prefix() {
+    build_rocksdb_base
+    rm -rf "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a"
+    rm -rf "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix"
+    cp librocksdb.a "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a"
+    cp -r include/rocksdb "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix"
+    strip_lib librocksdb_jemalloc_with_prefix.a
+    # for compatibility with previous doris version
+    rm -rf "${TP_LIB_DIR}/librocksdb.a"
+    rm -rf "${TP_INCLUDE_DIR}/rocksdb"
+    cp "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
+    cp -r "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix" "${TP_INCLUDE_DIR}/rocksdb"
 }
 
 # cyrus_sasl
@@ -900,7 +926,7 @@ build_librdkafka() {
 }
 
 # libunixodbc
-build_libunixodbc() {
+build_odbc() {
     check_if_source_exist "${ODBC_SOURCE}"
 
     cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
@@ -1066,12 +1092,12 @@ build_arrow() {
     "${BUILD_SYSTEM}" install
 
     #copy dep libs
-    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a "${TP_INSTALL_DIR}/lib64/libjemalloc.a"
+    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a "${TP_INSTALL_DIR}/lib64/libjemalloc_arrow.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${TP_INSTALL_DIR}/lib64/libbrotlienc.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
     strip_lib libarrow.a
-    strip_lib libjemalloc.a
+    strip_lib libjemalloc_arrow.a
     strip_lib libparquet.a
 }
 
@@ -1492,8 +1518,8 @@ build_hdfs3() {
     strip_lib libhdfs3.a
 }
 
-# jemalloc
-build_jemalloc() {
+# jemalloc no prefix
+build_jemalloc_doris() {
     check_if_source_exist "${JEMALLOC_DORIS_SOURCE}"
     cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
 
@@ -1501,11 +1527,67 @@ build_jemalloc() {
     cd "${BUILD_DIR}"
 
     cflags='-O3 -fno-omit-frame-pointer -fPIC -g'
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+    # Build jemalloc --with-lg-page=16 in order to make the wheel work on both 4k and 64k page arm64 systems.
+    # Jemalloc compiled on a system with page size 4K can only run on a system with the same page size 4K.
+    # If it is run on a system with page size > 4K, an error `unsupported system page size`.
+    # Jemalloc compiled on a system with page size 64K can run on a system with page size < 64K,
+    # but this will waste more memory. Jemalloc does not support dynamic adaptation to the page size of the system.
+    # The reason is that jemalloc will perform some optimizations based on the page size when compiling.
+    if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
+        WITH_LG_PAGE='--with-lg-page=16'
+    else
+        WITH_LG_PAGE=''
+    fi
+
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris_no_prefix" "${WITH_LG_PAGE}" \
+        --enable-prof --disable-libdl --disable-shared
 
     make -j "${PARALLEL}"
     make install
-    mv "${TP_INSTALL_DIR}"/lib/libjemalloc.a "${TP_INSTALL_DIR}"/lib/libjemalloc_doris.a
+
+    # for compatibility with previous
+    rm -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
+    rm -rf "${TP_LIB_DIR}/libjemalloc_doris.a"
+    rm -rf "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
+    cp "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_no_prefix.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
+    cp "${TP_LIB_DIR}/libjemalloc_doris_no_prefix.a" "${TP_LIB_DIR}/libjemalloc_doris.a"
+    cp "${TP_LIB_DIR}/libjemalloc_doris_no_prefix_pic.a" "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
+}
+
+# jemalloc with prefix
+build_jemalloc_doris_with_prefix() {
+    check_if_source_exist "${JEMALLOC_DORIS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    cflags='-O3 -fno-omit-frame-pointer -fPIC -g'
+    # Build jemalloc --with-lg-page=16 in order to make the wheel work on both 4k and 64k page arm64 systems.
+    # Jemalloc compiled on a system with page size 4K can only run on a system with the same page size 4K.
+    # If it is run on a system with page size > 4K, an error `unsupported system page size`.
+    # Jemalloc compiled on a system with page size 64K can run on a system with page size < 64K,
+    # but this will waste more memory. Jemalloc does not support dynamic adaptation to the page size of the system.
+    # The reason is that jemalloc will perform some optimizations based on the page size when compiling.
+    if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
+        WITH_LG_PAGE='--with-lg-page=16'
+    else
+        WITH_LG_PAGE=''
+    fi
+
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris_with_prefix" "${WITH_LG_PAGE}" \
+        --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+
+    make -j "${PARALLEL}"
+    make install
+
+    # for compatibility with previous doris version
+    rm -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
+    rm -rf "${TP_LIB_DIR}/libjemalloc_doris.a"
+    rm -rf "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
+    cp "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
+    cp "${TP_LIB_DIR}/libjemalloc_doris_with_prefix.a" "${TP_LIB_DIR}/libjemalloc_doris.a"
+    cp "${TP_LIB_DIR}/libjemalloc_doris_with_prefix_pic.a" "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
 }
 
 # libunwind
@@ -1661,26 +1743,11 @@ build_hadoop_libs() {
 
     mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
     mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.6/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.6/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
     rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/*.a"
-    find ./hadoop-dist/target/hadoop-3.3.4/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
-    find ./hadoop-dist/target/hadoop-3.3.4/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
-}
-
-# dragonbox
-build_dragonbox() {
-    check_if_source_exist "${DRAGONBOX_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${DRAGONBOX_SOURCE}"
-
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DDRAGONBOX_INSTALL_TO_CHARS=ON ..
-
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
+    find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
+    find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
 }
 
 # AvxToNeon
@@ -1705,9 +1772,117 @@ build_libdeflate() {
     "${BUILD_SYSTEM}" install
 }
 
+# streamvbyte
+build_streamvbyte() {
+    check_if_source_exist "${STREAMVBYTE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${STREAMVBYTE_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# jsoncpp
+build_jsoncpp() {
+    check_if_source_exist "${JSONCPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${JSONCPP_SOURCE}"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# libuuid
+build_libuuid() {
+    check_if_source_exist "${LIBUUID_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${LIBUUID_SOURCE}"
+    CC=gcc ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
+    make -j "${PARALLEL}"
+    make install
+}
+
+# ali_sdk
+build_ali_sdk() {
+    build_jsoncpp
+    build_libuuid
+    check_if_source_exist "${ALI_SDK_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${ALI_SDK_SOURCE}"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+        CXXFLAGS="-I${TP_INCLUDE_DIR}" \
+        LDFLAGS="-L${TP_LIB_DIR}" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_PRODUCT=core -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DTP_INSTALL_DIR="${TP_INSTALL_DIR}" ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# base64
+build_base64() {
+    check_if_source_exist "${BASE64_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${BASE64_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    MACHINE_TYPE="$(uname -m)"
+    if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
+        CFLAGS="--target=aarch64-linux-gnu -march=armv8-a+crc" NEON64_CFLAGS=" "
+    else
+        AVX2_CFLAGS=-mavx2 SSSE3_CFLAGS=-mssse3 SSE41_CFLAGS=-msse4.1 SSE42_CFLAGS=-msse4.2 AVX_CFLAGS=-mavx
+    fi
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# azure blob storage
+build_azure() {
+    check_if_source_exist "${AZURE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
+    azure_dir=$(pwd)
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    # We need use openssl 1.1.1n, which is already carried in vcpkg-custom-ports
+    AZURE_PORTS="vcpkg-custom-ports"
+    AZURE_MANIFEST_DIR="."
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# dragonbox
+build_dragonbox() {
+    check_if_source_exist "${DRAGONBOX_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${DRAGONBOX_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DDRAGONBOX_INSTALL_TO_CHARS=ON ..
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
-        libunixodbc
+        odbc
         openssl
         libevent
         zlib
@@ -1730,8 +1905,10 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         thrift
         leveldb
         brpc
-        jemalloc
+        jemalloc_doris
         rocksdb
+        jemalloc_doris_with_prefix
+        rocksdb_jemalloc_with_prefix
         krb5 # before cyrus_sasl
         cyrus_sasl
         librdkafka
@@ -1766,9 +1943,13 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         concurrentqueue
         fast_float
         libunwind
-        dragonbox
         avx2neon
         libdeflate
+        streamvbyte
+        ali_sdk
+        base64
+        azure
+        dragonbox
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

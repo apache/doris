@@ -19,13 +19,15 @@ suite("test_date_function_prune") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF";
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set partition_pruning_expand_threshold=10;"
     sql "drop table if exists dp"
     sql """
         CREATE TABLE `dp` (
         `node_name` varchar(100) NULL COMMENT '',
-        `date_time` datetime NULL COMMENT '',
+        `date_time` datetime NULL COMMENT ''
         ) ENGINE=OLAP
         DUPLICATE KEY(`node_name`)
         COMMENT ''
@@ -83,5 +85,10 @@ suite("test_date_function_prune") {
     explain {
         sql "select * from dp where date(date_time) = null or date(date_time) = '2020-01-01'"
         contains("partitions=1/3 (p1)")
+    }
+
+    explain {
+        sql "select * from dp where date_time > str_to_date('2020-01-02','%Y-%m-%d')"
+        contains("partitions=2/3 (p2,p3)")
     }
 }

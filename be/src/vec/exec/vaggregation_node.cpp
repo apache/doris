@@ -102,26 +102,10 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
-          _hash_table_compute_timer(nullptr),
-          _hash_table_input_counter(nullptr),
-          _expr_timer(nullptr),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
-          _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
-          _output_tuple_desc(nullptr),
           _needs_finalize(tnode.agg_node.need_finalize),
-          _is_merge(false),
-          _serialize_key_timer(nullptr),
-          _merge_timer(nullptr),
-          _get_results_timer(nullptr),
-          _serialize_data_timer(nullptr),
-          _serialize_result_timer(nullptr),
-          _deserialize_data_timer(nullptr),
-          _hash_table_iterate_timer(nullptr),
-          _insert_keys_to_column_timer(nullptr),
-          _streaming_agg_timer(nullptr),
-          _hash_table_size_counter(nullptr),
-          _max_row_size_counter(nullptr) {
+          _is_merge(false) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {
@@ -135,6 +119,8 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
     _is_first_phase = tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase;
     _agg_data = std::make_unique<AggregatedDataVariants>();
     _agg_arena_pool = std::make_unique<Arena>();
+    _intermediate_tuple_desc = descs.get_tuple_descriptor(_intermediate_tuple_id);
+    _output_tuple_desc = descs.get_tuple_descriptor(_output_tuple_id);
 }
 
 AggregationNode::~AggregationNode() = default;
@@ -146,10 +132,6 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     // init aggregate functions
     _aggregate_evaluators.reserve(tnode.agg_node.aggregate_functions.size());
-    // In case of : `select * from (select GoodEvent from hits union select CounterID from hits) as h limit 10;`
-    // only union with limit: we can short circuit query the pipeline exec engine.
-    _can_short_circuit =
-            tnode.agg_node.aggregate_functions.empty() && state->enable_pipeline_exec();
 
     TSortInfo dummy;
     for (int i = 0; i < tnode.agg_node.aggregate_functions.size(); ++i) {
@@ -176,70 +158,27 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     _is_merge = std::any_of(agg_functions.cbegin(), agg_functions.cend(),
                             [](const auto& e) { return e.nodes[0].agg_expr.is_merge_agg; });
+
+    if (tnode.agg_node.__isset.agg_sort_info_by_group_key) {
+        _do_sort_limit = true;
+        const auto& agg_sort_info = tnode.agg_node.agg_sort_info_by_group_key;
+        DCHECK_EQ(agg_sort_info.nulls_first.size(), agg_sort_info.is_asc_order.size());
+
+        const int order_by_key_size = agg_sort_info.is_asc_order.size();
+        _order_directions.resize(order_by_key_size);
+        _null_directions.resize(order_by_key_size);
+        for (int i = 0; i < order_by_key_size; ++i) {
+            _order_directions[i] = agg_sort_info.is_asc_order[i] ? 1 : -1;
+            _null_directions[i] =
+                    agg_sort_info.nulls_first[i] ? -_order_directions[i] : _order_directions[i];
+        }
+    }
     return Status::OK();
 }
 
-void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
-    DCHECK(probe_exprs.size() >= 1);
-
-    using Type = AggregatedDataVariants::Type;
-    Type t(Type::serialized);
-
-    if (probe_exprs.size() == 1) {
-        auto is_nullable = probe_exprs[0]->root()->is_nullable();
-        PrimitiveType type = probe_exprs[0]->root()->result_type();
-        switch (type) {
-        case TYPE_TINYINT:
-        case TYPE_BOOLEAN:
-        case TYPE_SMALLINT:
-        case TYPE_INT:
-        case TYPE_FLOAT:
-        case TYPE_DATEV2:
-        case TYPE_BIGINT:
-        case TYPE_DOUBLE:
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-        case TYPE_DATETIMEV2:
-        case TYPE_LARGEINT:
-        case TYPE_DECIMALV2:
-        case TYPE_DECIMAL32:
-        case TYPE_DECIMAL64:
-        case TYPE_DECIMAL128I: {
-            size_t size = get_primitive_type_size(type);
-            if (size == 1) {
-                t = Type::int8_key;
-            } else if (size == 2) {
-                t = Type::int16_key;
-            } else if (size == 4) {
-                t = Type::int32_key;
-            } else if (size == 8) {
-                t = Type::int64_key;
-            } else if (size == 16) {
-                t = Type::int128_key;
-            } else {
-                throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "meet invalid type size, size={}, type={}", size,
-                                type_to_string(type));
-            }
-            break;
-        }
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING: {
-            t = Type::string_key;
-            break;
-        }
-        default:
-            t = Type::serialized;
-        }
-
-        _agg_data->init(get_hash_key_type_with_phase(t, !_is_first_phase), is_nullable);
-    } else {
-        if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32, AggregateDataPtr>(
-                    _agg_data->method_variant, probe_exprs)) {
-            _agg_data->init(Type::serialized);
-        }
-    }
+Status AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
+    RETURN_IF_ERROR(init_agg_hash_method(_agg_data.get(), probe_exprs, _is_first_phase));
+    return Status::OK();
 }
 
 Status AggregationNode::prepare_profile(RuntimeState* state) {
@@ -259,6 +198,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     _deserialize_data_timer = ADD_TIMER(runtime_profile(), "DeserializeAndMergeTime");
     _hash_table_compute_timer = ADD_TIMER(runtime_profile(), "HashTableComputeTime");
     _hash_table_emplace_timer = ADD_TIMER(runtime_profile(), "HashTableEmplaceTime");
+    _hash_table_limit_compute_timer = ADD_TIMER(runtime_profile(), "DoLimitComputeTime");
     _hash_table_iterate_timer = ADD_TIMER(runtime_profile(), "HashTableIterateTime");
     _insert_keys_to_column_timer = ADD_TIMER(runtime_profile(), "InsertKeysToColumnTime");
     _streaming_agg_timer = ADD_TIMER(runtime_profile(), "StreamingAggTime");
@@ -266,8 +206,6 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     _hash_table_input_counter = ADD_COUNTER(runtime_profile(), "HashTableInputCount", TUnit::UNIT);
     _max_row_size_counter = ADD_COUNTER(runtime_profile(), "MaxRowSizeInBytes", TUnit::UNIT);
     COUNTER_SET(_max_row_size_counter, (int64_t)0);
-    _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
-    _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
 
@@ -348,21 +286,24 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                 std::bind<void>(&AggregationNode::_update_memusage_without_key, this);
         _executor.close = std::bind<void>(&AggregationNode::_close_without_key, this);
     } else {
-        _init_hash_method(_probe_expr_ctxs);
+        RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
 
-        std::visit(
-                [&](auto&& agg_method) {
-                    using HashTableType = std::decay_t<decltype(agg_method)>;
-                    using KeyType = typename HashTableType::Key;
+        std::visit(Overload {[&](std::monostate& arg) {
+                                 throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                        "uninited hash table");
+                             },
+                             [&](auto& agg_method) {
+                                 using HashTableType = std::decay_t<decltype(agg_method)>;
+                                 using KeyType = typename HashTableType::Key;
 
-                    /// some aggregate functions (like AVG for decimal) have align issues.
-                    _aggregate_data_container.reset(new AggregateDataContainer(
-                            sizeof(KeyType),
-                            ((_total_size_of_aggregate_states + _align_aggregate_states - 1) /
-                             _align_aggregate_states) *
-                                    _align_aggregate_states));
-                },
-                _agg_data->method_variant);
+                                 /// some aggregate functions (like AVG for decimal) have align issues.
+                                 _aggregate_data_container.reset(new AggregateDataContainer(
+                                         sizeof(KeyType), ((_total_size_of_aggregate_states +
+                                                            _align_aggregate_states - 1) /
+                                                           _align_aggregate_states) *
+                                                                  _align_aggregate_states));
+                             }},
+                   _agg_data->method_variant);
         if (_is_merge) {
             _executor.execute = std::bind<Status>(&AggregationNode::_merge_with_serialized_key,
                                                   this, std::placeholders::_1);
@@ -390,9 +331,8 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                 std::bind<void>(&AggregationNode::_update_memusage_with_serialized_key, this);
         _executor.close = std::bind<void>(&AggregationNode::_close_with_serialized_key, this);
 
-        _should_limit_output = _limit != -1 &&       // has limit
-                               _conjuncts.empty() && // no having conjunct
-                               _needs_finalize;      // agg's finalize step
+        _should_limit_output = _limit != -1 && // has limit
+                               _conjuncts.empty();
     }
 
     fmt::memory_buffer msg;
@@ -431,7 +371,7 @@ Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
     // this could cause unable to get JVM
     if (_probe_expr_ctxs.empty()) {
         // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
-        RETURN_IF_CATCH_EXCEPTION(static_cast<void>(_create_agg_status(_agg_data->without_key)));
+        RETURN_IF_ERROR(_create_agg_status(_agg_data->without_key));
         _agg_data_created_without_key = true;
     }
 
@@ -511,8 +451,12 @@ Status AggregationNode::pull(doris::RuntimeState* state, vectorized::Block* bloc
     _make_nullable_output_key(block);
     // dispose the having clause, should not be execute in prestreaming agg
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
-    reached_limit(block, eos);
-
+    if (_reach_limit) {
+        if (_do_sort_limit && _do_limit_filter(block, _order_directions.size(), block->rows())) {
+            Block::filter_block_internal(block, _need_computes);
+        }
+        reached_limit(block, eos);
+    }
     return Status::OK();
 }
 
@@ -525,7 +469,7 @@ Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_b
     }
     if (eos) {
         if (_spill_context.has_data) {
-            static_cast<void>(_try_spill_disk(true));
+            RETURN_IF_ERROR(_try_spill_disk(true));
             RETURN_IF_ERROR(_spill_context.prepare_for_reading());
         }
         _can_read = true;
@@ -534,20 +478,20 @@ Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_b
 }
 
 void AggregationNode::release_resource(RuntimeState* state) {
-    for (auto* aggregate_evaluator : _aggregate_evaluators) {
-        aggregate_evaluator->close(state);
-    }
     if (_executor.close) {
         _executor.close();
     }
 
     /// _hash_table_size_counter may be null if prepare failed.
     if (_hash_table_size_counter) {
-        std::visit(
-                [&](auto&& agg_method) {
-                    COUNTER_SET(_hash_table_size_counter, int64_t(agg_method.hash_table->size()));
-                },
-                _agg_data->method_variant);
+        std::visit(Overload {[&](std::monostate& arg) {
+                                 // Do nothing
+                             },
+                             [&](auto& agg_method) {
+                                 COUNTER_SET(_hash_table_size_counter,
+                                             int64_t(agg_method.hash_table->size()));
+                             }},
+                   _agg_data->method_variant);
     }
     _release_mem();
     ExecNode::release_resource(state);
@@ -574,11 +518,10 @@ Status AggregationNode::_create_agg_status(AggregateDataPtr data) {
     return Status::OK();
 }
 
-Status AggregationNode::_destroy_agg_status(AggregateDataPtr data) {
+void AggregationNode::_destroy_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         _aggregate_evaluators[i]->function()->destroy(data + _offsets_of_aggregate_states[i]);
     }
-    return Status::OK();
 }
 
 Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* block, bool* eos) {
@@ -596,7 +539,7 @@ Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* bloc
     }
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        auto column = columns[i].get();
+        auto* column = columns[i].get();
         _aggregate_evaluators[i]->insert_result_info(
                 _agg_data->without_key + _offsets_of_aggregate_states[i], column);
     }
@@ -717,7 +660,7 @@ void AggregationNode::_close_without_key() {
     //but finally call close to destory agg data, if agg data has bitmapValue
     //will be core dump, it's not initialized
     if (_agg_data_created_without_key) {
-        static_cast<void>(_destroy_agg_status(_agg_data->without_key));
+        _destroy_agg_status(_agg_data->without_key);
         _agg_data_created_without_key = false;
     }
     release_tracker();
@@ -738,56 +681,62 @@ bool AggregationNode::_should_expand_preagg_hash_tables() {
     }
 
     return std::visit(
-            [&](auto&& agg_method) -> bool {
-                auto& hash_tbl = *agg_method.hash_table;
-                auto [ht_mem, ht_rows] =
-                        std::pair {hash_tbl.get_buffer_size_in_bytes(), hash_tbl.size()};
+            Overload {
+                    [&](std::monostate& arg) -> bool {
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                        return false;
+                    },
+                    [&](auto& agg_method) -> bool {
+                        auto& hash_tbl = *agg_method.hash_table;
+                        auto [ht_mem, ht_rows] =
+                                std::pair {hash_tbl.get_buffer_size_in_bytes(), hash_tbl.size()};
 
-                // Need some rows in tables to have valid statistics.
-                if (ht_rows == 0) {
-                    return true;
-                }
+                        // Need some rows in tables to have valid statistics.
+                        if (ht_rows == 0) {
+                            return true;
+                        }
 
-                // Find the appropriate reduction factor in our table for the current hash table sizes.
-                int cache_level = 0;
-                while (cache_level + 1 < STREAMING_HT_MIN_REDUCTION_SIZE &&
-                       ht_mem >= STREAMING_HT_MIN_REDUCTION[cache_level + 1].min_ht_mem) {
-                    ++cache_level;
-                }
+                        // Find the appropriate reduction factor in our table for the current hash table sizes.
+                        int cache_level = 0;
+                        while (cache_level + 1 < STREAMING_HT_MIN_REDUCTION_SIZE &&
+                               ht_mem >= STREAMING_HT_MIN_REDUCTION[cache_level + 1].min_ht_mem) {
+                            ++cache_level;
+                        }
 
-                // Compare the number of rows in the hash table with the number of input rows that
-                // were aggregated into it. Exclude passed through rows from this calculation since
-                // they were not in hash tables.
-                const int64_t input_rows = _children[0]->rows_returned();
-                const int64_t aggregated_input_rows = input_rows - _num_rows_returned;
-                // TODO chenhao
-                //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
-                double current_reduction = static_cast<double>(aggregated_input_rows) / ht_rows;
+                        // Compare the number of rows in the hash table with the number of input rows that
+                        // were aggregated into it. Exclude passed through rows from this calculation since
+                        // they were not in hash tables.
+                        const int64_t input_rows = _children[0]->rows_returned();
+                        const int64_t aggregated_input_rows = input_rows - _num_rows_returned;
+                        // TODO chenhao
+                        //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
+                        double current_reduction =
+                                static_cast<double>(aggregated_input_rows) / ht_rows;
 
-                // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
-                // inaccurate, which could lead to a divide by zero below.
-                if (aggregated_input_rows <= 0) {
-                    return true;
-                }
+                        // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
+                        // inaccurate, which could lead to a divide by zero below.
+                        if (aggregated_input_rows <= 0) {
+                            return true;
+                        }
 
-                // Extrapolate the current reduction factor (r) using the formula
-                // R = 1 + (N / n) * (r - 1), where R is the reduction factor over the full input data
-                // set, N is the number of input rows, excluding passed-through rows, and n is the
-                // number of rows inserted or merged into the hash tables. This is a very rough
-                // approximation but is good enough to be useful.
-                // TODO: consider collecting more statistics to better estimate reduction.
-                //  double estimated_reduction = aggregated_input_rows >= expected_input_rows
-                //      ? current_reduction
-                //      : 1 + (expected_input_rows / aggregated_input_rows) * (current_reduction - 1);
-                double min_reduction =
-                        STREAMING_HT_MIN_REDUCTION[cache_level].streaming_ht_min_reduction;
+                        // Extrapolate the current reduction factor (r) using the formula
+                        // R = 1 + (N / n) * (r - 1), where R is the reduction factor over the full input data
+                        // set, N is the number of input rows, excluding passed-through rows, and n is the
+                        // number of rows inserted or merged into the hash tables. This is a very rough
+                        // approximation but is good enough to be useful.
+                        // TODO: consider collecting more statistics to better estimate reduction.
+                        //  double estimated_reduction = aggregated_input_rows >= expected_input_rows
+                        //      ? current_reduction
+                        //      : 1 + (expected_input_rows / aggregated_input_rows) * (current_reduction - 1);
+                        double min_reduction =
+                                STREAMING_HT_MIN_REDUCTION[cache_level].streaming_ht_min_reduction;
 
-                //  COUNTER_SET(preagg_estimated_reduction_, estimated_reduction);
-                //    COUNTER_SET(preagg_streaming_ht_min_reduction_, min_reduction);
-                //  return estimated_reduction > min_reduction;
-                _should_expand_hash_table = current_reduction > min_reduction;
-                return _should_expand_hash_table;
-            },
+                        //  COUNTER_SET(preagg_estimated_reduction_, estimated_reduction);
+                        //    COUNTER_SET(preagg_streaming_ht_min_reduction_, min_reduction);
+                        //  return estimated_reduction > min_reduction;
+                        _should_expand_hash_table = current_reduction > min_reduction;
+                        return _should_expand_hash_table;
+                    }},
             _agg_data->method_variant);
 }
 
@@ -806,93 +755,306 @@ size_t AggregationNode::_memory_usage() const {
 
 Status AggregationNode::_reset_hash_table() {
     return std::visit(
-            [&](auto&& agg_method) {
-                auto& hash_table = *agg_method.hash_table;
-                using HashTableType = std::decay_t<decltype(hash_table)>;
+            Overload {[&](std::monostate& arg) -> Status {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                          return Status::InternalError("Uninited hash table");
+                      },
+                      [&](auto&& agg_method) {
+                          auto& hash_table = *agg_method.hash_table;
+                          using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                agg_method.reset();
+                          agg_method.reset();
 
-                hash_table.for_each_mapped([&](auto& mapped) {
-                    if (mapped) {
-                        static_cast<void>(_destroy_agg_status(mapped));
-                        mapped = nullptr;
-                    }
-                });
+                          hash_table.for_each_mapped([&](auto& mapped) {
+                              if (mapped) {
+                                  _destroy_agg_status(mapped);
+                                  mapped = nullptr;
+                              }
+                          });
 
-                _aggregate_data_container.reset(new AggregateDataContainer(
-                        sizeof(typename HashTableType::key_type),
-                        ((_total_size_of_aggregate_states + _align_aggregate_states - 1) /
-                         _align_aggregate_states) *
-                                _align_aggregate_states));
-                hash_table = HashTableType();
-                _agg_arena_pool.reset(new Arena);
-                return Status::OK();
-            },
+                          _aggregate_data_container = std::make_unique<AggregateDataContainer>(
+                                  sizeof(typename HashTableType::key_type),
+                                  ((_total_size_of_aggregate_states + _align_aggregate_states - 1) /
+                                   _align_aggregate_states) *
+                                          _align_aggregate_states);
+                          agg_method.hash_table.reset(new HashTableType());
+                          _agg_arena_pool = std::make_unique<Arena>();
+                          return Status::OK();
+                      }},
             _agg_data->method_variant);
 }
 
 size_t AggregationNode::_get_hash_table_size() {
-    return std::visit([&](auto&& agg_method) { return agg_method.hash_table->size(); },
+    return std::visit(Overload {[&](std::monostate& arg) -> size_t {
+                                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                           "uninited hash table");
+                                    return 0;
+                                },
+                                [&](auto& agg_method) { return agg_method.hash_table->size(); }},
                       _agg_data->method_variant);
+}
+
+template <bool limit>
+Status AggregationNode::_execute_with_serialized_key_helper(Block* block) {
+    DCHECK(!_probe_expr_ctxs.empty());
+
+    size_t key_size = _probe_expr_ctxs.size();
+    ColumnRawPtrs key_columns(key_size);
+    std::vector<int> key_locs(key_size);
+    {
+        SCOPED_TIMER(_expr_timer);
+        for (size_t i = 0; i < key_size; ++i) {
+            auto& result_column_id = key_locs[i];
+            RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
+            block->get_by_position(result_column_id).column =
+                    block->get_by_position(result_column_id)
+                            .column->convert_to_full_column_if_const();
+            key_columns[i] = block->get_by_position(result_column_id).column.get();
+        }
+    }
+
+    int rows = block->rows();
+    if (_places.size() < rows) {
+        _places.resize(rows);
+    }
+
+    if constexpr (limit) {
+        if (_emplace_into_hash_table_limit(_places.data(), block, key_locs, key_columns, rows)) {
+            for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+                RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(
+                        block, _offsets_of_aggregate_states[i], _places.data(),
+                        _agg_arena_pool.get()));
+            }
+        }
+    } else {
+        _emplace_into_hash_table(_places.data(), key_columns, rows);
+
+        for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+            RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(
+                    block, _offsets_of_aggregate_states[i], _places.data(), _agg_arena_pool.get()));
+        }
+
+        if (_should_limit_output && !_reach_limit) {
+            auto size = _get_hash_table_size();
+            _reach_limit = size >= _limit * 5;
+            if (_reach_limit) {
+                _build_limit_heap(size);
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
+void AggregationNode::_build_limit_heap(size_t hash_table_size) {
+    _limit_columns = _get_keys_hash_table();
+    for (size_t i = 0; i < hash_table_size; ++i) {
+        _limit_heap.emplace(i, _limit_columns, _order_directions, _null_directions);
+    }
+    while (hash_table_size > _limit) {
+        _limit_heap.pop();
+        hash_table_size--;
+    }
+    _limit_columns_min = _limit_heap.top()._row_id;
+}
+
+bool AggregationNode::_emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,
+                                                     const std::vector<int>& key_locs,
+                                                     ColumnRawPtrs& key_columns, size_t num_rows) {
+    return std::visit(
+            Overload {[&](std::monostate& arg) {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                          return true;
+                      },
+                      [&](auto&& agg_method) -> bool {
+                          SCOPED_TIMER(_hash_table_compute_timer);
+                          using HashMethodType = std::decay_t<decltype(agg_method)>;
+                          using AggState = typename HashMethodType::State;
+
+                          bool need_filter = false;
+                          {
+                              SCOPED_TIMER(_hash_table_limit_compute_timer);
+                              need_filter = _do_limit_filter(block, key_columns.size(), num_rows);
+                          }
+
+                          if (auto need_agg =
+                                      std::find(_need_computes.begin(), _need_computes.end(), 1);
+                              need_agg != _need_computes.end()) {
+                              if (need_filter) {
+                                  Block::filter_block_internal(block, _need_computes);
+                                  for (int i = 0; i < key_locs.size(); ++i) {
+                                      key_columns[i] =
+                                              block->get_by_position(key_locs[i]).column.get();
+                                  }
+                                  num_rows = block->rows();
+                              }
+
+                              AggState state(key_columns);
+                              agg_method.init_serialized_keys(key_columns, num_rows);
+                              size_t i = 0;
+
+                              auto refresh_top_limit = [&, this] {
+                                  _limit_heap.pop();
+                                  for (int j = 0; j < key_columns.size(); ++j) {
+                                      _limit_columns[j]->insert_from(*key_columns[j], i);
+                                  }
+                                  _limit_heap.emplace(_limit_columns[0]->size() - 1, _limit_columns,
+                                                      _order_directions, _null_directions);
+                                  _limit_columns_min = _limit_heap.top()._row_id;
+                              };
+
+                              auto creator = [this, refresh_top_limit](const auto& ctor, auto& key,
+                                                                       auto& origin) {
+                                  try {
+                                      HashMethodType::try_presis_key_and_origin(key, origin,
+                                                                                *_agg_arena_pool);
+                                      auto mapped = _aggregate_data_container->append_data(origin);
+                                      auto st = _create_agg_status(mapped);
+                                      if (!st) {
+                                          throw Exception(st.code(), st.to_string());
+                                      }
+                                      ctor(key, mapped);
+                                      refresh_top_limit();
+                                  } catch (...) {
+                                      // Exception-safety - if it can not allocate memory or create status,
+                                      // the destructors will not be called.
+                                      ctor(key, nullptr);
+                                      throw;
+                                  }
+                              };
+
+                              auto creator_for_null_key = [this, refresh_top_limit](auto& mapped) {
+                                  mapped = _agg_arena_pool->aligned_alloc(
+                                          _total_size_of_aggregate_states, _align_aggregate_states);
+                                  auto st = _create_agg_status(mapped);
+                                  if (!st) {
+                                      throw Exception(st.code(), st.to_string());
+                                  }
+                                  refresh_top_limit();
+                              };
+
+                              SCOPED_TIMER(_hash_table_emplace_timer);
+                              for (i = 0; i < num_rows; ++i) {
+                                  places[i] = agg_method.lazy_emplace(state, i, creator,
+                                                                      creator_for_null_key);
+                              }
+                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                              return true;
+                          }
+                          return false;
+                      }},
+            _agg_data->method_variant);
 }
 
 void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                                const size_t num_rows) {
-    std::visit(
-            [&](auto&& agg_method) -> void {
-                SCOPED_TIMER(_hash_table_compute_timer);
-                using HashMethodType = std::decay_t<decltype(agg_method)>;
-                using AggState = typename HashMethodType::State;
-                AggState state(key_columns);
-                agg_method.init_serialized_keys(key_columns, num_rows);
+    std::visit(Overload {[&](std::monostate& arg) {
+                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                    "uninited hash table");
+                         },
+                         [&](auto&& agg_method) -> void {
+                             SCOPED_TIMER(_hash_table_compute_timer);
+                             using HashMethodType = std::decay_t<decltype(agg_method)>;
+                             using AggState = typename HashMethodType::State;
 
-                auto creator = [this](const auto& ctor, auto& key, auto& origin) {
-                    HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
-                    auto mapped = _aggregate_data_container->append_data(origin);
-                    auto st = _create_agg_status(mapped);
-                    if (!st) {
-                        throw Exception(st.code(), st.to_string());
-                    }
-                    ctor(key, mapped);
-                };
+                             AggState state(key_columns);
+                             agg_method.init_serialized_keys(key_columns, num_rows);
 
-                auto creator_for_null_key = [this](auto& mapped) {
-                    mapped = _agg_arena_pool->aligned_alloc(_total_size_of_aggregate_states,
-                                                            _align_aggregate_states);
-                    auto st = _create_agg_status(mapped);
-                    if (!st) {
-                        throw Exception(st.code(), st.to_string());
-                    }
-                };
+                             auto creator = [this](const auto& ctor, auto& key, auto& origin) {
+                                 try {
+                                     HashMethodType::try_presis_key_and_origin(key, origin,
+                                                                               *_agg_arena_pool);
+                                     auto mapped = _aggregate_data_container->append_data(origin);
+                                     auto st = _create_agg_status(mapped);
+                                     if (!st) {
+                                         throw Exception(st.code(), st.to_string());
+                                     }
+                                     ctor(key, mapped);
+                                 } catch (...) {
+                                     // Exception-safety - if it can not allocate memory or create status,
+                                     // the destructors will not be called.
+                                     ctor(key, nullptr);
+                                     throw;
+                                 }
+                             };
 
-                SCOPED_TIMER(_hash_table_emplace_timer);
-                for (size_t i = 0; i < num_rows; ++i) {
-                    places[i] = agg_method.lazy_emplace(state, i, creator, creator_for_null_key);
-                }
-                COUNTER_UPDATE(_hash_table_input_counter, num_rows);
-            },
-            _agg_data->method_variant);
+                             auto creator_for_null_key = [this](auto& mapped) {
+                                 mapped = _agg_arena_pool->aligned_alloc(
+                                         _total_size_of_aggregate_states, _align_aggregate_states);
+                                 auto st = _create_agg_status(mapped);
+                                 if (!st) {
+                                     throw Exception(st.code(), st.to_string());
+                                 }
+                             };
+
+                             SCOPED_TIMER(_hash_table_emplace_timer);
+                             for (size_t i = 0; i < num_rows; ++i) {
+                                 places[i] = agg_method.lazy_emplace(state, i, creator,
+                                                                     creator_for_null_key);
+                             }
+                             COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                         }},
+               _agg_data->method_variant);
 }
 
 void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                           size_t num_rows) {
-    std::visit(
-            [&](auto&& agg_method) -> void {
-                using HashMethodType = std::decay_t<decltype(agg_method)>;
-                using AggState = typename HashMethodType::State;
-                AggState state(key_columns);
-                agg_method.init_serialized_keys(key_columns, num_rows);
+    std::visit(Overload {[&](std::monostate& arg) {
+                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                    "uninited hash table");
+                         },
+                         [&](auto&& agg_method) -> void {
+                             using HashMethodType = std::decay_t<decltype(agg_method)>;
+                             using AggState = typename HashMethodType::State;
+                             AggState state(key_columns);
+                             agg_method.init_serialized_keys(key_columns, num_rows);
 
-                /// For all rows.
-                for (size_t i = 0; i < num_rows; ++i) {
-                    auto find_result = agg_method.find(state, i);
-                    if (find_result.is_found()) {
-                        places[i] = find_result.get_mapped();
-                    } else {
-                        places[i] = nullptr;
-                    }
-                }
-            },
+                             /// For all rows.
+                             for (size_t i = 0; i < num_rows; ++i) {
+                                 auto find_result = agg_method.find(state, i);
+                                 if (find_result.is_found()) {
+                                     places[i] = find_result.get_mapped();
+                                 } else {
+                                     places[i] = nullptr;
+                                 }
+                             }
+                         }},
+               _agg_data->method_variant);
+}
+
+MutableColumns AggregationNode::_get_keys_hash_table() {
+    return std::visit(
+            Overload {[&](std::monostate& arg) {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                          return MutableColumns();
+                      },
+                      [&](auto&& agg_method) -> MutableColumns {
+                          MutableColumns key_columns;
+                          for (int i = 0; i < _probe_expr_ctxs.size(); ++i) {
+                              key_columns.emplace_back(
+                                      _probe_expr_ctxs[i]->root()->data_type()->create_column());
+                          }
+                          auto& data = *agg_method.hash_table;
+                          bool has_null_key = data.has_null_key_data();
+                          const auto size = data.size() - has_null_key;
+                          using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                          std::vector<KeyType> keys(size);
+
+                          size_t num_rows = 0;
+                          auto iter = _aggregate_data_container->begin();
+                          {
+                              while (iter != _aggregate_data_container->end()) {
+                                  keys[num_rows] = iter.get_key<KeyType>();
+                                  ++iter;
+                                  ++num_rows;
+                              }
+                          }
+                          agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                          if (has_null_key) {
+                              key_columns[0]->insert_data(nullptr, 0);
+                          }
+                          return key_columns;
+                      }},
             _agg_data->method_variant);
 }
 
@@ -927,74 +1089,83 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
     // But for fixed hash map, it never need to expand
     bool ret_flag = false;
     RETURN_IF_ERROR(std::visit(
-            [&](auto&& agg_method) -> Status {
-                if (auto& hash_tbl = *agg_method.hash_table;
-                    hash_tbl.add_elem_size_overflow(rows)) {
-                    /// If too much memory is used during the pre-aggregation stage,
-                    /// it is better to output the data directly without performing further aggregation.
-                    const bool used_too_much_memory =
-                            (_external_agg_bytes_threshold > 0 &&
-                             _memory_usage() > _external_agg_bytes_threshold);
-                    // do not try to do agg, just init and serialize directly return the out_block
-                    if (!_should_expand_preagg_hash_tables() || used_too_much_memory) {
-                        SCOPED_TIMER(_streaming_agg_timer);
-                        ret_flag = true;
+            Overload {
+                    [&](std::monostate& arg) -> Status {
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                        return Status::InternalError("Uninited hash table");
+                    },
+                    [&](auto&& agg_method) -> Status {
+                        if (auto& hash_tbl = *agg_method.hash_table;
+                            hash_tbl.add_elem_size_overflow(rows)) {
+                            /// If too much memory is used during the pre-aggregation stage,
+                            /// it is better to output the data directly without performing further aggregation.
+                            const bool used_too_much_memory =
+                                    (_external_agg_bytes_threshold > 0 &&
+                                     _memory_usage() > _external_agg_bytes_threshold);
+                            // do not try to do agg, just init and serialize directly return the out_block
+                            if (!_should_expand_preagg_hash_tables() || used_too_much_memory) {
+                                SCOPED_TIMER(_streaming_agg_timer);
+                                ret_flag = true;
 
-                        // will serialize value data to string column.
-                        // non-nullable column(id in `_make_nullable_keys`)
-                        // will be converted to nullable.
-                        bool mem_reuse = _make_nullable_keys.empty() && out_block->mem_reuse();
+                                // will serialize value data to string column.
+                                // non-nullable column(id in `_make_nullable_keys`)
+                                // will be converted to nullable.
+                                bool mem_reuse =
+                                        _make_nullable_keys.empty() && out_block->mem_reuse();
 
-                        std::vector<DataTypePtr> data_types;
-                        MutableColumns value_columns;
-                        for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-                            auto data_type =
-                                    _aggregate_evaluators[i]->function()->get_serialized_type();
-                            if (mem_reuse) {
-                                value_columns.emplace_back(
-                                        std::move(*out_block->get_by_position(i + key_size).column)
-                                                .mutate());
-                            } else {
-                                // slot type of value it should always be string type
-                                value_columns.emplace_back(_aggregate_evaluators[i]
-                                                                   ->function()
-                                                                   ->create_serialize_column());
+                                std::vector<DataTypePtr> data_types;
+                                MutableColumns value_columns;
+                                for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+                                    auto data_type = _aggregate_evaluators[i]
+                                                             ->function()
+                                                             ->get_serialized_type();
+                                    if (mem_reuse) {
+                                        value_columns.emplace_back(
+                                                std::move(*out_block->get_by_position(i + key_size)
+                                                                   .column)
+                                                        .mutate());
+                                    } else {
+                                        // slot type of value it should always be string type
+                                        value_columns.emplace_back(
+                                                _aggregate_evaluators[i]
+                                                        ->function()
+                                                        ->create_serialize_column());
+                                    }
+                                    data_types.emplace_back(data_type);
+                                }
+
+                                for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
+                                    SCOPED_TIMER(_serialize_data_timer);
+                                    RETURN_IF_ERROR(_aggregate_evaluators[i]
+                                                            ->streaming_agg_serialize_to_column(
+                                                                    in_block, value_columns[i],
+                                                                    rows, _agg_arena_pool.get()));
+                                }
+
+                                if (!mem_reuse) {
+                                    ColumnsWithTypeAndName columns_with_schema;
+                                    for (int i = 0; i < key_size; ++i) {
+                                        columns_with_schema.emplace_back(
+                                                key_columns[i]->clone_resized(rows),
+                                                _probe_expr_ctxs[i]->root()->data_type(),
+                                                _probe_expr_ctxs[i]->root()->expr_name());
+                                    }
+                                    for (int i = 0; i < value_columns.size(); ++i) {
+                                        columns_with_schema.emplace_back(
+                                                std::move(value_columns[i]), data_types[i], "");
+                                    }
+                                    out_block->swap(Block(columns_with_schema));
+                                } else {
+                                    for (int i = 0; i < key_size; ++i) {
+                                        std::move(*out_block->get_by_position(i).column)
+                                                .mutate()
+                                                ->insert_range_from(*key_columns[i], 0, rows);
+                                    }
+                                }
                             }
-                            data_types.emplace_back(data_type);
                         }
-
-                        for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
-                            SCOPED_TIMER(_serialize_data_timer);
-                            RETURN_IF_ERROR(
-                                    _aggregate_evaluators[i]->streaming_agg_serialize_to_column(
-                                            in_block, value_columns[i], rows,
-                                            _agg_arena_pool.get()));
-                        }
-
-                        if (!mem_reuse) {
-                            ColumnsWithTypeAndName columns_with_schema;
-                            for (int i = 0; i < key_size; ++i) {
-                                columns_with_schema.emplace_back(
-                                        key_columns[i]->clone_resized(rows),
-                                        _probe_expr_ctxs[i]->root()->data_type(),
-                                        _probe_expr_ctxs[i]->root()->expr_name());
-                            }
-                            for (int i = 0; i < value_columns.size(); ++i) {
-                                columns_with_schema.emplace_back(std::move(value_columns[i]),
-                                                                 data_types[i], "");
-                            }
-                            out_block->swap(Block(columns_with_schema));
-                        } else {
-                            for (int i = 0; i < key_size; ++i) {
-                                std::move(*out_block->get_by_position(i).column)
-                                        .mutate()
-                                        ->insert_range_from(*key_columns[i], 0, rows);
-                            }
-                        }
-                    }
-                }
-                return Status::OK();
-            },
+                        return Status::OK();
+                    }},
             _agg_data->method_variant));
 
     if (!ret_flag) {
@@ -1145,7 +1316,7 @@ Status AggregationNode::_spill_hash_table(HashTableCtxType& agg_method, HashTabl
         for (size_t j = 0; j < partitioned_indices.size(); ++j) {
             if (partitioned_indices[j] != i) {
                 if (length > 0) {
-                    mutable_block.add_rows(&block, begin, length);
+                    RETURN_IF_ERROR(mutable_block.add_rows(&block, begin, length));
                 }
                 length = 0;
                 continue;
@@ -1158,7 +1329,7 @@ Status AggregationNode::_spill_hash_table(HashTableCtxType& agg_method, HashTabl
         }
 
         if (length > 0) {
-            mutable_block.add_rows(&block, begin, length);
+            RETURN_IF_ERROR(mutable_block.add_rows(&block, begin, length));
         }
 
         CHECK_EQ(mutable_block.rows(), blocks_rows[i]);
@@ -1173,21 +1344,25 @@ Status AggregationNode::_try_spill_disk(bool eos) {
     if (_external_agg_bytes_threshold == 0) {
         return Status::OK();
     }
-    return std::visit(
-            [&](auto&& agg_method) -> Status {
-                auto& hash_table = *agg_method.hash_table;
-                if (!eos && _memory_usage() < _external_agg_bytes_threshold) {
-                    return Status::OK();
-                }
+    return std::visit(Overload {[&](std::monostate& arg) -> Status {
+                                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                           "uninited hash table");
+                                    return Status::InternalError("Uninited hash table");
+                                },
+                                [&](auto& agg_method) -> Status {
+                                    auto& hash_table = *agg_method.hash_table;
+                                    if (!eos && _memory_usage() < _external_agg_bytes_threshold) {
+                                        return Status::OK();
+                                    }
 
-                if (_get_hash_table_size() == 0) {
-                    return Status::OK();
-                }
+                                    if (_get_hash_table_size() == 0) {
+                                        return Status::OK();
+                                    }
 
-                RETURN_IF_ERROR(_spill_hash_table(agg_method, hash_table));
-                return _reset_hash_table();
-            },
-            _agg_data->method_variant);
+                                    RETURN_IF_ERROR(_spill_hash_table(agg_method, hash_table));
+                                    return _reset_hash_table();
+                                }},
+                      _agg_data->method_variant);
 }
 
 Status AggregationNode::_execute_with_serialized_key(Block* block) {
@@ -1275,64 +1450,68 @@ Status AggregationNode::_get_result_with_serialized_key_non_spill(RuntimeState* 
 
     SCOPED_TIMER(_get_results_timer);
     std::visit(
-            [&](auto&& agg_method) -> void {
-                auto& data = *agg_method.hash_table;
-                agg_method.init_iterator();
-                const auto size = std::min(data.size(), size_t(state->batch_size()));
-                using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
-                std::vector<KeyType> keys(size);
-                if (_values.size() < size) {
-                    _values.resize(size);
-                }
+            Overload {[&](std::monostate& arg) -> void {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                      },
+                      [&](auto& agg_method) -> void {
+                          auto& data = *agg_method.hash_table;
+                          agg_method.init_iterator();
+                          const auto size = std::min(data.size(), size_t(state->batch_size()));
+                          using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                          std::vector<KeyType> keys(size);
+                          if (_values.size() < size) {
+                              _values.resize(size);
+                          }
 
-                size_t num_rows = 0;
-                _aggregate_data_container->init_once();
-                auto& iter = _aggregate_data_container->iterator;
+                          size_t num_rows = 0;
+                          _aggregate_data_container->init_once();
+                          auto& iter = _aggregate_data_container->iterator;
 
-                {
-                    SCOPED_TIMER(_hash_table_iterate_timer);
-                    while (iter != _aggregate_data_container->end() &&
-                           num_rows < state->batch_size()) {
-                        keys[num_rows] = iter.get_key<KeyType>();
-                        _values[num_rows] = iter.get_aggregate_data();
-                        ++iter;
-                        ++num_rows;
-                    }
-                }
+                          {
+                              SCOPED_TIMER(_hash_table_iterate_timer);
+                              while (iter != _aggregate_data_container->end() &&
+                                     num_rows < state->batch_size()) {
+                                  keys[num_rows] = iter.get_key<KeyType>();
+                                  _values[num_rows] = iter.get_aggregate_data();
+                                  ++iter;
+                                  ++num_rows;
+                              }
+                          }
 
-                {
-                    SCOPED_TIMER(_insert_keys_to_column_timer);
-                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
-                }
+                          {
+                              SCOPED_TIMER(_insert_keys_to_column_timer);
+                              agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                          }
 
-                for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
-                    _aggregate_evaluators[i]->insert_result_info_vec(
-                            _values, _offsets_of_aggregate_states[i], value_columns[i].get(),
-                            num_rows);
-                }
+                          for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+                              _aggregate_evaluators[i]->insert_result_info_vec(
+                                      _values, _offsets_of_aggregate_states[i],
+                                      value_columns[i].get(), num_rows);
+                          }
 
-                if (iter == _aggregate_data_container->end()) {
-                    if (agg_method.hash_table->has_null_key_data()) {
-                        // only one key of group by support wrap null key
-                        // here need additional processing logic on the null key / value
-                        DCHECK(key_columns.size() == 1);
-                        DCHECK(key_columns[0]->is_nullable());
-                        if (key_columns[0]->size() < state->batch_size()) {
-                            key_columns[0]->insert_data(nullptr, 0);
-                            auto mapped = agg_method.hash_table
-                                                  ->template get_null_key_data<AggregateDataPtr>();
-                            for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
-                                _aggregate_evaluators[i]->insert_result_info(
-                                        mapped + _offsets_of_aggregate_states[i],
-                                        value_columns[i].get());
-                            }
-                            *eos = true;
-                        }
-                    } else {
-                        *eos = true;
-                    }
-                }
-            },
+                          if (iter == _aggregate_data_container->end()) {
+                              if (agg_method.hash_table->has_null_key_data()) {
+                                  // only one key of group by support wrap null key
+                                  // here need additional processing logic on the null key / value
+                                  DCHECK(key_columns.size() == 1);
+                                  DCHECK(key_columns[0]->is_nullable());
+                                  if (key_columns[0]->size() < state->batch_size()) {
+                                      key_columns[0]->insert_data(nullptr, 0);
+                                      auto mapped =
+                                              agg_method.hash_table->template get_null_key_data<
+                                                      AggregateDataPtr>();
+                                      for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+                                          _aggregate_evaluators[i]->insert_result_info(
+                                                  mapped + _offsets_of_aggregate_states[i],
+                                                  value_columns[i].get());
+                                      }
+                                      *eos = true;
+                                  }
+                              } else {
+                                  *eos = true;
+                              }
+                          }
+                      }},
             _agg_data->method_variant);
 
     if (!mem_reuse) {
@@ -1404,72 +1583,77 @@ Status AggregationNode::_serialize_with_serialized_key_result_non_spill(RuntimeS
 
     SCOPED_TIMER(_get_results_timer);
     std::visit(
-            [&](auto&& agg_method) -> void {
-                agg_method.init_iterator();
-                auto& data = *agg_method.hash_table;
-                const auto size = std::min(data.size(), size_t(state->batch_size()));
-                using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
-                std::vector<KeyType> keys(size);
-                _values.resize(size + 1);
+            Overload {
+                    [&](std::monostate& arg) -> void {
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                    },
+                    [&](auto&& agg_method) -> void {
+                        agg_method.init_iterator();
+                        auto& data = *agg_method.hash_table;
+                        const auto size = std::min(data.size(), size_t(state->batch_size()));
+                        using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                        std::vector<KeyType> keys(size);
+                        _values.resize(size + 1);
 
-                size_t num_rows = 0;
-                _aggregate_data_container->init_once();
-                auto& iter = _aggregate_data_container->iterator;
+                        size_t num_rows = 0;
+                        _aggregate_data_container->init_once();
+                        auto& iter = _aggregate_data_container->iterator;
 
-                {
-                    SCOPED_TIMER(_hash_table_iterate_timer);
-                    while (iter != _aggregate_data_container->end() &&
-                           num_rows < state->batch_size()) {
-                        keys[num_rows] = iter.get_key<KeyType>();
-                        _values[num_rows] = iter.get_aggregate_data();
-                        ++iter;
-                        ++num_rows;
-                    }
-                }
-
-                {
-                    SCOPED_TIMER(_insert_keys_to_column_timer);
-                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
-                }
-
-                if (iter == _aggregate_data_container->end()) {
-                    if (agg_method.hash_table->has_null_key_data()) {
-                        // only one key of group by support wrap null key
-                        // here need additional processing logic on the null key / value
-                        DCHECK(key_columns.size() == 1);
-                        DCHECK(key_columns[0]->is_nullable());
-                        if (agg_method.hash_table->has_null_key_data()) {
-                            key_columns[0]->insert_data(nullptr, 0);
-                            _values[num_rows] =
-                                    agg_method.hash_table
-                                            ->template get_null_key_data<AggregateDataPtr>();
-                            ++num_rows;
-                            *eos = true;
+                        {
+                            SCOPED_TIMER(_hash_table_iterate_timer);
+                            while (iter != _aggregate_data_container->end() &&
+                                   num_rows < state->batch_size()) {
+                                keys[num_rows] = iter.get_key<KeyType>();
+                                _values[num_rows] = iter.get_aggregate_data();
+                                ++iter;
+                                ++num_rows;
+                            }
                         }
-                    } else {
-                        *eos = true;
-                    }
-                }
 
-                {
-                    SCOPED_TIMER(_serialize_data_timer);
-                    for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
-                        value_data_types[i] =
-                                _aggregate_evaluators[i]->function()->get_serialized_type();
-                        if (mem_reuse) {
-                            value_columns[i] =
-                                    std::move(*block->get_by_position(i + key_size).column)
-                                            .mutate();
-                        } else {
-                            value_columns[i] =
-                                    _aggregate_evaluators[i]->function()->create_serialize_column();
+                        {
+                            SCOPED_TIMER(_insert_keys_to_column_timer);
+                            agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
                         }
-                        _aggregate_evaluators[i]->function()->serialize_to_column(
-                                _values, _offsets_of_aggregate_states[i], value_columns[i],
-                                num_rows);
-                    }
-                }
-            },
+
+                        if (iter == _aggregate_data_container->end()) {
+                            if (agg_method.hash_table->has_null_key_data()) {
+                                // only one key of group by support wrap null key
+                                // here need additional processing logic on the null key / value
+                                DCHECK(key_columns.size() == 1);
+                                DCHECK(key_columns[0]->is_nullable());
+                                if (agg_method.hash_table->has_null_key_data()) {
+                                    key_columns[0]->insert_data(nullptr, 0);
+                                    _values[num_rows] =
+                                            agg_method.hash_table->template get_null_key_data<
+                                                    AggregateDataPtr>();
+                                    ++num_rows;
+                                    *eos = true;
+                                }
+                            } else {
+                                *eos = true;
+                            }
+                        }
+
+                        {
+                            SCOPED_TIMER(_serialize_data_timer);
+                            for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+                                value_data_types[i] =
+                                        _aggregate_evaluators[i]->function()->get_serialized_type();
+                                if (mem_reuse) {
+                                    value_columns[i] =
+                                            std::move(*block->get_by_position(i + key_size).column)
+                                                    .mutate();
+                                } else {
+                                    value_columns[i] = _aggregate_evaluators[i]
+                                                               ->function()
+                                                               ->create_serialize_column();
+                                }
+                                _aggregate_evaluators[i]->function()->serialize_to_column(
+                                        _values, _offsets_of_aggregate_states[i], value_columns[i],
+                                        num_rows);
+                            }
+                        }
+                    }},
             _agg_data->method_variant);
 
     if (!mem_reuse) {
@@ -1479,12 +1663,35 @@ Status AggregationNode::_serialize_with_serialized_key_result_non_spill(RuntimeS
                                              _probe_expr_ctxs[i]->root()->data_type(),
                                              _probe_expr_ctxs[i]->root()->expr_name());
         }
+
         for (int i = 0; i < agg_size; ++i) {
             columns_with_schema.emplace_back(std::move(value_columns[i]), value_data_types[i], "");
+            *block = Block(columns_with_schema);
         }
-        *block = Block(columns_with_schema);
     }
+
     return Status::OK();
+}
+
+bool AggregationNode::_do_limit_filter(Block* block, int key_size, size_t num_rows) {
+    if (num_rows) {
+        _cmp_res.resize(num_rows);
+        _need_computes.resize(num_rows);
+        memset(_need_computes.data(), 0, _need_computes.size());
+        memset(_cmp_res.data(), 0, _cmp_res.size());
+
+        for (int i = 0; i < key_size; i++) {
+            block->get_by_position(i).column->compare_internal(
+                    _limit_columns_min, *_limit_columns[i], _null_directions[i],
+                    _order_directions[i], _cmp_res, _need_computes.data());
+        }
+
+        for (int i = 0; i < num_rows; ++i) {
+            _need_computes[i] = _need_computes[i] == _cmp_res[i];
+        }
+        return std::find(_need_computes.begin(), _need_computes.end(), 0) != _need_computes.end();
+    }
+    return false;
 }
 
 Status AggregationNode::_merge_with_serialized_key(Block* block) {
@@ -1496,44 +1703,49 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
 }
 
 void AggregationNode::_update_memusage_with_serialized_key() {
-    std::visit(
-            [&](auto&& agg_method) -> void {
-                auto& data = *agg_method.hash_table;
-                auto arena_memory_usage = _agg_arena_pool->size() +
-                                          _aggregate_data_container->memory_usage() -
-                                          _mem_usage_record.used_in_arena;
-                mem_tracker()->consume(arena_memory_usage);
-                mem_tracker()->consume(data.get_buffer_size_in_bytes() -
-                                       _mem_usage_record.used_in_state);
-                _serialize_key_arena_memory_usage->add(arena_memory_usage);
-                COUNTER_UPDATE(_hash_table_memory_usage,
-                               data.get_buffer_size_in_bytes() - _mem_usage_record.used_in_state);
-                _mem_usage_record.used_in_state = data.get_buffer_size_in_bytes();
-                _mem_usage_record.used_in_arena =
-                        _agg_arena_pool->size() + _aggregate_data_container->memory_usage();
-            },
-            _agg_data->method_variant);
+    std::visit(Overload {[&](std::monostate& arg) -> void {
+                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                    "uninited hash table");
+                         },
+                         [&](auto& agg_method) -> void {
+                             auto& data = *agg_method.hash_table;
+                             auto arena_memory_usage = _agg_arena_pool->size() +
+                                                       _aggregate_data_container->memory_usage() -
+                                                       _mem_usage_record.used_in_arena;
+                             mem_tracker()->consume(arena_memory_usage);
+                             mem_tracker()->consume(data.get_buffer_size_in_bytes() -
+                                                    _mem_usage_record.used_in_state);
+                             _serialize_key_arena_memory_usage->add(arena_memory_usage);
+                             COUNTER_UPDATE(_hash_table_memory_usage,
+                                            data.get_buffer_size_in_bytes() -
+                                                    _mem_usage_record.used_in_state);
+                             _mem_usage_record.used_in_state = data.get_buffer_size_in_bytes();
+                             _mem_usage_record.used_in_arena =
+                                     _agg_arena_pool->size() +
+                                     _aggregate_data_container->memory_usage();
+                         }},
+               _agg_data->method_variant);
 }
 
 void AggregationNode::_close_with_serialized_key() {
-    std::visit(
-            [&](auto&& agg_method) -> void {
-                auto& data = *agg_method.hash_table;
-                data.for_each_mapped([&](auto& mapped) {
-                    if (mapped) {
-                        static_cast<void>(_destroy_agg_status(mapped));
-                        mapped = nullptr;
-                    }
-                });
-                if (data.has_null_key_data()) {
-                    auto st = _destroy_agg_status(
-                            data.template get_null_key_data<AggregateDataPtr>());
-                    if (!st) {
-                        throw Exception(st.code(), st.to_string());
-                    }
-                }
-            },
-            _agg_data->method_variant);
+    std::visit(Overload {[&](std::monostate& arg) -> void {
+                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                    "uninited hash table");
+                         },
+                         [&](auto&& agg_method) -> void {
+                             auto& data = *agg_method.hash_table;
+                             data.for_each_mapped([&](auto& mapped) {
+                                 if (mapped) {
+                                     _destroy_agg_status(mapped);
+                                     mapped = nullptr;
+                                 }
+                             });
+                             if (data.has_null_key_data()) {
+                                 _destroy_agg_status(
+                                         data.template get_null_key_data<AggregateDataPtr>());
+                             }
+                         }},
+               _agg_data->method_variant);
     release_tracker();
 }
 

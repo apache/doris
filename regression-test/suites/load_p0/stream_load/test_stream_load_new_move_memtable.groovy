@@ -59,6 +59,7 @@ suite("test_stream_load_new_move_memtable", "p0") {
             }
         }
 
+        sql """ sync; """
         qt_sql1 "select id, name from ${tableName1}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName1}"
@@ -102,6 +103,7 @@ suite("test_stream_load_new_move_memtable", "p0") {
             }
         }
 
+        sql """ sync; """
         qt_sql2 "select * from ${tableName2}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName2}"
@@ -144,6 +146,7 @@ suite("test_stream_load_new_move_memtable", "p0") {
             }
         }
 
+        sql """ sync; """
         qt_sql3 "select * from ${tableName3}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName3}"
@@ -223,6 +226,7 @@ suite("test_stream_load_new_move_memtable", "p0") {
             }
         }
 
+        sql """ sync; """
         qt_sql5 "select * from ${tableName5}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName5}"
@@ -275,6 +279,7 @@ suite("test_stream_load_new_move_memtable", "p0") {
             }
         }
 
+        sql """ sync; """
         qt_sql6 "select * from ${tableName6}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName6}"
@@ -321,6 +326,7 @@ suite("test_stream_load_new_move_memtable", "p0") {
             }
         }
 
+        sql """ sync; """
         qt_sql7 "select * from ${tableName7}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName7}"
@@ -367,6 +373,7 @@ suite("test_stream_load_new_move_memtable", "p0") {
             }
         }
 
+        sql """ sync; """
         qt_sql8 "select * from ${tableName8}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName8}"
@@ -414,6 +421,7 @@ suite("test_stream_load_new_move_memtable", "p0") {
             }
         }
 
+        sql """ sync; """
         qt_sql9 "select * from ${tableName9}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName9}"
@@ -462,6 +470,7 @@ suite("test_stream_load_new_move_memtable", "p0") {
             }
         }
 
+        sql """ sync; """
         qt_sql10 "select count(*) from ${tableName10}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName10}"
@@ -505,6 +514,7 @@ suite("test_stream_load_new_move_memtable", "p0") {
             }
         }
 
+        sql """ sync; """
         qt_sql11 "select id, name from ${tableName11}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName11}"
@@ -549,6 +559,7 @@ suite("test_stream_load_new_move_memtable", "p0") {
             }
         }
 
+        sql """ sync; """
         qt_sql12 "select id, name from ${tableName12}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName12}"

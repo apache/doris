@@ -95,6 +95,7 @@ public class TemplateType extends Type {
         }
 
         if (specializedType != null
+                && !specializedType.isNull()
                 && !specificType.equals(specializedType)
                 && !specificType.matchesType(specializedType)
                 && !Type.isImplicitlyCastable(specificType, specializedType, true, enableDecimal256)
@@ -104,7 +105,7 @@ public class TemplateType extends Type {
                     name, specificType, specializedType));
         }
 
-        if (specializedType == null) {
+        if (specializedType == null || specializedType.isNull()) {
             specializedTypeMap.put(name, specificType);
         }
         return specializedTypeMap.get(name);

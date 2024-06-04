@@ -20,16 +20,17 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <atomic>
 #include <condition_variable>
+#include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <sstream>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -41,25 +42,20 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "runtime/query_statistics.h"
+#include "runtime/task_execution_context.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
-#include "vec/columns/column.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/core/materialize_block.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class MemTracker;
 class PBlock;
 class MemTrackerLimiter;
-class PQueryStatistics;
 class RuntimeState;
 
 namespace pipeline {
-struct ExchangeDataDependency;
-class LocalExchangeChannelDependency;
+class Dependency;
 class ExchangeLocalState;
 } // namespace pipeline
 
@@ -69,13 +65,12 @@ class VSortedRunMerger;
 
 class VDataStreamRecvr;
 
-class VDataStreamRecvr {
+class VDataStreamRecvr : public HasTaskExecutionCtx {
 public:
     class SenderQueue;
     VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
                      const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                     int num_senders, bool is_merging, RuntimeProfile* profile,
-                     std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr);
+                     int num_senders, bool is_merging, RuntimeProfile* profile);
 
     virtual ~VDataStreamRecvr();
 
@@ -101,36 +96,27 @@ public:
     PlanNodeId dest_node_id() const { return _dest_node_id; }
     const RowDescriptor& row_desc() const { return _row_desc; }
 
-    void add_sub_plan_statistics(const PQueryStatistics& statistics, int sender_id) {
-        _sub_plan_query_statistics_recvr->insert(statistics, sender_id);
-    }
-
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.
     void remove_sender(int sender_id, int be_number, Status exec_status);
-
-    void remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics,
-                       Status exec_status);
 
     void cancel_stream(Status exec_status);
 
     void close();
 
+    // When the source reaches eos = true
+    void set_sink_dep_always_ready() const;
+
     // Careful: stream sender will call this function for a local receiver,
     // accessing members of receiver that are allocated by Object pool
     // in this function is not safe.
-    bool exceeds_limit(int batch_size) {
-        return _blocks_memory_usage_current_value + batch_size >
-               config::exchg_node_buffer_size_bytes;
-    }
-
+    bool exceeds_limit(size_t block_byte_size);
+    bool queue_exceeds_limit(size_t byte_size) const;
     bool is_closed() const { return _is_closed; }
 
-    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency(
-            int sender_id);
+    std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
 
 private:
-    void update_blocks_memory_usage(int64_t size);
     class PipSenderQueue;
 
     friend struct BlockSupplierSortCursorImpl;
@@ -158,13 +144,14 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
     // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
+    size_t _sender_queue_mem_limit;
 
     std::unique_ptr<VSortedRunMerger> _merger;
 
     ObjectPool _sender_queue_pool;
     RuntimeProfile* _profile = nullptr;
 
-    RuntimeProfile::Counter* _bytes_received_counter = nullptr;
+    RuntimeProfile::Counter* _remote_bytes_received_counter = nullptr;
     RuntimeProfile::Counter* _local_bytes_received_counter = nullptr;
     RuntimeProfile::Counter* _deserialize_row_batch_timer = nullptr;
     RuntimeProfile::Counter* _first_batch_wait_total_timer = nullptr;
@@ -173,8 +160,6 @@ private:
     RuntimeProfile::Counter* _decompress_timer = nullptr;
     RuntimeProfile::Counter* _decompress_bytes = nullptr;
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
-    std::atomic<int64_t> _blocks_memory_usage_current_value = 0;
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
 
     // Number of rows received
@@ -182,13 +167,8 @@ private:
     // Number of blocks received
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
-    std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
-
     bool _enable_pipeline;
-    std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
-            _sender_to_local_channel_dependency;
-
-    std::shared_ptr<bool> _mem_available;
+    std::vector<std::shared_ptr<pipeline::Dependency>> _sender_to_local_channel_dependency;
 };
 
 class ThreadClosure : public google::protobuf::Closure {
@@ -207,11 +187,15 @@ public:
     virtual ~SenderQueue();
 
     void set_local_channel_dependency(
-            std::shared_ptr<pipeline::LocalExchangeChannelDependency> local_channel_dependency) {
+            std::shared_ptr<pipeline::Dependency> local_channel_dependency) {
         _local_channel_dependency = local_channel_dependency;
     }
 
-    virtual bool should_wait();
+    std::shared_ptr<pipeline::Dependency> local_channel_dependency() {
+        return _local_channel_dependency;
+    }
+
+    bool should_wait();
 
     virtual Status get_batch(Block* next_block, bool* eos);
 
@@ -231,14 +215,65 @@ public:
         return _block_queue.empty();
     }
 
-    void set_dependency(std::shared_ptr<pipeline::ExchangeDataDependency> dependency) {
-        _dependency = dependency;
+    void set_dependency(std::shared_ptr<pipeline::Dependency> dependency) {
+        _source_dependency = dependency;
     }
+
+    void add_blocks_memory_usage(int64_t size);
+
+    void sub_blocks_memory_usage(int64_t size);
+
+    bool exceeds_limit();
 
 protected:
     friend class pipeline::ExchangeLocalState;
-    friend struct pipeline::ExchangeDataDependency;
     Status _inner_get_batch_without_lock(Block* block, bool* eos);
+
+    void try_set_dep_ready_without_lock();
+
+    // To record information about several variables in the event of a DCHECK failure.
+    //  DCHECK(_is_cancelled || !_block_queue.empty() || _num_remaining_senders == 0)
+#ifndef NDEBUG
+    constexpr static auto max_record_number = 128;
+    std::list<size_t> _record_block_queue;
+    std::list<int> _record_num_remaining_senders;
+#else
+#endif
+
+    // only in debug
+    ALWAYS_INLINE inline void _record_debug_info() {
+#ifndef NDEBUG
+        if (_record_block_queue.size() > max_record_number) {
+            _record_block_queue.pop_front();
+        }
+        if (_record_num_remaining_senders.size() > max_record_number) {
+            _record_num_remaining_senders.pop_front();
+        }
+        _record_block_queue.push_back(_block_queue.size());
+        _record_num_remaining_senders.push_back(_num_remaining_senders);
+#else
+#endif
+    }
+
+    ALWAYS_INLINE inline std::string _debug_string_info() {
+#ifndef NDEBUG
+        std::stringstream out;
+        DCHECK_EQ(_record_block_queue.size(), _record_num_remaining_senders.size());
+        out << "record_debug_info [  \n";
+
+        auto it1 = _record_block_queue.begin();
+        auto it2 = _record_num_remaining_senders.begin();
+        for (; it1 != _record_block_queue.end(); it1++, it2++) {
+            out << "( "
+                << "_block_queue size : " << *it1 << " , _num_remaining_senders : " << *it2
+                << " ) \n";
+        }
+        out << "  ]\n";
+        return out.str();
+#else
+#endif
+        return "";
+    }
 
     // Not managed by this class
     VDataStreamRecvr* _recvr = nullptr;
@@ -248,6 +283,7 @@ protected:
     int _num_remaining_senders;
     std::condition_variable _data_arrival_cv;
     std::condition_variable _data_removal_cv;
+    std::unique_ptr<MemTracker> _queue_mem_tracker;
     std::list<std::pair<BlockUPtr, size_t>> _block_queue;
 
     bool _received_first_batch;
@@ -258,8 +294,8 @@ protected:
     std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
 
-    std::shared_ptr<pipeline::ExchangeDataDependency> _dependency;
-    std::shared_ptr<pipeline::LocalExchangeChannelDependency> _local_channel_dependency;
+    std::shared_ptr<pipeline::Dependency> _source_dependency;
+    std::shared_ptr<pipeline::Dependency> _local_channel_dependency;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {
@@ -269,10 +305,15 @@ public:
 
     Status get_batch(Block* block, bool* eos) override {
         std::lock_guard<std::mutex> l(_lock); // protect _block_queue
-        DCHECK(_is_cancelled || !_block_queue.empty() || _num_remaining_senders == 0)
-                << " _is_cancelled: " << _is_cancelled
-                << ", _block_queue_empty: " << _block_queue.empty()
-                << ", _num_remaining_senders: " << _num_remaining_senders;
+#ifndef NDEBUG
+        if (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "_is_cancelled: {}, _block_queue_empty: {}, "
+                                   "_num_remaining_senders: {}, _debug_string_info: {}",
+                                   _is_cancelled, _block_queue.empty(), _num_remaining_senders,
+                                   _debug_string_info());
+        }
+#endif
         return _inner_get_batch_without_lock(block, eos);
     }
 

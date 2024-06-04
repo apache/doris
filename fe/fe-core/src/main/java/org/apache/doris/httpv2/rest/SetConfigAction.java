@@ -83,7 +83,9 @@ public class SetConfigAction extends RestBaseController {
         Map<String, String> setConfigs = Maps.newHashMap();
         List<ErrConfig> errConfigs = Lists.newArrayList();
 
-        LOG.debug("get config from url: {}, need persist: {}", configs, needPersist);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get config from url: {}, need persist: {}", configs, needPersist);
+        }
 
         for (Map.Entry<String, String[]> config : configs.entrySet()) {
             String confKey = config.getKey();

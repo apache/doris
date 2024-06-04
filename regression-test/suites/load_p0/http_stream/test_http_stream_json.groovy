@@ -27,7 +27,7 @@ suite("test_http_stream_json", "p0") {
         CREATE TABLE IF NOT EXISTS ${tableName1} (
             id int,
             city VARCHAR(10),
-            code int,
+            code int
         )
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
@@ -70,7 +70,7 @@ suite("test_http_stream_json", "p0") {
         CREATE TABLE IF NOT EXISTS ${tableName2} (
             id int,
             city VARCHAR(10),
-            code int,
+            code int
         )
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
@@ -113,7 +113,7 @@ suite("test_http_stream_json", "p0") {
         CREATE TABLE IF NOT EXISTS ${tableName3} (
             id int,
             city VARCHAR(10),
-            code int,
+            code int
         )
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
@@ -157,7 +157,7 @@ suite("test_http_stream_json", "p0") {
         CREATE TABLE IF NOT EXISTS ${tableName4} (
             id int,
             city VARCHAR(10),
-            code int,
+            code int
         )
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (

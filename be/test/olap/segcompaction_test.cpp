@@ -66,9 +66,10 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
 
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_and_create_directory(config::storage_root_path)
-                            .ok());
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
 
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
@@ -194,8 +195,9 @@ protected:
         std::shared_ptr<DataDir> data_dir = std::make_shared<DataDir>(lTestDir);
         TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
         tablet_meta->_tablet_id = 1;
+        tablet_meta->set_partition_id(10000);
         tablet_meta->_schema = tablet_schema;
-        auto tablet = std::make_shared<Tablet>(tablet_meta, data_dir.get(), "test_str");
+        auto tablet = std::make_shared<Tablet>(*l_engine, tablet_meta, data_dir.get(), "test_str");
         char* tmp_str = (char*)malloc(20);
         strncpy(tmp_str, "test_tablet_name", 20);
 

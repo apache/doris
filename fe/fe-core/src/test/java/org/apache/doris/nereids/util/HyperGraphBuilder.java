@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -27,7 +29,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -40,6 +42,7 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsCacheKey;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -193,16 +196,21 @@ public class HyperGraphBuilder {
         return this;
     }
 
-    public void initStats(CascadesContext context) {
+    public void initStats(String dbName, CascadesContext context) {
         for (Group group : context.getMemo().getGroups()) {
             GroupExpression groupExpression = group.getLogicalExpression();
             if (groupExpression.getPlan() instanceof LogicalOlapScan) {
                 LogicalOlapScan scan = (LogicalOlapScan) groupExpression.getPlan();
+                OlapTable table = scan.getTable();
+                if (Strings.isNullOrEmpty(table.getQualifiedDbName())) {
+                    table.setQualifiedDbName(dbName);
+                }
                 Statistics stats = injectRowcount((LogicalOlapScan) groupExpression.getPlan());
                 for (Expression expr : stats.columnStatistics().keySet()) {
                     SlotReference slot = (SlotReference) expr;
                     Env.getCurrentEnv().getStatisticsCache().putCache(
-                            new StatisticsCacheKey(scan.getTable().getId(), -1, slot.getName()),
+                            new StatisticsCacheKey(table.getDatabase().getCatalog().getId(),
+                                    table.getDatabase().getId(), table.getId(), -1, slot.getName()),
                             stats.columnStatistics().get(expr));
                 }
             }
@@ -230,7 +238,7 @@ public class HyperGraphBuilder {
                     "can not find plan %s-%s", leftBitmap, rightBitmap);
             Plan leftPlan = plans.get(leftKey.get());
             Plan rightPlan = plans.get(rightKey.get());
-            LogicalJoin join = new LogicalJoin<>(joinType, leftPlan, rightPlan);
+            LogicalJoin join = new LogicalJoin<>(joinType, leftPlan, rightPlan, null);
 
             BitSet key = new BitSet();
             key.or(leftKey.get());
@@ -284,15 +292,15 @@ public class HyperGraphBuilder {
                 .collect(Collectors.toSet());
         assert outputs.containsAll(requireSlots);
         if (withJoinHint) {
-            JoinHint[] values = JoinHint.values();
+            DistributeType[] values = DistributeType.values();
             Random random = new Random();
             int randomIndex = random.nextInt(values.length);
-            JoinHint hint = values[randomIndex];
-            Plan hintJoin = ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType);
-            ((LogicalJoin) hintJoin).setHint(hint);
+            DistributeType hint = values[randomIndex];
+            Plan hintJoin = ((LogicalJoin) join.withChildren(left, right)).withJoinTypeAndContext(joinType, null);
+            ((LogicalJoin) hintJoin).setHint(new DistributeHint(hint));
             return hintJoin;
         }
-        return ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType);
+        return ((LogicalJoin) join.withChildren(left, right)).withJoinTypeAndContext(joinType, null);
     }
 
     private Optional<BitSet> findPlan(BitSet bitSet) {
@@ -334,14 +342,14 @@ public class HyperGraphBuilder {
                 plan);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         injectRowcount(cascadesContext.getMemo().getRoot());
-        return HyperGraph.toDPhyperGraph(cascadesContext.getMemo().getRoot());
+        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
     }
 
     public static HyperGraph buildHyperGraphFromPlan(Plan plan) {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        return HyperGraph.toDPhyperGraph(cascadesContext.getMemo().getRoot());
+        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
     }
 
     private void injectRowcount(Group group) {
@@ -387,7 +395,7 @@ public class HyperGraphBuilder {
         } else {
             conditions.add(condition);
         }
-        return new LogicalJoin<>(join.getJoinType(), conditions, left, right);
+        return new LogicalJoin<>(join.getJoinType(), conditions, left, right, null);
     }
 
     private Expression makeCondition(int node1, int node2, BitSet bitSet) {
@@ -671,9 +679,12 @@ public class HyperGraphBuilder {
             Integer rv;
             if (left.containsKey(slots.get(0))) {
                 lv = left.get(slots.get(0)).get(leftIndex);
-                rv = right.get(slots.get(1)).get(rightIndex);
             } else {
                 lv = right.get(slots.get(0)).get(rightIndex);
+            }
+            if (right.containsKey(slots.get(1))) {
+                rv = right.get(slots.get(1)).get(rightIndex);
+            } else {
                 rv = left.get(slots.get(1)).get(leftIndex);
             }
             Boolean res = (lv == rv) && (lv != null) && (rv != null);

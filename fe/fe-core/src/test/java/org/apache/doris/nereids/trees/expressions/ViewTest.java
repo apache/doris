@@ -24,6 +24,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
+import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -41,7 +42,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         createTables(
                 "CREATE TABLE IF NOT EXISTS T1 (\n"
                         + "    ID1 bigint,\n"
@@ -141,6 +142,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
                         + "ON X.ID1 = Y.ID3"
                 )
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
+                .applyBottomUp(new InlineLogicalView())
                 .applyTopDown(new MergeProjects())
                 .matches(
                         logicalProject(
@@ -148,10 +150,10 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
                                         logicalProject(
                                                 logicalJoin(
                                                         logicalProject(
-                                                                logicalOlapScan()
+                                                                    logicalOlapScan()
                                                         ),
                                                         logicalProject(
-                                                                logicalOlapScan()
+                                                                    logicalOlapScan()
                                                         )
                                                 )
                                         ),

@@ -19,24 +19,35 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.base.Objects;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class BaseTableInfo {
-    @SerializedName("ti")
-    private Long tableId;
-    @SerializedName("di")
-    private Long dbId;
-    @SerializedName("ci")
-    private Long ctlId;
+    private static final Logger LOG = LogManager.getLogger(BaseTableInfo.class);
 
-    public BaseTableInfo(Long tableId, Long dbId) {
+    @SerializedName("ti")
+    private long tableId;
+    @SerializedName("di")
+    private long dbId;
+    @SerializedName("ci")
+    private long ctlId;
+
+    public BaseTableInfo(long tableId, long dbId) {
         this.tableId = java.util.Objects.requireNonNull(tableId, "tableId is null");
         this.dbId = java.util.Objects.requireNonNull(dbId, "dbId is null");
         this.ctlId = InternalCatalog.INTERNAL_CATALOG_ID;
+    }
+
+    public BaseTableInfo(long tableId, long dbId, long ctlId) {
+        this.tableId = java.util.Objects.requireNonNull(tableId, "tableId is null");
+        this.dbId = java.util.Objects.requireNonNull(dbId, "dbId is null");
+        this.ctlId = java.util.Objects.requireNonNull(ctlId, "ctlId is null");
     }
 
     public BaseTableInfo(TableIf table) {
@@ -49,15 +60,15 @@ public class BaseTableInfo {
         this.ctlId = catalog.getId();
     }
 
-    public Long getTableId() {
+    public long getTableId() {
         return tableId;
     }
 
-    public Long getDbId() {
+    public long getDbId() {
         return dbId;
     }
 
-    public Long getCtlId() {
+    public long getCtlId() {
         return ctlId;
     }
 
@@ -87,5 +98,14 @@ public class BaseTableInfo {
                 + ", dbId=" + dbId
                 + ", ctlId=" + ctlId
                 + '}';
+    }
+
+    public String getTableName() {
+        try {
+            return MTMVUtil.getTable(this).getName();
+        } catch (AnalysisException e) {
+            LOG.warn("can not get table: " + this);
+            return "";
+        }
     }
 }

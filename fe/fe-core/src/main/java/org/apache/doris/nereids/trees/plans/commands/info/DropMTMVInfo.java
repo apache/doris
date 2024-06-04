@@ -46,10 +46,10 @@ public class DropMTMVInfo {
      */
     public void analyze(ConnectContext ctx) {
         mvName.analyze(ctx);
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, mvName.getCtl(), mvName.getDb(),
                 mvName.getTbl(), PrivPredicate.DROP)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("DROP",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(),
                     mvName.getDb() + ": " + mvName.getTbl());
             throw new AnalysisException(message);
         }
@@ -69,7 +69,7 @@ public class DropMTMVInfo {
      */
     public DropTableStmt translateToLegacyStmt() {
         TableName tableName = mvName.transferToTableName();
-        DropTableStmt dropTableStmt = new DropTableStmt(ifExists, tableName, false);
+        DropTableStmt dropTableStmt = new DropTableStmt(ifExists, tableName, true);
         dropTableStmt.setMaterializedView(true);
         return dropTableStmt;
     }

@@ -41,10 +41,14 @@ suite("test_compaction_variant") {
         }
         def create_table = { tableName, buckets="auto", key_type="DUPLICATE" ->
             sql "DROP TABLE IF EXISTS ${tableName}"
+            def var_def = "variant"
+            if (key_type == "AGGREGATE") {
+                var_def = "variant replace"
+            }
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
                     k bigint,
-                    v variant
+                    v ${var_def} 
                 )
                 ${key_type} KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
@@ -52,7 +56,8 @@ suite("test_compaction_variant") {
             """
         }
 
-        def key_types = ["DUPLICATE", "UNIQUE"]
+        def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
+        // def key_types = ["AGGREGATE"]
         for (int i = 0; i < key_types.size(); i++) {
             def tableName = "simple_variant_${key_types[i]}"
             // 1. simple cases
@@ -62,7 +67,7 @@ suite("test_compaction_variant") {
                 sql """insert into ${tableName} values (2,  '{"a" : "1"}'),(14,  '{"a" : [[[1]]]}');"""
                 sql """insert into ${tableName} values (3,  '{"x" : [3]}'),(15,  '{"a" : 1}')"""
                 sql """insert into ${tableName} values (4,  '{"y": 1}'),(16,  '{"a" : "1223"}');"""
-                sql """insert into ${tableName} values (5,  '{"z" : 2}'),(17,  '{"a" : [1]}');"""
+                sql """insert into ${tableName} values (5,  '{"z" : 2.0}'),(17,  '{"a" : [1]}');"""
                 sql """insert into ${tableName} values (6,  '{"x" : 111}'),(18,  '{"a" : ["1", 2, 1.1]}');"""
                 sql """insert into ${tableName} values (7,  '{"m" : 1}'),(19,  '{"a" : 1, "b" : {"c" : 1}}');"""
                 sql """insert into ${tableName} values (8,  '{"l" : 2}'),(20,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
@@ -74,19 +79,18 @@ suite("test_compaction_variant") {
             insert.call();
             insert.call();
             qt_sql_1 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
-            qt_sql_2 "select k, cast(v:a as array<int>) from  ${tableName} where  size(cast(v:a as array<int>)) > 0 order by k"
-            qt_sql_3 "select k, v:a, cast(v:b as string) from  ${tableName} where  length(cast(v:b as string)) > 4 order  by k"
-            // qt_sql_4 "select k, cast(v:b as string), cast(v:a as string), cast(v:c as string) from  ${tableName} where  order by k  limit 5"
-            qt_sql_5 "select cast(v:b as string), cast(v:b.c as string) from  ${tableName} where cast(v:b as string) != 'null' or cast(v:b as string) != '{}' order by k desc limit 10;" 
+            qt_sql_2 "select k, cast(v['a'] as array<int>) from  ${tableName} where  size(cast(v['a'] as array<int>)) > 0 order by k"
+            qt_sql_3 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
+            qt_sql_5 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' or cast(v['b'] as string) != '{}' order by k desc, 1, 2 limit 10;"
 
 
             //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
-            String[][] tablets = sql """ show tablets from ${tableName}; """
+            def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
             // trigger compactions for all tablets in ${tableName}
-            for (String[] tablet in tablets) {
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
+            for (def tablet in tablets) {
+                String tablet_id = tablet.TabletId
+                backend_id = tablet.BackendId
                 (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
@@ -101,12 +105,12 @@ suite("test_compaction_variant") {
             }
 
             // wait for all compactions done
-            for (String[] tablet in tablets) {
+            for (def tablet in tablets) {
                 boolean running = true
                 do {
                     Thread.sleep(1000)
-                    String tablet_id = tablet[0]
-                    backend_id = tablet[2]
+                    String tablet_id = tablet.TabletId
+                    backend_id = tablet.BackendId
                     (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                     logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                     assertEquals(code, 0)
@@ -117,10 +121,9 @@ suite("test_compaction_variant") {
             }
 
             int rowCount = 0
-            for (String[] tablet in tablets) {
-                String tablet_id = tablet[0]
-                def compactionStatusUrlIndex = 18
-                (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
+            for (def tablet in tablets) {
+                String tablet_id = tablet.TabletId
+                (code, out, err) = curl("GET", tablet.CompactionStatus)
                 logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def tabletJson = parseJson(out.trim())
@@ -131,10 +134,9 @@ suite("test_compaction_variant") {
             }
             // assert (rowCount < 8)
             qt_sql_11 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
-            qt_sql_22 "select k, cast(v:a as array<int>) from  ${tableName} where  size(cast(v:a as array<int>)) > 0 order by k"
-            qt_sql_33 "select k, v:a, cast(v:b as string) from  ${tableName} where  length(cast(v:b as string)) > 4 order  by k"
-            // qt_sql_44 "select k, cast(v:b as string), cast(v:a as string), cast(v:c as string) from  ${tableName} order by k  limit 5"
-            qt_sql_55 "select cast(v:b as string), cast(v:b.c as string) from  ${tableName} where cast(v:b as string) != 'null' and cast(v:b as string) != '{}' order by k desc limit 10;" 
+            qt_sql_22 "select k, cast(v['a'] as array<int>) from  ${tableName} where  size(cast(v['a'] as array<int>)) > 0 order by k"
+            qt_sql_33 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
+            qt_sql_55 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) != '{}' order by k desc limit 10;" 
         }
 
     } finally {

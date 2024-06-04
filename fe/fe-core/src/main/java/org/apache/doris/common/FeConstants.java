@@ -34,7 +34,6 @@ public class FeConstants {
     public static int shortkey_max_column_count = 3;
     public static int shortkey_maxsize_bytes = 36;
 
-    public static int heartbeat_interval_second = 5;
     public static int checkpoint_interval_second = 60; // 1 minutes
 
     // dpp version
@@ -64,6 +63,9 @@ public class FeConstants {
     // use \N to indicate NULL
     public static String null_string = "\\N";
 
+    // use for copy into test
+    public static boolean disablePreHeat = false;
+
     public static final String FS_PREFIX_S3 = "s3";
     public static final String FS_PREFIX_S3A = "s3a";
     public static final String FS_PREFIX_S3N = "s3n";
@@ -81,7 +83,12 @@ public class FeConstants {
     public static final String FS_PREFIX_FILE = "file";
 
     public static final String INTERNAL_DB_NAME = "__internal_schema";
+    public static final String INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME = "cloud_cache_hotspot";
     public static String TEMP_MATERIZLIZE_DVIEW_PREFIX = "internal_tmp_materialized_view_";
 
     public static String METADATA_FAILURE_RECOVERY_KEY = "metadata_failure_recovery";
+
+    public static String CLOUD_RETRY_E230 = "E-230";
+
+    public static String BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
 }

@@ -64,5 +64,54 @@ suite("adjust_nullable") {
     order by
       subq_1.gid;
     """
+
+    sql """
+        drop table if exists table_7_undef_undef;
+    """
+    sql """
+        drop table if exists table_8_undef_undef;
+    """
+    sql """
+        create table table_7_undef_undef (`pk` int,`col_int_undef_signed` int  ,`col_varchar_10__undef_signed` varchar(10)  ,`col_varchar_1024__undef_signed` varchar(1024)  ) engine=olap distributed by hash(pk) buckets 10 properties(    'replication_num' = '1');
+    """
+    sql """
+        create table table_8_undef_undef (`pk` int,`col_int_undef_signed` int  ,`col_varchar_10__undef_signed` varchar(10)  ,`col_varchar_1024__undef_signed` varchar(1024)  ) engine=olap distributed by hash(pk) buckets 10 properties(    'replication_num' = '1');
+    """
+
+    sql """
+        insert into table_7_undef_undef values (0,6,"didn't","was"),(1,1,"mean",'k'),(2,2,'i','i'),(3,null,'y','p'),(4,8,"you're","and"),(5,6,'i','o'),(6,null,"have","not");
+    """
+    sql """
+        insert into table_8_undef_undef values (0,null,"one",'m'),(1,null,"got",'m'),(2,9,'m','b'),(3,null,"say",'p'),(4,null,'t',"yeah"),(5,null,'y',"because"),(6,null,"from",'q'),(7,null,"the","in");
+    """
+
+    qt_distinct_sum """
+        SELECT    SUM( DISTINCT alias1 . `col_int_undef_signed` ) AS field1 FROM  table_7_undef_undef AS alias1  LEFT  JOIN table_8_undef_undef AS alias2 ON alias1 . `col_varchar_1024__undef_signed` = alias2 . `col_varchar_1024__undef_signed`  WHERE alias2 . `pk` >= alias2 . `col_int_undef_signed`  HAVING field1 <> 8 ORDER BY field1  , field1  ; 
+    """
+
+    sql """
+        drop table if exists table_7_undef_undef;
+    """
+    sql """
+        drop table if exists table_8_undef_undef;
+    """
+
+    sql """
+        drop table if exists orders_2_x;
+    """
+
+    sql """CREATE TABLE `orders_2_x` (
+        `o_orderdate` DATE not NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`o_orderdate`)
+        DISTRIBUTED BY HASH(`o_orderdate`) BUCKETS 96
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );"""
+
+    explain {
+            sql("verbose insert into orders_2_x values ( '2023-10-17'),( '2023-10-17');")
+            notContains("nullable=true")
+    }
 }
 

@@ -26,7 +26,7 @@ suite("test_uniq_tab_decimalv2") {
       `decimal_key1` decimalv2(8, 5) NULL COMMENT "",
       `decimal_key2` decimalv2(16, 5) NULL COMMENT "",
       `decimal_value1` decimalv2(8, 5) NULL COMMENT "",
-      `decimal_value2` decimalv2(16, 5) NULL COMMENT "",
+      `decimal_value2` decimalv2(16, 5) NULL COMMENT ""
     ) ENGINE=OLAP
     UNIQUE KEY(`decimal_key1`, `decimal_key2`)
     COMMENT "OLAP"

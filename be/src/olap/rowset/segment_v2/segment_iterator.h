@@ -76,18 +76,20 @@ struct ColumnPredicateInfo {
     std::string debug_string() const {
         std::stringstream ss;
         ss << "column_name=" << column_name << ", query_op=" << query_op
-           << ", query_value=" << query_value;
+           << ", query_value=" << join(query_values, ",");
         return ss.str();
     }
 
-    bool is_empty() const { return column_name.empty() && query_value.empty() && query_op.empty(); }
+    bool is_empty() const {
+        return column_name.empty() && query_values.empty() && query_op.empty();
+    }
 
     bool is_equal(const ColumnPredicateInfo& column_pred_info) const {
         if (column_pred_info.column_name != column_name) {
             return false;
         }
 
-        if (column_pred_info.query_value != query_value) {
+        if (column_pred_info.query_values != query_values) {
             return false;
         }
 
@@ -99,7 +101,7 @@ struct ColumnPredicateInfo {
     }
 
     std::string column_name;
-    std::string query_value;
+    std::vector<std::string> query_values;
     std::string query_op;
 };
 
@@ -122,7 +124,7 @@ public:
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const override { return _segment->id(); }
     RowsetId rowset_id() const { return _segment->rowset_id(); }
-    int32_t tablet_id() const { return _tablet_id; }
+    int64_t tablet_id() const { return _tablet_id; }
 
     bool update_profile(RuntimeProfile* profile) override {
         bool updated = false;
@@ -188,8 +190,6 @@ private:
             std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
             bool* continue_apply);
     [[nodiscard]] Status _apply_index_except_leafnode_of_andnode();
-    [[nodiscard]] Status _apply_bitmap_index_except_leafnode_of_andnode(
-            ColumnPredicate* pred, roaring::Roaring* output_result);
     [[nodiscard]] Status _apply_inverted_index_except_leafnode_of_andnode(
             ColumnPredicate* pred, roaring::Roaring* output_result);
     bool _column_has_fulltext_index(int32_t cid);
@@ -219,8 +219,8 @@ private:
     [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
                                                 bool set_block_rowid);
     void _replace_version_col(size_t num_rows);
-    void _init_current_block(vectorized::Block* block,
-                             std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
+    Status _init_current_block(vectorized::Block* block,
+                               std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     void _output_non_pred_columns(vectorized::Block* block);
@@ -251,8 +251,8 @@ private:
             if (block_cid >= block->columns()) {
                 continue;
             }
-            vectorized::DataTypePtr storage_type =
-                    _segment->get_data_type_of(*_schema->column(cid), false);
+            vectorized::DataTypePtr storage_type = _segment->get_data_type_of(
+                    _schema->column(cid)->path(), _schema->column(cid)->is_nullable(), false);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 vectorized::MutableColumnPtr tmp = storage_type->create_column();
@@ -276,6 +276,8 @@ private:
     bool _can_evaluated_by_vectorized(ColumnPredicate* predicate);
 
     [[nodiscard]] Status _extract_common_expr_columns(const vectorized::VExprSPtr& expr);
+    // same with _extract_common_expr_columns, but only extract columns that can be used for index
+    [[nodiscard]] Status _extract_common_expr_columns_for_index(const vectorized::VExprSPtr& expr);
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               vectorized::Block* block);
     uint16_t _evaluate_common_expr_filter(uint16_t* sel_rowid_idx, uint16_t selected_size,
@@ -286,9 +288,7 @@ private:
 
     void _convert_dict_code_for_predicate_if_necessary_impl(ColumnPredicate* predicate);
 
-    void _update_max_row(const vectorized::Block* block);
-
-    bool _check_apply_by_bitmap_index(ColumnPredicate* pred);
+    bool _check_apply_by_inverted_index(ColumnId col_id);
     bool _check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound = false);
 
     std::string _gen_predicate_result_sign(ColumnPredicate* predicate);
@@ -380,6 +380,13 @@ private:
 
     Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
 
+    bool _no_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
+                                size_t nrows_read);
+
+    bool _has_delete_predicate(ColumnId cid);
+
+    bool _can_opt_topn_reads() const;
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -407,6 +414,7 @@ private:
     // columns to read after predicate evaluation and remaining expr execute
     std::vector<ColumnId> _non_predicate_columns;
     std::set<ColumnId> _common_expr_columns;
+    std::set<ColumnId> _common_expr_columns_for_index;
     // remember the rowids we've read for the current row block.
     // could be a local variable of next_batch(), kept here to reuse vector memory
     std::vector<rowid_t> _block_rowids;
@@ -440,9 +448,6 @@ private:
     // the actual init process is delayed to the first call to next_batch()
     bool _lazy_inited;
     bool _inited;
-    bool _estimate_row_size;
-    // Read up to 100 rows at a time while waiting for the estimated row size.
-    int _wait_times_estimate_row_size;
 
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes
@@ -456,8 +461,6 @@ private:
     std::unordered_map<std::string, std::vector<ColumnPredicateInfo>>
             _column_pred_in_remaining_vconjunct;
     std::set<ColumnId> _not_apply_index_pred;
-
-    std::shared_ptr<ColumnPredicate> _runtime_predicate;
 
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`
@@ -480,17 +483,19 @@ private:
     uint32_t _current_batch_rows_read = 0;
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
-    vector<uint16_t> _sel_rowid_idx;
+    std::vector<uint16_t> _sel_rowid_idx;
 
     std::unique_ptr<ObjectPool> _pool;
 
     // used to collect filter information.
     std::vector<ColumnPredicate*> _filter_info_id;
     bool _record_rowids = false;
-    int32_t _tablet_id = 0;
+    int64_t _tablet_id = 0;
     std::set<int32_t> _output_columns;
 
     std::unique_ptr<HierarchicalDataReader> _path_reader;
+
+    std::vector<uint8_t> _ret_flags;
 };
 
 } // namespace segment_v2

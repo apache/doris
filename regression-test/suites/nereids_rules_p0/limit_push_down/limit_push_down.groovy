@@ -17,10 +17,15 @@
 
 suite("limit_push_down") {
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "use regression_test_nereids_rules_p0"
     sql """ SET inline_cte_referenced_threshold=0 """
-    sql "set disable_join_reorder=true"
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "SET disable_join_reorder=true"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
+
     sql 'set be_number_for_test=3'
     //`limit 1, project`:
     qt_limit_project """ explain shape plan SELECT t1.id as c FROM t1 LIMIT 1; """
@@ -88,11 +93,11 @@ suite("limit_push_down") {
     // `limit 1, nested subquery`:
     qt_limit_nested_subquery """explain shape plan SELECT * FROM (SELECT * FROM (SELECT t1.id FROM t1) AS subq1) AS subq2 LIMIT 1;"""
     // `limit 1, union, filter`:
-    qt_limit_union_filter """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 WHERE t1.id > 100 UNION SELECT t2.id FROM t2 WHERE t2.id > 100) u LIMIT 1;"""
+    qt_limit_union_filter """explain shape plan SELECT * FROM (SELECT t1.msg FROM t1 WHERE t1.msg > 100 UNION ALL SELECT t2.id FROM t2 WHERE t2.id > 100) u LIMIT 1;"""
     // `limit 1, union, join`:
-    qt_limit_union_join """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id UNION SELECT t3.id FROM t3 LEFT OUTER JOIN t4 ON t3.id = t4.id) u LIMIT 1;"""
+    qt_limit_union_join """explain shape plan SELECT * FROM (SELECT t1.msg FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id UNION ALL SELECT t3.msg FROM t3 LEFT OUTER JOIN t4 ON t3.id = t4.id) u LIMIT 1;"""
     // `limit 1, union, window`:
-    qt_limit_union_window """explain shape plan SELECT * FROM (SELECT id, msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t1 UNION SELECT id, msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t2) u LIMIT 1;"""
+    qt_limit_union_window """explain shape plan SELECT * FROM (SELECT msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t1 UNION ALL SELECT msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t2) u LIMIT 1;"""
     // `limit 1, subquery, join, filter`:
     qt_limit_subquery_join_filter """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id WHERE t1.id > 100) AS subq LIMIT 1;"""
 
@@ -100,7 +105,7 @@ suite("limit_push_down") {
     qt_limit_subquery_join_window """explain shape plan SELECT id, msg, ROW_NUMBER() OVER (PARTITION BY subq.id ORDER BY subq.id) AS row_num FROM (SELECT t1.id, t1.msg FROM t1 left outer JOIN t2 ON t1.id = t2.id) AS subq LIMIT 1;"""
 
     // `limit 1, subquery, union, filter`:
-    qt_limit_subquery_union_filter """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 WHERE t1.id > 100 UNION SELECT t2.id FROM t2 WHERE t2.id > 100) AS subq LIMIT 1;"""
+    qt_limit_subquery_union_filter """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 WHERE t1.id > 100 UNION ALL SELECT t2.id FROM t2 WHERE t2.id > 100) AS subq LIMIT 1;"""
 
     // `limit 1, subquery, union, join`:
     qt_limit_subquery_union_join """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id UNION SELECT t3.id FROM t3 JOIN t4 ON t3.id = t4.id) AS subq LIMIT 1;"""

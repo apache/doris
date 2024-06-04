@@ -37,17 +37,21 @@ public class DecimalV2Type extends FractionalType {
 
     public static int MAX_PRECISION = 27;
     public static int MAX_SCALE = 9;
-    public static final DecimalV2Type SYSTEM_DEFAULT = new DecimalV2Type(MAX_PRECISION, MAX_SCALE);
-    public static final DecimalV2Type CATALOG_DEFAULT = new DecimalV2Type(DEFAULT_PRECISION, DEFAULT_SCALE);
+    public static final DecimalV2Type SYSTEM_DEFAULT = new DecimalV2Type(MAX_PRECISION, MAX_SCALE, true);
+    public static final DecimalV2Type SYSTEM_DEFAULT_NOT_CONVERSION =
+            new DecimalV2Type(MAX_PRECISION, MAX_SCALE, false);
+    public static final DecimalV2Type CATALOG_DEFAULT = new DecimalV2Type(DEFAULT_PRECISION, DEFAULT_SCALE, true);
+    public static final DecimalV2Type CATALOG_DEFAULT_NOT_CONVERSION =
+            new DecimalV2Type(DEFAULT_PRECISION, DEFAULT_SCALE, false);
 
-    private static final DecimalV2Type BOOLEAN_DECIMAL = new DecimalV2Type(1, 0);
-    private static final DecimalV2Type TINYINT_DECIMAL = new DecimalV2Type(3, 0);
-    private static final DecimalV2Type SMALLINT_DECIMAL = new DecimalV2Type(5, 0);
-    private static final DecimalV2Type INTEGER_DECIMAL = new DecimalV2Type(10, 0);
-    private static final DecimalV2Type BIGINT_DECIMAL = new DecimalV2Type(20, 0);
-    private static final DecimalV2Type LARGEINT_DECIMAL = new DecimalV2Type(27, 0);
-    private static final DecimalV2Type FLOAT_DECIMAL = new DecimalV2Type(14, 7);
-    private static final DecimalV2Type DOUBLE_DECIMAL = new DecimalV2Type(27, 9);
+    private static final DecimalV2Type BOOLEAN_DECIMAL = new DecimalV2Type(1, 0, true);
+    private static final DecimalV2Type TINYINT_DECIMAL = new DecimalV2Type(3, 0, true);
+    private static final DecimalV2Type SMALLINT_DECIMAL = new DecimalV2Type(5, 0, true);
+    private static final DecimalV2Type INTEGER_DECIMAL = new DecimalV2Type(10, 0, true);
+    private static final DecimalV2Type BIGINT_DECIMAL = new DecimalV2Type(20, 0, true);
+    private static final DecimalV2Type LARGEINT_DECIMAL = new DecimalV2Type(27, 0, true);
+    private static final DecimalV2Type FLOAT_DECIMAL = new DecimalV2Type(14, 7, true);
+    private static final DecimalV2Type DOUBLE_DECIMAL = new DecimalV2Type(27, 9, true);
 
     private static final int WIDTH = 16;
 
@@ -68,14 +72,17 @@ public class DecimalV2Type extends FractionalType {
     private final int precision;
     private final int scale;
 
+    private final boolean shouldConversion;
+
     /**
      * constructors.
      */
-    private DecimalV2Type(int precision, int scale) {
+    private DecimalV2Type(int precision, int scale, boolean shouldConversion) {
         Preconditions.checkArgument(precision >= scale, "precision should not smaller than scale,"
                 + " but precision is " + precision, ", scale is " + scale);
         this.precision = precision;
         this.scale = scale;
+        this.shouldConversion = shouldConversion;
     }
 
     /** createDecimalV2Type. */
@@ -86,7 +93,7 @@ public class DecimalV2Type extends FractionalType {
         if (precision == CATALOG_DEFAULT.precision && scale == CATALOG_DEFAULT.scale) {
             return CATALOG_DEFAULT;
         }
-        return new DecimalV2Type(Math.min(precision, MAX_PRECISION), Math.min(scale, MAX_SCALE));
+        return new DecimalV2Type(Math.min(precision, MAX_PRECISION), Math.min(scale, MAX_SCALE), true);
     }
 
     public static DecimalV2Type createDecimalV2Type(BigDecimal bigDecimal) {
@@ -105,7 +112,22 @@ public class DecimalV2Type extends FractionalType {
         if (precision == CATALOG_DEFAULT.precision && scale == CATALOG_DEFAULT.scale) {
             return CATALOG_DEFAULT;
         }
-        return new DecimalV2Type(precision, scale);
+        return new DecimalV2Type(precision, scale, true);
+    }
+
+    /**
+     * create DecimalV2Type with appropriate scale, precision and shouldConversion flag,
+     * not truncate to MAX_PRECISION, MAX_SCALE.
+     */
+    public static DecimalV2Type createDecimalV2TypeWithoutTruncate(int precision, int scale,
+            boolean shouldConversion) {
+        if (precision == SYSTEM_DEFAULT.precision && scale == SYSTEM_DEFAULT.scale) {
+            return shouldConversion ? SYSTEM_DEFAULT : SYSTEM_DEFAULT_NOT_CONVERSION;
+        }
+        if (precision == CATALOG_DEFAULT.precision && scale == CATALOG_DEFAULT.scale) {
+            return shouldConversion ? CATALOG_DEFAULT : CATALOG_DEFAULT_NOT_CONVERSION;
+        }
+        return new DecimalV2Type(precision, scale, shouldConversion);
     }
 
     /**
@@ -151,9 +173,13 @@ public class DecimalV2Type extends FractionalType {
         return scale;
     }
 
+    public int getRange() {
+        return precision - scale;
+    }
+
     @Override
     public DataType conversion() {
-        if (Config.enable_decimal_conversion) {
+        if (Config.enable_decimal_conversion && shouldConversion) {
             return DecimalV3Type.createDecimalV3Type(precision, scale);
         }
         Preconditions.checkArgument(precision > 0 && precision <= MAX_PRECISION,
@@ -209,4 +235,3 @@ public class DecimalV2Type extends FractionalType {
     }
 
 }
-

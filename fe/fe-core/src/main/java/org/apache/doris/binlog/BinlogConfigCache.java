@@ -41,6 +41,8 @@ public class BinlogConfigCache {
         lock = new ReentrantReadWriteLock();
     }
 
+    // Get the binlog config of the specified db, return null if no such database
+    // exists.
     public BinlogConfig getDBBinlogConfig(long dbId) {
         lock.readLock().lock();
         BinlogConfig binlogConfig = dbTableBinlogEnableMap.get(dbId);
@@ -97,7 +99,7 @@ public class BinlogConfigCache {
                 return null;
             }
 
-            Table table = db.getTableOrMetaException(tableId);
+            Table table = db.getTableNullable(tableId);
             if (table == null) {
                 LOG.warn("fail to get table. db: {}, table id: {}", db.getFullName(), tableId);
                 return null;
@@ -109,6 +111,9 @@ public class BinlogConfigCache {
 
             OlapTable olapTable = (OlapTable) table;
             tableBinlogConfig = olapTable.getBinlogConfig();
+            // get table binlog config, when table modify binlogConfig
+            // it create a new binlog, not update inplace, so we don't need to clone
+            // binlogConfig
             dbTableBinlogEnableMap.put(tableId, tableBinlogConfig);
             return tableBinlogConfig;
         } catch (Exception e) {

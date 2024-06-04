@@ -22,49 +22,17 @@
 #include <cstdint>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/common/sort/partition_sorter.h"
-#include "vec/exec/vpartition_sort_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class PartitionSortSinkOperatorBuilder final
-        : public OperatorBuilder<vectorized::VPartitionSortNode> {
-public:
-    PartitionSortSinkOperatorBuilder(int32_t id, ExecNode* sort_node)
-            : OperatorBuilder(id, "PartitionSortSinkOperator", sort_node) {}
-
-    bool is_sink() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class PartitionSortSinkOperator final : public StreamingOperator<PartitionSortSinkOperatorBuilder> {
-public:
-    PartitionSortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node)
-            : StreamingOperator(operator_builder, sort_node) {};
-
-    bool can_write() override { return true; }
-};
-
-class PartitionSortSinkDependency final : public Dependency {
-public:
-    using SharedState = PartitionSortNodeSharedState;
-    PartitionSortSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "PartitionSortSinkDependency", true, query_ctx) {}
-    ~PartitionSortSinkDependency() override = default;
-};
+namespace doris::pipeline {
 
 class PartitionSortSinkOperatorX;
-class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSortSinkDependency> {
+class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSortNodeSharedState> {
     ENABLE_FACTORY_CREATOR(PartitionSortSinkLocalState);
 
 public:
     PartitionSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<PartitionSortSinkDependency>(parent, state) {}
+            : PipelineXSinkLocalState<PartitionSortNodeSharedState>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -81,13 +49,14 @@ private:
     std::unique_ptr<vectorized::PartitionedHashMapVariants> _partitioned_data;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     int _partition_exprs_num = 0;
+    std::shared_ptr<vectorized::PartitionSortInfo> _partition_sort_info = nullptr;
 
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _emplace_key_timer = nullptr;
     RuntimeProfile::Counter* _selector_block_timer = nullptr;
-
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
-    void _init_hash_method();
+    RuntimeProfile::Counter* _passthrough_rows_counter = nullptr;
+    Status _init_hash_method();
 };
 
 class PartitionSortSinkOperatorX final : public DataSinkOperatorX<PartitionSortSinkLocalState> {
@@ -103,39 +72,36 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
-    ExchangeType get_local_exchange_type() const override {
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    DataDistribution required_data_distribution() const override {
         if (_topn_phase == TPartTopNPhase::TWO_PHASE_GLOBAL) {
-            return ExchangeType::NOOP;
+            return DataSinkOperatorX<PartitionSortSinkLocalState>::required_data_distribution();
         }
-        return ExchangeType::PASSTHROUGH;
+        return {ExchangeType::PASSTHROUGH};
     }
 
 private:
     friend class PartitionSortSinkLocalState;
     ObjectPool* _pool = nullptr;
     const RowDescriptor _row_descriptor;
-    int64_t _limit = -1;
-    int _partition_exprs_num = 0;
+    const int64_t _limit = -1;
+    const int _partition_exprs_num = 0;
+    const TPartTopNPhase::type _topn_phase;
+    const bool _has_global_limit = false;
+    const TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::ROW_NUMBER;
+    const int64_t _partition_inner_limit = 0;
+
     vectorized::VExprContextSPtrs _partition_expr_ctxs;
-
-    TPartTopNPhase::type _topn_phase;
-
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
-    TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::ROW_NUMBER;
-    bool _has_global_limit = false;
-    int64_t _partition_inner_limit = 0;
 
-    Status _split_block_by_partition(vectorized::Block* input_block, int batch_size,
-                                     PartitionSortSinkLocalState& local_state);
-    void _emplace_into_hash_table(const vectorized::ColumnRawPtrs& key_columns,
-                                  const vectorized::Block* input_block, int batch_size,
-                                  PartitionSortSinkLocalState& local_state);
+    Status _split_block_by_partition(vectorized::Block* input_block,
+                                     PartitionSortSinkLocalState& local_state, bool eos);
+    Status _emplace_into_hash_table(const vectorized::ColumnRawPtrs& key_columns,
+                                    const vectorized::Block* input_block,
+                                    PartitionSortSinkLocalState& local_state, bool eos);
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

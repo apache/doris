@@ -26,26 +26,15 @@ import org.apache.logging.log4j.Logger;
 public class ResourcePrivTable extends PrivTable {
     private static final Logger LOG = LogManager.getLogger(ResourcePrivTable.class);
 
-    /*
-     * Return first priv which match the user@host on resourceName The returned priv will be
-     * saved in 'savedPrivs'.
-     */
     public void getPrivs(String resourceName, PrivBitSet savedPrivs) {
-        ResourcePrivEntry matchedEntry = null;
+        // need check all entries, because may have 2 entries match resourceName,
+        // For example, if the resourceName is g1, there are two entry `%` and `g1` compound requirements
         for (PrivEntry entry : entries) {
             ResourcePrivEntry resourcePrivEntry = (ResourcePrivEntry) entry;
             // check resource
-            if (!resourcePrivEntry.getResourcePattern().match(resourceName)) {
-                continue;
+            if (resourcePrivEntry.getResourcePattern().match(resourceName)) {
+                savedPrivs.or(resourcePrivEntry.getPrivSet());
             }
-
-            matchedEntry = resourcePrivEntry;
-            break;
         }
-        if (matchedEntry == null) {
-            return;
-        }
-
-        savedPrivs.or(matchedEntry.getPrivSet());
     }
 }

@@ -41,7 +41,6 @@ import java.time.temporal.ChronoField;
 public class DateTimeFormatterUtils {
     public static final DateTimeFormatter ZONE_FORMATTER = new DateTimeFormatterBuilder()
             .optionalStart()
-            // .appendZoneText(TextStyle.FULL)
             .appendZoneOrOffsetId()
             .optionalEnd()
             .toFormatter()
@@ -56,8 +55,9 @@ public class DateTimeFormatterUtils {
             .appendValue(ChronoField.HOUR_OF_DAY, 2)
             .appendLiteral(':').appendValue(ChronoField.MINUTE_OF_HOUR, 2)
             .appendLiteral(':').appendValue(ChronoField.SECOND_OF_MINUTE, 2)
+            // microsecond maxWidth is 7, we may need 7th digit to judge overflow
             .appendOptional(new DateTimeFormatterBuilder()
-                    .appendFraction(ChronoField.MICRO_OF_SECOND, 1, 6, true).toFormatter())
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, 7, true).toFormatter())
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     // Time without delimiter: HHmmss[.microsecond]
     private static final DateTimeFormatter BASIC_TIME_FORMATTER = new DateTimeFormatterBuilder()
@@ -65,7 +65,7 @@ public class DateTimeFormatterUtils {
             .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
             .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
             .appendOptional(new DateTimeFormatterBuilder()
-                    .appendFraction(ChronoField.MICRO_OF_SECOND, 1, 6, true).toFormatter())
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, 7, true).toFormatter())
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     // yyyymmdd
     private static final DateTimeFormatter BASIC_DATE_FORMATTER = new DateTimeFormatterBuilder()
@@ -78,11 +78,13 @@ public class DateTimeFormatterUtils {
             .append(BASIC_DATE_FORMATTER)
             .appendLiteral('T')
             .append(BASIC_TIME_FORMATTER)
+            .appendOptional(ZONE_FORMATTER)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     // Date without delimiter
     public static final DateTimeFormatter BASIC_FORMATTER_WITHOUT_T = new DateTimeFormatterBuilder()
             .append(BASIC_DATE_FORMATTER)
             .appendOptional(BASIC_TIME_FORMATTER)
+            .appendOptional(ZONE_FORMATTER)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
 
     // Datetime

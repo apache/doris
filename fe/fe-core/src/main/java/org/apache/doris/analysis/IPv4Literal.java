@@ -23,19 +23,18 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TIPv4Literal;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.regex.Pattern;
 
 public class IPv4Literal extends LiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(IPv4Literal.class);
 
     public static final long IPV4_MIN = 0L;             // 0.0.0.0
     public static final long IPV4_MAX = (2L << 31) - 1; // 255.255.255.255
     private static final Pattern IPV4_STD_REGEX =
             Pattern.compile("^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$");
 
+    @SerializedName("v")
     private long value;
 
     /**

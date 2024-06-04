@@ -75,8 +75,10 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         test_data_dir = std::string(buffer) + "/" + TMP_DATA_DIR;
         std::cout << "test data dir: " << test_data_dir << "\n";
-        static_cast<void>(
-                io::global_local_filesystem()->delete_and_create_directory(test_data_dir));
+        auto st = io::global_local_filesystem()->delete_directory(test_data_dir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(test_data_dir);
+        ASSERT_TRUE(st.ok()) << st;
 
         std::vector<StorePath> paths;
         paths.emplace_back(test_data_dir, -1);
@@ -334,7 +336,7 @@ TEST_F(TestBlockSpill, TestDecimal) {
                                   decimal_column.get())
                                  ->get_data();
     for (int i = 0; i < total_rows; ++i) {
-        __int128_t value = i * pow(10, 9) + i * pow(10, 8);
+        __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
         decimal_data.push_back(value);
     }
     vectorized::ColumnWithTypeAndName test_decimal(decimal_column->get_ptr(), decimal_data_type,
@@ -363,7 +365,7 @@ TEST_F(TestBlockSpill, TestDecimal) {
         auto* real_column =
                 (vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)column.get();
         for (size_t j = 0; j < batch_size; ++j) {
-            __int128_t value = (j + i * batch_size) * (pow(10, 9) + pow(10, 8));
+            __int128_t value = __int128_t((j + i * batch_size) * (pow(10, 9) + pow(10, 8)));
             EXPECT_EQ(real_column->get_element(j).value, value);
         }
     }
@@ -390,7 +392,7 @@ TEST_F(TestBlockSpill, TestDecimalNullable) {
         if ((i + 1) % batch_size == 0) {
             nullable_col->insert_data(nullptr, 0);
         } else {
-            __int128_t value = i * pow(10, 9) + i * pow(10, 8);
+            __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             nullable_col->insert_data((const char*)&value, sizeof(value));
         }
     }
@@ -425,7 +427,7 @@ TEST_F(TestBlockSpill, TestDecimalNullable) {
             if ((j + 1) % batch_size == 0) {
                 ASSERT_TRUE(real_column->is_null_at(j));
             } else {
-                __int128_t value = (j + i * batch_size) * (pow(10, 9) + pow(10, 8));
+                __int128_t value = __int128_t((j + i * batch_size) * (pow(10, 9) + pow(10, 8)));
                 EXPECT_EQ(decimal_col.get_element(j).value, value);
             }
         }
@@ -452,7 +454,7 @@ TEST_F(TestBlockSpill, TestBitmap) {
     vectorized::DataTypePtr bitmap_data_type(std::make_shared<vectorized::DataTypeBitMap>());
     auto bitmap_column = bitmap_data_type->create_column();
     std::vector<BitmapValue>& container =
-            ((vectorized::ColumnComplexType<BitmapValue>*)bitmap_column.get())->get_data();
+            ((vectorized::ColumnBitmap*)bitmap_column.get())->get_data();
     std::vector<std::string> expected_bitmap_str;
     for (int i = 0; i < total_rows; ++i) {
         BitmapValue bv;
@@ -485,7 +487,7 @@ TEST_F(TestBlockSpill, TestBitmap) {
 
         EXPECT_EQ(block_read.rows(), batch_size);
         auto column = block_read.get_by_position(0).column;
-        auto* real_column = (vectorized::ColumnComplexType<BitmapValue>*)column.get();
+        auto* real_column = (vectorized::ColumnBitmap*)column.get();
         for (size_t j = 0; j < batch_size; ++j) {
             auto bitmap_str = convert_bitmap_to_string(real_column->get_element(j));
             EXPECT_EQ(bitmap_str, expected_bitmap_str[j + i * batch_size]);
@@ -498,7 +500,7 @@ TEST_F(TestBlockSpill, TestBitmap) {
 
     EXPECT_EQ(block_read.rows(), 1);
     auto column = block_read.get_by_position(0).column;
-    auto* real_column = (vectorized::ColumnComplexType<BitmapValue>*)column.get();
+    auto* real_column = (vectorized::ColumnBitmap*)column.get();
     auto bitmap_str = convert_bitmap_to_string(real_column->get_element(0));
     EXPECT_EQ(bitmap_str, expected_bitmap_str[3 * batch_size]);
 }

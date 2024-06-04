@@ -200,7 +200,7 @@ public:
                       AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>>(
                       nested_function_, arguments) {}
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
         if (!column->is_null_at(row_num)) {
@@ -210,17 +210,29 @@ public:
         }
     }
 
-    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+    void add_batch(size_t batch_size, AggregateDataPtr* __restrict places, size_t place_offset,
                    const IColumn** columns, Arena* arena, bool agg_many) const override {
-        const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
-        // The overhead introduced is negligible here, just an extra memory read from NullMap
-        const auto* __restrict null_map_data = column->get_null_map_data().data();
+        const auto* column = assert_cast<const ColumnNullable*>(columns[0]);
         const IColumn* nested_column = &column->get_nested_column();
-        for (int i = 0; i < batch_size; ++i) {
-            if (!null_map_data[i]) {
-                AggregateDataPtr __restrict place = places[i] + place_offset;
-                this->set_flag(place);
-                this->nested_function->add(this->nested_place(place), &nested_column, i, arena);
+        if (column->has_null()) {
+            const auto* __restrict null_map_data = column->get_null_map_data().data();
+            for (int i = 0; i < batch_size; ++i) {
+                if (!null_map_data[i]) {
+                    AggregateDataPtr __restrict place = places[i] + place_offset;
+                    this->set_flag(place);
+                    this->nested_function->add(this->nested_place(place), &nested_column, i, arena);
+                }
+            }
+        } else {
+            if constexpr (result_is_nullable) {
+                for (int i = 0; i < batch_size; ++i) {
+                    AggregateDataPtr __restrict place = places[i] + place_offset;
+                    place[0] |= 1;
+                    this->nested_function->add(this->nested_place(place), &nested_column, i, arena);
+                }
+            } else {
+                this->nested_function->add_batch(batch_size, places, place_offset, &nested_column,
+                                                 arena, agg_many);
             }
         }
     }
@@ -289,15 +301,14 @@ public:
         }
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         /// This container stores the columns we really pass to the nested function.
-        const IColumn* nested_columns[number_of_arguments];
+        std::vector<const IColumn*> nested_columns(number_of_arguments);
 
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {
-                const ColumnNullable& nullable_col =
-                        assert_cast<const ColumnNullable&>(*columns[i]);
+                const auto& nullable_col = assert_cast<const ColumnNullable&>(*columns[i]);
                 if (nullable_col.is_null_at(row_num)) {
                     /// If at least one column has a null value in the current row,
                     /// we don't process this row.
@@ -310,7 +321,8 @@ public:
         }
 
         this->set_flag(place);
-        this->nested_function->add(this->nested_place(place), nested_columns, row_num, arena);
+        this->nested_function->add(this->nested_place(place), nested_columns.data(), row_num,
+                                   arena);
     }
 
     bool allocates_memory_in_arena() const override {

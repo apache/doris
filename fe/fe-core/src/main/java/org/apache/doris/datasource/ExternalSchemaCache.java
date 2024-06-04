@@ -18,49 +18,46 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
 
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
 
 // The schema cache for external table
 public class ExternalSchemaCache {
     private static final Logger LOG = LogManager.getLogger(ExternalSchemaCache.class);
     private final ExternalCatalog catalog;
 
-    private LoadingCache<SchemaCacheKey, ImmutableList<Column>> schemaCache;
+    private LoadingCache<SchemaCacheKey, Optional<SchemaCacheValue>> schemaCache;
 
-    public ExternalSchemaCache(ExternalCatalog catalog) {
+    public ExternalSchemaCache(ExternalCatalog catalog, ExecutorService executor) {
         this.catalog = catalog;
-        init();
+        init(executor);
         initMetrics();
     }
 
-    private void init() {
-        schemaCache = CacheBuilder.newBuilder().maximumSize(Config.max_external_schema_cache_num)
-                .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
-                .build(new CacheLoader<SchemaCacheKey, ImmutableList<Column>>() {
-                    @Override
-                    public ImmutableList<Column> load(SchemaCacheKey key) {
-                        return loadSchema(key);
-                    }
-                });
+    private void init(ExecutorService executor) {
+        CacheFactory schemaCacheeFactory = new CacheFactory(
+                OptionalLong.of(86400L),
+                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                Config.max_external_schema_cache_num,
+                false,
+                null);
+        schemaCache = schemaCacheeFactory.buildCache(key -> loadSchema(key), null, executor);
     }
 
     private void initMetrics() {
@@ -69,35 +66,37 @@ public class ExternalSchemaCache {
                 Metric.MetricUnit.NOUNIT, "external schema cache number") {
             @Override
             public Long getValue() {
-                return schemaCache.size();
+                return schemaCache.estimatedSize();
             }
         };
         schemaCacheGauge.addLabel(new MetricLabel("catalog", catalog.getName()));
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(schemaCacheGauge);
     }
 
-    private ImmutableList<Column> loadSchema(SchemaCacheKey key) {
-        ImmutableList<Column> schema = ImmutableList.copyOf(catalog.getSchema(key.dbName, key.tblName));
+    private Optional<SchemaCacheValue> loadSchema(SchemaCacheKey key) {
+        Optional<SchemaCacheValue> schema = catalog.getSchema(key.dbName, key.tblName);
         if (LOG.isDebugEnabled()) {
             LOG.debug("load schema for {} in catalog {}", key, catalog.getName());
         }
         return schema;
     }
 
-    public List<Column> getSchema(String dbName, String tblName) {
+    public Optional<SchemaCacheValue> getSchemaValue(String dbName, String tblName) {
         SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
-        try {
-            return schemaCache.get(key);
-        } catch (ExecutionException e) {
-            throw new CacheException("failed to get schema for %s in catalog %s. err: %s",
-                    e, key, catalog.getName(), Util.getRootCauseMessage(e));
-        }
+        return schemaCache.get(key);
+    }
+
+    public void addSchemaForTest(String dbName, String tblName, ImmutableList<Column> schema) {
+        SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
+        schemaCache.put(key, Optional.of(new SchemaCacheValue(schema)));
     }
 
     public void invalidateTableCache(String dbName, String tblName) {
         SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
         schemaCache.invalidate(key);
-        LOG.debug("invalid schema cache for {}.{} in catalog {}", dbName, tblName, catalog.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid schema cache for {}.{} in catalog {}", dbName, tblName, catalog.getName());
+        }
     }
 
     public void invalidateDbCache(String dbName) {
@@ -108,13 +107,17 @@ public class ExternalSchemaCache {
                 schemaCache.invalidate(key);
             }
         }
-        LOG.debug("invalid schema cache for db {} in catalog {} cost: {} ms", dbName, catalog.getName(),
-                (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid schema cache for db {} in catalog {} cost: {} ms", dbName, catalog.getName(),
+                    (System.currentTimeMillis() - start));
+        }
     }
 
     public void invalidateAll() {
         schemaCache.invalidateAll();
-        LOG.debug("invalid all schema cache in catalog {}", catalog.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid all schema cache in catalog {}", catalog.getName());
+        }
     }
 
     @Data

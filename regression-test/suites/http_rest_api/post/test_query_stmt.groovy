@@ -21,7 +21,7 @@ import groovy.json.JsonSlurper
 *   @Params url is "/xxx", data is request body
 *   @Return response body
 */
-def http_post(url, data = null) {
+def http_post = { url, data = null ->
     def dst = "http://"+ context.config.feHttpAddress
     def conn = new URL(dst + url).openConnection()
     conn.setRequestMethod("POST")

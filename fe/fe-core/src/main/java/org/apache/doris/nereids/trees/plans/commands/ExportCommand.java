@@ -73,6 +73,7 @@ import java.util.stream.Collectors;
 public class ExportCommand extends Command implements ForwardWithSync {
     public static final String PARALLELISM = "parallelism";
     public static final String LABEL = "label";
+    public static final String DATA_CONSISTENCY = "data_consistency";
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_PARALLELISM = "1";
@@ -81,6 +82,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(LABEL)
             .add(PARALLELISM)
+            .add(DATA_CONSISTENCY)
             .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
@@ -88,6 +90,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
             .add(PropertyAnalyzer.PROPERTIES_LINE_DELIMITER)
             .add(PropertyAnalyzer.PROPERTIES_TIMEOUT)
             .add("format")
+            .add(OutFileClause.PROP_WITH_BOM)
             .build();
 
     private final List<String> nameParts;
@@ -126,8 +129,9 @@ public class ExportCommand extends Command implements ForwardWithSync {
                 qualifiedTableName.get(2));
 
         // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tblName.getDb(), tblName.getTbl(),
-                PrivPredicate.SELECT)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ctx, tblName.getCtl(), tblName.getDb(), tblName.getTbl(),
+                        PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "EXPORT",
                     ctx.getQualifiedUser(),
                     ctx.getRemoteIP(),
@@ -245,7 +249,6 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setTableName(tblName);
         exportJob.setExportTable(table);
         exportJob.setTableId(table.getId());
-
         // set partitions
         exportJob.setPartitionNames(this.partitionsNames);
         // set where expression
@@ -266,6 +269,9 @@ public class ExportCommand extends Command implements ForwardWithSync {
         // set format
         exportJob.setFormat(fileProperties.getOrDefault(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE, "csv")
                 .toLowerCase());
+
+        // set withBom
+        exportJob.setWithBom(fileProperties.getOrDefault(OutFileClause.PROP_WITH_BOM, "false"));
 
         // set parallelism
         int parallelism;
@@ -303,6 +309,19 @@ public class ExportCommand extends Command implements ForwardWithSync {
         // set sessions
         exportJob.setQualifiedUser(ctx.getQualifiedUser());
         exportJob.setUserIdentity(ctx.getCurrentUserIdentity());
+
+        // set data consistency
+        if (fileProperties.containsKey(DATA_CONSISTENCY)) {
+            String dataConsistencyStr = fileProperties.get(DATA_CONSISTENCY);
+            if (ExportJob.CONSISTENT_NONE.equalsIgnoreCase(dataConsistencyStr)) {
+                exportJob.setDataConsistency(ExportJob.CONSISTENT_NONE);
+            } else if (ExportJob.CONSISTENT_PARTITION.equalsIgnoreCase(dataConsistencyStr)) {
+                exportJob.setDataConsistency(ExportJob.CONSISTENT_PARTITION);
+            } else {
+                throw new AnalysisException("The value of data_consistency is invalid, please use `"
+                        + ExportJob.CONSISTENT_PARTITION + "`/`" + ExportJob.CONSISTENT_NONE + "`");
+            }
+        }
 
         // Must copy session variable, because session variable may be changed during export job running.
         SessionVariable clonedSessionVariable = VariableMgr.cloneSessionVariable(Optional.ofNullable(

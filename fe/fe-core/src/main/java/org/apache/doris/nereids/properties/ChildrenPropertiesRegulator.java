@@ -102,15 +102,28 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
 
     @Override
     public Boolean visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, Void context) {
+        if (agg.getGroupByExpressions().isEmpty() && agg.getOutputExpressions().isEmpty()) {
+            return false;
+        }
         if (!agg.getAggregateParam().canBeBanned) {
             return true;
         }
-        // forbid one phase agg on distribute and three or four stage distinct agg inter by distribute
-        if ((agg.getAggMode() == AggMode.INPUT_TO_RESULT || agg.getAggMode() == AggMode.BUFFER_TO_BUFFER)
-                && children.get(0).getPlan() instanceof PhysicalDistribute) {
+        // forbid one phase agg on distribute
+        if (agg.getAggMode() == AggMode.INPUT_TO_RESULT && children.get(0).getPlan() instanceof PhysicalDistribute) {
             // this means one stage gather agg, usually bad pattern
             return false;
         }
+        // forbid three or four stage distinct agg inter by distribute
+        if (agg.getAggMode() == AggMode.BUFFER_TO_BUFFER && children.get(0).getPlan() instanceof PhysicalDistribute) {
+            // if distinct without group by key, we prefer three or four stage distinct agg
+            // because the second phase of multi-distinct only have one instance, and it is slow generally.
+            if (agg.getGroupByExpressions().size() == 1
+                    && agg.getOutputExpressions().size() == 1) {
+                return true;
+            }
+            return false;
+        }
+
         // forbid TWO_PHASE_AGGREGATE_WITH_DISTINCT after shuffle
         // TODO: this is forbid good plan after cte reuse by mistake
         if (agg.getAggMode() == AggMode.INPUT_TO_BUFFER
@@ -158,6 +171,11 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                         return false;
                     }
                 }
+                // if distinct without group by key, we prefer three or four stage distinct agg
+                // because the second phase of multi-distinct only have one instance, and it is slow generally.
+                if (agg.getOutputExpressions().size() == 1 && agg.getGroupByExpressions().isEmpty()) {
+                    return false;
+                }
             }
         }
         // process must shuffle
@@ -189,10 +207,23 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         return true;
     }
 
-    private boolean couldNotRightBucketShuffleJoin(JoinType joinType) {
-        return joinType == JoinType.RIGHT_ANTI_JOIN
+    private boolean isBucketShuffleDownGrade(DistributionSpecHash srcSideSpec) {
+        boolean isBucketShuffleDownGrade = ConnectContext.get().getSessionVariable().isEnableBucketShuffleDownGrade();
+        if (!isBucketShuffleDownGrade) {
+            return false;
+        } else {
+            return srcSideSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED;
+        }
+    }
+
+    private boolean couldNotRightBucketShuffleJoin(JoinType joinType, DistributionSpecHash leftHashSpec,
+            DistributionSpecHash rightHashSpec) {
+        boolean isJoinTypeInScope = (joinType == JoinType.RIGHT_ANTI_JOIN
                 || joinType == JoinType.RIGHT_OUTER_JOIN
-                || joinType == JoinType.FULL_OUTER_JOIN;
+                || joinType == JoinType.FULL_OUTER_JOIN);
+        boolean isSpecInScope = (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
+                || rightHashSpec.getShuffleType() == ShuffleType.NATURAL);
+        return isJoinTypeInScope && isSpecInScope;
     }
 
     @Override
@@ -227,7 +258,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
             // check colocate join with scan
             return true;
-        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType())) {
+        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType(), leftHashSpec, rightHashSpec)) {
             // right anti, right outer, full outer join could not do bucket shuffle join
             // TODO remove this after we refactor coordinator
             updatedForLeft = Optional.of(calAnotherSideRequired(
@@ -237,6 +268,24 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
             updatedForRight = Optional.of(calAnotherSideRequired(
                     ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                    (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
+        } else if (isBucketShuffleDownGrade(rightHashSpec)) {
+            updatedForLeft = Optional.of(calAnotherSideRequired(
+                    ShuffleType.EXECUTION_BUCKETED, leftHashSpec, leftHashSpec,
+                    (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                    (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec()));
+            updatedForRight = Optional.of(calAnotherSideRequired(
+                    ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
+                    (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                    (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
+        } else if (isBucketShuffleDownGrade(leftHashSpec)) {
+            updatedForLeft = Optional.of(calAnotherSideRequired(
+                    ShuffleType.EXECUTION_BUCKETED, rightHashSpec, leftHashSpec,
+                    (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
+                    (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec()));
+            updatedForRight = Optional.of(calAnotherSideRequired(
+                    ShuffleType.EXECUTION_BUCKETED, rightHashSpec, rightHashSpec,
+                    (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
         } else if ((leftHashSpec.getShuffleType() == ShuffleType.NATURAL
                 && rightHashSpec.getShuffleType() == ShuffleType.NATURAL)) {
@@ -437,8 +486,26 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     private boolean bothSideShuffleKeysAreSameOrder(
             DistributionSpecHash notShuffleSideOutput, DistributionSpecHash shuffleSideOutput,
             DistributionSpecHash notShuffleSideRequired, DistributionSpecHash shuffleSideRequired) {
-        return shuffleSideOutput.getOrderedShuffledColumns().equals(
-                calAnotherSideRequiredShuffleIds(notShuffleSideOutput, notShuffleSideRequired, shuffleSideRequired));
+        List<ExprId> shuffleSideOutputList = shuffleSideOutput.getOrderedShuffledColumns();
+        List<ExprId> notShuffleSideOutputList = calAnotherSideRequiredShuffleIds(notShuffleSideOutput,
+                notShuffleSideRequired, shuffleSideRequired);
+        if (shuffleSideOutputList.size() != notShuffleSideOutputList.size()) {
+            return false;
+        } else if (shuffleSideOutputList.equals(notShuffleSideOutputList)) {
+            return true;
+        } else {
+            boolean isSatisfy = true;
+            for (int i = 0; i < shuffleSideOutputList.size() && isSatisfy; i++) {
+                ExprId shuffleSideExprId = shuffleSideOutputList.get(i);
+                ExprId notShuffleSideExprId = notShuffleSideOutputList.get(i);
+                if (!(shuffleSideExprId.equals(notShuffleSideExprId)
+                        || shuffleSideOutput.getEquivalenceExprIdsOf(shuffleSideExprId)
+                        .contains(notShuffleSideExprId))) {
+                    isSatisfy = false;
+                }
+            }
+            return isSatisfy;
+        }
     }
 
     /**

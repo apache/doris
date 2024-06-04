@@ -17,30 +17,35 @@
 
 package org.apache.doris.nereids.rules;
 
+import org.apache.doris.nereids.rules.exploration.IntersectReorder;
 import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
-import org.apache.doris.nereids.rules.exploration.OrExpansion;
-import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoin;
 import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoinProject;
-import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
-import org.apache.doris.nereids.rules.exploration.join.InnerJoinLeftAssociate;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLeftAssociateProject;
-import org.apache.doris.nereids.rules.exploration.join.InnerJoinRightAssociate;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinRightAssociateProject;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
-import org.apache.doris.nereids.rules.exploration.join.JoinExchange;
 import org.apache.doris.nereids.rules.exploration.join.JoinExchangeBothProject;
-import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTransposeProject;
-import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssoc;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssocProject;
-import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughInnerOuterJoin;
 import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughSemiJoin;
-import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectScanRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterScanRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewOnlyJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectScanRule;
+import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalCTEAnchor;
@@ -56,11 +61,14 @@ import org.apache.doris.nereids.rules.implementation.LogicalFileScanToPhysicalFi
 import org.apache.doris.nereids.rules.implementation.LogicalFileSinkToPhysicalFileSink;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalGenerateToPhysicalGenerate;
+import org.apache.doris.nereids.rules.implementation.LogicalHiveTableSinkToPhysicalHiveTableSink;
+import org.apache.doris.nereids.rules.implementation.LogicalIcebergTableSinkToPhysicalIcebergTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalIntersectToPhysicalIntersect;
 import org.apache.doris.nereids.rules.implementation.LogicalJdbcScanToPhysicalJdbcScan;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
+import org.apache.doris.nereids.rules.implementation.LogicalOdbcScanToPhysicalOdbcScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapTableSinkToPhysicalOlapTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhysicalOneRowRelation;
@@ -84,6 +92,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.PushDownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughAggregation;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughGenerate;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughPartitionTopN;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
@@ -106,21 +115,17 @@ public class RuleSet {
 
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
             .add(new MergeProjectsCBO())
+            .add(IntersectReorder.INSTANCE)
             .build();
 
     public static final List<Rule> OTHER_REORDER_RULES = planRuleFactories()
             .addAll(EXPLORATION_RULES)
-            .add(OuterJoinLAsscom.INSTANCE)
             .add(OuterJoinLAsscomProject.INSTANCE)
-            .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
-            .add(LogicalJoinSemiJoinTranspose.INSTANCE)
             .add(LogicalJoinSemiJoinTransposeProject.INSTANCE)
             .add(PushDownProjectThroughInnerOuterJoin.INSTANCE)
             .add(PushDownProjectThroughSemiJoin.INSTANCE)
-            .add(TransposeAggSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoinProject.INSTANCE)
-            .add(OrExpansion.INSTANCE)
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
@@ -133,6 +138,7 @@ public class RuleSet {
             new PushDownFilterThroughAggregation(),
             new PushDownFilterThroughRepeat(),
             new PushDownFilterThroughSetOperation(),
+            new PushDownFilterThroughGenerate(),
             new PushDownProjectThroughLimit(),
             new EliminateOuterJoin(),
             new ConvertOuterJoinToAntiJoin(),
@@ -142,7 +148,8 @@ public class RuleSet {
             new MergeLimits(),
             new PushDownAliasThroughJoin(),
             new PushDownFilterThroughWindow(),
-            new PushDownFilterThroughPartitionTopN()
+            new PushDownFilterThroughPartitionTopN(),
+            new ExpressionOptimization()
     );
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
@@ -158,6 +165,7 @@ public class RuleSet {
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
             .add(new LogicalFileScanToPhysicalFileScan())
             .add(new LogicalJdbcScanToPhysicalJdbcScan())
+            .add(new LogicalOdbcScanToPhysicalOdbcScan())
             .add(new LogicalEsScanToPhysicalEsScan())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())
@@ -176,6 +184,8 @@ public class RuleSet {
             .add(new LogicalIntersectToPhysicalIntersect())
             .add(new LogicalGenerateToPhysicalGenerate())
             .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
+            .add(new LogicalHiveTableSinkToPhysicalHiveTableSink())
+            .add(new LogicalIcebergTableSinkToPhysicalIcebergTableSink())
             .add(new LogicalFileSinkToPhysicalFileSink())
             .add(new LogicalResultSinkToPhysicalResultSink())
             .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
@@ -184,26 +194,20 @@ public class RuleSet {
     // left-zig-zag tree is used when column stats are not available.
     public static final List<Rule> LEFT_ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.LEFT_ZIG_ZAG)
-            .add(InnerJoinLAsscom.LEFT_ZIG_ZAG)
             .add(InnerJoinLAsscomProject.LEFT_ZIG_ZAG)
             .addAll(OTHER_REORDER_RULES)
             .build();
 
     public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.ZIG_ZAG)
-            .add(InnerJoinLAsscom.INSTANCE)
             .add(InnerJoinLAsscomProject.INSTANCE)
             .build();
 
     public static final List<Rule> BUSHY_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.BUSHY)
-            .add(InnerJoinLeftAssociate.INSTANCE)
             .add(InnerJoinLeftAssociateProject.INSTANCE)
-            .add(InnerJoinRightAssociate.INSTANCE)
             .add(InnerJoinRightAssociateProject.INSTANCE)
-            .add(JoinExchange.INSTANCE)
             .add(JoinExchangeBothProject.INSTANCE)
-            .add(OuterJoinAssoc.INSTANCE)
             .add(OuterJoinAssocProject.INSTANCE)
             .build();
 
@@ -217,12 +221,25 @@ public class RuleSet {
             .addAll(OTHER_REORDER_RULES)
             .build();
 
-    public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
-            .add(JoinCommute.BUSHY.build())
+    public static final List<Rule> MATERIALIZED_VIEW_RULES = planRuleFactories()
+            .add(MaterializedViewOnlyJoinRule.INSTANCE)
+            .add(MaterializedViewProjectJoinRule.INSTANCE)
+            .add(MaterializedViewFilterJoinRule.INSTANCE)
+            .add(MaterializedViewFilterProjectJoinRule.INSTANCE)
+            .add(MaterializedViewProjectFilterJoinRule.INSTANCE)
+            .add(MaterializedViewAggregateRule.INSTANCE)
+            .add(MaterializedViewProjectAggregateRule.INSTANCE)
+            .add(MaterializedViewFilterAggregateRule.INSTANCE)
+            .add(MaterializedViewProjectFilterAggregateRule.INSTANCE)
+            .add(MaterializedViewFilterProjectAggregateRule.INSTANCE)
+            .add(MaterializedViewFilterScanRule.INSTANCE)
+            .add(MaterializedViewFilterProjectScanRule.INSTANCE)
+            .add(MaterializedViewProjectScanRule.INSTANCE)
+            .add(MaterializedViewProjectFilterScanRule.INSTANCE)
             .build();
 
-    public static final List<Rule> MATERIALIZED_VIEW_RULES = planRuleFactories()
-            .add(MaterializedViewProjectJoinRule.INSTANCE)
+    public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
+            .add(JoinCommute.BUSHY.build())
             .build();
 
     public List<Rule> getDPHypReorderRules() {

@@ -435,7 +435,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                         infoService, colocateIndex, groupId, tag);
                 // get all available backends for this group
                 Set<Long> beIdsInOtherTag = colocateIndex.getBackendIdsExceptForTag(groupId, tag);
-                List<Long> availableBeIds = getAvailableBeIds(SystemInfoService.DEFAULT_CLUSTER, tag, beIdsInOtherTag,
+                List<Long> availableBeIds = getAvailableBeIds(tag, beIdsInOtherTag,
                         infoService);
                 // try relocate or balance this group for specified tag
                 List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
@@ -527,7 +527,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                     counter.unhealthyTabletNum++;
                                     unstableReason = String.format("get unhealthy tablet %d in colocate table."
                                             + " status: %s", tablet.getId(), st);
-                                    LOG.debug(unstableReason);
+                                    if (LOG.isDebugEnabled()) {
+                                        LOG.debug(unstableReason);
+                                    }
 
                                     if (!tablet.readyToBeRepaired(infoService, Priority.NORMAL)) {
                                         counter.tabletNotReady++;
@@ -850,6 +852,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
                 int targetSeqIndex = -1;
                 long minDataSizeDiff = Long.MAX_VALUE;
+                boolean destBeContainsAllBuckets = true;
+                boolean theSameHostContainsAllBuckets = true;
                 for (int seqIndex : seqIndexes) {
                     // the bucket index.
                     // eg: 0 / 3 = 0, so that the bucket index of the 4th backend id in flatBackendsPerBucketSeq is 0.
@@ -857,9 +861,15 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     List<Long> backendsSet = backendsPerBucketSeq.get(bucketIndex);
                     List<String> hostsSet = hostsPerBucketSeq.get(bucketIndex);
                     // the replicas of a tablet can not locate in same Backend or same host
-                    if (backendsSet.contains(destBeId) || hostsSet.contains(destBe.getHost())) {
+                    if (backendsSet.contains(destBeId)) {
                         continue;
                     }
+                    destBeContainsAllBuckets = false;
+
+                    if (!Config.allow_replica_on_same_host && hostsSet.contains(destBe.getHost())) {
+                        continue;
+                    }
+                    theSameHostContainsAllBuckets = false;
 
                     Preconditions.checkState(backendsSet.contains(srcBeId), srcBeId);
                     long bucketDataSize =
@@ -868,8 +878,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     resultPaths.clear();
                     BalanceStatus st = beStat.isFit(bucketDataSize, null, resultPaths, false);
                     if (!st.ok()) {
-                        LOG.debug("backend {} is unable to fit in group {}, tablet order idx {}, data size {}",
-                                destBeId, groupId, bucketIndex, bucketDataSize);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("backend {} is unable to fit in group {}, tablet order idx {}, data size {}",
+                                    destBeId, groupId, bucketIndex, bucketDataSize);
+                        }
                         continue;
                     }
 
@@ -886,8 +898,19 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
                 if (targetSeqIndex < 0) {
                     // we use next node as dst node
-                    LOG.info("unable to replace backend {} with backend {} in colocate group {}",
-                            srcBeId, destBeId, groupId);
+                    String failedReason;
+                    if (destBeContainsAllBuckets) {
+                        failedReason = "dest be contains all the same buckets";
+                    } else if (theSameHostContainsAllBuckets) {
+                        failedReason = "dest be's host contains all the same buckets "
+                                + "and Config.allow_replica_on_same_host=false";
+                    } else {
+                        failedReason = "dest be has no fit path, maybe disk usage is exceeds "
+                                + "Config.storage_high_watermark_usage_percent";
+                    }
+                    LOG.info("unable to replace backend {} with dest backend {} in colocate group {}, "
+                            + "failed reason: {}",
+                            srcBeId, destBeId, groupId, failedReason);
                     continue;
                 }
 
@@ -896,9 +919,11 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 long oldDestThisGroup = lowBackend.getValue();
                 int oldSrcBucketNum = globalColocateStatistic.getBackendTotalBucketNum(srcBeId);
                 int oldDestBucketNum = globalColocateStatistic.getBackendTotalBucketNum(destBeId);
-                LOG.debug("OneMove: group {}, src {}, this group {}, all group {}, dest {}, this group {}, "
-                        + "all group {}", groupId, srcBeId, oldSrcThisGroup, oldSrcBucketNum, destBeId,
-                        oldDestThisGroup, oldDestBucketNum);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("OneMove: group {}, src {}, this group {}, all group {}, dest {}, this group {}, "
+                            + "all group {}", groupId, srcBeId, oldSrcThisGroup, oldSrcBucketNum, destBeId,
+                            oldDestThisGroup, oldDestBucketNum);
+                }
                 Preconditions.checkState(
                         globalColocateStatistic.moveTablet(groupId, tabletOrderIdx, srcBeId, destBeId));
                 Preconditions.checkState(oldSrcBucketNum - 1
@@ -1146,7 +1171,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         return unavailableBeIds;
     }
 
-    private List<Long> getAvailableBeIds(String cluster, Tag tag, Set<Long> excludedBeIds,
+    private List<Long> getAvailableBeIds(Tag tag, Set<Long> excludedBeIds,
             SystemInfoService infoService) {
         // get all backends to allBackendIds, and check be availability using checkBackendAvailable
         // backend stopped for a short period of time is still considered available

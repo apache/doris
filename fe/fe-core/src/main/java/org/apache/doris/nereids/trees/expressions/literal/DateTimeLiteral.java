@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.nereids.util.StandardDateFormat;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -104,6 +103,10 @@ public class DateTimeLiteral extends DateLiteral {
         if (!s.contains("-") && !s.contains(":")) {
             return 0;
         }
+        // means basic format with timezone
+        if (s.indexOf("-") == s.lastIndexOf("-") && s.indexOf(":") == s.lastIndexOf(":")) {
+            return 0;
+        }
         s = normalize(s);
         if (s.length() <= 19 || s.charAt(19) != '.') {
             return 0;
@@ -136,7 +139,6 @@ public class DateTimeLiteral extends DateLiteral {
         hour = DateUtils.getOrDefault(temporal, ChronoField.HOUR_OF_DAY);
         minute = DateUtils.getOrDefault(temporal, ChronoField.MINUTE_OF_HOUR);
         second = DateUtils.getOrDefault(temporal, ChronoField.SECOND_OF_MINUTE);
-        microSecond = DateUtils.getOrDefault(temporal, ChronoField.MICRO_OF_SECOND);
 
         ZoneId zoneId = temporal.query(TemporalQueries.zone());
         if (zoneId != null) {
@@ -151,6 +153,21 @@ public class DateTimeLiteral extends DateLiteral {
                 this.month = result.month;
                 this.year = result.year;
             }
+        }
+
+        microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 100L;
+        // Microseconds have 7 digits.
+        long sevenDigit = microSecond % 10;
+        microSecond = microSecond / 10;
+        if (sevenDigit >= 5 && this instanceof DateTimeV2Literal) {
+            DateTimeV2Literal result = (DateTimeV2Literal) ((DateTimeV2Literal) this).plusMicroSeconds(1);
+            this.second = result.second;
+            this.minute = result.minute;
+            this.hour = result.hour;
+            this.day = result.day;
+            this.month = result.month;
+            this.year = result.year;
+            this.microSecond = result.microSecond;
         }
 
         if (checkRange() || checkDate()) {
@@ -181,16 +198,63 @@ public class DateTimeLiteral extends DateLiteral {
 
     @Override
     public String toSql() {
-        return String.format("'%s'", toString());
+        return "'" + getStringValue() + "'";
     }
 
     @Override
     public String toString() {
-        return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
+        return getStringValue();
     }
 
     @Override
     public String getStringValue() {
+        if (0 <= year && year <= 9999 && 0 <= month && month <= 99 && 0 <= day && day <= 99
+                && 0 <= hour && hour <= 99 && 0 <= minute && minute <= 99 && 0 <= second && second <= 99) {
+            char[] format = new char[] {
+                    '0', '0', '0', '0', '-', '0', '0', '-', '0', '0', ' ', '0', '0', ':', '0', '0', ':', '0', '0'};
+            int offset = 3;
+            long year = this.year;
+            while (year > 0) {
+                format[offset--] = (char) ('0' + (year % 10));
+                year /= 10;
+            }
+
+            offset = 6;
+            long month = this.month;
+            while (month > 0) {
+                format[offset--] = (char) ('0' + (month % 10));
+                month /= 10;
+            }
+
+            offset = 9;
+            long day = this.day;
+            while (day > 0) {
+                format[offset--] = (char) ('0' + (day % 10));
+                day /= 10;
+            }
+
+            offset = 12;
+            long hour = this.hour;
+            while (hour > 0) {
+                format[offset--] = (char) ('0' + (hour % 10));
+                hour /= 10;
+            }
+
+            offset = 15;
+            long minute = this.minute;
+            while (minute > 0) {
+                format[offset--] = (char) ('0' + (minute % 10));
+                minute /= 10;
+            }
+
+            offset = 18;
+            long second = this.second;
+            while (second > 0) {
+                format[offset--] = (char) ('0' + (second % 10));
+                second /= 10;
+            }
+            return String.valueOf(format);
+        }
         return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
     }
 
@@ -199,39 +263,32 @@ public class DateTimeLiteral extends DateLiteral {
         return new org.apache.doris.analysis.DateLiteral(year, month, day, hour, minute, second, Type.DATETIME);
     }
 
-    public Expression plusYears(long years) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusYears(years));
+    public Expression plusDays(long days) {
+        return fromJavaDateType(toJavaDateType().plusDays(days));
     }
 
     public Expression plusMonths(long months) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusMonths(months));
+        return fromJavaDateType(toJavaDateType().plusMonths(months));
     }
 
     public Expression plusWeeks(long weeks) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusWeeks(weeks));
+        return fromJavaDateType(toJavaDateType().plusWeeks(weeks));
     }
 
-    public Expression plusDays(long days) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusDays(days));
+    public Expression plusYears(long years) {
+        return fromJavaDateType(toJavaDateType().plusYears(years));
     }
 
     public Expression plusHours(long hours) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusHours(hours));
+        return fromJavaDateType(toJavaDateType().plusHours(hours));
     }
 
     public Expression plusMinutes(long minutes) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusMinutes(minutes));
+        return fromJavaDateType(toJavaDateType().plusMinutes(minutes));
     }
 
     public Expression plusSeconds(long seconds) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusSeconds(seconds));
+        return fromJavaDateType(toJavaDateType().plusSeconds(seconds));
     }
 
     public long getHour() {
@@ -264,7 +321,7 @@ public class DateTimeLiteral extends DateLiteral {
 
     public LocalDateTime toJavaDateType() {
         return LocalDateTime.of(((int) getYear()), ((int) getMonth()), ((int) getDay()),
-                ((int) getHour()), ((int) getMinute()), ((int) getSecond()));
+                ((int) getHour()), ((int) getMinute()), ((int) getSecond()), (int) getMicroSecond() * 1000);
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {

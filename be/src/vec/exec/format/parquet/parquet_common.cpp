@@ -24,9 +24,9 @@
 
 namespace doris::vectorized {
 
-const uint32_t ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS = 2440588;
-const uint64_t ParquetInt96::MICROS_IN_DAY = 86400000000;
-const uint64_t ParquetInt96::NANOS_PER_MICROSECOND = 1000;
+const int32_t ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS = 2440588;
+const int64_t ParquetInt96::MICROS_IN_DAY = 86400000000;
+const int64_t ParquetInt96::NANOS_PER_MICROSECOND = 1000;
 
 ColumnSelectVector::ColumnSelectVector(const uint8_t* filter_map, size_t filter_map_size,
                                        bool filter_all) {
@@ -97,11 +97,17 @@ void ColumnSelectVector::set_run_length_null_map(const std::vector<uint16_t>& ru
             NullMap& map_data_column = *null_map;
             auto null_map_index = map_data_column.size();
             map_data_column.resize(null_map_index + num_read);
-            for (size_t i = 0; i < num_values; ++i) {
-                if (_data_map[i] == CONTENT) {
-                    map_data_column[null_map_index++] = (UInt8) false;
-                } else if (_data_map[i] == NULL_DATA) {
-                    map_data_column[null_map_index++] = (UInt8) true;
+            if (_num_nulls == 0) {
+                memset(map_data_column.data() + null_map_index, 0, num_read);
+            } else if (_num_nulls == num_values) {
+                memset(map_data_column.data() + null_map_index, 1, num_read);
+            } else {
+                for (size_t i = 0; i < num_values; ++i) {
+                    if (_data_map[i] == CONTENT) {
+                        map_data_column[null_map_index++] = (UInt8) false;
+                    } else if (_data_map[i] == NULL_DATA) {
+                        map_data_column[null_map_index++] = (UInt8) true;
+                    }
                 }
             }
         }

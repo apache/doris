@@ -6,7 +6,7 @@ SELECT
 FROM
 (
     SELECT
-        cast(repo:name as string) as repo_name,
+        cast(repo["name"] as string) as repo_name,
         count() AS stars
     FROM github_events
     WHERE type = 'WatchEvent'

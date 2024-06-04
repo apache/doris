@@ -257,7 +257,8 @@ struct integer<Bits, Signed>::_impl {
     template <typename Integral>
     constexpr static void wide_integer_from_builtin(integer<Bits, Signed>& self,
                                                     Integral rhs) noexcept {
-        if constexpr (std::is_same_v<Integral, __int128>) {
+        if constexpr (std::is_same_v<Integral, __int128> ||
+                      std::is_same_v<Integral, unsigned __int128>) {
             self.items[little(0)] = rhs;
             self.items[little(1)] = rhs >> 64;
             if (rhs < 0) {

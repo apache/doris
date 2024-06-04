@@ -225,7 +225,7 @@ public class OperationType {
     // modify table properties: inMemory, StoragePolicy, IsBeingSynced, CompactionPolicy,
     // TimeSeriesCompactionFileCountThreshold, SeriesCompactionTimeThresholdSeconds,
     // SkipWriteIndexOnLoad, EnableSingleReplicaCompaction.
-    public static final short OP_MODIFY_IN_MEMORY = 267;
+    public static final short OP_MODIFY_TABLE_PROPERTIES = 267;
 
     // set table default distribution bucket num
     public static final short OP_MODIFY_DISTRIBUTION_BUCKET_NUM = 268;
@@ -285,13 +285,22 @@ public class OperationType {
     public static final short OP_CHANGE_MTMV_TASK = 342;
     @Deprecated
     public static final short OP_ALTER_MTMV_STMT = 345;
+    public static final short OP_ADD_CONSTRAINT = 346;
+    public  static final short OP_DROP_CONSTRAINT = 347;
 
+    @Deprecated
     public static final short OP_DROP_EXTERNAL_TABLE = 350;
+    @Deprecated
     public static final short OP_DROP_EXTERNAL_DB = 351;
+    @Deprecated
     public static final short OP_CREATE_EXTERNAL_TABLE = 352;
+    @Deprecated
     public static final short OP_CREATE_EXTERNAL_DB = 353;
+    @Deprecated
     public static final short OP_ADD_EXTERNAL_PARTITIONS = 354;
+    @Deprecated
     public static final short OP_DROP_EXTERNAL_PARTITIONS = 355;
+    @Deprecated
     public static final short OP_REFRESH_EXTERNAL_PARTITIONS = 356;
 
     public static final short OP_ALTER_USER = 400;
@@ -304,8 +313,11 @@ public class OperationType {
     public static final short OP_CREATE_WORKLOAD_GROUP = 410;
     public static final short OP_DROP_WORKLOAD_GROUP = 411;
     public static final short OP_ALTER_WORKLOAD_GROUP = 412;
+    public static final short OP_CREATE_WORKLOAD_SCHED_POLICY = 413;
+    public static final short OP_ALTER_WORKLOAD_SCHED_POLICY = 414;
+    public static final short OP_DROP_WORKLOAD_SCHED_POLICY = 415;
 
-    // query stats 440 ~ 424
+    // query stats 420 ~ 424
     public static final short OP_CLEAN_QUERY_STATS = 420;
 
     // update binlog config
@@ -340,6 +352,7 @@ public class OperationType {
 
     public static final short OP_UPDATE_TABLE_STATS = 455;
 
+    @Deprecated
     public static final short OP_PERSIST_AUTO_JOB = 456;
 
     public static final short OP_DELETE_TABLE_STATS = 457;
@@ -347,6 +360,34 @@ public class OperationType {
     public static final short OP_ALTER_CATALOG_COMMENT = 458;
 
     public static final short OP_ALTER_MTMV = 459;
+
+    public static final short OP_ALTER_REPOSITORY = 460;
+
+    public static final short OP_INSERT_OVERWRITE = 461;
+
+    public static final short OP_LOG_UPDATE_ROWS = 462;
+
+    public static final short OP_LOG_NEW_PARTITION_LOADED = 463;
+
+    public static final short OP_LOG_ALTER_COLUMN_STATS = 464;
+
+    public static final short OP_ADD_META_ID_MAPPINGS = 470;
+
+    // plsql 471 ~ 479
+    public static final short OP_ADD_PLSQL_STORED_PROCEDURE = 471;
+
+    public static final short OP_DROP_PLSQL_STORED_PROCEDURE = 472;
+
+    public static final short OP_ADD_PLSQL_PACKAGE = 473;
+
+    public static final short OP_DROP_PLSQL_PACKAGE = 474;
+
+    public static final short OP_ALTER_ROLE = 475;
+
+    // For cloud.
+    public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
+    public static final short OP_MODIFY_TTL_SECONDS = 1001;
+    public static final short OP_MODIFY_CLOUD_WARM_UP_JOB = 1002;
 
     /**
      * Get opcode name by op code.

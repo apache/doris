@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.test;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -28,6 +27,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -45,9 +45,14 @@ public class TestExternalCatalog extends ExternalCatalog {
             String comment) {
         super(catalogId, name, InitCatalogLog.Type.TEST, comment);
         this.catalogProperty = new CatalogProperty(resource, props);
+        initCatalogProvider();
+    }
+
+    private void initCatalogProvider() {
+        String providerClass = this.catalogProperty.getProperties().get("catalog_provider.class");
         Class<?> providerClazz = null;
         try {
-            providerClazz = Class.forName(props.get("catalog_provider.class"));
+            providerClazz = Class.forName(providerClass);
             this.catalogProvider = (TestCatalogProvider) providerClazz.newInstance();
         } catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
             throw new RuntimeException(e);
@@ -82,14 +87,7 @@ public class TestExternalCatalog extends ExternalCatalog {
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        TestExternalDatabase db = (TestExternalDatabase) idToDb.get(dbNameToId.get(dbName));
-        if (db != null && db.isInitialized()) {
-            List<String> names = Lists.newArrayList();
-            db.getTables().stream().forEach(table -> names.add(table.getName()));
-            return names;
-        } else {
-            return mockedTableNames(dbName);
-        }
+        return mockedTableNames(dbName);
     }
 
     @Override
@@ -107,6 +105,12 @@ public class TestExternalCatalog extends ExternalCatalog {
     public interface TestCatalogProvider {
         // db name -> (tbl name -> schema)
         Map<String, Map<String, List<Column>>> getMetadata();
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        initCatalogProvider();
     }
 }
 

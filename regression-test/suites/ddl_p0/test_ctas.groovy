@@ -230,8 +230,6 @@ suite("test_ctas") {
         sql 'insert into a values(1, \'ww\'), (2, \'zs\');'
         sql 'insert into b values(1, 22);'
 
-        sql 'set enable_nereids_planner=false'
-
         sql 'create table c properties("replication_num"="1") as select b.id, a.name, b.age from a left join b on a.id = b.id;'
         
         String descC = sql 'desc c'
@@ -254,12 +252,11 @@ suite("test_ctas") {
     }
 
     try {
-        sql '''set enable_nereids_planner=true;'''
         sql'''CREATE TABLE `test_ctas_of_view` (
             `l_varchar` varchar(65533) NULL
         ) ENGINE=OLAP
         DUPLICATE KEY(`l_varchar`)
-        COMMENT 'OLAP\'
+        COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`l_varchar`) BUCKETS 10
         PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
@@ -289,6 +286,90 @@ suite("test_ctas") {
         sql 'drop table test_ctas'
         sql 'drop table test_ctas_of_view'
         sql 'drop view ctas_view'
+    }
+
+    try {
+        sql '''
+            CREATE TABLE IF NOT EXISTS `ctas1` (
+                `k1` varchar(5) NULL,
+                `k2` varchar(5) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+        '''
+        sql '''
+            CREATE TABLE IF NOT EXISTS `ctas2` (
+                `k1` varchar(10) NULL,
+                `k2` varchar(10) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+        '''
+        sql '''
+            insert into ctas1 values('11111','11111');
+        '''
+        sql '''
+            insert into ctas2 values('1111111111','1111111111');
+        '''
+        sql '''
+            create table `ctas3`(k1, k2) 
+            PROPERTIES("replication_num" = "1") 
+            as select * from ctas1
+                union all 
+                select * from ctas2;
+        '''
+    } finally {
+        sql '''DROP TABLE IF EXISTS ctas1'''
+        sql '''DROP TABLE IF EXISTS ctas2'''
+        sql '''DROP TABLE IF EXISTS ctas3'''
+    }
+
+    try {
+        sql '''
+            CREATE TABLE IF NOT EXISTS `ctas1` (
+                `k1` varchar(5) NULL,
+                `k2` varchar(5) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+        '''
+        sql '''
+            CREATE TABLE IF NOT EXISTS `ctas2` (
+                `k1` varchar(10) NULL,
+                `k2` varchar(10) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+        '''
+        sql '''
+            insert into ctas1 values('11111','11111');
+        '''
+        sql '''
+            insert into ctas2 values('1111111111','1111111111');
+        '''
+        sql '''
+            create table `ctas3`(k1, k2) 
+            PROPERTIES("replication_num" = "1") 
+            as select * from ctas1
+                union all 
+                select * from ctas2;
+        '''
+    } finally {
+        sql '''DROP TABLE IF EXISTS ctas1'''
+        sql '''DROP TABLE IF EXISTS ctas2'''
+        sql '''DROP TABLE IF EXISTS ctas3'''
     }
 }
 

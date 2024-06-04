@@ -26,6 +26,7 @@ public class TpchTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("db1");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         // Create tables.
         String lineitem = "CREATE TABLE db1.lineitem (\n"
@@ -220,6 +221,6 @@ public class TpchTest extends TestWithFeService {
                 + "ORDER BY\n"
                 + "  o_year");
 
-        Assert.assertTrue(explain.contains("default_cluster:db1.lineitem(lineitem)"));
+        Assert.assertTrue(explain.contains("db1.lineitem(lineitem)"));
     }
 }

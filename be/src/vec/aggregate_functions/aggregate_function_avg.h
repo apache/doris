@@ -85,7 +85,7 @@ struct AggregateFunctionAvgData {
             DecimalV2Value decimal_val_count(count, 0);
             DecimalV2Value decimal_val_sum(sum);
             DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
-            Decimal128 ret(cal_ret.value());
+            Decimal128V2 ret(cal_ret.value());
             return ret;
         } else {
             if constexpr (IsDecimal256<T>) {
@@ -113,17 +113,17 @@ class AggregateFunctionAvg final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>> {
 public:
     using ResultType = std::conditional_t<
-            IsDecimalV2<T>, Decimal128,
+            IsDecimalV2<T>, Decimal128V2,
             std::conditional_t<IsDecimalNumber<T>, typename Data::ResultType, Float64>>;
     using ResultDataType = std::conditional_t<
-            IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
+            IsDecimalV2<T>, DataTypeDecimal<Decimal128V2>,
             std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<typename Data::ResultType>,
                                DataTypeNumber<Float64>>>;
     using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
     using ColVecResult = std::conditional_t<
-            IsDecimalV2<T>, ColumnDecimal<Decimal128>,
+            IsDecimalV2<T>, ColumnDecimal<Decimal128V2>,
             std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<typename Data::ResultType>,
-                               ColumnVector<Float64>>>;
+                               ColumnFloat64>>;
 
     /// ctor for native types
     AggregateFunctionAvg(const DataTypes& argument_types_)
@@ -140,7 +140,7 @@ public:
         }
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
@@ -244,7 +244,7 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
                                    const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });
@@ -252,7 +252,7 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });

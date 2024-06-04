@@ -20,40 +20,61 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Pull up Project under TopN.
+ * Pull up Project under TopN for PushDownTopNThroughJoin
  */
 public class PullUpProjectUnderTopN extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalTopN(logicalProject().whenNot(p -> p.isAllSlots()))
+        return logicalTopN(
+                logicalProject(logicalJoin().when(j -> j.getJoinType().isLeftRightOuterOrCrossJoin()))
+                        .whenNot(p -> p.isAllSlots()))
                 .then(topN -> {
-                    LogicalProject<Plan> project = topN.child();
+                    LogicalProject<LogicalJoin<Plan, Plan>> project = topN.child();
                     Set<Slot> outputSet = project.child().getOutputSet();
-                    if (!topN.getOrderKeys().stream().map(OrderKey::getExpr).flatMap(e -> e.getInputSlots().stream())
-                            .allMatch(outputSet::contains)) {
-                        return null;
+
+                    Map<Slot, Expression> slotMap = ExpressionUtils.generateReplaceMap(project.getProjects());
+                    List<OrderKey> newOrderKeys = new ArrayList<>();
+                    for (OrderKey orderKey : topN.getOrderKeys()) {
+                        if (!(orderKey.getExpr() instanceof Slot)) {
+                            return null;
+                        }
+                        Expression expression = slotMap.get((Slot) orderKey.getExpr());
+                        if (expression instanceof Slot) {
+                            newOrderKeys.add(orderKey.withExpression(expression));
+                        } else {
+                            return null;
+                        }
                     }
+
                     Set<Slot> allUsedSlots = project.getProjects().stream().flatMap(ne -> ne.getInputSlots().stream())
                             .collect(Collectors.toSet());
+                    LogicalTopN<Plan> newTopN = topN.withOrderKeys(newOrderKeys);
                     if (outputSet.size() == allUsedSlots.size()) {
                         Preconditions.checkState(outputSet.equals(allUsedSlots));
-                        return project.withChildren(topN.withChildren(project.child()));
+                        return project.withChildren(newTopN.withChildren(project.child()));
                     } else {
                         Plan columnProject = PlanUtils.projectOrSelf(ImmutableList.copyOf(allUsedSlots),
                                 project.child());
-                        return project.withChildren(topN.withChildren(columnProject));
+                        return project.withChildren(newTopN.withChildren(columnProject));
                     }
                 }).toRule(RuleType.PULL_UP_PROJECT_UNDER_TOPN);
     }

@@ -18,15 +18,26 @@
 #include "io/fs/err_utils.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
+#include <aws/s3/S3Errors.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <string.h>
 
 #include <sstream>
 
+#include "common/status.h"
 #include "io/fs/hdfs.h"
+#include "io/fs/obj_storage_client.h"
 
 namespace doris {
+using namespace ErrorCode;
+
+io::ObjectStorageStatus convert_to_obj_response(Status st) {
+    int code = st._code;
+    std::string msg = st._err_msg == nullptr ? "" : std::move(st._err_msg->_msg);
+    return io::ObjectStorageStatus {.code = code, .msg = std::move(msg)};
+}
+
 namespace io {
 
 std::string errno_to_str() {
@@ -71,6 +82,58 @@ std::string glob_err_to_str(int code) {
         break;
     }
     return fmt::format("({}), {}", code, msg);
+}
+
+Status localfs_error(const std::error_code& ec, std::string_view msg) {
+    if (ec == std::errc::io_error) {
+        return Status::Error<IO_ERROR, false>(msg);
+    } else if (ec == std::errc::no_such_file_or_directory) {
+        return Status::Error<NOT_FOUND, false>(msg);
+    } else if (ec == std::errc::file_exists) {
+        return Status::Error<ALREADY_EXIST, false>(msg);
+    } else if (ec == std::errc::no_space_on_device) {
+        return Status::Error<DISK_REACH_CAPACITY_LIMIT, false>(msg);
+    } else if (ec == std::errc::permission_denied) {
+        return Status::Error<PERMISSION_DENIED, false>(msg);
+    } else {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("{}: {}", msg, ec.message());
+    }
+}
+
+Status localfs_error(int posix_errno, std::string_view msg) {
+    switch (posix_errno) {
+    case EIO:
+        return Status::Error<IO_ERROR, false>(msg);
+    case ENOENT:
+        return Status::Error<NOT_FOUND, false>(msg);
+    case EEXIST:
+        return Status::Error<ALREADY_EXIST, false>(msg);
+    case ENOSPC:
+        return Status::Error<DISK_REACH_CAPACITY_LIMIT, false>(msg);
+    case EACCES:
+        return Status::Error<PERMISSION_DENIED, false>(msg);
+    default:
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("{}: {}", msg,
+                                                               std::strerror(posix_errno));
+    }
+}
+
+Status s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
+    using namespace Aws::Http;
+    switch (err.GetResponseCode()) {
+    case HttpResponseCode::NOT_FOUND:
+        return Status::Error<NOT_FOUND, false>("{}: {} {} type={}, request_id={}", msg,
+                                               err.GetExceptionName(), err.GetMessage(),
+                                               err.GetErrorType(), err.GetRequestId());
+    case HttpResponseCode::FORBIDDEN:
+        return Status::Error<PERMISSION_DENIED, false>("{}: {} {} type={}, request_id={}", msg,
+                                                       err.GetExceptionName(), err.GetMessage(),
+                                                       err.GetErrorType(), err.GetRequestId());
+    default:
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                "{}: {} {} code={} type={}, request_id={}", msg, err.GetExceptionName(),
+                err.GetMessage(), err.GetResponseCode(), err.GetErrorType(), err.GetRequestId());
+    }
 }
 
 } // namespace io

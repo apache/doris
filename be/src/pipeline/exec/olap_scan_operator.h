@@ -24,11 +24,8 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
-class ExecNode;
 
 namespace vectorized {
 class NewOlapScanner;
@@ -48,8 +45,9 @@ public:
     TOlapScanNode& olap_scan_node() const;
 
     std::string name_suffix() const override {
-        return fmt::format(" (id={}. table name = {})", std::to_string(_parent->node_id()),
-                           olap_scan_node().table_name);
+        return fmt::format(" (id={}. nereids_id={}. table name = {})",
+                           std::to_string(_parent->node_id()),
+                           std::to_string(_parent->nereids_id()), olap_scan_node().table_name);
     }
 
 private:
@@ -58,7 +56,7 @@ private:
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
-    Status _process_conjuncts() override;
+    Status _process_conjuncts(RuntimeState* state) override;
     bool _is_key_column(const std::string& col_name) override;
 
     Status _should_push_down_function_filter(vectorized::VectorizedFnCall* fn_call,
@@ -83,6 +81,13 @@ private:
 
     bool _storage_no_merge() override;
 
+    bool _push_down_topn(const vectorized::RuntimePredicate& predicate) override {
+        if (!predicate.target_is_slot(_parent->node_id())) {
+            return false;
+        }
+        return _is_key_column(predicate.get_col_name(_parent->node_id())) || _storage_no_merge();
+    }
+
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 
     void add_filter_info(int id, const PredicateFilterInfo& info);
@@ -104,6 +109,7 @@ private:
     RuntimeProfile::Counter* _num_disks_accessed_counter = nullptr;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
+    RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;
@@ -126,6 +132,7 @@ private:
     std::map<int, PredicateFilterInfo> _filter_info;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _stats_rp_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
     RuntimeProfile::Counter* _dict_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
@@ -133,6 +140,7 @@ private:
     RuntimeProfile::Counter* _key_range_filtered_counter = nullptr;
 
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;
+    RuntimeProfile::Counter* _delete_bitmap_get_agg_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     // Add more detail seek timer and counter profile
@@ -141,6 +149,12 @@ private:
     RuntimeProfile::Counter* _block_init_seek_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_timer = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_bf_timer = nullptr;
+    RuntimeProfile::Counter* _collect_iterator_merge_next_timer = nullptr;
+    RuntimeProfile::Counter* _collect_iterator_normal_next_timer = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_zonemap_timer = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_zonemap_rp_timer = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_dict_timer = nullptr;
     RuntimeProfile::Counter* _first_read_timer = nullptr;
     RuntimeProfile::Counter* _second_read_timer = nullptr;
     RuntimeProfile::Counter* _first_read_seek_timer = nullptr;

@@ -26,6 +26,8 @@ class Tablet;
 class TabletSchema;
 class TabletMeta;
 class DeleteBitmap;
+class CalcDeleteBitmapExecutor;
+struct TabletTxnInfo;
 
 using BaseTabletSPtr = std::shared_ptr<BaseTablet>;
 using TabletSharedPtr = std::shared_ptr<Tablet>;

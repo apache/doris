@@ -77,6 +77,11 @@ public class BuildIndexClause extends AlterTableClause {
     }
 
     @Override
+    public boolean allowOpMTMV() {
+        return true;
+    }
+
+    @Override
     public String toSql() {
         if (alter) {
             return indexDef.toSql();

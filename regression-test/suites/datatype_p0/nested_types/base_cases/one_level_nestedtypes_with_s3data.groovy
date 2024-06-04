@@ -18,11 +18,6 @@ import org.apache.commons.lang3.StringUtils
 // under the License.
 
 suite("one_level_nestedtypes_with_s3data") {
-    sql """set enable_nereids_planner=false"""
-    sql """ set enable_fallback_to_original_planner=true;"""
-    // this test case aim to test one-level nested type with s3 data
-
-
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()

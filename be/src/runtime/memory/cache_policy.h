@@ -17,11 +17,14 @@
 
 #pragma once
 
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
 static constexpr int32_t CACHE_MIN_FREE_SIZE = 67108864; // 64M
+static constexpr int32_t CACHE_MIN_FREE_NUMBER = 1024;
 
 // Base of all caches. register to CacheManager when cache is constructed.
 class CachePolicy {
@@ -34,7 +37,17 @@ public:
         SEGMENT_CACHE = 4,
         INVERTEDINDEX_SEARCHER_CACHE = 5,
         INVERTEDINDEX_QUERY_CACHE = 6,
-        LOOKUP_CONNECTION_CACHE = 7
+        LOOKUP_CONNECTION_CACHE = 7,
+        POINT_QUERY_ROW_CACHE = 8,
+        DELETE_BITMAP_AGG_CACHE = 9,
+        TABLET_VERSION_CACHE = 10,
+        LAST_SUCCESS_CHANNEL_CACHE = 11,
+        COMMON_OBJ_LRU_CACHE = 12,
+        FOR_UT = 13,
+        TABLET_SCHEMA_CACHE = 14,
+        CREATE_TABLET_RR_IDX_CACHE = 15,
+        CLOUD_TABLET_CACHE = 16,
+        CLOUD_TXN_DELETE_BITMAP_CACHE = 17,
     };
 
     static std::string type_string(CacheType type) {
@@ -54,7 +67,27 @@ public:
         case CacheType::INVERTEDINDEX_QUERY_CACHE:
             return "InvertedIndexQueryCache";
         case CacheType::LOOKUP_CONNECTION_CACHE:
-            return "LookupConnectionCache";
+            return "PointQueryLookupConnectionCache";
+        case CacheType::POINT_QUERY_ROW_CACHE:
+            return "PointQueryRowCache";
+        case CacheType::DELETE_BITMAP_AGG_CACHE:
+            return "MowDeleteBitmapAggCache";
+        case CacheType::TABLET_VERSION_CACHE:
+            return "MowTabletVersionCache";
+        case CacheType::LAST_SUCCESS_CHANNEL_CACHE:
+            return "LastSuccessChannelCache";
+        case CacheType::COMMON_OBJ_LRU_CACHE:
+            return "CommonObjLRUCache";
+        case CacheType::FOR_UT:
+            return "ForUT";
+        case CacheType::TABLET_SCHEMA_CACHE:
+            return "TabletSchemaCache";
+        case CacheType::CREATE_TABLET_RR_IDX_CACHE:
+            return "CreateTabletRRIdxCache";
+        case CacheType::CLOUD_TABLET_CACHE:
+            return "CloudTabletCache";
+        case CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE:
+            return "CloudTxnDeleteBitmapCache";
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }
@@ -62,13 +95,38 @@ public:
         __builtin_unreachable();
     }
 
-    CachePolicy(CacheType type, uint32_t stale_sweep_time_s);
+    CachePolicy(CacheType type, uint32_t stale_sweep_time_s, bool enable_prune);
     virtual ~CachePolicy();
 
     virtual void prune_stale() = 0;
-    virtual void prune_all(bool clear) = 0;
+    virtual void prune_all(bool force) = 0;
 
     CacheType type() { return _type; }
+    void init_mem_tracker(const std::string& type_name) {
+        _mem_tracker =
+                std::make_unique<MemTracker>(fmt::format("{}[{}]", type_string(_type), type_name),
+                                             ExecEnv::GetInstance()->details_mem_tracker_set());
+    }
+    MemTracker* mem_tracker() { return _mem_tracker.get(); }
+    void init_mem_tracker_by_allocator(const std::string& type_name) {
+        _mem_tracker_by_allocator = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::GLOBAL,
+                fmt::format("{}[{}](AllocByAllocator)", type_string(_type), type_name));
+    }
+    std::shared_ptr<MemTrackerLimiter> mem_tracker_by_allocator() const {
+        DCHECK(_mem_tracker_by_allocator != nullptr);
+        return _mem_tracker_by_allocator;
+    }
+    int64_t mem_consumption() {
+        if (_mem_tracker_by_allocator != nullptr) {
+            return _mem_tracker_by_allocator->consumption();
+        } else if (_mem_tracker != nullptr) {
+            return _mem_tracker->consumption();
+        }
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }
+    bool enable_prune() const { return _enable_prune; }
     RuntimeProfile* profile() { return _profile.get(); }
 
 protected:
@@ -83,7 +141,9 @@ protected:
     }
 
     CacheType _type;
-    std::list<CachePolicy*>::iterator _it;
+
+    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker_by_allocator;
 
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile::Counter* _prune_stale_number_counter = nullptr;
@@ -94,6 +154,7 @@ protected:
     RuntimeProfile::Counter* _cost_timer = nullptr;
 
     uint32_t _stale_sweep_time_s;
+    bool _enable_prune = true;
 };
 
 } // namespace doris

@@ -79,6 +79,8 @@ public class Cast extends Expression implements UnaryExpression {
             return true;
         } else if (!childDataType.isTimeLikeType() && targetType.isTimeLikeType()) {
             return true;
+        } else if (childDataType.isJsonType()) {
+            return true;
         } else {
             return child().nullable();
         }
@@ -92,7 +94,7 @@ public class Cast extends Expression implements UnaryExpression {
 
     @Override
     public String toSql() throws UnboundException {
-        return "cast(" + child().toSql() + " as " + targetType + ")";
+        return "cast(" + child().toSql() + " as " + targetType.toSql() + ")";
     }
 
     @Override

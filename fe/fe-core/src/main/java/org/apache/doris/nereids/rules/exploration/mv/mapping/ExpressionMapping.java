@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv.mapping;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
@@ -35,20 +36,20 @@ import java.util.Map;
  * Expression mapping, maybe one expression map to multi expression
  */
 public class ExpressionMapping extends Mapping {
-    private final Multimap<? extends Expression, ? extends Expression> expressionMapping;
+    private final Multimap<Expression, Expression> expressionMapping;
 
-    public ExpressionMapping(Multimap<? extends Expression, ? extends Expression> expressionMapping) {
+    public ExpressionMapping(Multimap<Expression, Expression> expressionMapping) {
         this.expressionMapping = expressionMapping;
     }
 
-    public Multimap<? extends Expression, ? extends Expression> getExpressionMapping() {
+    public Multimap<Expression, Expression> getExpressionMapping() {
         return expressionMapping;
     }
 
     /**
      * ExpressionMapping flatten
      */
-    public List<Map<? extends Expression, ? extends Expression>> flattenMap() {
+    public List<Map<Expression, Expression>> flattenMap() {
         List<List<Pair<Expression, Expression>>> tmpExpressionPairs = new ArrayList<>(this.expressionMapping.size());
         Map<? extends Expression, ? extends Collection<? extends Expression>> expressionMappingMap =
                 expressionMapping.asMap();
@@ -62,7 +63,7 @@ public class ExpressionMapping extends Mapping {
         }
         List<List<Pair<Expression, Expression>>> cartesianExpressionMap = Lists.cartesianProduct(tmpExpressionPairs);
 
-        final List<Map<? extends Expression, ? extends Expression>> flattenedMap = new ArrayList<>();
+        final List<Map<Expression, Expression>> flattenedMap = new ArrayList<>();
         for (List<Pair<Expression, Expression>> listPair : cartesianExpressionMap) {
             final Map<Expression, Expression> expressionMap = new HashMap<>();
             listPair.forEach(pair -> expressionMap.put(pair.key(), pair.value()));
@@ -71,7 +72,8 @@ public class ExpressionMapping extends Mapping {
         return flattenedMap;
     }
 
-    /**Permute the key of expression mapping. this is useful for expression rewrite, if permute key to query based
+    /**
+     * Permute the key of expression mapping. this is useful for expression rewrite, if permute key to query based
      * then when expression rewrite success, we can get the mv scan expression directly.
      */
     public ExpressionMapping keyPermute(SlotMapping slotMapping) {
@@ -86,7 +88,9 @@ public class ExpressionMapping extends Mapping {
         return new ExpressionMapping(permutedExpressionMapping);
     }
 
-    /**ExpressionMapping generate*/
+    /**
+     * ExpressionMapping generate
+     */
     public static ExpressionMapping generate(
             List<? extends Expression> sourceExpressions,
             List<? extends Expression> targetExpressions) {
@@ -96,5 +100,10 @@ public class ExpressionMapping extends Mapping {
             expressionMultiMap.put(sourceExpressions.get(i), targetExpressions.get(i));
         }
         return new ExpressionMapping(expressionMultiMap);
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("ExpressionMapping", "expressionMapping", expressionMapping);
     }
 }

@@ -26,11 +26,13 @@ public class ExplainOptions {
 
     private boolean isTree;
     private boolean isGraph;
+    private boolean showPlanProcess;
 
     private ExplainCommand.ExplainLevel explainLevel;
 
-    public ExplainOptions(ExplainCommand.ExplainLevel explainLevel) {
+    public ExplainOptions(ExplainCommand.ExplainLevel explainLevel, boolean showPlanProcess) {
         this.explainLevel = explainLevel;
+        this.showPlanProcess = showPlanProcess;
     }
 
     public ExplainOptions(boolean isVerbose, boolean isTree, boolean isGraph) {
@@ -57,5 +59,9 @@ public class ExplainOptions {
 
     public ExplainLevel getExplainLevel() {
         return explainLevel;
+    }
+
+    public boolean showPlanProcess() {
+        return showPlanProcess;
     }
 }

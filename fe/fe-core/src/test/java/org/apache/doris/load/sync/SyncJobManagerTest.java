@@ -23,6 +23,7 @@ import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.StopSyncJobStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -446,5 +447,40 @@ public class SyncJobManagerTest {
         Assert.assertEquals(0, dbIdToJobNameToSyncJobs.size());
     }
 
+    @Test
+    public void testCleanOverLimitJobs() {
+        SyncJob canalSyncJob = new CanalSyncJob(jobId, jobName, dbId);
+        // change sync job state to cancelled
+        try {
+            canalSyncJob.updateState(JobState.CANCELLED, false);
+        } catch (UserException e) {
+            Assert.fail();
+        }
+        Assert.assertEquals(JobState.CANCELLED, canalSyncJob.getJobState());
 
+        SyncJobManager manager = new SyncJobManager();
+
+        // add a sync job to manager
+        Map<Long, SyncJob> idToSyncJob = Maps.newHashMap();
+        idToSyncJob.put(jobId, canalSyncJob);
+        Map<Long, Map<String, List<SyncJob>>> dbIdToJobNameToSyncJobs = Maps.newHashMap();
+        Map<String, List<SyncJob>> jobNameToSyncJobs = Maps.newHashMap();
+        jobNameToSyncJobs.put(jobName, Lists.newArrayList(canalSyncJob));
+        dbIdToJobNameToSyncJobs.put(dbId, jobNameToSyncJobs);
+
+        Deencapsulation.setField(manager, "idToSyncJob", idToSyncJob);
+        Deencapsulation.setField(manager, "dbIdToJobNameToSyncJobs", dbIdToJobNameToSyncJobs);
+
+        new Expectations(canalSyncJob) {
+            {
+                canalSyncJob.isCompleted();
+                result = true;
+            }
+        };
+        Config.label_num_threshold = 0;
+        manager.cleanOverLimitSyncJobs();
+
+        Assert.assertEquals(0, idToSyncJob.size());
+        Assert.assertEquals(0, dbIdToJobNameToSyncJobs.size());
+    }
 }

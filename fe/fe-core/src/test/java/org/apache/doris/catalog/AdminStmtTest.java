@@ -46,7 +46,7 @@ public class AdminStmtTest extends TestWithFeService {
         createDatabase("test");
         createTable("CREATE TABLE test.tbl1 (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
-                + "  `id2` bitmap bitmap_union NULL\n"
+                + "  `id2` bitmap bitmap_union\n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 3\n"
@@ -76,7 +76,7 @@ public class AdminStmtTest extends TestWithFeService {
 
     @Test
     public void testAdminSetReplicaStatus() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         Assertions.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
         Assertions.assertNotNull(tbl);
@@ -116,7 +116,7 @@ public class AdminStmtTest extends TestWithFeService {
 
     @Test
     public void testAdminSetReplicaVersion() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         Assertions.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl3");
         Assertions.assertNotNull(tbl);
@@ -228,7 +228,7 @@ public class AdminStmtTest extends TestWithFeService {
             Files.createFile(path);
             DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
-            SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(10000, 100001, ReplicaStatus.BAD);
+            SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(10000, 100001, ReplicaStatus.BAD, 100L);
             log.write(out);
             out.flush();
             out.close();
@@ -240,6 +240,7 @@ public class AdminStmtTest extends TestWithFeService {
             Assertions.assertEquals(log.getBackendId(), readLog.getBackendId());
             Assertions.assertEquals(log.getTabletId(), readLog.getTabletId());
             Assertions.assertEquals(log.getReplicaStatus(), readLog.getReplicaStatus());
+            Assertions.assertEquals(log.getUserDropTime(), readLog.getUserDropTime());
 
             in.close();
         } finally {
@@ -249,7 +250,7 @@ public class AdminStmtTest extends TestWithFeService {
 
     @Test
     public void testAdminSetPartitionVersion() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         Assertions.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl2");
         Assertions.assertNotNull(tbl);

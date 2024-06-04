@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.thrift.TSchemaTableType;
 
 public enum SchemaTableType {
-    // defination
     SCH_AUTHORS("AUTHORS", "AUTHORS", TSchemaTableType.SCH_AUTHORS),
     SCH_CHARSETS("CHARSETS", "CHARACTER_SETS", TSchemaTableType.SCH_CHARSETS),
     SCH_COLLATIONS("COLLATIONS", "COLLATIONS", TSchemaTableType.SCH_COLLATIONS),
@@ -70,7 +69,17 @@ public enum SchemaTableType {
     SCH_ROWSETS("ROWSETS", "ROWSETS", TSchemaTableType.SCH_ROWSETS),
     SCH_PARAMETERS("PARAMETERS", "PARAMETERS", TSchemaTableType.SCH_PARAMETERS),
     SCH_METADATA_NAME_IDS("METADATA_NAME_IDS", "METADATA_NAME_IDS", TSchemaTableType.SCH_METADATA_NAME_IDS),
-    SCH_PROFILING("PROFILING", "PROFILING", TSchemaTableType.SCH_PROFILING);
+    SCH_PROFILING("PROFILING", "PROFILING", TSchemaTableType.SCH_PROFILING),
+    SCH_BACKEND_ACTIVE_TASKS("BACKEND_ACTIVE_TASKS", "BACKEND_ACTIVE_TASKS", TSchemaTableType.SCH_BACKEND_ACTIVE_TASKS),
+    SCH_ACTIVE_QUERIES("ACTIVE_QUERIES", "ACTIVE_QUERIES", TSchemaTableType.SCH_ACTIVE_QUERIES),
+    SCH_WORKLOAD_GROUPS("WORKLOAD_GROUPS", "WORKLOAD_GROUPS", TSchemaTableType.SCH_WORKLOAD_GROUPS),
+    SCHE_USER("user", "user", TSchemaTableType.SCH_USER),
+    SCH_PROCS_PRIV("procs_priv", "procs_priv", TSchemaTableType.SCH_PROCS_PRIV),
+    SCH_WORKLOAD_POLICY("WORKLOAD_POLICY", "WORKLOAD_POLICY",
+            TSchemaTableType.SCH_WORKLOAD_POLICY),
+    SCH_TABLE_OPTIONS("TABLE_OPTIONS", "TABLE_OPTIONS",
+            TSchemaTableType.SCH_TABLE_OPTIONS);
+
     private static final String dbName = "INFORMATION_SCHEMA";
     private static SelectList fullSelectLists;
 

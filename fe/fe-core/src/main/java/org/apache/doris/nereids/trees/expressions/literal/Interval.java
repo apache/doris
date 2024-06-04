@@ -88,5 +88,3 @@ public class Interval extends Expression implements LeafExpression, AlwaysNotNul
         }
     }
 }
-
-

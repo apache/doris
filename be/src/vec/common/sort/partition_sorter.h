@@ -90,10 +90,9 @@ public:
 
     size_t data_size() const override { return _state->data_size(); }
 
-    bool is_spilled() const override { return false; }
-
     Status partition_sort_read(Block* block, bool* eos, int batch_size);
     int64 get_output_rows() const { return _output_total_rows; }
+    void reset_sorter_state(RuntimeState* runtime_state);
 
 private:
     std::unique_ptr<MergeSorterState> _state;

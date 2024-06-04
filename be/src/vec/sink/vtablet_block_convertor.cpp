@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/FrontendService.h>
+#include <glog/logging.h>
 #include <google/protobuf/stubs/common.h>
 
 #include <algorithm>
@@ -46,6 +47,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
@@ -66,8 +68,21 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
                 output_vexpr_ctxs, *input_block, block.get()));
     }
 
-    // fill the valus for auto-increment columns
-    if (_auto_inc_col_idx.has_value()) {
+    if (_is_partial_update_and_auto_inc) {
+        // If this load is partial update and this table has a auto inc column,
+        // e.g. table schema: k1, v1, v2(auto inc)
+        // 1. insert columns include auto inc column
+        // e.g. insert into table (k1, v2) value(a, 1);
+        // we do nothing.
+        // 2. insert columns do not include auto inc column
+        // e.g. insert into table (k1, v1) value(a, a);
+        // we need to fill auto_inc_cols by creating a new column.
+        if (!_auto_inc_col_idx.has_value()) {
+            RETURN_IF_ERROR(_partial_update_fill_auto_inc_cols(block.get(), rows));
+        }
+    } else if (_auto_inc_col_idx.has_value()) {
+        // fill the valus for auto-increment columns
+        DCHECK_EQ(_is_partial_update_and_auto_inc, false);
         RETURN_IF_ERROR(_fill_auto_inc_cols(block.get(), rows));
     }
 
@@ -83,7 +98,7 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
         if (stop_processing) {
             // should be returned after updating "_number_filtered_rows", to make sure that load job can be cancelled
             // because of "data unqualified"
-            return Status::EndOfFile("Encountered unqualified data, stop processing");
+            return Status::DataQualityError("Encountered unqualified data, stop processing");
         }
         _convert_to_dest_desc_block(block.get());
     }
@@ -91,8 +106,16 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
     return Status::OK();
 }
 
-void OlapTableBlockConvertor::init_autoinc_info(int64_t db_id, int64_t table_id, int batch_size) {
+void OlapTableBlockConvertor::init_autoinc_info(int64_t db_id, int64_t table_id, int batch_size,
+                                                bool is_partial_update_and_auto_inc,
+                                                int32_t auto_increment_column_unique_id) {
     _batch_size = batch_size;
+    if (is_partial_update_and_auto_inc) {
+        _is_partial_update_and_auto_inc = is_partial_update_and_auto_inc;
+        _auto_inc_id_buffer = GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
+                db_id, table_id, auto_increment_column_unique_id);
+        return;
+    }
     for (size_t idx = 0; idx < _output_tuple_desc->slots().size(); idx++) {
         if (_output_tuple_desc->slots()[idx]->is_auto_increment()) {
             _auto_inc_col_idx = idx;
@@ -137,7 +160,7 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
         pmap = IsMin ? &_min_decimal32_val : &_max_decimal32_val;
     } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal64>) {
         pmap = IsMin ? &_min_decimal64_val : &_max_decimal64_val;
-    } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal128I>) {
+    } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal128V3>) {
         pmap = IsMin ? &_min_decimal128_val : &_max_decimal128_val;
     } else {
         pmap = IsMin ? &_min_decimal256_val : &_max_decimal256_val;
@@ -256,8 +279,8 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         break;
     }
     case TYPE_DECIMALV2: {
-        auto* column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(
-                assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>*>(
+        auto* column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
+                assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
                         real_column_ptr.get()));
         const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
         const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
@@ -335,7 +358,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         break;
     }
     case TYPE_DECIMAL128I: {
-        CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal128I);
+        CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal128V3);
         break;
     }
     case TYPE_DECIMAL256: {
@@ -519,6 +542,26 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     block->get_by_position(idx).column = std::move(dst_column);
     block->get_by_position(idx).type =
             vectorized::DataTypeFactory::instance().create_data_type(slot->type(), false);
+    return Status::OK();
+}
+
+Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::Block* block,
+                                                                   size_t rows) {
+    auto dst_column = vectorized::ColumnInt64::create();
+    vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
+    size_t null_value_count = rows;
+    std::vector<std::pair<int64_t, size_t>> res;
+    RETURN_IF_ERROR(_auto_inc_id_buffer->sync_request_ids(null_value_count, &res));
+    for (auto [start, length] : res) {
+        _auto_inc_id_allocator.insert_ids(start, length);
+    }
+
+    for (size_t i = 0; i < rows; i++) {
+        dst_values.emplace_back(_auto_inc_id_allocator.next_id());
+    }
+    block->insert(vectorized::ColumnWithTypeAndName(std::move(dst_column),
+                                                    std::make_shared<DataTypeNumber<Int64>>(),
+                                                    "__PARTIAL_UPDATE_AUTO_INC_COLUMN__"));
     return Status::OK();
 }
 

@@ -77,7 +77,7 @@ suite("test_map_load_and_compaction", "p0") {
         for (String rowset in (List<String>) compactStatusJson.rowsets) {
             rowsetsCount += Integer.parseInt(rowset.split(" ")[1])
         }
-        assertTrue(assertRowSetNum==rowsetsCount)
+        assertEquals(assertRowSetNum, rowsetsCount)
     }
 
 
@@ -98,10 +98,10 @@ suite("test_map_load_and_compaction", "p0") {
 
         // check here 2 rowsets
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
-        String[][] tablets = sql """ show tablets from ${testTable}; """
-        String[] tablet = tablets[0]
+        def tablets = sql_return_maparray """ show tablets from ${testTable}; """
+        def tablet = tablets[0]
         // check rowsets number
-        String compactionStatus = tablet[18]
+        String compactionStatus = tablet.CompactionStatus
         checkCompactionStatus.call(compactionStatus, 6)
 
         // trigger compaction
@@ -109,8 +109,8 @@ suite("test_map_load_and_compaction", "p0") {
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-        String tablet_id = tablet[0]
-        backend_id = tablet[2]
+        String tablet_id = tablet.TabletId
+        backend_id = tablet.BackendId
         def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)

@@ -3,9 +3,6 @@
 a	DECIMAL(12, 6)	No	true	\N	
 
 -- !sql --
-default_cluster:regression_test_index_p0.test_decimal_bitmap_index_multi_page		bitmap_index_multi_page		a						BITMAP		
-
--- !sql --
 0.000001
 1.000001
 2.000001

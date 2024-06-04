@@ -33,15 +33,17 @@ struct WriteRequest {
     int64_t tablet_id = 0;
     int32_t schema_hash = 0;
     int64_t txn_id = 0;
+    int64_t txn_expiration = 0; // For cloud mode
     int64_t index_id = 0;
     int64_t partition_id = 0;
     PUniqueId load_id;
     TupleDescriptor* tuple_desc = nullptr;
     // slots are in order of tablet's schema
     const std::vector<SlotDescriptor*>* slots = nullptr;
-    OlapTableSchemaParam* table_schema_param = nullptr;
+    std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr;
     bool is_high_priority = false;
     bool write_file_cache = false;
+    std::string storage_vault_id;
 };
 
 } // namespace doris

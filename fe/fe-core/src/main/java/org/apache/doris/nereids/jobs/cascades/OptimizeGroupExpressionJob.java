@@ -24,7 +24,8 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.qe.ConnectContext;
 
-import java.util.ArrayList;
+import com.google.common.collect.ImmutableList;
+
 import java.util.Collections;
 import java.util.List;
 
@@ -48,11 +49,6 @@ public class OptimizeGroupExpressionJob extends Job {
         countJobExecutionTimesOfGroupExpressions(groupExpression);
         List<Rule> implementationRules = getRuleSet().getImplementationRules();
         List<Rule> explorationRules = getExplorationRules();
-        ConnectContext connectContext = context.getCascadesContext().getConnectContext();
-        if (connectContext.getSessionVariable().isEnableMaterializedViewRewrite()) {
-            explorationRules = new ArrayList<>(explorationRules);
-            explorationRules.addAll(getRuleSet().getMaterializedViewRules());
-        }
 
         for (Rule rule : explorationRules) {
             if (rule.isInvalid(disableRules, groupExpression)) {
@@ -70,12 +66,19 @@ public class OptimizeGroupExpressionJob extends Job {
     }
 
     private List<Rule> getExplorationRules() {
+        return ImmutableList.<Rule>builder()
+                .addAll(getJoinRules())
+                .addAll(getMvRules())
+                .build();
+    }
+
+    private List<Rule> getJoinRules() {
         boolean isDisableJoinReorder = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isDisableJoinReorder()
+                || context.getCascadesContext().isLeadingDisableJoinReorder()
                 || context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
                 .getConnectContext().getSessionVariable().memoMaxGroupExpressionSize;
         boolean isDpHyp = context.getCascadesContext().getStatementContext().isDpHyp();
-        boolean isOtherJoinReorder = context.getCascadesContext().getStatementContext().isOtherJoinReorder();
         boolean isEnableBushyTree = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isEnableBushyTree();
         boolean isLeftZigZagTree = context.getCascadesContext().getConnectContext()
@@ -86,11 +89,7 @@ public class OptimizeGroupExpressionJob extends Job {
         if (isDisableJoinReorder) {
             return Collections.emptyList();
         } else if (isDpHyp) {
-            if (isOtherJoinReorder) {
-                return getRuleSet().getDPHypReorderRules();
-            } else {
-                return Collections.emptyList();
-            }
+            return getRuleSet().getDPHypReorderRules();
         } else if (isLeftZigZagTree) {
             return getRuleSet().getLeftZigZagTreeJoinReorder();
         } else if (isEnableBushyTree) {
@@ -100,5 +99,13 @@ public class OptimizeGroupExpressionJob extends Job {
         } else {
             return getRuleSet().getZigZagTreeJoinReorder();
         }
+    }
+
+    private List<Rule> getMvRules() {
+        ConnectContext connectContext = context.getCascadesContext().getConnectContext();
+        if (connectContext.getSessionVariable().isEnableMaterializedViewRewrite()) {
+            return getRuleSet().getMaterializedViewRules();
+        }
+        return ImmutableList.of();
     }
 }

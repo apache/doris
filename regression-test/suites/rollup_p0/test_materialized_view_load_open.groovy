@@ -128,73 +128,10 @@ suite("test_materialized_view_load_open", "rollup") {
             );
         """
     
-    sql "CREATE materialized VIEW test_load_open AS SELECT k1 FROM ${tbName1} GROUP BY k1;"
-    int max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-
-    sql "CREATE materialized VIEW test_load_open_dynamic_partition AS SELECT k1 FROM ${tbName2} GROUP BY k1;"
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName2)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-
-    sql "CREATE materialized VIEW test_load_open_schema_change AS SELECT k1 FROM ${tbName3} GROUP BY k1;"
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-
-    sql "CREATE materialized VIEW test_load_open_dynamic_partition_schema_change AS SELECT k1 FROM ${tbName4} GROUP BY k1;"
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName4)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
+    createMV("CREATE materialized VIEW test_load_open AS SELECT k1 FROM ${tbName1} GROUP BY k1;")
+    createMV("CREATE materialized VIEW test_load_open_dynamic_partition AS SELECT k1 FROM ${tbName2} GROUP BY k1;")
+    createMV("CREATE materialized VIEW test_load_open_schema_change AS SELECT k1 FROM ${tbName3} GROUP BY k1;")
+    createMV("CREATE materialized VIEW test_load_open_dynamic_partition_schema_change AS SELECT k1 FROM ${tbName4} GROUP BY k1;")
 
     sql "insert into ${tbName1} values('2000-05-20', 1.5, 'test', 1);"
     sql "insert into ${tbName1} values('2010-05-20', 1.5, 'test', 1);"
@@ -210,8 +147,14 @@ suite("test_materialized_view_load_open", "rollup") {
     sql "ALTER table ${tbName4} ADD COLUMN new_column INT;"
     sql "insert into ${tbName4} values('2010-05-20', 1.5, 'test', 1, 1);"
 
-    sql "DROP TABLE ${tbName1} FORCE;"
-    sql "DROP TABLE ${tbName2} FORCE;"
-    sql "DROP TABLE ${tbName3} FORCE;"
-    sql "DROP TABLE ${tbName4} FORCE;"
+    qt_select "select * from test_materialized_view_load_open_schema_change order by 1,2,3,4;"
+
+    streamLoad {
+        table "test_materialized_view_load_open_schema_change"
+        set 'column_separator', ','
+        file 'a.csv'
+        time 10000 // limit inflight 10s
+    }
+
+    qt_select "select * from test_materialized_view_load_open_schema_change order by 1,2,3,4;"
 }

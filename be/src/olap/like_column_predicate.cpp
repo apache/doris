@@ -51,8 +51,8 @@ void LikeColumnPredicate<T>::evaluate_and_vec(const vectorized::IColumn& column,
 }
 
 template <PrimitiveType T>
-uint16_t LikeColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                                          uint16_t size) const {
+uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+                                                 uint16_t size) const {
     uint16_t new_size = 0;
     if (column.is_nullable()) {
         auto* nullable_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);

@@ -90,6 +90,11 @@ public class AddRollupClause extends AlterTableClause {
     }
 
     @Override
+    public boolean allowOpMTMV() {
+        return false;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("ADD ROLLUP `").append(rollupName).append("` (");

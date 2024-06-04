@@ -36,6 +36,7 @@ public class TransposeSemiJoinAgg extends OneRewriteRuleFactory {
         return logicalJoin(logicalAggregate(), any())
                 .whenNot(join -> ConnectContext.get().getSessionVariable().isDisableJoinReorder())
                 .when(join -> join.getJoinType().isLeftSemiOrAntiJoin())
+                .whenNot(join -> join.isMarkJoin())
                 .then(join -> {
                     LogicalAggregate<Plan> aggregate = join.left();
                     if (!canTranspose(aggregate, join)) {
@@ -51,6 +52,10 @@ public class TransposeSemiJoinAgg extends OneRewriteRuleFactory {
     public static boolean canTranspose(LogicalAggregate<? extends Plan> aggregate,
             LogicalJoin<? extends Plan, ? extends Plan> join) {
         Set<Slot> canPushDownSlots = PushDownFilterThroughAggregation.getCanPushDownSlots(aggregate);
+        // avoid push down scalar agg.
+        if (canPushDownSlots.isEmpty()) {
+            return false;
+        }
         Set<Slot> leftConditionSlot = join.getLeftConditionSlot();
         return canPushDownSlots.containsAll(leftConditionSlot);
     }

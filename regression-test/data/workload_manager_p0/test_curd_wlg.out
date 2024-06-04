@@ -6,15 +6,24 @@
 2
 
 -- !show_1 --
-normal	20	50%	true	2147483647	0	0	0%
-test_group	10	10%	true	2147483647	0	0	0%
+normal	20	50%	true	2147483647	0	0	1%	16	
+test_group	10	10%	true	2147483647	0	0	-1	-1	
+
+-- !show_del_wg_1 --
+normal	20	50%	true	2147483647	0	0	1%	16	
+test_drop_wg	10	0%	true	2147483647	0	0	-1	-1	
+test_group	10	10%	true	2147483647	0	0	-1	-1	
+
+-- !show_del_wg_2 --
+normal	20	50%	true	2147483647	0	0	1%	16	
+test_group	10	10%	true	2147483647	0	0	-1	-1	
 
 -- !mem_limit_1 --
 2
 
 -- !mem_limit_2 --
-normal	20	50%	true	2147483647	0	0	0%
-test_group	10	11%	true	2147483647	0	0	0%
+normal	20	50%	true	2147483647	0	0	1%	16
+test_group	10	11%	true	2147483647	0	0	-1	-1
 
 -- !mem_overcommit_1 --
 2
@@ -23,24 +32,68 @@ test_group	10	11%	true	2147483647	0	0	0%
 2
 
 -- !mem_overcommit_3 --
-normal	20	50%	true	2147483647	0	0	0%
-test_group	10	11%	false	2147483647	0	0	0%
+normal	20	50%	true	2147483647	0	0	1%	16
+test_group	10	11%	false	2147483647	0	0	-1	-1
 
 -- !cpu_hard_limit_1 --
 2
 
 -- !cpu_hard_limit_2 --
-normal	20	50%	true	2147483647	0	0	0%
-test_group	10	11%	false	2147483647	0	0	20%
+normal	20	50%	true	2147483647	0	0	1%	16
+test_group	10	11%	false	2147483647	0	0	20%	-1
 
 -- !queue_1 --
 2
 
 -- !show_queue --
-normal	20	50%	true	2147483647	0	0	0%
-test_group	10	11%	false	100	0	0	20%
+normal	20	50%	true	2147483647	0	0	1%	16
+test_group	10	11%	false	100	0	0	20%	-1
 
 -- !select_tvf_1 --
-normal	20	50%	true	2147483647	0	0	0%
-test_group	10	11%	false	100	0	0	20%
+normal	20	50%	true	2147483647	0	0	1%	16
+test_group	10	11%	false	100	0	0	20%	-1
+
+-- !show_spill_1 --
+spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	10%	10%
+
+-- !show_spill_1 --
+spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	-1	10%
+
+-- !show_spill_2 --
+spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	5%	10%
+
+-- !show_spill_3 --
+spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	5%	40%
+
+-- !show_wg_tag --
+tag1_mem_wg1	50%	-1	mem_tag1
+tag1_mem_wg2	49%	-1	mem_tag1
+tag1_mem_wg3	1%	-1	mem_tag1
+tag1_wg1	0%	10%	tag1
+tag1_wg2	0%	10%	tag1
+tag1_wg3	0%	80%	tag1
+
+-- !select_remote_scan_num --
+20	10
+
+-- !select_remote_scan_num_2 --
+21	10
+
+-- !select_remote_scan_num_3 --
+21	2
+
+-- !select_remote_scan_num_4 --
+40	20
+
+-- !select_remote_scan_num_5 --
+10	5
+
+-- !select_remote_scan_num_6 --
+3	3
+
+-- !select_remote_scan_num_7 --
+10	5
+
+-- !select_remote_scan_num_8 --
+-1	-1
 

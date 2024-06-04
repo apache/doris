@@ -37,9 +37,9 @@
 
 -- !select_group_mv_add --
 -4
+3
 1
 2
--3
 
 -- !select_group_mv_not --
 -3

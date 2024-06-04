@@ -22,7 +22,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -63,7 +63,7 @@ public class StatsCalculatorTest {
     private Group newFakeGroup() {
         GroupExpression groupExpression = new GroupExpression(scan);
         Group group = new Group(null, groupExpression,
-                new LogicalProperties(Collections::emptyList, () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
+                new LogicalProperties(Collections::emptyList, () -> DataTrait.EMPTY_TRAIT));
         group.getLogicalExpressions().remove(0);
         return group;
     }
@@ -244,15 +244,15 @@ public class StatsCalculatorTest {
     @Test
     public void testOlapScan() {
         long tableId1 = 0;
+        OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
         List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference(new ExprId(0),
-                "c1", IntegerType.INSTANCE, true, qualifier, new Column("c1", PrimitiveType.INT));
+                "c1", IntegerType.INSTANCE, true, qualifier, table1, new Column("c1", PrimitiveType.INT));
 
-        OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
         LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(
                 StatementScopeIdGenerator.newRelationId(), table1,
                 Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
-                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), () -> FunctionalDependencies.EMPTY_FUNC_DEPS)), ImmutableList.of());
+                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), () -> DataTrait.EMPTY_TRAIT)), ImmutableList.of());
 
         GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, ImmutableList.of());
         Group ownerGroup = new Group(null, groupExpression, null);
@@ -266,7 +266,7 @@ public class StatsCalculatorTest {
     public void testLimit() {
         List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference(new ExprId(0),
-                "c1", IntegerType.INSTANCE, true, qualifier, new Column("c1", PrimitiveType.INT));
+                "c1", IntegerType.INSTANCE, true, qualifier, null, new Column("c1", PrimitiveType.INT));
         ColumnStatisticBuilder columnStat1 = new ColumnStatisticBuilder();
         columnStat1.setNdv(10);
         columnStat1.setNumNulls(5);

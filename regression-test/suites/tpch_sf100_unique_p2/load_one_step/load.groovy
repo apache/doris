@@ -57,6 +57,11 @@ suite("load_one_step") {
                     logger.info("select ${table} numbers: ${loadRowCount[0][0]}".toString())
                     assertTrue(loadRowCount[0][0] == rows)
                 }
+                if (table == "lineitem") {
+                    def loadRowCount = sql "select count(1) from ${table} where l_orderkey = 1"
+                    logger.info("select ${table} numbers: ${loadRowCount[0][0]}".toString())
+                    assertTrue(loadRowCount[0][0] == 6)
+                }
                 sql new File("""${context.file.parentFile.parent}/ddl/${table}_delete.sql""").text
                 for (int i = 1; i <= 5; i++) {
                     def loadRowCount = sql "select count(1) from ${table}"
@@ -67,7 +72,10 @@ suite("load_one_step") {
             }
             sleep(5000)
         }
-        
+    }
+
+    Thread.sleep(70000) // wait for row count report of the tables just loaded
+    tables.each { table, rows ->
         sql """SET query_timeout = 1800"""
         sql """ ANALYZE TABLE $table WITH SYNC """
     }

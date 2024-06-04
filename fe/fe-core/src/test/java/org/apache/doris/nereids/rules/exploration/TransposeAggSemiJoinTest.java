@@ -30,6 +30,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class TransposeAggSemiJoinTest implements MemoPatternMatchSupported {
@@ -56,5 +57,22 @@ class TransposeAggSemiJoinTest implements MemoPatternMatchSupported {
                                 logicalOlapScan()
                         )
                 );
+    }
+
+    @Test
+    void markJoin() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .markJoin(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .aggGroupUsingIndex(ImmutableList.of(0),
+                        ImmutableList.of(
+                                scan1.getOutput().get(0),
+                                new Alias(new Sum(scan1.getOutput().get(1)), "sum")
+                        )
+                )
+                .build();
+        int size = PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(TransposeAggSemiJoin.INSTANCE.build())
+                .getAllPlan().size();
+        Assertions.assertEquals(1, size);
     }
 }

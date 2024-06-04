@@ -35,11 +35,13 @@ usage() {
     echo "
 Usage: $0 <options>
   Optional options:
-     -c             parallelism to load data of lineitem, orders, partsupp, default is 5.
+    -c             parallelism to load data of lineitem, orders, partsupp, default is 5.
+    -x              use transaction id. multi times of loading with the same id won't load duplicate data.
 
   Eg.
     $0              load data using default value.
-    $0 -c 10        load lineitem, orders, partsupp table data using parallelism 10.     
+    $0 -c 10        load lineitem, orders, partsupp table data using parallelism 10.
+    $0 -x blabla    use transaction id \"blabla\".
   "
     exit 1
 }
@@ -47,13 +49,14 @@ Usage: $0 <options>
 OPTS=$(getopt \
     -n "$0" \
     -o '' \
-    -o 'hc:' \
+    -o 'hc:x:' \
     -- "$@")
 
 eval set -- "${OPTS}"
 
 PARALLEL=5
 HELP=0
+TXN_ID=""
 
 if [[ $# == 0 ]]; then
     usage
@@ -67,6 +70,10 @@ while true; do
         ;;
     -c)
         PARALLEL=$2
+        shift 2
+        ;;
+    -x)
+        TXN_ID=$2
         shift 2
         ;;
     --)
@@ -170,13 +177,26 @@ for table_name in ${!table_columns[*]}; do
     {
         for file in "${TPCDS_DATA_DIR}/${table_name}"_{1..100}_*.dat; do
             if ! [[ -f "${file}" ]]; then continue; fi
-            ret=$(curl \
-                --location-trusted \
-                -u "${USER}":"${PASSWORD:=}" \
-                -H "column_separator:|" \
-                -H "columns: ${table_columns[${table_name}]}" \
-                -T "${file}" \
-                http://"${FE_HOST}":"${FE_HTTP_PORT:=8030}"/api/"${DB}"/"${table_name}"/_stream_load 2>/dev/null)
+            FILE_ID=$(echo "${file}" | awk -F'/' '{print $(NF)}' | awk -F'.' '{print $(1)}')
+            if [[ -z ${TXN_ID} ]]; then
+                ret=$(curl \
+                    --location-trusted \
+                    -u "${USER}":"${PASSWORD:-}" \
+                    -H "column_separator:|" \
+                    -H "columns: ${table_columns[${table_name}]}" \
+                    -T "${file}" \
+                    http://"${FE_HOST}":"${FE_HTTP_PORT:-8030}"/api/"${DB}"/"${table_name}"/_stream_load 2>/dev/null)
+            else
+                ret=$(curl \
+                    --location-trusted \
+                    -u "${USER}":"${PASSWORD:-}" \
+                    -H "label:${TXN_ID}_${FILE_ID}" \
+                    -H "column_separator:|" \
+                    -H "columns: ${table_columns[${table_name}]}" \
+                    -T "${file}" \
+                    http://"${FE_HOST}":"${FE_HTTP_PORT:-8030}"/api/"${DB}"/"${table_name}"/_stream_load 2>/dev/null)
+            fi
+
             if [[ $(echo "${ret}" | jq ".Status") == '"Success"' ]]; then
                 echo "----loaded ${file}"
             else

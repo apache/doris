@@ -38,7 +38,11 @@ class VExprContext;
 namespace doris::vectorized {
 
 VSlotRef::VSlotRef(const doris::TExprNode& node)
-        : VExpr(node), _slot_id(node.slot_ref.slot_id), _column_id(-1), _column_name(nullptr) {}
+        : VExpr(node),
+          _slot_id(node.slot_ref.slot_id),
+          _column_id(-1),
+          _column_name(nullptr),
+          _column_label(node.label) {}
 
 VSlotRef::VSlotRef(const SlotDescriptor* desc)
         : VExpr(desc->type(), true, desc->is_nullable()),
@@ -51,6 +55,7 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     DCHECK_EQ(_children.size(), 0);
     if (_slot_id == -1) {
+        _prepare_finished = true;
         return Status::OK();
     }
     const SlotDescriptor* slot_desc = state->desc_tbl().get_slot_descriptor(_slot_id);
@@ -63,6 +68,7 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     if (!context->force_materialize_slot() && !slot_desc->need_materialize()) {
         // slot should be ignored manually
         _column_id = -1;
+        _prepare_finished = true;
         return Status::OK();
     }
     _column_id = desc.get_column_id(_slot_id, context->force_materialize_slot());
@@ -72,6 +78,15 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
                 *_column_name, _slot_id, desc.debug_string(), slot_desc->debug_string(),
                 state->desc_tbl().debug_string());
     }
+    _prepare_finished = true;
+    return Status::OK();
+}
+
+Status VSlotRef::open(RuntimeState* state, VExprContext* context,
+                      FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
+    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    _open_finished = true;
     return Status::OK();
 }
 
@@ -88,6 +103,10 @@ Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column
 const std::string& VSlotRef::expr_name() const {
     return *_column_name;
 }
+std::string VSlotRef::expr_label() {
+    return _column_label;
+}
+
 std::string VSlotRef::debug_string() const {
     std::stringstream out;
     out << "SlotRef(slot_id=" << _slot_id << VExpr::debug_string() << ")";

@@ -15,10 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H
-#define DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H
-
-#include <stdint.h>
+#pragma once
 
 #include <mutex>
 #include <shared_mutex>
@@ -27,23 +24,22 @@
 
 #include "common/status.h"
 #include "olap/rowset/pending_rowset_helper.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet.h"
-#include "olap/tablet_meta.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
 #include "olap/task/engine_task.h"
 
 namespace doris {
 class DataDir;
+class StorageEngine;
 
 /// This task is used to migrate the specified tablet to the specified data directory.
 // Usually used for storage medium migration, or migration of tablets between disks.
-class EngineStorageMigrationTask : public EngineTask {
+class EngineStorageMigrationTask final : public EngineTask {
 public:
-    virtual Status execute();
+    Status execute() override;
 
-public:
-    EngineStorageMigrationTask(const TabletSharedPtr& tablet, DataDir* dest_store);
-    ~EngineStorageMigrationTask() {}
+    EngineStorageMigrationTask(StorageEngine& engine, TabletSharedPtr tablet, DataDir* dest_store);
+    ~EngineStorageMigrationTask() override;
 
 private:
     Status _migrate();
@@ -54,7 +50,8 @@ private:
     Status _check_running_txns();
     // caller should not hold migration lock, and 'migration_wlock' should not be nullptr
     // ownership of the migration lock is transferred to the caller if check succ
-    Status _check_running_txns_until_timeout(std::unique_lock<std::shared_mutex>* migration_wlock);
+    Status _check_running_txns_until_timeout(
+            std::unique_lock<std::shared_timed_mutex>* migration_wlock);
 
     // if the size less than threshold, return true
     bool _is_rowsets_size_less_than_threshold(
@@ -75,6 +72,7 @@ private:
                                       const std::vector<RowsetSharedPtr>& consistent_rowsets) const;
 
 private:
+    StorageEngine& _engine;
     // tablet to do migrated
     TabletSharedPtr _tablet;
     // destination data dir
@@ -84,4 +82,3 @@ private:
 }; // EngineTask
 
 } // namespace doris
-#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H

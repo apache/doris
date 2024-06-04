@@ -39,11 +39,11 @@ public abstract class PhysicalSink<CHILD_TYPE extends Plan> extends PhysicalUnar
     protected final List<NamedExpression> outputExprs;
 
     public PhysicalSink(PlanType type,
-            List<NamedExpression> outputExprs,
-            Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties,
-            @Nullable PhysicalProperties physicalProperties,
-            Statistics statistics, CHILD_TYPE child) {
+                        List<NamedExpression> outputExprs,
+                        Optional<GroupExpression> groupExpression,
+                        LogicalProperties logicalProperties,
+                        @Nullable PhysicalProperties physicalProperties,
+                        Statistics statistics, CHILD_TYPE child) {
         super(type, groupExpression, logicalProperties, physicalProperties, statistics, child);
         this.outputExprs = ImmutableList.copyOf(Objects.requireNonNull(outputExprs, "outputExprs should not null"));
     }

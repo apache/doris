@@ -163,7 +163,7 @@ private:
             break;
         case TYPE_DECIMALV2:
             if constexpr (std::is_same_v<CppType, DecimalV2Value>) {
-                size_t max_precision = max_decimal_precision<Decimal128>();
+                size_t max_precision = max_decimal_precision<Decimal128V2>();
                 if (col_schema->parquet_schema.precision < 1 ||
                     col_schema->parquet_schema.precision > max_precision ||
                     col_schema->parquet_schema.scale > max_precision) {
@@ -171,19 +171,19 @@ private:
                 }
                 int v2_scale = DecimalV2Value::SCALE;
                 if (physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-                    min_value = DecimalV2Value(
-                            _decode_binary_decimal<Decimal128>(col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(
-                            _decode_binary_decimal<Decimal128>(col_schema, encoded_max, v2_scale));
-                } else if (physical_type == tparquet::Type::INT32) {
-                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128, Int32>(
+                    min_value = DecimalV2Value(_decode_binary_decimal<Decimal128V2>(
                             col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128, Int32>(
+                    max_value = DecimalV2Value(_decode_binary_decimal<Decimal128V2>(
+                            col_schema, encoded_max, v2_scale));
+                } else if (physical_type == tparquet::Type::INT32) {
+                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int32>(
+                            col_schema, encoded_min, v2_scale));
+                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int32>(
                             col_schema, encoded_max, v2_scale));
                 } else if (physical_type == tparquet::Type::INT64) {
-                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128, Int64>(
+                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int64>(
                             col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128, Int64>(
+                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int64>(
                             col_schema, encoded_max, v2_scale));
                 } else {
                     return false;
@@ -199,7 +199,7 @@ private:
         case TYPE_DECIMAL128I:
             if constexpr (std::is_same_v<CppType, Decimal32> ||
                           std::is_same_v<CppType, Decimal64> ||
-                          std::is_same_v<CppType, Decimal128I>) {
+                          std::is_same_v<CppType, Decimal128V3>) {
                 size_t max_precision = max_decimal_precision<CppType>();
                 if (col_schema->parquet_schema.precision < 1 ||
                     col_schema->parquet_schema.precision > max_precision ||
@@ -257,6 +257,17 @@ private:
                 ParquetInt96 datetime96_max =
                         *reinterpret_cast<const ParquetInt96*>(encoded_max.data());
                 int64_t micros_max = datetime96_max.to_timestamp_micros();
+
+                // From Trino: Parquet INT96 timestamp values were compared incorrectly
+                // for the purposes of producing statistics by older parquet writers,
+                // so PARQUET-1065 deprecated them. The result is that any writer that produced stats
+                // was producing unusable incorrect values, except the special case where min == max
+                // and an incorrect ordering would not be material to the result.
+                // PARQUET-1026 made binary stats available and valid in that special case.
+                if (micros_min != micros_max) {
+                    return false;
+                }
+
                 if constexpr (std::is_same_v<CppType, VecDateTimeValue> ||
                               std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
                     min_value.from_unixtime(micros_min / 1000000, ctz);
@@ -329,9 +340,16 @@ private:
 
     template <PrimitiveType primitive_type>
     static std::vector<ScanPredicate> _value_range_to_predicate(
-            const ColumnValueRange<primitive_type>& col_val_range) {
+            const ColumnValueRange<primitive_type>& col_val_range, PrimitiveType src_type) {
         using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
         std::vector<ScanPredicate> predicates;
+
+        if (src_type != primitive_type) {
+            if (!(is_string_type(src_type) && is_string_type(primitive_type))) {
+                // not support schema change
+                return predicates;
+            }
+        }
 
         if (col_val_range.is_fixed_value_range()) {
             ScanPredicate in_predicate;
@@ -388,7 +406,8 @@ public:
         bool need_filter = false;
         std::visit(
                 [&](auto&& range) {
-                    std::vector<ScanPredicate> filters = _value_range_to_predicate(range);
+                    std::vector<ScanPredicate> filters =
+                            _value_range_to_predicate(range, col_schema->type.type);
                     // Currently, ScanPredicate doesn't include "is null" && "x = null", filters will be empty when contains these exprs.
                     // So we can handle is_all_null safely.
                     if (!filters.empty()) {

@@ -36,13 +36,19 @@ public class ProgressManager {
     private Map<String, Progress> idToProgress = Maps.newConcurrentMap();
 
     public void registerProgress(String id, int scannerNum) {
-        LOG.debug("create {} with initial scannerNum {}", id, scannerNum);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("create {} with initial scannerNum {}", id, scannerNum);
+        }
         idToProgress.remove(id);
         idToProgress.put(id, new Progress(scannerNum));
     }
 
     public void registerProgressSimple(String id) {
         registerProgress(id, 0);
+    }
+
+    public void removeProgress(String id) {
+        idToProgress.remove(id);
     }
 
     public void updateProgress(String id, TUniqueId queryId, TUniqueId fragmentId, int finishedScannerNum) {

@@ -26,14 +26,11 @@
 #include <stdint.h>
 #include <zlib.h>
 
+#include <memory>
 #include <string>
 
-#ifdef DORIS_WITH_LZO
-#include <lzo/lzo1x.h>
-#include <lzo/lzoconf.h>
-#endif
-
 #include "common/status.h"
+#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 
@@ -62,7 +59,14 @@ public:
                               size_t* more_output_bytes) = 0;
 
 public:
-    static Status create_decompressor(CompressType type, Decompressor** decompressor);
+    static Status create_decompressor(CompressType type,
+                                      std::unique_ptr<Decompressor>* decompressor);
+
+    static Status create_decompressor(TFileCompressType::type type,
+                                      std::unique_ptr<Decompressor>* decompressor);
+
+    static Status create_decompressor(TFileFormatType::type type,
+                                      std::unique_ptr<Decompressor>* decompressor);
 
     virtual std::string debug_info();
 
@@ -177,7 +181,6 @@ private:
     Status init() override;
 };
 
-#ifdef DORIS_WITH_LZO
 class LzopDecompressor : public Decompressor {
 public:
     ~LzopDecompressor() override = default;
@@ -271,6 +274,5 @@ private:
     const static uint64_t F_CRC32_D;
     const static uint64_t F_ADLER32_D;
 };
-#endif // DORIS_WITH_LZO
 
 } // namespace doris

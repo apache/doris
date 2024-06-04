@@ -132,7 +132,7 @@ public class DataBaseStats {
     public Map<String, Map> getStats(boolean summary) {
         Map<String, Map> stat = new HashMap<>();
         Map<String, Map> dstat = new HashMap<>();
-        List<TableIf> tables = db.getTablesOrEmpty();
+        List<TableIf> tables = db.getTablesIgnoreException();
         stat.put("summary", ImmutableMap.of("query", getQueryStats()));
 
         for (TableIf table : tables) {

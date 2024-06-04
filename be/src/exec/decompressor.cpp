@@ -19,42 +19,43 @@
 
 #include <strings.h>
 
+#include <memory>
 #include <ostream>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/endian.h"
 #include "gutil/strings/substitute.h"
 
 namespace doris {
 
-Status Decompressor::create_decompressor(CompressType type, Decompressor** decompressor) {
+Status Decompressor::create_decompressor(CompressType type,
+                                         std::unique_ptr<Decompressor>* decompressor) {
     switch (type) {
     case CompressType::UNCOMPRESSED:
-        *decompressor = nullptr;
+        decompressor->reset(nullptr);
         break;
     case CompressType::GZIP:
-        *decompressor = new GzipDecompressor(false);
+        decompressor->reset(new GzipDecompressor(false));
         break;
     case CompressType::DEFLATE:
-        *decompressor = new GzipDecompressor(true);
+        decompressor->reset(new GzipDecompressor(true));
         break;
     case CompressType::BZIP2:
-        *decompressor = new Bzip2Decompressor();
+        decompressor->reset(new Bzip2Decompressor());
         break;
     case CompressType::LZ4FRAME:
-        *decompressor = new Lz4FrameDecompressor();
+        decompressor->reset(new Lz4FrameDecompressor());
         break;
     case CompressType::LZ4BLOCK:
-        *decompressor = new Lz4BlockDecompressor();
+        decompressor->reset(new Lz4BlockDecompressor());
         break;
     case CompressType::SNAPPYBLOCK:
-        *decompressor = new SnappyBlockDecompressor();
+        decompressor->reset(new SnappyBlockDecompressor());
         break;
-#ifdef DORIS_WITH_LZO
     case CompressType::LZOP:
-        *decompressor = new LzopDecompressor();
+        decompressor->reset(new LzopDecompressor());
         break;
-#endif
     default:
         return Status::InternalError("Unknown compress type: {}", type);
     }
@@ -65,6 +66,82 @@ Status Decompressor::create_decompressor(CompressType type, Decompressor** decom
     }
 
     return st;
+}
+
+Status Decompressor::create_decompressor(TFileCompressType::type type,
+                                         std::unique_ptr<Decompressor>* decompressor) {
+    CompressType compress_type;
+    switch (type) {
+    case TFileCompressType::PLAIN:
+    case TFileCompressType::UNKNOWN:
+        compress_type = CompressType::UNCOMPRESSED;
+        break;
+    case TFileCompressType::GZ:
+        compress_type = CompressType::GZIP;
+        break;
+    case TFileCompressType::LZO:
+    case TFileCompressType::LZOP:
+        compress_type = CompressType::LZOP;
+        break;
+    case TFileCompressType::BZ2:
+        compress_type = CompressType::BZIP2;
+        break;
+    case TFileCompressType::LZ4FRAME:
+        compress_type = CompressType::LZ4FRAME;
+        break;
+    case TFileCompressType::LZ4BLOCK:
+        compress_type = CompressType::LZ4BLOCK;
+        break;
+    case TFileCompressType::DEFLATE:
+        compress_type = CompressType::DEFLATE;
+        break;
+    case TFileCompressType::SNAPPYBLOCK:
+        compress_type = CompressType::SNAPPYBLOCK;
+        break;
+    default:
+        return Status::InternalError<false>("unknown compress type: {}", type);
+    }
+    RETURN_IF_ERROR(Decompressor::create_decompressor(compress_type, decompressor));
+
+    return Status::OK();
+}
+
+Status Decompressor::create_decompressor(TFileFormatType::type type,
+                                         std::unique_ptr<Decompressor>* decompressor) {
+    CompressType compress_type;
+    switch (type) {
+    case TFileFormatType::FORMAT_PROTO:
+        [[fallthrough]];
+    case TFileFormatType::FORMAT_CSV_PLAIN:
+        compress_type = CompressType::UNCOMPRESSED;
+        break;
+    case TFileFormatType::FORMAT_CSV_GZ:
+        compress_type = CompressType::GZIP;
+        break;
+    case TFileFormatType::FORMAT_CSV_BZ2:
+        compress_type = CompressType::BZIP2;
+        break;
+    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        compress_type = CompressType::LZ4FRAME;
+        break;
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+        compress_type = CompressType::LZ4BLOCK;
+        break;
+    case TFileFormatType::FORMAT_CSV_LZOP:
+        compress_type = CompressType::LZOP;
+        break;
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+        compress_type = CompressType::DEFLATE;
+        break;
+    case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+        compress_type = CompressType::SNAPPYBLOCK;
+        break;
+    default:
+        return Status::InternalError<false>("unknown compress type: {}", type);
+    }
+    RETURN_IF_ERROR(Decompressor::create_decompressor(compress_type, decompressor));
+
+    return Status::OK();
 }
 
 uint32_t Decompressor::_read_int32(uint8_t* buf) {
@@ -480,6 +557,10 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
     // See:
     // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/SnappyCodec.cc
     while (remaining_input_size > 0) {
+        if (remaining_input_size < 4) {
+            *more_input_bytes = 4 - remaining_input_size;
+            break;
+        }
         // Read uncompressed size
         uint32_t uncompressed_block_len = Decompressor::_read_int32(src);
         int64_t remaining_output_len = output_max_len - uncompressed_total_len;
@@ -489,12 +570,24 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
             break;
         }
 
+        if (uncompressed_block_len == 0) {
+            remaining_input_size -= sizeof(uint32_t);
+            break;
+        }
+
+        if (remaining_input_size <= 2 * sizeof(uint32_t)) {
+            // The remaining input size should be larger then <uncompressed size><compressed size><compressed data>
+            // +1 means we need at least 1 bytes of compressed data.
+            *more_input_bytes = 2 * sizeof(uint32_t) + 1 - remaining_input_size;
+            break;
+        }
+
         // Read compressed size
-        size_t tmp_src_size = remaining_input_size - sizeof(uint32_t);
+        size_t tmp_remaining_size = remaining_input_size - 2 * sizeof(uint32_t);
         size_t compressed_len = _read_int32(src + sizeof(uint32_t));
-        if (compressed_len == 0 || compressed_len > tmp_src_size) {
+        if (compressed_len > tmp_remaining_size) {
             // Need more input data
-            *more_input_bytes = compressed_len - tmp_src_size;
+            *more_input_bytes = compressed_len - tmp_remaining_size;
             break;
         }
 
@@ -513,8 +606,9 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
         // Decompress
         if (!snappy::RawUncompress(reinterpret_cast<const char*>(src), compressed_len,
                                    reinterpret_cast<char*>(output))) {
-            return Status::InternalError("snappy block decompress failed. uncompressed_len: {}",
-                                         uncompressed_block_len);
+            return Status::InternalError(
+                    "snappy block decompress failed. uncompressed_len: {}, compressed_len: {}",
+                    uncompressed_block_len, compressed_len);
         }
 
         output += uncompressed_block_len;

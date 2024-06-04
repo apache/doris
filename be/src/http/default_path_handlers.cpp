@@ -22,7 +22,9 @@
 #include <boost/algorithm/string/replace.hpp>
 #ifdef USE_JEMALLOC
 #include "jemalloc/jemalloc.h"
-#else
+#endif
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h>
 #endif
 
@@ -112,7 +114,11 @@ void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstrea
         auto* _opaque = static_cast<std::string*>(opaque);
         _opaque->append(buf);
     };
+#ifdef USE_JEMALLOC_HOOK
     jemalloc_stats_print(write_cb, &tmp, "a");
+#else
+    malloc_stats_print(write_cb, &tmp, "a");
+#endif
     boost::replace_all(tmp, "\n", "<br>");
     (*output) << tmp << "</pre>";
 #else
@@ -127,7 +133,7 @@ void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstrea
 
 void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) {
     std::string tablet_num_to_return;
-    WebPageHandler::ArgumentMap::const_iterator it = args.find("limit");
+    auto it = args.find("limit");
     if (it != args.end()) {
         tablet_num_to_return = it->second;
     } else {
@@ -153,22 +159,27 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
         } else if (iter->second == "schema_change") {
             MemTrackerLimiter::make_type_snapshots(&snapshots,
                                                    MemTrackerLimiter::Type::SCHEMA_CHANGE);
-        } else if (iter->second == "clone") {
-            MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::CLONE);
-        } else if (iter->second == "experimental") {
-            MemTrackerLimiter::make_type_snapshots(&snapshots,
-                                                   MemTrackerLimiter::Type::EXPERIMENTAL);
+        } else if (iter->second == "other") {
+            MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::OTHER);
         }
     } else {
-        (*output) << "<h4>*Note: (see documentation for details)</h4>\n";
-        (*output) << "<h4>     1.`/mem_tracker?type=global` to view the memory statistics of each "
-                     "type, `global`life cycle is the same as the process, e.g. each Cache, "
-                     "StorageEngine, each Manager.</h4>\n";
-        (*output) << "<h4>     2.`/mem_tracker` counts virtual memory, which is equal to `Actual "
-                     "memory used` in `/memz`</h4>\n";
-        (*output) << "<h4>     3.`process` is equal to the sum of all types of memory, "
-                     "`/mem_tracker` can be logically divided into 4 layers: 1)`process` 2)`type` "
-                     "3)`query/load/compation task etc.` 4)`exec node etc.`</h4>\n";
+        (*output) << "<h4>*Notice:</h4>\n";
+        (*output) << "<h4>    1. MemTracker only counts the memory on part of the main execution "
+                     "path, "
+                     "which is usually less than the real process memory.</h4>\n";
+        (*output) << "<h4>    2. each `type` is the sum of a set of tracker values, "
+                     "`sum of all trackers` is the sum of all trackers of all types, .</h4>\n";
+        (*output) << "<h4>    3. `process resident memory` is the physical memory of the process, "
+                     "from /proc VmRSS VmHWM.</h4>\n";
+        (*output) << "<h4>    4. `process virtual memory` is the virtual memory of the process, "
+                     "from /proc VmSize VmPeak.</h4>\n";
+        (*output) << "<h4>    5.`/mem_tracker?type=<type name>` to view the memory details of each "
+                     "type, for example, `/mem_tracker?type=query` will list the memory of all "
+                     "queries; "
+                     "`/mem_tracker?type=global` will list the memory of all Cache, metadata and "
+                     "other "
+                     "global life cycles.</h4>\n";
+        (*output) << "<h4>see documentation for details.";
         MemTrackerLimiter::make_process_snapshots(&snapshots);
     }
 
@@ -389,7 +400,10 @@ void add_default_path_handlers(WebPageHandler* web_page_handler) {
     web_page_handler->register_page("/memz", "Memory", mem_usage_handler, true /* is_on_nav_bar */);
     web_page_handler->register_page(
             "/mem_tracker", "MemTracker",
-            std::bind<void>(&mem_tracker_handler, std::placeholders::_1, std::placeholders::_2),
+            [](auto&& PH1, auto&& PH2) {
+                return mem_tracker_handler(std::forward<decltype(PH1)>(PH1),
+                                           std::forward<decltype(PH2)>(PH2));
+            },
             true /* is_on_nav_bar */);
     web_page_handler->register_page("/heap", "Heap Profile", heap_handler,
                                     true /* is_on_nav_bar */);
@@ -397,8 +411,10 @@ void add_default_path_handlers(WebPageHandler* web_page_handler) {
     register_thread_display_page(web_page_handler);
     web_page_handler->register_template_page(
             "/tablets_page", "Tablets",
-            std::bind<void>(&display_tablets_callback, std::placeholders::_1,
-                            std::placeholders::_2),
+            [](auto&& PH1, auto&& PH2) {
+                return display_tablets_callback(std::forward<decltype(PH1)>(PH1),
+                                                std::forward<decltype(PH2)>(PH2));
+            },
             true /* is_on_nav_bar */);
 }
 

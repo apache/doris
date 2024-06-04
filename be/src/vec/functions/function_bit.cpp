@@ -111,7 +111,7 @@ struct BitLengthImpl {
 };
 
 using FunctionBitAnd = FunctionBinaryArithmetic<BitAndImpl, NameBitAnd, false>;
-using FunctionBitNot = FunctionUnaryArithmetic<BitNotImpl, NameBitNot, false>;
+using FunctionBitNot = FunctionUnaryArithmetic<BitNotImpl, NameBitNot>;
 using FunctionBitOr = FunctionBinaryArithmetic<BitOrImpl, NameBitOr, false>;
 using FunctionBitXor = FunctionBinaryArithmetic<BitXorImpl, NameBitXor, false>;
 using FunctionBitLength = FunctionUnaryToType<BitLengthImpl, NameBitLength>;

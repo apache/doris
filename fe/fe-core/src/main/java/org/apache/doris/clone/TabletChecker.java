@@ -19,10 +19,12 @@ package org.apache.doris.clone;
 
 import org.apache.doris.analysis.AdminCancelRepairTableStmt;
 import org.apache.doris.analysis.AdminRepairTableStmt;
+import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
@@ -210,7 +212,9 @@ public class TabletChecker extends MasterDaemon {
         removePriosIfNecessary();
 
         stat.counterTabletCheckRound.incrementAndGet();
-        LOG.debug(stat.incrementalBrief());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(stat.incrementalBrief());
+        }
     }
 
     public static class CheckerCounter {
@@ -238,6 +242,8 @@ public class TabletChecker extends MasterDaemon {
             copiedPrios = HashBasedTable.create(prios);
         }
 
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+
         OUT:
         for (long dbId : copiedPrios.rowKeySet()) {
             Database db = env.getInternalCatalog().getDbNullable(dbId);
@@ -247,17 +253,21 @@ public class TabletChecker extends MasterDaemon {
             List<Long> aliveBeIds = infoService.getAllBackendIds(true);
             Map<Long, Set<PrioPart>> tblPartMap = copiedPrios.row(dbId);
             for (long tblId : tblPartMap.keySet()) {
-                OlapTable tbl = (OlapTable) db.getTableNullable(tblId);
-                if (tbl == null) {
+                Table tbl = db.getTableNullable(tblId);
+                if (tbl == null || !tbl.isManagedTable()) {
                     continue;
                 }
-                tbl.readLock();
+                OlapTable olapTable = (OlapTable) tbl;
+                olapTable.readLock();
                 try {
-                    if (!tbl.needSchedule()) {
+                    if (colocateTableIndex.isColocateTable(olapTable.getId())) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("table {} is a colocate table, skip tablet checker.", olapTable.getName());
+                        }
                         continue;
                     }
-                    for (Partition partition : tbl.getAllPartitions()) {
-                        LoopControlStatus st = handlePartitionTablet(db, tbl, partition, true, aliveBeIds, start,
+                    for (Partition partition : olapTable.getAllPartitions()) {
+                        LoopControlStatus st = handlePartitionTablet(db, olapTable, partition, true, aliveBeIds, start,
                                 counter);
                         if (st == LoopControlStatus.BREAK_OUT) {
                             break OUT;
@@ -266,7 +276,7 @@ public class TabletChecker extends MasterDaemon {
                         }
                     }
                 } finally {
-                    tbl.readUnlock();
+                    olapTable.readUnlock();
                 }
             }
         }
@@ -280,7 +290,7 @@ public class TabletChecker extends MasterDaemon {
                 continue;
             }
 
-            if (db.isMysqlCompatibleDatabase()) {
+            if (db instanceof MysqlCompatibleDatabase) {
                 continue;
             }
 
@@ -288,9 +298,16 @@ public class TabletChecker extends MasterDaemon {
             List<Long> aliveBeIds = infoService.getAllBackendIds(true);
 
             for (Table table : tableList) {
+                if (!table.isManagedTable()) {
+                    continue;
+                }
+
                 table.readLock();
                 try {
-                    if (!table.needSchedule()) {
+                    if (colocateTableIndex.isColocateTable(table.getId())) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("table {} is a colocate table, skip tablet checker.", table.getName());
+                        }
                         continue;
                     }
 

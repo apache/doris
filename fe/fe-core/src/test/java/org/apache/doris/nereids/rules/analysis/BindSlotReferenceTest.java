@@ -61,7 +61,7 @@ class BindSlotReferenceTest {
         LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
         LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
-                JoinType.CROSS_JOIN, scan1, scan2);
+                JoinType.CROSS_JOIN, scan1, scan2, null);
         LogicalProject<LogicalJoin<LogicalOlapScan, LogicalOlapScan>> project = new LogicalProject<>(
                 ImmutableList.of(new UnboundSlot("id")), join);
 
@@ -83,7 +83,7 @@ class BindSlotReferenceTest {
         LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
         LogicalSubQueryAlias<LogicalOlapScan> sub2 = new LogicalSubQueryAlias<>("t2", scan2);
         LogicalJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>> join =
-                new LogicalJoin<>(JoinType.CROSS_JOIN, sub1, sub2);
+                new LogicalJoin<>(JoinType.CROSS_JOIN, sub1, sub2, null);
         LogicalAggregate<?> aggregate = new LogicalAggregate<>(
                 Lists.newArrayList(new UnboundSlot("id")), //group by
                 Lists.newArrayList(new UnboundSlot("t1", "id")), //output
@@ -110,7 +110,7 @@ class BindSlotReferenceTest {
         LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
         LogicalSubQueryAlias<LogicalOlapScan> sub2 = new LogicalSubQueryAlias<>("t2", scan2);
         LogicalJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>> join =
-                new LogicalJoin<>(JoinType.CROSS_JOIN, sub1, sub2);
+                new LogicalJoin<>(JoinType.CROSS_JOIN, sub1, sub2, null);
         LogicalAggregate<LogicalJoin<?, ?>> aggregate = new LogicalAggregate<>(
                 Lists.newArrayList(new UnboundSlot("id")), //group by
                 Lists.newArrayList(new Alias(new Count(new IntegerLiteral(1)), "count(1)")), //output

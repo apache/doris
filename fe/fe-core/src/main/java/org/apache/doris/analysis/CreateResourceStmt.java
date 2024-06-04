@@ -67,22 +67,7 @@ public class CreateResourceStmt extends DdlStmt {
         return resourceType;
     }
 
-    @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-        }
-
-        // check name
-        FeNameFormat.checkResourceName(resourceName);
-
-        // check type in properties
-        if (properties == null || properties.isEmpty()) {
-            throw new AnalysisException("Resource properties can't be null");
-        }
+    public void analyzeResourceType() throws UserException {
         String type = properties.get(TYPE);
         if (type == null) {
             throw new AnalysisException("Resource type can't be null");
@@ -96,8 +81,28 @@ public class CreateResourceStmt extends DdlStmt {
         }
         if (resourceType == ResourceType.ODBC_CATALOG && !Config.enable_odbc_mysql_broker_table) {
             throw new AnalysisException("ODBC table is deprecated, use JDBC instead. Or you can set "
-                    + "`enable_odbc_table=true` in fe.conf to enable ODBC again.");
+                    + "`enable_odbc_mysql_broker_table=true` in fe.conf to enable ODBC again.");
         }
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws UserException {
+        super.analyze(analyzer);
+
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
+
+        // check name
+        FeNameFormat.checkResourceName(resourceName, ResourceTypeEnum.GENERAL);
+
+        // check type in properties
+        if (properties == null || properties.isEmpty()) {
+            throw new AnalysisException("Resource properties can't be null");
+        }
+
+        analyzeResourceType();
     }
 
     @Override

@@ -100,7 +100,7 @@ public:
 
         if (!pch || len == 0) {
             err_ = JsonbErrType::E_EMPTY_DOCUMENT;
-            LOG(WARNING) << "empty json string";
+            VLOG_DEBUG << "empty json string";
             return false;
         }
 
@@ -144,7 +144,7 @@ public:
             return err_ == JsonbErrType::E_NONE;
         } catch (simdjson::simdjson_error& e) {
             err_ = JsonbErrType::E_EXCEPTION;
-            LOG(WARNING) << "simdjson parse exception: " << e.what();
+            VLOG_DEBUG << "simdjson parse exception: " << e.what();
             return false;
         }
     }

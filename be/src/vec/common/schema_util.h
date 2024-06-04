@@ -34,6 +34,7 @@
 #include "vec/columns/column_object.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
 
@@ -66,8 +67,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
 /// If both of types are signed/unsigned integers and size of left field type
 /// is less than right type, we don't need to convert field,
 /// because all integer fields are stored in Int64/UInt64.
-bool is_conversion_required_between_integers(const IDataType& lhs, const IDataType& rhs);
-bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs);
+bool is_conversion_required_between_integers(const TypeIndex& lhs, const TypeIndex& rhs);
 
 struct ExtraInfo {
     // -1 indicates it's not a Frontend generated column
@@ -82,15 +82,21 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
 TabletColumn get_least_type_column(const TabletColumn& original, const DataTypePtr& new_type,
                                    const ExtraInfo& ext_info, bool* changed);
 
-// thread steps to parse and encode variant columns into flatterned columns
+struct ParseContext {
+    // record an extract json column, used for encoding row store
+    bool record_raw_json_column = false;
+};
+// three steps to parse and encode variant columns into flatterned columns
 // 1. parse variant from raw json string
 // 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
-// 2. encode sparse sub columns
-Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos);
-Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos);
+// 3. encode sparse sub columns
+Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos,
+                                        const ParseContext& ctx);
+Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
+                             const ParseContext& ctx);
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
                               bool ignore_sparse = true);
-void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos);
+Status encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos);
 
 // Pick the tablet schema with the highest schema version as the reference.
 // Then update all variant columns to there least common types.
@@ -103,10 +109,23 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 // Get least common types for extracted columns which has Path info,
 // with a speicified variant column's unique id
 void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
-                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id);
+                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                std::unordered_set<PathInData, PathInData::Hash>* path_set);
 
-// inherit index info from it's parent column
-void inherit_tablet_index(TabletSchemaSPtr& schema);
+void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
+                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                const std::unordered_set<PathInData, PathInData::Hash>& path_set);
+
+// inherit attributes like index/agg info from it's parent column
+void inherit_root_attributes(TabletSchemaSPtr& schema);
+
+// Rebuild schema from original schema by extend dynamic columns generated from ColumnObject.
+// Block consists of two parts, dynamic part of columns and static part of columns.
+//     static     extracted
+// | --------- | ----------- |
+// The static ones are original tablet_schame columns
+void rebuild_schema_and_block(const TabletSchemaSPtr& original, const std::vector<int>& variant_pos,
+                              Block& flush_block, TabletSchemaSPtr& flush_schema);
 
 // Extract json data from source with path
 Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);

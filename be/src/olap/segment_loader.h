@@ -72,12 +72,16 @@ public:
 
     // The cache value of segment lru cache.
     // Holding all opened segments of a rowset.
-    struct CacheValue : public LRUCacheValueBase {
+    class CacheValue : public LRUCacheValueBase {
+    public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::SEGMENT_CACHE) {}
+        ~CacheValue() override { segment.reset(); }
+
         segment_v2::SegmentSharedPtr segment;
     };
 
     SegmentCache(size_t capacity)
-            : LRUCachePolicy(CachePolicy::CacheType::SEGMENT_CACHE, capacity, LRUCacheType::NUMBER,
+            : LRUCachePolicy(CachePolicy::CacheType::SEGMENT_CACHE, capacity, LRUCacheType::SIZE,
                              config::tablet_rowset_stale_sweep_time_sec) {}
 
     // Lookup the given segment in the cache.
@@ -110,15 +114,20 @@ public:
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
-                         bool use_cache = false);
+                         bool use_cache = false, bool need_load_pk_index_and_bf = false);
 
     void erase_segment(const SegmentCache::CacheKey& key);
 
     void erase_segments(const RowsetId& rowset_id, int64_t num_segments);
 
+    // Just used for BE UT
+    int64_t cache_mem_usage() const { return _cache_mem_usage; }
+
 private:
     SegmentLoader();
     std::unique_ptr<SegmentCache> _segment_cache;
+    // Just used for BE UT
+    int64_t _cache_mem_usage = 0;
 };
 
 // A handle for a single rowset from segment lru cache.
@@ -131,9 +140,8 @@ public:
     SegmentCacheHandle() = default;
     ~SegmentCacheHandle() = default;
 
-    void push_segment(Cache* cache, Cache::Handle* handle) {
+    void push_segment(LRUCachePolicy* cache, Cache::Handle* handle) {
         segments.push_back(((SegmentCache::CacheValue*)cache->value(handle))->segment);
-        ((SegmentCache::CacheValue*)cache->value(handle))->last_visit_time = UnixMillis();
         cache->release(handle);
     }
 

@@ -60,12 +60,15 @@ Status VBloomPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
 
     _be_exec_version = state->be_exec_version();
+    _prepare_finished = true;
     return Status::OK();
 }
 
 Status VBloomPredicate::open(RuntimeState* state, VExprContext* context,
                              FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    _open_finished = true;
     return Status::OK();
 }
 
@@ -74,6 +77,7 @@ void VBloomPredicate::close(VExprContext* context, FunctionContext::FunctionStat
 }
 
 Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col);
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
         int column_id = -1;

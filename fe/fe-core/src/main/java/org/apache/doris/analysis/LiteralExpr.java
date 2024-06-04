@@ -26,16 +26,19 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr> {
@@ -123,6 +126,18 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
     }
 
+    public static String getStringLiteralForStreamLoad(Expr v) {
+        if (!(v instanceof NullLiteral) && v.getType().isScalarType()
+                && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
+                || v.getType() == Type.BOOLEAN)) {
+            return v.getStringValueInFe();
+        } else if (v.getType().isComplexType()) {
+            // these type should also call getStringValueInFe which should handle special case for itself
+            return v.getStringValueForStreamLoad();
+        } else {
+            return v.getStringValueForArray();
+        }
+    }
 
     /**
      * Init LiteralExpr's Type information
@@ -286,15 +301,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         throw new NotImplementedException("swapSign() only implemented for numeric" + "literals");
     }
 
-    @Override
-    public boolean supportSerializable() {
-        return true;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-    }
-
     public void readFields(DataInput in) throws IOException {
     }
 
@@ -318,20 +324,13 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
 
     @Override
     public boolean isNullable() {
+        // TODO: use base class's isNullLiteral() to replace this
         return this instanceof NullLiteral;
     }
 
     @Override
     public String toString() {
         return getStringValue();
-    }
-
-    // Parse from binary data, the format follows mysql binary protocal
-    // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.
-    // Return next offset
-    public void setupParamFromBinary(ByteBuffer data) {
-        Preconditions.checkState(false,
-                "should implement this in derived class. " + this.type.toSql());
     }
 
     public static LiteralExpr getLiteralByMysqlType(int mysqlType) throws AnalysisException {
@@ -436,5 +435,58 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     @Override
     public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple) {
         return true;
+    }
+
+    /** whether is ZERO value **/
+    public boolean isZero() {
+        boolean isZero = false;
+        switch (type.getPrimitiveType()) {
+            case TINYINT:
+            case SMALLINT:
+            case INT:
+            case BIGINT:
+            case LARGEINT:
+                isZero = this.getLongValue() == 0;
+                break;
+            case FLOAT:
+            case DOUBLE:
+                isZero = this.getDoubleValue() == 0.0f;
+                break;
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+            case DECIMAL256:
+                isZero = Objects.equals(((DecimalLiteral) this).getValue(), BigDecimal.ZERO);
+                break;
+            default:
+        }
+        return isZero;
+    }
+
+    public static LiteralExpr getLiteralExprFromThrift(TExprNode node) throws AnalysisException {
+        TExprNodeType type = node.node_type;
+        switch (type) {
+            case NULL_LITERAL: return new NullLiteral();
+            case BOOL_LITERAL: return new BoolLiteral(node.bool_literal.value);
+            case INT_LITERAL: return new IntLiteral(node.int_literal.value);
+            case LARGE_INT_LITERAL: return new LargeIntLiteral(node.large_int_literal.value);
+            case FLOAT_LITERAL: return new FloatLiteral(node.float_literal.value);
+            case DECIMAL_LITERAL: return new DecimalLiteral(node.decimal_literal.value);
+            case STRING_LITERAL: return new StringLiteral(node.string_literal.value);
+            case JSON_LITERAL: return new JsonLiteral(node.json_literal.value);
+            case DATE_LITERAL: return new DateLiteral(node.date_literal.value);
+            case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
+            case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
+            default: throw new AnalysisException("Wrong type from thrift;");
+        }
+    }
+
+    // Parse from binary data, the format follows mysql binary protocal
+    // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.
+    // Return next offset
+    public void setupParamFromBinary(ByteBuffer data) {
+        Preconditions.checkState(false,
+                "should implement this in derived class. " + this.type.toSql());
     }
 }

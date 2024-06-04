@@ -19,7 +19,6 @@ import org.junit.Assert
 
 // This suit test the `backends` tvf
 suite("test_local_tvf_with_complex_type_insertinto_doris", "p0") {
-    sql """set enable_nereids_planner=false"""
     List<List<Object>> backends =  sql """ select * from backends(); """
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]
@@ -43,7 +42,7 @@ suite("test_local_tvf_with_complex_type_insertinto_doris", "p0") {
         }
     }
 
-    qt_sql """ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"""
+
 
     // create doris table
     sql """ DROP TABLE IF EXISTS ${table_name} """

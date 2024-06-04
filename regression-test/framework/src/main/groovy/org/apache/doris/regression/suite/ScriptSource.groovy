@@ -76,11 +76,11 @@ class SqlFileSource implements ScriptSource {
         SuiteScript script = new SuiteScript() {
             @Override
             Object run() {
+                List<String> sqls = getSqls(file.text)
                 suite(suiteName, groupName) {
                     String tag = suiteName
                     String exceptionStr = ""
                     boolean order = suiteName.endsWith("_order")
-                    List<String> sqls = getSqls(file.text)
                     log.info("Try to execute group: ${groupName} suite: ${suiteName} with ${sqls.size()} stmts")
                     for (int i = 0; i < sqls.size(); ++i) {
                         String singleSql = sqls.get(i)

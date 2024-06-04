@@ -31,12 +31,15 @@ suite("q20-rewrite") {
 
 
     
-sql 'set be_number_for_test=3'
+    sql 'set be_number_for_test=3'
+    sql "set runtime_filter_type=8"
 sql 'set enable_runtime_filter_prune=false'
 sql 'set forbid_unknown_col_stats=false;'
 sql 'set enable_runtime_filter_prune=false'
 sql 'set enable_stats=false'
-    
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
+
     qt_select """
     explain shape plan
 select

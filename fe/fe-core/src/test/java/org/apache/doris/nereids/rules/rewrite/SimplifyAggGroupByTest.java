@@ -65,6 +65,11 @@ class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
                 .matchesFromRoot(
                         logicalAggregate().when(a -> a.getGroupByExpressions().size() == 1)
                 );
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .analyze()
+                .matchesFromRoot(
+                        logicalProject(logicalAggregate().when(a -> a.getGroupByExpressions().size() == 1))
+                );
     }
 
     @Test
@@ -87,6 +92,11 @@ class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
                 .matchesFromRoot(
                         logicalAggregate().when(a -> a.equals(agg))
                 );
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .analyze()
+                .matchesFromRoot(
+                        logicalProject(logicalAggregate().when(a -> a.getGroupByExpressions().size() == 2))
+                );
     }
 
     @Test
@@ -108,6 +118,11 @@ class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
                 .applyTopDown(new SimplifyAggGroupBy())
                 .matchesFromRoot(
                         logicalAggregate().when(a -> a.equals(agg))
+                );
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .analyze()
+                .matchesFromRoot(
+                        logicalProject(logicalAggregate().when(a -> a.getGroupByExpressions().size() == 2))
                 );
     }
 }

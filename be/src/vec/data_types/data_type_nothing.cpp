@@ -32,11 +32,13 @@ MutableColumnPtr DataTypeNothing::create_column() const {
 
 char* DataTypeNothing::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     LOG(FATAL) << "not support";
+    __builtin_unreachable();
 }
 
 const char* DataTypeNothing::deserialize(const char* buf, IColumn* column,
                                          int be_exec_version) const {
     LOG(FATAL) << "not support";
+    __builtin_unreachable();
 }
 
 bool DataTypeNothing::equals(const IDataType& rhs) const {

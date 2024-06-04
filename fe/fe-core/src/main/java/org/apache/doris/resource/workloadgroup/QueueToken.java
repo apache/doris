@@ -28,12 +28,18 @@ import java.util.concurrent.locks.ReentrantLock;
 // used to mark QueryQueue offer result
 // if offer failed, then need to cancel query
 // and return failed reason to user client
-public class QueueToken {
+public class QueueToken implements Comparable<QueueToken> {
     private static final Logger LOG = LogManager.getLogger(QueueToken.class);
 
-    enum TokenState {
+    @Override
+    public int compareTo(QueueToken other) {
+        return Long.compare(this.tokenId, other.getTokenId());
+    }
+
+    public enum TokenState {
         ENQUEUE_SUCCESS,
-        READY_TO_RUN
+        READY_TO_RUN,
+        CANCELLED
     }
 
     static AtomicLong tokenIdGenerator = new AtomicLong(0);
@@ -50,6 +56,9 @@ public class QueueToken {
 
     private final ReentrantLock tokenLock = new ReentrantLock();
     private final Condition tokenCond = tokenLock.newCondition();
+
+    private long queueStartTime = -1;
+    private long queueEndTime = -1;
 
     public QueueToken(TokenState tokenState, long queueWaitTimeout,
             String offerResultDetail) {
@@ -72,6 +81,10 @@ public class QueueToken {
             // query timeout as wait timeout
             long waitTimeout = queryTimeoutMillis > queueWaitTimeout ? queueWaitTimeout : queryTimeoutMillis;
             tokenCond.await(waitTimeout, TimeUnit.MILLISECONDS);
+            if (tokenState == TokenState.CANCELLED) {
+                this.offerResultDetail = "query is cancelled in queue";
+                return false;
+            }
             // If wait timeout and is steal not ready to run, then return false
             if (tokenState != TokenState.READY_TO_RUN) {
                 LOG.warn("wait in queue timeout, timeout = {}", waitTimeout);
@@ -87,6 +100,21 @@ public class QueueToken {
             offerResultDetail = "meet exeption when wait for signal";
             isTimeout = true;
             return false;
+        } finally {
+            this.tokenLock.unlock();
+            this.setQueueTimeWhenQueueEnd();
+        }
+    }
+
+    public void signalForCancel() {
+        this.tokenLock.lock();
+        try {
+            if (this.tokenState == TokenState.ENQUEUE_SUCCESS) {
+                tokenCond.signal();
+                this.tokenState = TokenState.CANCELLED;
+            }
+        } catch (Throwable t) {
+            LOG.warn("error happens when signal for cancel", t);
         } finally {
             this.tokenLock.unlock();
         }
@@ -121,6 +149,37 @@ public class QueueToken {
         return this.tokenState == TokenState.READY_TO_RUN;
     }
 
+    public boolean isCancelled() {
+        return this.tokenState == TokenState.CANCELLED;
+    }
+
+    public void setQueueTimeWhenOfferSuccess() {
+        long currentTime = System.currentTimeMillis();
+        this.queueStartTime = currentTime;
+        this.queueEndTime = currentTime;
+    }
+
+    public void setQueueTimeWhenQueueSuccess() {
+        long currentTime = System.currentTimeMillis();
+        this.queueStartTime = currentTime;
+    }
+
+    public void setQueueTimeWhenQueueEnd() {
+        this.queueEndTime = System.currentTimeMillis();
+    }
+
+    public long getQueueStartTime() {
+        return queueStartTime;
+    }
+
+    public long getQueueEndTime() {
+        return queueEndTime;
+    }
+
+    public TokenState getTokenState() {
+        return tokenState;
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -136,4 +195,7 @@ public class QueueToken {
         return tokenId == other.tokenId;
     }
 
+    public long getTokenId() {
+        return tokenId;
+    }
 }

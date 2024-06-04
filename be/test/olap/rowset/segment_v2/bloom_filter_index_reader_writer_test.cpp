@@ -48,7 +48,10 @@ const std::string dname = "./ut_dir/bloom_filter_index_reader_writer_test";
 class BloomFilterIndexReaderWriterTest : public testing::Test {
 public:
     void SetUp() override {
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(dname).ok());
+        auto st = io::global_local_filesystem()->delete_directory(dname);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(dname);
+        ASSERT_TRUE(st.ok()) << st;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(dname).ok());
@@ -75,7 +78,7 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
         const CppType* vals = (const CppType*)values;
         for (int i = 0; i < value_count;) {
             size_t num = std::min(1024, (int)value_count - i);
-            bloom_filter_index_writer->add_values(vals + i, num);
+            static_cast<void>(bloom_filter_index_writer->add_values(vals + i, num));
             if (i == 2048) {
                 // second page
                 bloom_filter_index_writer->add_nulls(null_count);

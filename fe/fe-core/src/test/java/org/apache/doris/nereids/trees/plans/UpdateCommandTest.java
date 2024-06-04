@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -32,7 +31,8 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
     @Override
     public void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         createTable("create table t1 (\n"
                 + "    k1 int,\n"
                 + "    k2 int,\n"
@@ -69,10 +69,10 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
     }
 
     @Test
-    public void testSimpleUpdate() throws AnalysisException {
+    public void testSimpleUpdate() {
         String sql = "update t1 set v1 = v1 + 2, v2 = v1 * 2 where k1 = 3";
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
-        Assertions.assertTrue(parsed instanceof UpdateCommand);
+        Assertions.assertInstanceOf(UpdateCommand.class, parsed);
         UpdateCommand command = ((UpdateCommand) parsed);
         LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
         PlanChecker.from(connectContext, plan)
@@ -90,33 +90,27 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
     }
 
     @Test
-    public void testFromClauseUpdate() throws AnalysisException {
+    public void testFromClauseUpdate() {
         String sql = "update t1 a set v1 = t2.v1 + 2, v2 = a.v1 * 2 "
                 + "from src join t2 on src.k1 = t2.k1 where t2.k1 = a.k1";
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
-        Assertions.assertTrue(parsed instanceof UpdateCommand);
+        Assertions.assertInstanceOf(UpdateCommand.class, parsed);
         UpdateCommand command = ((UpdateCommand) parsed);
         LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
         PlanChecker.from(connectContext, plan)
                 .analyze(plan)
-                .rewrite()
                 .matches(
-                        logicalOlapTableSink(
-                                logicalProject(
+                        logicalFilter(
+                                logicalJoin(
+                                        logicalSubQueryAlias(
+                                                logicalFilter(
+                                                        logicalOlapScan()
+                                                )
+                                        ),
                                         logicalJoin(
-                                                logicalJoin(
-                                                        logicalProject(
-                                                                logicalFilter(
-                                                                        logicalOlapScan()
-                                                                )
-                                                        ),
-                                                        logicalProject(
-                                                                logicalOlapScan())
-                                                ),
-                                                logicalProject(
-                                                        logicalFilter(
-                                                                logicalOlapScan()
-                                                        )
+                                                logicalOlapScan(),
+                                                logicalFilter(
+                                                        logicalOlapScan()
                                                 )
                                         )
                                 )

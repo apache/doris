@@ -88,7 +88,7 @@ suite("nereids_lateral_view") {
 		CREATE TABLE `test_explode_bitmap` (
 		  `dt` int(11) NULL COMMENT "",
 		  `page` varchar(10) NULL COMMENT "",
-		  `user_id` bitmap BITMAP_UNION NULL COMMENT ""
+		  `user_id` bitmap BITMAP_UNION  COMMENT ""
 		) ENGINE=OLAP
 		AGGREGATE KEY(`dt`, `page`)
 		DISTRIBUTED BY HASH(`dt`) BUCKETS 2 
@@ -97,5 +97,9 @@ suite("nereids_lateral_view") {
 	sql """ insert into test_explode_bitmap values(1, '11', bitmap_from_string("1,2,3"));"""
 	sql """ insert into test_explode_bitmap values(2, '22', bitmap_from_string("22,33,44"));"""
 	qt_sql_explode_bitmap """ select dt, e1 from test_explode_bitmap lateral view explode_bitmap(user_id) tmp1 as e1 order by dt, e1;"""
-
+    explain {
+            sql("SELECT * FROM nlv_test LATERAL VIEW explode_numbers(c1) lv1 AS clv1 where c1 < 10 and clv1 > 0;")
+            contains("PREDICATES: (c1")
+            contains("PREDICATES: (clv1")
+    }
 }

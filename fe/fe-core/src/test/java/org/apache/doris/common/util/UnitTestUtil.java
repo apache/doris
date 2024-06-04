@@ -60,6 +60,7 @@ import java.util.Map;
 public class UnitTestUtil {
     public static final String DB_NAME = "testDb";
     public static final String TABLE_NAME = "testTable";
+    public static final String MV_NAME = "testMv";
     public static final String PARTITION_NAME = "testTable";
     public static final int SCHEMA_HASH = 0;
 
@@ -123,7 +124,7 @@ public class UnitTestUtil {
 
         // db
         Database db = new Database(dbId, DB_NAME);
-        db.createTable(table);
+        db.registerTable(table);
         return db;
     }
 

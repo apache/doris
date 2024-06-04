@@ -23,26 +23,49 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 public class FunctionTypeDeducers {
-
     public interface TypeDeducer {
-        public Type deduce(Type[] args);
+        public Type deduce(int argIdx, Type[] args);
     }
 
     public static final ImmutableMap<String, TypeDeducer> DEDUCERS = ImmutableMap.<String, TypeDeducer>builder()
             .put("named_struct", new NamedStructDeducer())
             .put("struct_element", new StructElementDeducer())
+            .put("array_contains", new ArrayElemFuncDeducer())
+            .put("array_pushback", new ArrayElemFuncDeducer())
+            .put("element_at", new ArrayElemFuncDeducer())
             .build();
 
-    public static Type deduce(String fnName, Type[] args) {
+    public static Type deduce(String fnName, int argIdx, Type[] args) {
         if (DEDUCERS.containsKey(fnName)) {
-            return DEDUCERS.get(fnName).deduce(args);
+            return DEDUCERS.get(fnName).deduce(argIdx, args);
         }
         return null;
     }
 
+    public static class ArrayElemFuncDeducer implements TypeDeducer {
+        @Override
+        public Type deduce(int argIdx, Type[] args) {
+            if (args.length >= 2) {
+                if (argIdx == 0) {
+                    // first args should only to be array or null
+                    return args[0] instanceof ArrayType || args[0].isNull() ? new ArrayType(args[1]) : args[0];
+                } else if (args[0].isNull()) {
+                    // first arg is null, later element is not contains
+                    return args[argIdx];
+                } else if (args[0] instanceof ArrayType
+                        && Type.isImplicitlyCastable(args[argIdx], ((ArrayType) args[0]).getItemType(), false, true)) {
+                    return args[argIdx];
+                } else {
+                    return null;
+                }
+            }
+            return null;
+        }
+    }
+
     public static class NamedStructDeducer implements TypeDeducer {
         @Override
-        public Type deduce(Type[] args) {
+        public Type deduce(int argIdx, Type[] args) {
             List<Type> evenArgs = Lists.newArrayList();
             for (int i = 0; i < args.length; i++) {
                 if ((i & 1) == 1) {
@@ -55,7 +78,7 @@ public class FunctionTypeDeducers {
 
     public static class StructElementDeducer implements TypeDeducer {
         @Override
-        public Type deduce(Type[] args) {
+        public Type deduce(int argIdx, Type[] args) {
             if (args[0] instanceof StructType) {
                 return Type.ANY_ELEMENT_TYPE;
             }

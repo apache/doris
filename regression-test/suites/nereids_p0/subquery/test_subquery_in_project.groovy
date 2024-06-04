@@ -137,4 +137,59 @@ suite("test_subquery_in_project") {
     """
 
     sql """drop table if exists test_sql;"""
+
+    sql """drop table if exists markjoin_t1;"""
+    sql """drop table if exists markjoin_t2;"""
+    sql """drop table if exists markjoin_t3;"""
+
+    sql """create table markjoin_t1
+                    (a bigint, b bigint)
+                    ENGINE=OLAP
+            DUPLICATE KEY(a, b)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(a) BUCKETS 1
+            PROPERTIES (
+            "replication_num" = "1"
+            );"""
+    sql """create table markjoin_t2
+                    (a int, b varchar(128), c bigint, v1 bigint, v2 bigint)
+                    ENGINE=OLAP
+            DUPLICATE KEY(a, b)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(a) BUCKETS 1
+            PROPERTIES (
+            "replication_num" = "1"
+            );"""
+
+    sql """insert into markjoin_t1 values (1,null),(null,1),(1,2), (null,2),(1,3), (2,4), (2,5), (3,3), (3,4), (20,2), (22,3), (24,4),(null,null);"""
+    sql """insert into markjoin_t2 values (1,'abc',2,3,4), (1,'abcd',3,3,4), (2,'xyz',2,4,2), (2,'uvw',3,4,2), (2,'uvw',3,4,2), (3,'abc',4,5,3), (3,'abc',4,5,3), (null,null,null,null,null);"""
+    
+    qt_select_m1 """SELECT markjoin_t1.b IN
+                    (SELECT markjoin_t2.c FROM markjoin_t2 WHERE markjoin_t1.a = markjoin_t2.a) 
+                    FROM markjoin_t1 order by 1;"""
+    qt_select_m2 """SELECT EXISTS 
+                    (SELECT markjoin_t2.c FROM markjoin_t2 WHERE markjoin_t1.a = markjoin_t2.a) 
+                    FROM markjoin_t1 order by 1;"""
+    qt_select_m3 """SELECT  markjoin_t1.b NOT IN
+                    (SELECT  markjoin_t2.c FROM markjoin_t2 WHERE markjoin_t1.a = markjoin_t2.a) 
+                    FROM markjoin_t1 order by 1;"""
+    qt_select_m4 """SELECT NOT EXISTS
+                    (SELECT  markjoin_t2.c FROM markjoin_t2 WHERE markjoin_t1.a = markjoin_t2.a) 
+                    FROM markjoin_t1 order by 1;"""
+    qt_select_m5 """SELECT  markjoin_t1.b IN 
+                    (SELECT  markjoin_t2.c FROM markjoin_t2) 
+                    FROM markjoin_t1 order by 1;"""
+    qt_select_m6 """SELECT EXISTS 
+                    (SELECT markjoin_t2.c FROM markjoin_t2) 
+                    FROM markjoin_t1 order by 1;"""
+    qt_select_m7 """SELECT markjoin_t1.b NOT IN 
+                    (SELECT markjoin_t2.c FROM markjoin_t2) 
+                    FROM markjoin_t1 order by 1;"""
+    qt_select_m8 """SELECT NOT EXISTS 
+                    (SELECT markjoin_t2.c FROM markjoin_t2) 
+                    FROM markjoin_t1 order by 1;"""
+    sql """drop table if exists markjoin_t1;"""
+    sql """drop table if exists markjoin_t2;"""
+    sql """drop table if exists markjoin_t3;"""
+
 }

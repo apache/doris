@@ -65,6 +65,11 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
         writable.write(bufCurrent);
     }
 
+    public void write(short op, byte[] data) throws IOException {
+        bufCurrent.writeShort(op);
+        bufCurrent.write(data);
+    }
+
     // Create empty edits logs file.
     void create() throws IOException {
         fc.truncate(0);

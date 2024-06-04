@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -61,6 +61,10 @@ public class DropTableStmt extends DdlStmt {
         return tableName.getTbl();
     }
 
+    public String getCatalogName() {
+        return tableName.getCtl();
+    }
+
     public boolean isView() {
         return isView;
     }
@@ -83,12 +87,11 @@ public class DropTableStmt extends DdlStmt {
             tableName.setDb(analyzer.getDefaultDb());
         }
         tableName.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
-
+        InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get());
         // check access
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                                                                tableName.getTbl(), PrivPredicate.DROP)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
+                        tableName.getTbl(), PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
         }
     }

@@ -101,8 +101,10 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     public void countDownLatch(long backendId, Set<Pair<Long, Integer>> tablets) {
         if (this.latch != null) {
             if (latch.markedCountDown(backendId, tablets)) {
-                LOG.debug("UpdateTabletMetaInfoTask current latch count: {}, backend: {}, tablets:{}",
-                        latch.getCount(), backendId, tablets);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("UpdateTabletMetaInfoTask current latch count: {}, backend: {}, tablets:{}",
+                            latch.getCount(), backendId, tablets);
+                }
             }
         }
     }
@@ -111,7 +113,9 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     public void countDownToZero(String errMsg) {
         if (this.latch != null) {
             latch.countDownToZero(new Status(TStatusCode.CANCELLED, errMsg));
-            LOG.debug("UpdateTabletMetaInfoTask count down to zero. error msg: {}", errMsg);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("UpdateTabletMetaInfoTask count down to zero. error msg: {}", errMsg);
+            }
         }
     }
 
@@ -154,6 +158,16 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                             .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
                         metaInfo.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionConfig
                                     .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS));
+                    }
+                    if (timeSeriesCompactionConfig
+                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
+                        metaInfo.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionConfig
+                                    .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD));
+                    }
+                    if (timeSeriesCompactionConfig
+                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)) {
+                        metaInfo.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionConfig
+                                    .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD));
                     }
                 }
                 if (enableSingleReplicaCompaction >= 0) {

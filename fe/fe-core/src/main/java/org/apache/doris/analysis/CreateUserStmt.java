@@ -18,18 +18,24 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.UUID;
 
 /*
  * We support the following create user stmts:
@@ -53,12 +59,24 @@ public class CreateUserStmt extends DdlStmt {
     private PassVar passVar;
     private String role;
     private PasswordOptions passwordOptions;
+    private String comment;
+
+    private String userId;
 
     public CreateUserStmt() {
     }
 
     public CreateUserStmt(UserDesc userDesc) {
         userIdent = userDesc.getUserIdent();
+        String uId = Env.getCurrentEnv().getAuth().getUserId(ClusterNamespace.getNameFromFullName(userIdent.getUser()));
+        LOG.debug("create user stmt userIdent {}, userName {}, userId {}",
+                userIdent, ClusterNamespace.getNameFromFullName(userIdent.getUser()), uId);
+        // avoid this case "jack@'192.1'" and "jack@'192.2'", jack's uid different
+        if (Strings.isNullOrEmpty(uId)) {
+            userId = UUID.randomUUID().toString();
+        } else {
+            userId = uId;
+        }
         passVar = userDesc.getPassVar();
         if (this.passwordOptions == null) {
             this.passwordOptions = PasswordOptions.UNSET_OPTION;
@@ -66,22 +84,37 @@ public class CreateUserStmt extends DdlStmt {
     }
 
     public CreateUserStmt(boolean ifNotExist, UserDesc userDesc, String role) {
-        this(ifNotExist, userDesc, role, null);
+        this(ifNotExist, userDesc, role, null, null);
     }
 
-    public CreateUserStmt(boolean ifNotExist, UserDesc userDesc, String role, PasswordOptions passwordOptions) {
+    public CreateUserStmt(boolean ifNotExist, UserDesc userDesc, String role, PasswordOptions passwordOptions,
+            String comment) {
         this.ifNotExist = ifNotExist;
         userIdent = userDesc.getUserIdent();
+        String uId = Env.getCurrentEnv().getAuth().getUserId(ClusterNamespace.getNameFromFullName(userIdent.getUser()));
+        LOG.debug("create user stmt by role userIdent {}, userName {}, userId {}",
+                userIdent, ClusterNamespace.getNameFromFullName(userIdent.getUser()), uId);
+        // avoid this case "jack@'192.1'" and "jack@'192.2'", jack's uid different
+        if (Strings.isNullOrEmpty(uId)) {
+            userId = UUID.randomUUID().toString();
+        } else {
+            userId = uId;
+        }
         passVar = userDesc.getPassVar();
         this.role = role;
         this.passwordOptions = passwordOptions;
         if (this.passwordOptions == null) {
             this.passwordOptions = PasswordOptions.UNSET_OPTION;
         }
+        this.comment = Strings.nullToEmpty(comment);
     }
 
     public boolean isIfNotExist() {
         return ifNotExist;
+    }
+
+    public String getUserId() {
+        return userId;
     }
 
     public String getQualifiedRole() {
@@ -105,9 +138,19 @@ public class CreateUserStmt extends DdlStmt {
         return passwordOptions;
     }
 
+    public String getComment() {
+        return comment;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+
+        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")
+                && AuthenticateType.getAuthTypeConfig() == AuthenticateType.LDAP) {
+            throw new AnalysisException("Create user is prohibited when Ranger and LDAP are enabled at same time.");
+        }
+
         userIdent.analyze();
 
         if (userIdent.isRootUser()) {
@@ -127,9 +170,7 @@ public class CreateUserStmt extends DdlStmt {
 
         passwordOptions.analyze();
 
-        // check if current user has GRANT priv on GLOBAL or DATABASE level.
-        if (!Env.getCurrentEnv().getAccessManager().checkHasPriv(ConnectContext.get(),
-                PrivPredicate.GRANT, PrivLevel.GLOBAL, PrivLevel.DATABASE)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
         }
     }
@@ -152,7 +193,9 @@ public class CreateUserStmt extends DdlStmt {
         if (passwordOptions != null) {
             sb.append(passwordOptions.toSql());
         }
-
+        if (!StringUtils.isEmpty(comment)) {
+            sb.append(" COMMENT \"").append(comment).append("\"");
+        }
         return sb.toString();
     }
 

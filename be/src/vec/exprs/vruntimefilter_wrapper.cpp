@@ -20,17 +20,22 @@
 #include <fmt/format.h>
 #include <stddef.h>
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 
+#include "util/defer_op.h"
+#include "util/runtime_profile.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 class RowDescriptor;
@@ -44,19 +49,29 @@ class VExprContext;
 
 namespace doris::vectorized {
 
-VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl)
-        : VExpr(node), _impl(impl), _always_true(false), _filtered_rows(0), _scan_rows(0) {}
+VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl,
+                                             bool null_aware)
+        : VExpr(node),
+          _impl(impl),
+          _always_true(false),
+          _filtered_rows(0),
+          _scan_rows(0),
+          _null_aware(null_aware) {}
 
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(_impl->prepare(state, desc, context));
     _expr_name = fmt::format("VRuntimeFilterWrapper({})", _impl->expr_name());
+    _prepare_finished = true;
     return Status::OK();
 }
 
 Status VRuntimeFilterWrapper::open(RuntimeState* state, VExprContext* context,
                                    FunctionContext::FunctionStateScope scope) {
-    return _impl->open(state, context, scope);
+    DCHECK(_prepare_finished);
+    RETURN_IF_ERROR(_impl->open(state, context, scope));
+    _open_finished = true;
+    return Status::OK();
 }
 
 void VRuntimeFilterWrapper::close(VExprContext* context,
@@ -65,40 +80,48 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
 }
 
 Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col);
     if (_always_true) {
-        auto res_data_column = ColumnVector<UInt8>::create(block->rows(), 1);
-        size_t num_columns_without_result = block->columns();
-        if (_data_type->is_nullable()) {
-            auto null_map = ColumnVector<UInt8>::create(block->rows(), 0);
-            block->insert({ColumnNullable::create(std::move(res_data_column), std::move(null_map)),
-                           _data_type, expr_name()});
-        } else {
-            block->insert({std::move(res_data_column), _data_type, expr_name()});
-        }
-        *result_column_id = num_columns_without_result;
+        block->insert({create_always_true_column(block->rows(), _data_type->is_nullable()),
+                       _data_type, expr_name()});
+        *result_column_id = block->columns() - 1;
         return Status::OK();
     } else {
-        _scan_rows += block->rows();
-        RETURN_IF_ERROR(_impl->execute(context, block, result_column_id));
-        uint8_t* data = nullptr;
-        const ColumnWithTypeAndName& result_column = block->get_by_position(*result_column_id);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*result_column.column)) {
-            data = ((ColumnVector<UInt8>*)nullable->get_nested_column_ptr().get())
-                           ->get_data()
-                           .data();
-            _filtered_rows += doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(data),
-                                                          nullable->get_null_map_data().data(),
-                                                          block->rows());
-        } else if (auto* res_col =
-                           check_and_get_column<ColumnVector<UInt8>>(*result_column.column)) {
-            data = const_cast<uint8_t*>(res_col->get_data().data());
-            _filtered_rows += doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(data),
-                                                          block->rows());
-        } else {
-            return Status::InternalError("Invalid type for runtime filters!");
+        int64_t input_rows = 0, filter_rows = 0;
+        Defer statistic_filter_info {[&]() {
+            if (_expr_filtered_rows_counter) {
+                COUNTER_UPDATE(_expr_filtered_rows_counter, filter_rows);
+            }
+            if (_expr_input_rows_counter) {
+                COUNTER_UPDATE(_expr_input_rows_counter, input_rows);
+            }
+            if (_always_true_counter) {
+                COUNTER_SET(_always_true_counter, (int64_t)_always_true);
+            }
+        }};
+        input_rows += block->rows();
+
+        if (_getting_const_col) {
+            _impl->set_getting_const_col(true);
+        }
+        std::vector<size_t> args;
+        RETURN_IF_ERROR(_impl->execute_runtime_fitler(context, block, result_column_id, args));
+        if (_getting_const_col) {
+            _impl->set_getting_const_col(false);
         }
 
-        calculate_filter(_filtered_rows, _scan_rows, _has_calculate_filter, _always_true);
+        const auto rows = block->rows();
+        ColumnWithTypeAndName& result_column = block->get_by_position(*result_column_id);
+
+        if (_null_aware) {
+            change_null_to_true(result_column.column, block->get_by_position(args[0]).column);
+        }
+
+        filter_rows = rows - calculate_false_number(result_column.column);
+        _filtered_rows += filter_rows;
+        _scan_rows += input_rows;
+        calculate_filter(VRuntimeFilterWrapper::EXPECTED_FILTER_RATE, _filtered_rows, _scan_rows,
+                         _has_calculate_filter, _always_true);
         return Status::OK();
     }
 }

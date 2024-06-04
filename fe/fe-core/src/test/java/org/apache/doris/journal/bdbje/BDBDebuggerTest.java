@@ -64,7 +64,9 @@ public class BDBDebuggerTest {
         }
         Preconditions.checkArgument(!Strings.isNullOrEmpty(dorisHome));
         File dir = Files.createTempDirectory(Paths.get(dorisHome, "fe", "mocked"), "BDBJEJournalTest").toFile();
-        LOG.debug("createTmpDir path {}", dir.getAbsolutePath());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("createTmpDir path {}", dir.getAbsolutePath());
+        }
         tmpDirs.add(dir);
         return dir;
     }
@@ -72,7 +74,9 @@ public class BDBDebuggerTest {
     @AfterAll
     public static void cleanUp() throws Exception {
         for (File dir : tmpDirs) {
-            LOG.debug("deleteTmpDir path {}", dir.getAbsolutePath());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("deleteTmpDir path {}", dir.getAbsolutePath());
+            }
             FileUtils.deleteDirectory(dir);
         }
     }

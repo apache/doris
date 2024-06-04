@@ -17,28 +17,78 @@
 
 package org.apache.doris.jdbc;
 
-import com.alibaba.druid.pool.DruidDataSource;
+import com.zaxxer.hikari.HikariDataSource;
+import org.apache.log4j.Logger;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 public class JdbcDataSource {
+    private static final Logger LOG = Logger.getLogger(JdbcDataSource.class);
     private static final JdbcDataSource jdbcDataSource = new JdbcDataSource();
-    private final Map<String, DruidDataSource> sourcesMap = new ConcurrentHashMap<>();
+    private final Map<String, HikariDataSource> sourcesMap = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastAccessTimeMap = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+    private long cleanupInterval = 8 * 60 * 60 * 1000; // 8 hours
+    private ScheduledFuture<?> cleanupTask = null;
+
+    private JdbcDataSource() {
+        startCleanupTask();
+    }
 
     public static JdbcDataSource getDataSource() {
         return jdbcDataSource;
     }
 
-    public DruidDataSource getSource(String jdbcUrl) {
-        return sourcesMap.get(jdbcUrl);
+    public HikariDataSource getSource(String cacheKey) {
+        lastAccessTimeMap.put(cacheKey, System.currentTimeMillis());
+        return sourcesMap.get(cacheKey);
     }
 
-    public void putSource(String jdbcUrl, DruidDataSource ds) {
-        sourcesMap.put(jdbcUrl, ds);
+    public void putSource(String cacheKey, HikariDataSource ds) {
+        sourcesMap.put(cacheKey, ds);
+        lastAccessTimeMap.put(cacheKey, System.currentTimeMillis());
     }
 
-    public Map<String, DruidDataSource> getSourcesMap() {
+    public Map<String, HikariDataSource> getSourcesMap() {
         return sourcesMap;
+    }
+
+    public void setCleanupInterval(long interval) {
+        this.cleanupInterval = interval * 1000L;
+        restartCleanupTask();
+    }
+
+    private synchronized void restartCleanupTask() {
+        if (cleanupTask != null && !cleanupTask.isCancelled()) {
+            cleanupTask.cancel(false);
+        }
+        cleanupTask = executor.scheduleAtFixedRate(() -> {
+            try {
+                long now = System.currentTimeMillis();
+                lastAccessTimeMap.forEach((key, lastAccessTime) -> {
+                    if (now - lastAccessTime > cleanupInterval) {
+                        HikariDataSource ds = sourcesMap.remove(key);
+                        if (ds != null) {
+                            ds.close();
+                        }
+                        lastAccessTimeMap.remove(key);
+                        LOG.info("remove jdbc data source: " + key.split("jdbc")[0]);
+                    }
+                });
+            } catch (Exception e) {
+                LOG.error("failed to cleanup jdbc data source", e);
+            }
+        }, cleanupInterval, cleanupInterval, TimeUnit.MILLISECONDS);
+    }
+
+    private void startCleanupTask() {
+        if (cleanupTask == null || cleanupTask.isCancelled()) {
+            restartCleanupTask();
+        }
     }
 }

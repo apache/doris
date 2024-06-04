@@ -17,29 +17,33 @@
 
 // IWYU pragma: no_include <bthread/errno.h>
 #include <common/multi_version.h>
-#include <errno.h> // IWYU pragma: keep
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Metrics_types.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/resource.h>
 
+#include <cerrno> // IWYU pragma: keep
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <limits>
-#include <map>
 #include <memory>
 #include <ostream>
 #include <string>
-#include <unordered_map>
-#include <utility>
 #include <vector>
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_stream_load_executor.h"
+#include "cloud/cloud_tablet_hotspot.h"
+#include "cloud/cloud_warm_up_manager.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/cache/block/block_file_cache_factory.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_downloader.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
-#include "io/fs/s3_file_bufferpool.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -49,7 +53,8 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema_cache.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
+#include "pipeline/pipeline_tracing.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"
@@ -70,12 +75,14 @@
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/small_file_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
 #include "runtime/user_function_cache.h"
+#include "runtime/workload_group/workload_group_manager.h"
+#include "runtime/workload_management/workload_sched_policy_mgr.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
@@ -84,6 +91,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
+#include "util/dns_cache.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
@@ -95,12 +103,30 @@
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
-#include "vec/sink/load_stream_stub_pool.h"
+#include "vec/sink/load_stream_map_pool.h"
+#include "vec/spill/spill_stream_manager.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include "runtime/memory/tcmalloc_hook.h"
 #endif
+
+// Used for unit test
+namespace {
+std::once_flag flag;
+std::unique_ptr<doris::ThreadPool> non_block_close_thread_pool;
+void init_threadpool_for_test() {
+    static_cast<void>(doris::ThreadPoolBuilder("NonBlockCloseThreadPool")
+                              .set_min_threads(12)
+                              .set_max_threads(48)
+                              .build(&non_block_close_thread_pool));
+}
+
+[[maybe_unused]] doris::ThreadPool* get_non_block_close_thread_pool() {
+    std::call_once(flag, init_threadpool_for_test);
+    return non_block_close_thread_pool.get();
+}
+} // namespace
 
 namespace doris {
 class PBackendService_Stub;
@@ -109,15 +135,13 @@ class PFunctionService_Stub;
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_thread_num, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_queue_size, MetricUnit::NOUNIT);
 
 static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     bool init_system_metrics = config::enable_system_metrics;
     std::set<std::string> disk_devices;
     std::vector<std::string> network_interfaces;
     std::vector<std::string> paths;
-    for (auto& store_path : store_paths) {
+    for (const auto& store_path : store_paths) {
         paths.emplace_back(store_path.path);
     }
     if (init_system_metrics) {
@@ -135,19 +159,48 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
 }
 
+// Used to calculate the num of min thread and max thread based on the passed config
+static pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
+    auto num_cores = doris::CpuInfo::num_cores();
+    min_num = (min_num == 0) ? num_cores : min_num;
+    max_num = (max_num == 0) ? num_cores : max_num;
+    auto factor = max_num / min_num;
+    min_num = std::min(num_cores * factor, min_num);
+    max_num = std::min(min_num * factor, max_num);
+    return {min_num, max_num};
+}
+
+ThreadPool* ExecEnv::non_block_close_thread_pool() {
+#ifdef BE_TEST
+    return get_non_block_close_thread_pool();
+#else
+    return _non_block_close_thread_pool.get();
+#endif
+}
+
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
+                     const std::vector<StorePath>& spill_store_paths,
                      const std::set<std::string>& broken_paths) {
-    return env->_init(store_paths, broken_paths);
+    return env->_init(store_paths, spill_store_paths, broken_paths);
 }
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
+                      const std::vector<StorePath>& spill_store_paths,
                       const std::set<std::string>& broken_paths) {
     //Only init once before be destroyed
     if (ready()) {
         return Status::OK();
     }
+    std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> spill_store_map;
+    for (const auto& spill_path : spill_store_paths) {
+        spill_store_map.emplace(spill_path.path, std::make_unique<vectorized::SpillDataDir>(
+                                                         spill_path.path, spill_path.capacity_bytes,
+                                                         spill_path.storage_medium));
+    }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
+    _tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(_store_paths);
+    RETURN_IF_ERROR(_tmp_file_dirs->init());
     _user_function_cache = new UserFunctionCache();
     static_cast<void>(_user_function_cache->init(doris::config::user_function_dir));
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
@@ -167,16 +220,25 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_queue_size(config::send_batch_thread_pool_queue_size)
                               .build(&_send_batch_thread_pool));
 
-    init_download_cache_required_components();
-
+    auto [buffered_reader_min_threads, buffered_reader_max_threads] =
+            get_num_threads(config::num_buffered_reader_prefetch_thread_pool_min_thread,
+                            config::num_buffered_reader_prefetch_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-                              .set_min_threads(16)
-                              .set_max_threads(64)
+                              .set_min_threads(buffered_reader_min_threads)
+                              .set_max_threads(buffered_reader_max_threads)
                               .build(&_buffered_reader_prefetch_thread_pool));
 
+    static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
+                              .set_min_threads(8)
+                              .set_max_threads(32)
+                              .build(&_send_table_stats_thread_pool));
+
+    auto [s3_file_upload_min_threads, s3_file_upload_max_threads] =
+            get_num_threads(config::num_s3_file_upload_thread_pool_min_thread,
+                            config::num_s3_file_upload_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
-                              .set_min_threads(16)
-                              .set_max_threads(64)
+                              .set_min_threads(s3_file_upload_min_threads)
+                              .set_max_threads(s3_file_upload_max_threads)
                               .build(&_s3_file_upload_thread_pool));
 
     // min num equal to fragment pool's min num
@@ -193,9 +255,24 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(std::numeric_limits<int>::max())
                               .set_max_queue_size(config::fragment_pool_queue_size)
                               .build(&_join_node_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("LazyReleaseMemoryThreadPool")
+                              .set_min_threads(1)
+                              .set_max_threads(1)
+                              .set_max_queue_size(1000000)
+                              .build(&_lazy_release_obj_pool));
+    static_cast<void>(ThreadPoolBuilder("NonBlockCloseThreadPool")
+                              .set_min_threads(config::min_nonblock_close_thread_num)
+                              .set_max_threads(config::max_nonblock_close_thread_num)
+                              .build(&_non_block_close_thread_pool));
+
+    // NOTE: runtime query statistics mgr could be visited by query and daemon thread
+    // so it should be created before all query begin and deleted after all query and daemon thread stoppped
+    _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
+    _file_cache_factory = new io::FileCacheFactory();
     init_file_cache_factory();
+    _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
-    _task_group_manager = new taskgroup::TaskGroupManager();
+    _workload_group_manager = new WorkloadGroupMgr();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
@@ -208,17 +285,24 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
-    _stream_load_executor = StreamLoadExecutor::create_shared(this);
+    if (config::is_cloud_mode()) {
+        _stream_load_executor = std::make_shared<CloudStreamLoadExecutor>(this);
+    } else {
+        _stream_load_executor = StreamLoadExecutor::create_shared(this);
+    }
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
+    RETURN_IF_ERROR(_routine_load_task_executor->init());
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
-    _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
-    _load_stream_stub_pool = std::make_unique<stream_load::LoadStreamStubPool>();
+    _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
-    _wal_manager = WalManager::create_shared(this, config::group_commit_replay_wal_dir);
-
+    _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
+    _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
+    _dns_cache = new DNSCache();
+    _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
+    _spill_stream_mgr = new vectorized::SpillStreamManager(std::move(spill_store_map));
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
@@ -236,7 +320,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return status;
     }
 
-    static_cast<void>(_init_mem_env());
+    RETURN_IF_ERROR(_init_mem_env());
 
     RETURN_IF_ERROR(_memtable_memory_limiter->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
@@ -244,23 +328,24 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
 
-    _tablet_schema_cache = TabletSchemaCache::create_global_schema_cache();
-    _tablet_schema_cache->start();
-
-    // S3 buffer pool
-    _s3_buffer_pool = new io::S3FileBufferPool();
-    _s3_buffer_pool->init(config::s3_write_buffer_whole_size, config::s3_write_buffer_size,
-                          this->s3_file_upload_thread_pool());
+    _tablet_schema_cache =
+            TabletSchemaCache::create_global_schema_cache(config::tablet_schema_cache_capacity);
 
     // Storage engine
     doris::EngineOptions options;
     options.store_paths = store_paths;
     options.broken_paths = broken_paths;
     options.backend_uid = doris::UniqueId::gen_uid();
-    _storage_engine = new StorageEngine(options);
+    if (config::is_cloud_mode()) {
+        std::cout << "start BE in cloud mode" << std::endl;
+        _storage_engine = std::make_unique<CloudStorageEngine>(options.backend_uid);
+    } else {
+        std::cout << "start BE in local mode" << std::endl;
+        _storage_engine = std::make_unique<StorageEngine>(options);
+    }
     auto st = _storage_engine->open();
     if (!st.ok()) {
-        LOG(ERROR) << "Lail to open StorageEngine, res=" << st;
+        LOG(ERROR) << "Fail to open StorageEngine, res=" << st;
         return st;
     }
     _storage_engine->set_heartbeat_flags(this->heartbeat_flags());
@@ -269,6 +354,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return st;
     }
 
+    _workload_sched_mgr = new WorkloadSchedPolicyMgr();
+    _workload_sched_mgr->start(this);
+
+    RETURN_IF_ERROR(_spill_stream_mgr->init());
+    _runtime_query_statistics_mgr->start_report_thread();
     _s_ready = true;
 
     return Status::OK();
@@ -280,23 +370,13 @@ Status ExecEnv::init_pipeline_task_scheduler() {
         executors_size = CpuInfo::num_cores();
     }
 
-    // TODO pipeline task group combie two blocked schedulers.
+    LOG_INFO("pipeline executors_size set ").tag("size", executors_size);
+    // TODO pipeline workload group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
-    _without_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>();
-    _without_group_task_scheduler = new pipeline::TaskScheduler(
-            this, _without_group_block_scheduler, t_queue, "WithoutGroupTaskSchePool", nullptr);
+    _without_group_task_scheduler =
+            new pipeline::TaskScheduler(this, t_queue, "PipeNoGSchePool", nullptr);
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
-    RETURN_IF_ERROR(_without_group_block_scheduler->start("WithoutGroupBlockSche"));
 
-    auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
-    _with_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>();
-    _with_group_task_scheduler = new pipeline::TaskScheduler(
-            this, _with_group_block_scheduler, tg_queue, "WithGroupTaskSchePool", nullptr);
-    RETURN_IF_ERROR(_with_group_task_scheduler->start());
-    RETURN_IF_ERROR(_with_group_block_scheduler->start("WithGroupBlockSche"));
-
-    _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>();
-    RETURN_IF_ERROR(_global_block_scheduler->start("GlobalBlockSche"));
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
     _runtime_filter_timer_queue->run();
     return Status::OK();
@@ -305,23 +385,24 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 void ExecEnv::init_file_cache_factory() {
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     if (doris::config::enable_file_cache) {
-        _file_cache_factory = new io::FileCacheFactory();
-        io::IFileCache::init();
+        if (config::file_cache_each_block_size > config::s3_write_buffer_size ||
+            config::s3_write_buffer_size % config::file_cache_each_block_size != 0) {
+            LOG_FATAL(
+                    "The config file_cache_each_block_size {} must less than or equal to config "
+                    "s3_write_buffer_size {} and config::s3_write_buffer_size % "
+                    "config::file_cache_each_block_size must be zero",
+                    config::file_cache_each_block_size, config::s3_write_buffer_size);
+            exit(-1);
+        }
         std::unordered_set<std::string> cache_path_set;
         std::vector<doris::CachePath> cache_paths;
-        Status olap_res =
-                doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
-        if (!olap_res) {
+        Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
+        if (!rest) {
             LOG(FATAL) << "parse config file cache path failed, path="
                        << doris::config::file_cache_path;
             exit(-1);
         }
-
-        std::unique_ptr<doris::ThreadPool> file_cache_init_pool;
-        static_cast<void>(doris::ThreadPoolBuilder("FileCacheInitThreadPool")
-                                  .set_min_threads(cache_paths.size())
-                                  .set_max_threads(cache_paths.size())
-                                  .build(&file_cache_init_pool));
+        std::vector<std::thread> file_cache_init_threads;
 
         std::list<doris::Status> cache_status;
         for (auto& cache_path : cache_paths) {
@@ -330,18 +411,19 @@ void ExecEnv::init_file_cache_factory() {
                 continue;
             }
 
-            olap_res = file_cache_init_pool->submit_func(std::bind(
-                    &io::FileCacheFactory::create_file_cache, _file_cache_factory, cache_path.path,
-                    cache_path.init_settings(), &(cache_status.emplace_back())));
+            file_cache_init_threads.emplace_back([&, status = &cache_status.emplace_back()]() {
+                *status = doris::io::FileCacheFactory::instance()->create_file_cache(
+                        cache_path.path, cache_path.init_settings());
+            });
 
-            if (!olap_res.ok()) {
-                LOG(FATAL) << "failed to init file cache, err: " << olap_res;
-                exit(-1);
-            }
             cache_path_set.emplace(cache_path.path);
         }
 
-        file_cache_init_pool->wait();
+        for (std::thread& thread : file_cache_init_threads) {
+            if (thread.joinable()) {
+                thread.join();
+            }
+        }
         for (const auto& status : cache_status) {
             if (!status.ok()) {
                 LOG(FATAL) << "failed to init file cache, err: " << status;
@@ -349,7 +431,6 @@ void ExecEnv::init_file_cache_factory() {
             }
         }
     }
-    return;
 }
 
 Status ExecEnv::_init_mem_env() {
@@ -363,13 +444,13 @@ Status ExecEnv::_init_mem_env() {
     init_hook();
 #endif
 
-    // 2. init buffer pool
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
         ss << "Config min_buffer_size must be a power-of-two: " << config::min_buffer_size;
         return Status::InternalError(ss.str());
     }
 
-    // 3. init storage page cache
+    _dummy_lru_cache = std::make_shared<DummyLRUCache>();
+
     _cache_manager = CacheManager::create_global_instance();
 
     int64_t storage_cache_limit =
@@ -387,6 +468,12 @@ Status ExecEnv::_init_mem_env() {
                      << ". Rounded up to " << num_shards
                      << ". Please modify the 'storage_page_cache_shard_size' parameter in your "
                         "conf file to be a power of two for better performance.";
+    }
+    if (storage_cache_limit < num_shards * 2) {
+        LOG(WARNING) << "storage_cache_limit(" << storage_cache_limit << ") less than num_shards("
+                     << num_shards
+                     << ") * 2, cache capacity will be 0, continuing to use "
+                        "cache will only have negative effects, will be disabled.";
     }
     int64_t pk_storage_page_cache_limit =
             ParseUtil::parse_mem_spec(config::pk_storage_page_cache_limit, MemInfo::mem_limit(),
@@ -428,14 +515,33 @@ Status ExecEnv::_init_mem_env() {
     if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 2 / 5) {
         segment_cache_capacity = fd_number * 2 / 5;
     }
+
+    int64_t segment_cache_mem_limit =
+            MemInfo::mem_limit() / 100 * config::segment_cache_memory_percentage;
+    // config::segment_cache_memory_percentage;
+    int64_t min_segment_cache_mem_limit =
+            min(segment_cache_mem_limit, segment_cache_capacity *
+                                                 config::estimated_num_columns_per_segment *
+                                                 config::estimated_mem_per_column_reader);
+    _segment_loader = new SegmentLoader(min_segment_cache_mem_limit);
     LOG(INFO) << "segment_cache_capacity <= fd_number * 2 / 5, fd_number: " << fd_number
-              << " segment_cache_capacity: " << segment_cache_capacity;
-    _segment_loader = new SegmentLoader(segment_cache_capacity);
+              << " segment_cache_capacity: " << segment_cache_capacity
+              << " min_segment_cache_mem_limit " << min_segment_cache_mem_limit;
 
     _schema_cache = new SchemaCache(config::schema_cache_capacity);
 
-    _lookup_connection_cache = LookupConnectionCache::create_global_instance(
-            config::lookup_connection_cache_bytes_limit);
+    size_t block_file_cache_fd_cache_size =
+            std::min((uint64_t)config::file_cache_max_file_reader_cache_size, fd_number / 3);
+    LOG(INFO) << "max file reader cache size is: " << block_file_cache_fd_cache_size
+              << ", resource hard limit is: " << fd_number
+              << ", config file_cache_max_file_reader_cache_size is: "
+              << config::file_cache_max_file_reader_cache_size;
+    config::file_cache_max_file_reader_cache_size = block_file_cache_fd_cache_size;
+
+    _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
+
+    _lookup_connection_cache =
+            LookupConnectionCache::create_global_instance(config::lookup_connection_cache_capacity);
 
     // use memory limit
     int64_t inverted_index_cache_limit =
@@ -446,7 +552,7 @@ Status ExecEnv::_init_mem_env() {
         inverted_index_cache_limit = inverted_index_cache_limit / 2;
     }
     _inverted_index_searcher_cache =
-            InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit);
+            InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit, 256);
     LOG(INFO) << "Inverted index searcher cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_searcher_cache_limit;
@@ -459,44 +565,42 @@ Status ExecEnv::_init_mem_env() {
         // Reason same as buffer_pool_limit
         inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
     }
-    _inverted_index_query_cache =
-            InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit);
+    _inverted_index_query_cache = InvertedIndexQueryCache::create_global_cache(
+            inverted_index_query_cache_limit, config::inverted_index_query_cache_shards);
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
-    // 4. init other managers
     RETURN_IF_ERROR(_block_spill_mgr->init());
+
     return Status::OK();
 }
 
 void ExecEnv::init_mem_tracker() {
+    mem_tracker_limiter_pool.resize(MEM_TRACKER_GROUP_NUM,
+                                    TrackerLimiterGroup()); // before all mem tracker init.
+    _s_tracking_memory = true;
     _orphan_mem_tracker =
-            std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "Orphan");
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "Orphan");
     _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
-    _experimental_mem_tracker = std::make_shared<MemTrackerLimiter>(
-            MemTrackerLimiter::Type::EXPERIMENTAL, "ExperimentalSet");
+    _details_mem_tracker_set =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "DetailsTrackerSet");
     _page_no_cache_mem_tracker =
-            std::make_shared<MemTracker>("PageNoCache", _orphan_mem_tracker_raw);
+            std::make_shared<MemTracker>("PageNoCache", _details_mem_tracker_set.get());
     _brpc_iobuf_block_memory_tracker =
-            std::make_shared<MemTracker>("IOBufBlockMemory", _orphan_mem_tracker_raw);
-}
-
-void ExecEnv::init_download_cache_buf() {
-    std::unique_ptr<char[]> download_cache_buf(new char[config::download_cache_buffer_size]);
-    memset(download_cache_buf.get(), 0, config::download_cache_buffer_size);
-    _download_cache_buf_map[_serial_download_cache_thread_token.get()] =
-            std::move(download_cache_buf);
-}
-
-void ExecEnv::init_download_cache_required_components() {
-    static_cast<void>(ThreadPoolBuilder("DownloadCacheThreadPool")
-                              .set_min_threads(1)
-                              .set_max_threads(config::download_cache_thread_pool_thread_num)
-                              .set_max_queue_size(config::download_cache_thread_pool_queue_size)
-                              .build(&_download_cache_thread_pool));
-    set_serial_download_cache_thread_token();
-    init_download_cache_buf();
+            std::make_shared<MemTracker>("IOBufBlockMemory", _details_mem_tracker_set.get());
+    _segcompaction_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SegCompaction");
+    _point_query_executor_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "PointQueryExecutor");
+    _block_compression_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "BlockCompression");
+    _rowid_storage_reader_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "RowIdStorageReader");
+    _subcolumns_tree_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SubcolumnsTree");
+    _s3_file_buffer_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "S3FileBuffer");
 }
 
 void ExecEnv::_register_metrics() {
@@ -505,20 +609,12 @@ void ExecEnv::_register_metrics() {
 
     REGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size,
                          [this]() { return _send_batch_thread_pool->get_queue_size(); });
-
-    REGISTER_HOOK_METRIC(download_cache_thread_pool_thread_num,
-                         [this]() { return _download_cache_thread_pool->num_threads(); });
-
-    REGISTER_HOOK_METRIC(download_cache_thread_pool_queue_size,
-                         [this]() { return _download_cache_thread_pool->get_queue_size(); });
 }
 
 void ExecEnv::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(scanner_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(download_cache_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(download_cache_thread_pool_queue_size);
 }
 
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
@@ -532,7 +628,7 @@ void ExecEnv::destroy() {
     _s_ready = false;
 
     SAFE_STOP(_wal_manager);
-    SAFE_STOP(_tablet_schema_cache);
+    _wal_manager.reset();
     SAFE_STOP(_load_channel_mgr);
     SAFE_STOP(_scanner_scheduler);
     SAFE_STOP(_broker_mgr);
@@ -541,14 +637,12 @@ void ExecEnv::destroy() {
     SAFE_STOP(_group_commit_mgr);
     // _routine_load_task_executor should be stopped before _new_load_stream_mgr.
     SAFE_STOP(_routine_load_task_executor);
+    // stop workload scheduler
+    SAFE_STOP(_workload_sched_mgr);
     // stop pipline step 1, non-cgroup execution
-    SAFE_SHUTDOWN(_without_group_block_scheduler.get());
     SAFE_STOP(_without_group_task_scheduler);
-    SAFE_SHUTDOWN(_with_group_block_scheduler.get());
-    SAFE_STOP(_with_group_task_scheduler);
     // stop pipline step 2, cgroup execution
-    SAFE_SHUTDOWN(_global_block_scheduler.get());
-    SAFE_STOP(_task_group_manager);
+    SAFE_STOP(_workload_group_manager);
 
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
@@ -558,30 +652,30 @@ void ExecEnv::destroy() {
     _stream_load_executor.reset();
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
-    _load_stream_stub_pool.reset();
-    SAFE_STOP(_storage_engine);
+    _load_stream_map_pool.reset();
+    _file_cache_open_fd_cache.reset();
+    SAFE_STOP(_write_cooldown_meta_executors);
+
+    // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
+    // shouldn't use SAFE_STOP. otherwise will lead to twice stop.
+    _storage_engine.reset();
+
+    SAFE_STOP(_spill_stream_mgr);
+    if (_runtime_query_statistics_mgr) {
+        _runtime_query_statistics_mgr->stop_report_thread();
+    }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
+    SAFE_SHUTDOWN(_lazy_release_obj_pool);
+    SAFE_SHUTDOWN(_non_block_close_thread_pool);
     SAFE_SHUTDOWN(_send_report_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
-    SAFE_SHUTDOWN(_serial_download_cache_thread_token);
-    SAFE_SHUTDOWN(_download_cache_thread_pool);
 
-    // Free resource after threads are stopped.
-    // Some threads are still running, like threads created by _new_load_stream_mgr ...
-    _wal_manager.reset();
-    SAFE_DELETE(_s3_buffer_pool);
-    SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();
     SAFE_DELETE(_load_channel_mgr);
 
-    // shared_ptr maybe no need to be reset
-    // _brpc_iobuf_block_memory_tracker.reset();
-    // _page_no_cache_mem_tracker.reset();
-    // _experimental_mem_tracker.reset();
-    // _orphan_mem_tracker.reset();
-
+    SAFE_DELETE(_spill_stream_mgr);
     SAFE_DELETE(_block_spill_mgr);
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
@@ -590,17 +684,14 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
 
-    // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset
-    // StorageEngine must be destoried before _cache_manager destory
-    SAFE_DELETE(_storage_engine);
+    // Free resource after threads are stopped.
+    // Some threads are still running, like threads created by _new_load_stream_mgr ...
+    SAFE_DELETE(_tablet_schema_cache);
 
     // _scanner_scheduler must be desotried before _storage_page_cache
     SAFE_DELETE(_scanner_scheduler);
     // _storage_page_cache must be destoried before _cache_manager
     SAFE_DELETE(_storage_page_cache);
-    // cache_manager must be destoried after _inverted_index_query_cache
-    // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
-    SAFE_DELETE(_cache_manager);
 
     SAFE_DELETE(_small_file_mgr);
     SAFE_DELETE(_broker_mgr);
@@ -616,17 +707,21 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_bfd_parser);
     SAFE_DELETE(_result_cache);
     SAFE_DELETE(_fragment_mgr);
-    SAFE_DELETE(_task_group_manager);
-    SAFE_DELETE(_with_group_task_scheduler);
-    SAFE_DELETE(_without_group_task_scheduler);
+    SAFE_DELETE(_workload_sched_mgr);
+    SAFE_DELETE(_workload_group_manager);
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _join_node_thread_pool.reset(nullptr);
+    _lazy_release_obj_pool.reset(nullptr);
+    _non_block_close_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
+    _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
+    _file_cache_open_fd_cache.reset(nullptr);
+    _write_cooldown_meta_executors.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
@@ -637,8 +732,9 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
 
-    _serial_download_cache_thread_token.reset(nullptr);
-    _download_cache_thread_pool.reset(nullptr);
+    // cache_manager must be destoried after all cache.
+    // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
+    SAFE_DELETE(_cache_manager);
 
     // _heartbeat_flags must be destoried after staroge engine
     SAFE_DELETE(_heartbeat_flags);
@@ -648,6 +744,18 @@ void ExecEnv::destroy() {
     // access master_info.backend id to access some info. If there is a running query and master
     // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
     SAFE_DELETE(_master_info);
+
+    // NOTE: runtime query statistics mgr could be visited by query and daemon thread
+    // so it should be created before all query begin and deleted after all query and daemon thread stoppped
+    SAFE_DELETE(_runtime_query_statistics_mgr);
+
+    // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
+    SAFE_DELETE(_without_group_task_scheduler);
+
+    // dns cache is a global instance and need to be released at last
+    SAFE_DELETE(_dns_cache);
+
+    _s_tracking_memory = false;
 
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }

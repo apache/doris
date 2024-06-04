@@ -20,10 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.remote.S3FileSystem;
 
@@ -70,10 +69,9 @@ public class S3Resource extends Resource {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    // for Gson fromJson
-    // TODO(plat1ko): other Resource subclass also MUST define default ctor, otherwise when reloading object from json
-    //  some not serialized field (i.e. `lock`) will be `null`.
-    public S3Resource() {}
+    public S3Resource() {
+        super();
+    }
 
     public S3Resource(String name) {
         super(name, ResourceType.S3);
@@ -91,7 +89,9 @@ public class S3Resource extends Resource {
         S3Properties.requiredS3PingProperties(properties);
         // default need check resource conf valid, so need fix ut and regression case
         boolean needCheck = isNeedCheck(properties);
-        LOG.debug("s3 info need check validity : {}", needCheck);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("s3 info need check validity : {}", needCheck);
+        }
 
         // the endpoint for ping need add uri scheme.
         String pingEndpoint = properties.get(S3Properties.ENDPOINT);
@@ -104,54 +104,47 @@ public class S3Resource extends Resource {
         properties.putIfAbsent(S3Properties.REGION, region);
         String ak = properties.get(S3Properties.ACCESS_KEY);
         String sk = properties.get(S3Properties.SECRET_KEY);
-        CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk);
+        String token = properties.get(S3Properties.SESSION_TOKEN);
+        CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk, token);
 
         if (needCheck) {
             String bucketName = properties.get(S3Properties.BUCKET);
             String rootPath = properties.get(S3Properties.ROOT_PATH);
-            boolean available = pingS3(credential, bucketName, rootPath, properties);
-            if (!available) {
-                throw new DdlException("S3 can't use, please check your properties");
-            }
+            pingS3(credential, bucketName, rootPath, properties);
         }
         // optional
         S3Properties.optionalS3Property(properties);
         this.properties = properties;
     }
 
-    private static boolean pingS3(CloudCredentialWithEndpoint credential, String bucketName, String rootPath,
-                                  Map<String, String> properties) {
+    private static void pingS3(CloudCredentialWithEndpoint credential, String bucketName, String rootPath,
+            Map<String, String> properties) throws DdlException {
         String bucket = "s3://" + bucketName + "/";
-        Map<String, String> propertiesPing = new HashMap<>();
-        propertiesPing.put(S3Properties.Env.ACCESS_KEY, credential.getAccessKey());
-        propertiesPing.put(S3Properties.Env.SECRET_KEY, credential.getSecretKey());
-        propertiesPing.put(S3Properties.Env.ENDPOINT, credential.getEndpoint());
-        propertiesPing.put(S3Properties.Env.REGION, credential.getRegion());
-        propertiesPing.put(PropertyConverter.USE_PATH_STYLE,
-                properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false"));
-        properties.putAll(propertiesPing);
         S3FileSystem fileSystem = new S3FileSystem(properties);
         String testFile = bucket + rootPath + "/test-object-valid.txt";
         String content = "doris will be better";
         if (FeConstants.runningUnitTest) {
-            return true;
+            return;
         }
+        Status status = Status.OK;
         try {
-            Status status = fileSystem.directUpload(content, testFile);
+            status = fileSystem.directUpload(content, testFile);
             if (status != Status.OK) {
-                LOG.warn("ping update file status: {}, properties: {}", status, propertiesPing);
-                return false;
+                throw new DdlException(
+                        "ping s3 failed(upload), status: " + status + ", properties: " + new PrintableMap<>(
+                                properties, "=", true, false, true, false));
             }
         } finally {
-            Status delete = fileSystem.delete(testFile);
-            if (delete != Status.OK) {
-                LOG.warn("ping delete file status: {}, properties: {}", delete, propertiesPing);
-                return false;
+            if (status.ok()) {
+                Status delete = fileSystem.delete(testFile);
+                if (delete != Status.OK) {
+                    LOG.warn("delete test file failed, status: {}, properties: {}", delete, new PrintableMap<>(
+                            properties, "=", true, false, true, false));
+                }
             }
         }
 
         LOG.info("success to ping s3");
-        return true;
     }
 
     @Override
@@ -169,7 +162,9 @@ public class S3Resource extends Resource {
         // compatible with old version, Need convert if modified properties map uses old properties.
         S3Properties.convertToStdProperties(properties);
         boolean needCheck = isNeedCheck(properties);
-        LOG.debug("s3 info need check validity : {}", needCheck);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("s3 info need check validity : {}", needCheck);
+        }
         if (needCheck) {
             S3Properties.requiredS3PingProperties(this.properties);
             Map<String, String> changedProperties = new HashMap<>(this.properties);
@@ -178,17 +173,17 @@ public class S3Resource extends Resource {
             String rootPath = properties.getOrDefault(S3Properties.ROOT_PATH,
                     this.properties.get(S3Properties.ROOT_PATH));
 
-            boolean available = pingS3(getS3PingCredentials(changedProperties),
-                        bucketName, rootPath, changedProperties);
-            if (!available) {
-                throw new DdlException("S3 can't use, please check your properties");
-            }
+            pingS3(getS3PingCredentials(changedProperties), bucketName, rootPath, changedProperties);
         }
 
         // modify properties
         writeLock();
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
+            if (kv.getKey().equals(S3Properties.Env.TOKEN)
+                    || kv.getKey().equals(S3Properties.SESSION_TOKEN)) {
+                this.properties.put(kv.getKey(), kv.getValue());
+            }
         }
         ++version;
         writeUnlock();
@@ -198,11 +193,13 @@ public class S3Resource extends Resource {
     private CloudCredentialWithEndpoint getS3PingCredentials(Map<String, String> properties) {
         String ak = properties.getOrDefault(S3Properties.ACCESS_KEY, this.properties.get(S3Properties.ACCESS_KEY));
         String sk = properties.getOrDefault(S3Properties.SECRET_KEY, this.properties.get(S3Properties.SECRET_KEY));
+        String token = properties.getOrDefault(S3Properties.SESSION_TOKEN,
+                this.properties.get(S3Properties.SESSION_TOKEN));
         String endpoint = properties.getOrDefault(S3Properties.ENDPOINT, this.properties.get(S3Properties.ENDPOINT));
         String pingEndpoint = "http://" + endpoint;
         String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
         properties.putIfAbsent(S3Properties.REGION, region);
-        return new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk);
+        return new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk, token);
     }
 
     private boolean isNeedCheck(Map<String, String> newProperties) {
@@ -232,7 +229,9 @@ public class S3Resource extends Resource {
             // it's dangerous to show password in show odbc resource,
             // so we use empty string to replace the real password
             if (entry.getKey().equals(S3Properties.Env.SECRET_KEY)
-                    || entry.getKey().equals(S3Properties.SECRET_KEY)) {
+                    || entry.getKey().equals(S3Properties.SECRET_KEY)
+                    || entry.getKey().equals(S3Properties.Env.TOKEN)
+                    || entry.getKey().equals(S3Properties.SESSION_TOKEN)) {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), "******"));
             } else {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
@@ -241,3 +240,4 @@ public class S3Resource extends Resource {
         readUnlock();
     }
 }
+

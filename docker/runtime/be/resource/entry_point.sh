@@ -62,17 +62,6 @@ docker_setup_env() {
 # Check the variables required for startup
 docker_required_variables_env() {
   declare -g RUN_TYPE
-  if [ -n "$BUILD_TYPE" ]; then
-      RUN_TYPE="K8S"
-      if [[ $BUILD_TYPE =~ ^([kK]8[sS])$ ]]; then
-          doris_warn "BUILD_TYPE" $BUILD_TYPE
-      else
-          doris_error "BUILD_TYPE rule error！example: [k8s], Default Value: docker"
-      fi
-      export RUN_TYPE=${RUN_TYPE}
-      return
-  fi
-
   if [[ -n "$FE_SERVERS" && -n "$BE_ADDR" ]]; then
       RUN_TYPE="ELECTION"
       if [[ $FE_SERVERS =~ ^.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}(,.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4})*$ || $FE_SERVERS =~ ^.+:([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
@@ -110,14 +99,11 @@ docker_required_variables_env() {
       return
   fi
 
-
   doris_error EOF "
                Note that you did not configure the required parameters!
                plan 1:
-               BUILD_TYPE
-               plan 2:
                FE_SERVERS & BE_ADDR
-               plan 3:
+               plan 2:
                FE_MASTER_IP & FE_MASTER_PORT & BE_IP & BE_PORT"
               EOF
 }

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -122,6 +123,11 @@ public class RewriteTopDownJobTest {
         public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                 Optional<LogicalProperties> logicalProperties, List<Plan> children) {
             return new LogicalBoundRelation(table, qualifier, groupExpression, logicalProperties);
+        }
+
+        @Override
+        public LogicalBoundRelation withRelationId(RelationId relationId) {
+            throw new RuntimeException("should not call LogicalBoundRelation's withRelationId method");
         }
     }
 }

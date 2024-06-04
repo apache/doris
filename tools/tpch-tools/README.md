@@ -26,6 +26,8 @@ follow the steps below:
 
     ./bin/build-tpch-dbgen.sh
 
+    If the build failed in dbgen tools' compilation, update your GCC version or change download link used by wget in build-tpch-dbgen.sh from ".../TPC-H_Tools_v3.0.0new.zip" to ".../TPC-H_Tools_v3.0.0.zip"
+
 ### 2. generate tpc-h data. use -h for more infomations.
 
     ./bin/gen-tpch-data.sh -s 1

@@ -33,24 +33,34 @@ import org.apache.doris.analysis.ModifyBrokerClause;
 import org.apache.doris.analysis.ModifyFrontendHostNameClause;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /*
  * SystemHandler is for
@@ -68,7 +78,9 @@ public class SystemHandler extends AlterHandler {
     @Override
     protected void runAfterCatalogReady() {
         super.runAfterCatalogReady();
-        runAlterJobV2();
+        if (Config.isNotCloudMode()) {
+            runAlterJobV2();
+        }
     }
 
     // check all decommissioned backends, if there is no available tablet on that backend, drop it.
@@ -83,7 +95,8 @@ public class SystemHandler extends AlterHandler {
             }
 
             List<Long> backendTabletIds = invertedIndex.getTabletIdsByBackendId(beId);
-            if (Config.drop_backend_after_decommission && checkTablets(beId, backendTabletIds) && checkWal(backend)) {
+            boolean hasWal = checkWal(backend);
+            if (Config.drop_backend_after_decommission && checkTablets(beId, backendTabletIds) && hasWal) {
                 try {
                     systemInfoService.dropBackend(beId);
                     LOG.info("no available tablet on decommission backend {}, drop it", beId);
@@ -94,8 +107,9 @@ public class SystemHandler extends AlterHandler {
                 continue;
             }
 
-            LOG.info("backend {} lefts {} replicas to decommission: {}", beId, backendTabletIds.size(),
-                    backendTabletIds.subList(0, Math.min(10, backendTabletIds.size())));
+            LOG.info("backend {} lefts {} replicas to decommission: {}{}", beId, backendTabletIds.size(),
+                    backendTabletIds.subList(0, Math.min(10, backendTabletIds.size())),
+                    hasWal ? "; and has unfinished WALs" : "");
         }
     }
 
@@ -106,7 +120,7 @@ public class SystemHandler extends AlterHandler {
 
     @Override
     // add synchronized to avoid process 2 or more stmts at same time
-    public synchronized void process(String rawSql, List<AlterClause> alterClauses, String clusterName,
+    public synchronized void process(String rawSql, List<AlterClause> alterClauses,
             Database dummyDb,
             OlapTable dummyTbl) throws UserException {
         Preconditions.checkArgument(alterClauses.size() == 1);
@@ -150,7 +164,7 @@ public class SystemHandler extends AlterHandler {
         } else if (alterClause instanceof AddObserverClause) {
             AddObserverClause clause = (AddObserverClause) alterClause;
             Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, clause.getHost(),
-                    clause.getPort());
+                    clause.getPort(), "");
         } else if (alterClause instanceof DropObserverClause) {
             DropObserverClause clause = (DropObserverClause) alterClause;
             Env.getCurrentEnv().dropFrontend(FrontendNodeType.OBSERVER, clause.getHost(),
@@ -158,7 +172,7 @@ public class SystemHandler extends AlterHandler {
         } else if (alterClause instanceof AddFollowerClause) {
             AddFollowerClause clause = (AddFollowerClause) alterClause;
             Env.getCurrentEnv().addFrontend(FrontendNodeType.FOLLOWER, clause.getHost(),
-                    clause.getPort());
+                    clause.getPort(), "");
         } else if (alterClause instanceof DropFollowerClause) {
             DropFollowerClause clause = (DropFollowerClause) alterClause;
             Env.getCurrentEnv().dropFrontend(FrontendNodeType.FOLLOWER, clause.getHost(),
@@ -197,8 +211,7 @@ public class SystemHandler extends AlterHandler {
     }
 
     private boolean checkWal(Backend backend) {
-        return Env.getCurrentEnv().getGroupCommitManager()
-                .getAllWalQueueSize(backend) == 0;
+        return Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend) == 0;
     }
 
     private List<Backend> checkDecommission(DecommissionBackendClause decommissionBackendClause)
@@ -234,7 +247,8 @@ public class SystemHandler extends AlterHandler {
             decommissionBackends.add(backend);
         }
 
-        // TODO(cmy): check if replication num can be met
+        checkDecommissionWithReplicaAllocation(decommissionBackends);
+
         // TODO(cmy): check remaining space
 
         return decommissionBackends;
@@ -257,10 +271,79 @@ public class SystemHandler extends AlterHandler {
             decommissionBackends.add(backend);
         }
 
-        // TODO(cmy): check if replication num can be met
+        checkDecommissionWithReplicaAllocation(decommissionBackends);
+
         // TODO(cmy): check remaining space
 
         return decommissionBackends;
+    }
+
+    private static void checkDecommissionWithReplicaAllocation(List<Backend> decommissionBackends)
+            throws DdlException {
+        if (Config.isCloudMode() || decommissionBackends.isEmpty()
+                || DebugPointUtil.isEnable("SystemHandler.decommission_no_check_replica_num")) {
+            return;
+        }
+
+        Set<Tag> decommissionTags = decommissionBackends.stream().map(be -> be.getLocationTag())
+                .collect(Collectors.toSet());
+        Map<Tag, Integer> tagAvailBackendNums = Maps.newHashMap();
+        for (Backend backend : Env.getCurrentSystemInfo().getAllBackends()) {
+            long beId = backend.getId();
+            if (!backend.isScheduleAvailable()
+                    || decommissionBackends.stream().anyMatch(be -> be.getId() == beId)) {
+                continue;
+            }
+
+            Tag tag = backend.getLocationTag();
+            if (tag != null) {
+                tagAvailBackendNums.put(tag, tagAvailBackendNums.getOrDefault(tag, 0) + 1);
+            }
+        }
+
+        Env env = Env.getCurrentEnv();
+        List<Long> dbIds = env.getInternalCatalog().getDbIds();
+        for (Long dbId : dbIds) {
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
+            if (db == null) {
+                continue;
+            }
+
+            if (db instanceof MysqlCompatibleDatabase) {
+                continue;
+            }
+
+            for (Table table : db.getTables()) {
+                table.readLock();
+                try {
+                    if (!table.isManagedTable()) {
+                        continue;
+                    }
+
+                    OlapTable tbl = (OlapTable) table;
+                    for (Partition partition : tbl.getAllPartitions()) {
+                        ReplicaAllocation replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
+                        for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
+                            Tag tag = entry.getKey();
+                            if (!decommissionTags.contains(tag)) {
+                                continue;
+                            }
+                            int replicaNum = (int) entry.getValue();
+                            int backendNum = tagAvailBackendNums.getOrDefault(tag, 0);
+                            if (replicaNum > backendNum) {
+                                throw new DdlException("After decommission, partition " + partition.getName()
+                                        + " of table " + db.getName() + "." + tbl.getName()
+                                        + " 's replication allocation { " + replicaAlloc
+                                        + " } > available backend num " + backendNum + " on tag " + tag
+                                        + ", otherwise need to decrease the partition's replication num.");
+                            }
+                        }
+                    }
+                } finally {
+                    table.readUnlock();
+                }
+            }
+        }
     }
 
     @Override

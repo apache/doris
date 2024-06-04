@@ -19,8 +19,14 @@
 // and modified by Doris
 
 #pragma once
+#include <memory>
+
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "vec/columns/column.h"
+#include "vec/common/arena.h"
 #include "vec/common/hash_table/hash_map.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
 namespace doris::vectorized {
@@ -44,15 +50,15 @@ public:
         Kind kind = TUPLE;
         const Node* parent = nullptr;
 
-        Arena strings_pool;
-        HashMapWithStackMemory<StringRef, std::shared_ptr<Node>, StringRefHash, 4> children;
+        std::unordered_map<StringRef, std::shared_ptr<Node>, StringRefHash> children;
 
         NodeData data;
         PathInData path;
 
         bool is_nested() const { return kind == NESTED; }
         bool is_scalar() const { return kind == SCALAR; }
-        bool is_scalar_without_children() const { return kind == SCALAR && children.empty(); }
+
+        bool is_leaf_node() const { return kind == SCALAR && children.empty(); }
 
         // Only modify data and kind
         void modify(std::shared_ptr<Node>&& other) {
@@ -67,10 +73,31 @@ public:
             kind = Kind::SCALAR;
         }
 
-        void add_child(std::string_view key, std::shared_ptr<Node> next_node) {
+        void add_child(std::string_view key, std::shared_ptr<Node> next_node, Arena& strings_pool) {
             next_node->parent = this;
-            StringRef key_ref {strings_pool.insert(key.data(), key.length()), key.length()};
+            StringRef key_ref;
+            {
+                SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                        ExecEnv::GetInstance()->subcolumns_tree_tracker());
+                key_ref = {strings_pool.insert(key.data(), key.length()), key.length()};
+            }
             children[key_ref] = std::move(next_node);
+        }
+
+        std::vector<StringRef> get_sorted_chilren_keys() const {
+            std::vector<StringRef> sorted_keys;
+            for (auto it = children.begin(); it != children.end(); ++it) {
+                sorted_keys.push_back(it->first);
+            }
+            std::sort(sorted_keys.begin(), sorted_keys.end());
+            return sorted_keys;
+        }
+        std::shared_ptr<const Node> get_child_node(StringRef key) const {
+            auto it = children.find(key);
+            if (it != children.end()) {
+                return it->second;
+            }
+            return nullptr;
         }
     };
 
@@ -134,7 +161,7 @@ public:
             auto it = current_node->children.find(
                     StringRef {parts[i].key.data(), parts[i].key.size()});
             if (it != current_node->children.end()) {
-                current_node = it->get_second().get();
+                current_node = it->second.get();
                 node_creator(current_node->kind, true);
 
                 if (current_node->is_nested() != parts[i].is_nested) {
@@ -143,7 +170,7 @@ public:
             } else {
                 auto next_kind = parts[i].is_nested ? Node::NESTED : Node::TUPLE;
                 auto next_node = node_creator(next_kind, false);
-                current_node->add_child(String(parts[i].key), next_node);
+                current_node->add_child(String(parts[i].key), next_node, *strings_pool);
                 current_node = next_node.get();
             }
         }
@@ -153,13 +180,13 @@ public:
         if (it != current_node->children.end()) {
             // Modify this node to Node::SCALAR
             auto new_node = node_creator(Node::SCALAR, false);
-            it->get_second()->modify(std::move(new_node));
-            leaves.push_back(it->get_second());
+            it->second->modify(std::move(new_node));
+            leaves.push_back(it->second);
             return true;
         }
 
         auto next_node = node_creator(Node::SCALAR, false);
-        current_node->add_child(String(parts.back().key), next_node);
+        current_node->add_child(String(parts.back().key), next_node, *strings_pool);
         leaves.push_back(std::move(next_node));
 
         return true;
@@ -197,7 +224,7 @@ public:
         }
 
         for (auto it = node->children.begin(); it != node->children.end(); ++it) {
-            auto child = it->get_second();
+            auto child = it->second;
             if (const auto* leaf = find_leaf(child.get(), predicate)) {
                 return leaf;
             }
@@ -230,7 +257,7 @@ public:
             paths.push_back(node->path);
         }
         for (auto it = node->children.begin(); it != node->children.end(); ++it) {
-            auto child = it->get_second();
+            auto child = it->second;
             get_leaves_of_node(child.get(), nodes, paths);
         }
     }
@@ -243,6 +270,17 @@ public:
 
     const_iterator begin() const { return leaves.begin(); }
     const_iterator end() const { return leaves.end(); }
+
+    ~SubcolumnsTree() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->subcolumns_tree_tracker());
+        strings_pool.reset();
+    }
+
+    SubcolumnsTree() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->subcolumns_tree_tracker());
+        SCOPED_SKIP_MEMORY_CHECK();
+        strings_pool = std::make_shared<Arena>();
+    }
 
 private:
     const Node* find_impl(const PathInData& path, bool find_exact) const {
@@ -259,12 +297,12 @@ private:
                 return find_exact ? nullptr : current_node;
             }
 
-            current_node = it->get_second().get();
+            current_node = it->second.get();
         }
 
         return current_node;
     }
-
+    std::shared_ptr<Arena> strings_pool;
     NodePtr root;
     Nodes leaves;
 };

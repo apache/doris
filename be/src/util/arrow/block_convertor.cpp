@@ -28,6 +28,7 @@
 #include <arrow/util/decimal.h>
 #include <arrow/visit_type_inline.h>
 #include <arrow/visitor.h>
+#include <cctz/time_zone.h>
 #include <glog/logging.h>
 #include <stdint.h>
 
@@ -71,16 +72,12 @@ namespace doris {
 class FromBlockConverter : public arrow::TypeVisitor {
 public:
     FromBlockConverter(const vectorized::Block& block, const std::shared_ptr<arrow::Schema>& schema,
-                       arrow::MemoryPool* pool)
-            : _block(block), _schema(schema), _pool(pool), _cur_field_idx(-1) {
-        // obtain local time zone
-        time_t ts = 0;
-        struct tm t;
-        char buf[16];
-        localtime_r(&ts, &t);
-        strftime(buf, sizeof(buf), "%Z", &t);
-        _time_zone = buf;
-    }
+                       arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj)
+            : _block(block),
+              _schema(schema),
+              _pool(pool),
+              _cur_field_idx(-1),
+              _timezone_obj(timezone_obj) {}
 
     ~FromBlockConverter() override = default;
 
@@ -178,7 +175,7 @@ public:
         size_t start = _cur_start;
         size_t num_rows = _cur_rows;
         if (auto* decimalv2_column = vectorized::check_and_get_column<
-                    vectorized::ColumnDecimal<vectorized::Decimal128>>(
+                    vectorized::ColumnDecimal<vectorized::Decimal128V2>>(
                     *vectorized::remove_nullable(_cur_col))) {
             std::shared_ptr<arrow::DataType> s_decimal_ptr =
                     std::make_shared<arrow::Decimal128Type>(27, 9);
@@ -198,7 +195,7 @@ public:
             }
             return arrow::Status::OK();
         } else if (auto* decimal128_column = vectorized::check_and_get_column<
-                           vectorized::ColumnDecimal<vectorized::Decimal128I>>(
+                           vectorized::ColumnDecimal<vectorized::Decimal128V3>>(
                            *vectorized::remove_nullable(_cur_col))) {
             std::shared_ptr<arrow::DataType> s_decimal_ptr =
                     std::make_shared<arrow::Decimal128Type>(38, decimal128_column->get_scale());
@@ -363,7 +360,7 @@ private:
     vectorized::DataTypePtr _cur_type;
     arrow::ArrayBuilder* _cur_builder = nullptr;
 
-    std::string _time_zone;
+    const cctz::time_zone& _timezone_obj;
 
     std::vector<std::shared_ptr<arrow::Array>> _arrays;
 };
@@ -391,7 +388,8 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
         auto column = _cur_col->convert_to_full_column_if_const();
         try {
             _cur_type->get_serde()->write_column_to_arrow(*column, nullptr, _cur_builder,
-                                                          _cur_start, _cur_start + _cur_rows);
+                                                          _cur_start, _cur_start + _cur_rows,
+                                                          _timezone_obj);
         } catch (std::exception& e) {
             return Status::InternalError("Fail to convert block data to arrow data, error: {}",
                                          e.what());
@@ -407,8 +405,9 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
 
 Status convert_to_arrow_batch(const vectorized::Block& block,
                               const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
-                              std::shared_ptr<arrow::RecordBatch>* result) {
-    FromBlockConverter converter(block, schema, pool);
+                              std::shared_ptr<arrow::RecordBatch>* result,
+                              const cctz::time_zone& timezone_obj) {
+    FromBlockConverter converter(block, schema, pool, timezone_obj);
     return converter.convert(result);
 }
 

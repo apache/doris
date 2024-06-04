@@ -66,9 +66,6 @@ public:
         return input_type == T || (is_string_type(input_type) && is_string_type(T));
     }
 
-    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                      uint16_t size) const override;
-
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
                           bool* flags) const override;
 
@@ -91,6 +88,9 @@ public:
     bool can_do_bloom_filter(bool ngram) const override { return ngram; }
 
 private:
+    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+                             uint16_t size) const override;
+
     template <bool is_and>
     void _evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const {
         if (column.is_nullable()) {
@@ -129,6 +129,7 @@ private:
                 }
             } else {
                 LOG(FATAL) << "vectorized (not) like predicates should be dict column";
+                __builtin_unreachable();
             }
         } else {
             if (column.is_column_dictionary()) {
@@ -153,6 +154,7 @@ private:
                 }
             } else {
                 LOG(FATAL) << "vectorized (not) like predicates should be dict column";
+                __builtin_unreachable();
             }
         }
     }

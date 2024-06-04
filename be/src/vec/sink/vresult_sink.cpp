@@ -41,7 +41,6 @@
 #include "vec/sink/writer/vfile_result_writer.h"
 
 namespace doris {
-class QueryStatistics;
 class RowDescriptor;
 class TExpr;
 
@@ -89,15 +88,20 @@ Status VResultSink::prepare(RuntimeState* state) {
 
     // create sender
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-            state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec(),
-            state->execution_timeout()));
+            state->fragment_instance_id(), _buf_size, &_sender, false, state->execution_timeout()));
 
     // create writer based on sink type
     switch (_sink_type) {
-    case TResultSinkType::MYSQL_PROTOCAL:
-        _writer.reset(new (std::nothrow)
-                              VMysqlResultWriter(_sender.get(), _output_vexpr_ctxs, _profile));
+    case TResultSinkType::MYSQL_PROTOCAL: {
+        if (state->mysql_row_binary_format()) {
+            _writer.reset(new (std::nothrow) VMysqlResultWriter<true>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
+        } else {
+            _writer.reset(new (std::nothrow) VMysqlResultWriter<false>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
+        }
         break;
+    }
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
         std::shared_ptr<arrow::Schema> arrow_schema;
         RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema));
@@ -141,7 +145,7 @@ Status VResultSink::send(RuntimeState* state, Block* block, bool eos) {
         DCHECK(_sink_type == TResultSinkType::MYSQL_PROTOCAL);
         RETURN_IF_ERROR(second_phase_fetch_data(state, block));
     }
-    RETURN_IF_ERROR(_writer->append_block(*block));
+    RETURN_IF_ERROR(_writer->write(*block));
     if (_fetch_option.use_two_phase_fetch) {
         // Block structure may be changed by calling _second_phase_fetch_data().
         // So we should clear block in case of unmatched columns
@@ -169,19 +173,14 @@ Status VResultSink::close(RuntimeState* state, Status exec_status) {
     // close sender, this is normal path end
     if (_sender) {
         if (_writer) {
-            _sender->update_num_written_rows(_writer->get_written_rows());
+            _sender->update_return_rows(_writer->get_written_rows());
         }
-        _sender->update_max_peak_memory_bytes();
-        static_cast<void>(_sender->close(final_status));
+        RETURN_IF_ERROR(_sender->close(final_status));
     }
-    static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
+    state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
-            state->fragment_instance_id()));
+            state->fragment_instance_id());
     return DataSink::close(state, exec_status);
-}
-
-void VResultSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
-    _sender->set_query_statistics(statistics);
 }
 
 } // namespace vectorized

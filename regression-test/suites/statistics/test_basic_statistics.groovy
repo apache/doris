@@ -18,6 +18,7 @@
 suite("test_basic_statistics") {
     String db = "test_basic_statistics"
     String tbl = "test_table_1"
+    sql """set global force_sample_analyze=false"""
 
     sql """
         DROP DATABASE IF EXISTS `${db}`
@@ -48,26 +49,26 @@ suite("test_basic_statistics") {
 
     sql """ analyze table ${tbl} with sync"""
     def result = sql """show column stats ${tbl} (id)"""
-    assertTrue(result.size() == 1)
-    assertTrue(result[0][0] == "id")
-    assertTrue(result[0][1] == "9.0")
-    assertTrue(result[0][2] == "9.0")
-    assertTrue(result[0][3] == "0.0")
-    assertTrue(result[0][4] == "36.0")
-    assertTrue(result[0][5] == "4.0")
-    assertTrue(result[0][6] == "1")
-    assertTrue(result[0][7] == "9")
+    assertEquals(result.size(), 1)
+    assertEquals(result[0][0], "id")
+    assertEquals(result[0][2], "9.0")
+    assertEquals(result[0][3], "9.0")
+    assertEquals(result[0][4], "0.0")
+    assertEquals(result[0][5], "36.0")
+    assertEquals(result[0][6], "4.0")
+    assertEquals(result[0][7], "1")
+    assertEquals(result[0][8], "9")
 
     result = sql """show column stats ${tbl} (name)"""
-    assertTrue(result.size() == 1)
-    assertTrue(result[0][0] == "name")
-    assertTrue(result[0][1] == "9.0")
-    assertTrue(result[0][2] == "9.0")
-    assertTrue(result[0][3] == "0.0")
-    assertTrue(result[0][4] == "45.0")
-    assertTrue(result[0][5] == "5.0")
-    assertTrue(result[0][6] == "\'name1\'")
-    assertTrue(result[0][7] == "\'name9\'")
+    assertEquals(result.size(), 1)
+    assertEquals(result[0][0], "name")
+    assertEquals(result[0][2], "9.0")
+    assertEquals(result[0][3], "9.0")
+    assertEquals(result[0][4], "0.0")
+    assertEquals(result[0][5], "45.0")
+    assertEquals(result[0][6], "5.0")
+    assertEquals(result[0][7], "\'name1\'")
+    assertEquals(result[0][8], "\'name9\'")
 
     sql """drop stats ${tbl}"""
     sql """drop table ${tbl}"""

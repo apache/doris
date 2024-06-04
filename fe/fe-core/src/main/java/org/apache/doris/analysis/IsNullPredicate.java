@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 public class IsNullPredicate extends Predicate {
     private static final String IS_NULL = "is_null_pred";
@@ -47,21 +48,23 @@ public class IsNullPredicate extends Predicate {
 
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL,
                     null, Lists.newArrayList(t), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
+        }
+        // for array type
+        for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.GENERIC_STRUCT)) {
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, null,
+                    Lists.newArrayList(complexType), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
 
-            // for array type
-            for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.GENERIC_STRUCT)) {
-                functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, null,
-                        Lists.newArrayList(complexType), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
-
-                functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL,
-                        null, Lists.newArrayList(complexType), Type.BOOLEAN,
-                        NullableMode.ALWAYS_NOT_NULLABLE));
-            }
-
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL, null,
+                    Lists.newArrayList(complexType), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
         }
     }
 
-    private final boolean isNotNull;
+    @SerializedName("inn")
+    private boolean isNotNull;
+
+    private IsNullPredicate() {
+        // use for serde only
+    }
 
     public IsNullPredicate(Expr e, boolean isNotNull) {
         this(e, isNotNull, false);

@@ -38,9 +38,9 @@ const std::string PATH = "path";
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-ReloadTabletAction::ReloadTabletAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
-                                       TPrivilegeType::type type)
-        : HttpHandlerWithAuth(exec_env, hier, type) {}
+ReloadTabletAction::ReloadTabletAction(ExecEnv* exec_env, StorageEngine& engine,
+                                       TPrivilegeHier::type hier, TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type), _engine(engine) {}
 
 void ReloadTabletAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
@@ -94,7 +94,7 @@ void ReloadTabletAction::reload(const std::string& path, int64_t tablet_id, int3
     clone_req.__set_schema_hash(schema_hash);
 
     Status res = Status::OK();
-    res = StorageEngine::instance()->load_header(path, clone_req);
+    res = _engine.load_header(path, clone_req);
     if (!res.ok()) {
         LOG(WARNING) << "load header failed. status: " << res << ", signature: " << tablet_id;
         std::string error_msg = std::string("load header failed");

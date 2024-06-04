@@ -727,6 +727,35 @@ suite("test_json_load", "p0") {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 
+    // case27: import json with malformed json along with json path
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `syscode` VARCHAR(20)  NOT NULL COMMENT "",
+                `event_dt` DateTime NULL COMMENT "",
+                `pro_brand` VARCHAR(20)  COMMENT "",
+                `app_package`  VARCHAR(50) COMMENT "",
+                `platform` VARCHAR(20) COMMENT "",
+                `log_num`  BIGINT DEFAULT "0" COMMENT ""
+            )
+            DUPLICATE KEY(`syscode`, `event_dt`,`pro_brand`,`app_package`,`platform`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+        load_json_data.call("${testTable}", "${testTable}_case27_1", 'false', 'true', 'json', 'id= id * 10', '[\"$.platform\",\"$.app_package\",\"$.sysCode\",\"$.sys_code\",\"$.proBrand\",\"$.pro_brand\",\"$.event_time\"]',
+                             '', '', '', 'test_malformed_json_with_path.json', false, 2)
+        sql "sync"
+        qt_select26 "select * from ${testTable}"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
     // test jsonpaths error
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
@@ -734,7 +763,7 @@ suite("test_json_load", "p0") {
         create_json_test_table.call(testTable)
         streamLoad {
             table "${testTable}"
-            set 'jsonpaths', '[\"Name\", \"Age\", \"Agent_id\"]'
+            set 'jsonpaths', '[\"$.Name\", \"$.Age\", \"$.Agent_id\"]'
             set 'format', 'json'
             file 'test_json_error.json' // import json file
             time 10000 // limit inflight 10s
@@ -754,11 +783,10 @@ suite("test_json_load", "p0") {
                 def code = process.waitFor()
                 def out = process.text
                 log.info("result: ${out}".toString())
-                def reason = "Reason: There is no column matching jsonpaths in the json file, columns:[name, age, agent_id, ], jsonpaths:[\"Name\", \"Age\", \"Agent_id\"], please check columns and jsonpaths. src line [{\"name\":\"Name1\",\"age\":21,\"agent_id\":\"1\"}]; \n"
+                def reason = "Reason: There is no column matching jsonpaths in the json file, columns:[name, age, agent_id, ], please check columns and jsonpaths:[\"\$.Name\", \"\$.Age\", \"\$.Agent_id\"]. src line [{\"name\":\"Name1\",\"age\":21,\"agent_id\":\"1\"}]; \n"
                 assertEquals("${reason}", "${out}")
             }
         }
-
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
@@ -790,10 +818,49 @@ suite("test_json_load", "p0") {
                 def code = process.waitFor()
                 def out = process.text
                 log.info("result: ${out}".toString())
-                def reason = "Reason: There is no column matching jsonpaths in the json file, columns:[Name, Age, Agent_id, ], jsonpaths:, please check columns and jsonpaths. src line [{\"name\":\"Name1\",\"age\":21,\"agent_id\":\"1\"}]; \n"
+                def reason = "Reason: There is no column matching jsonpaths in the json file, columns:[Name, Age, Agent_id, ], please check columns and jsonpaths:. src line [{\"name\":\"Name1\",\"age\":21,\"agent_id\":\"1\"}]; \n"
                 assertEquals("${reason}", "${out}")
             }
         }
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+      
+    // iterate read json when read_json_by_line = false
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+
+        create_json_test_table.call(testTable)
+        def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+        load_json_data.call("${testTable}", test_load_label, 'false', 'false', 'json', '', '', '', '', '', 'iterate_read_json.json')
+        sql "sync" 
+        
+        qt_iterate_read_json "select * from ${testTable} order by name"
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // add something like $.tag. [a.b] key's json case
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `k1` varchar(1024) NULL,
+                `k2` varchar(1024) NULL
+            )
+            DUPLICATE KEY(`k1`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+        load_json_data.call("${testTable}", "${testTable}_case28_1", 'false', '', 'json', '', '[\"$.tags.\\\"a.b\\\"\",\"$.tags.k2\"]',
+                             '', '', '', 'test_special_key_json.json')
+        
+        sql "sync"
+        sleep(1000)
+        qt_select28 "select * from ${testTable}"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")

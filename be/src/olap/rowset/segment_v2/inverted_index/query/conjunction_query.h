@@ -17,29 +17,21 @@
 
 #pragma once
 
-#include <CLucene.h>
-#include <CLucene/index/IndexReader.h>
-#include <CLucene/index/IndexVersion.h>
-#include <CLucene/index/Term.h>
-#include <CLucene/search/query/TermIterator.h>
-
-#include "roaring/roaring.hh"
+#include "olap/rowset/segment_v2/inverted_index/query/query.h"
 
 CL_NS_USE(index)
+CL_NS_USE(search)
 
-namespace doris {
+namespace doris::segment_v2 {
 
-class ConjunctionQuery {
+class ConjunctionQuery : public Query {
 public:
-    ConjunctionQuery(IndexReader* reader);
-    ~ConjunctionQuery();
+    ConjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
+                     const TQueryOptions& query_options);
+    ~ConjunctionQuery() override;
 
-    void set_conjunction_ratio(int32_t conjunction_ratio) {
-        _conjunction_ratio = conjunction_ratio;
-    }
-
-    void add(const std::wstring& field_name, const std::vector<std::string>& terms);
-    void search(roaring::Roaring& roaring);
+    void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
+    void search(roaring::Roaring& roaring) override;
 
 private:
     void search_by_bitmap(roaring::Roaring& roaring);
@@ -47,7 +39,9 @@ private:
 
     int32_t do_next(int32_t doc);
 
-    IndexReader* _reader = nullptr;
+public:
+    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+
     IndexVersion _index_version = IndexVersion::kV0;
     int32_t _conjunction_ratio = 1000;
     bool _use_skip = false;
@@ -60,4 +54,4 @@ private:
     std::vector<TermDocs*> _term_docs;
 };
 
-} // namespace doris
+} // namespace doris::segment_v2

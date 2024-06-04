@@ -24,8 +24,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "olap/reader.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/tablet_reader.h"
 #include "olap/utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -72,9 +72,9 @@ private:
 
     Status _init_collect_iter(const ReaderParams& read_params);
 
-    void _init_agg_state(const ReaderParams& read_params);
+    Status _init_agg_state(const ReaderParams& read_params);
 
-    void _insert_data_normal(MutableColumns& columns);
+    Status _insert_data_normal(MutableColumns& columns);
 
     void _append_agg_data(MutableColumns& columns);
 

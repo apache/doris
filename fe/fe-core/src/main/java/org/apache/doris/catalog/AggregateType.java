@@ -37,7 +37,7 @@ public enum AggregateType {
     NONE("NONE"),
     BITMAP_UNION("BITMAP_UNION"),
     QUANTILE_UNION("QUANTILE_UNION"),
-    GENERIC_AGGREGATION("GENERIC_AGGREGATION");
+    GENERIC("GENERIC");
 
     private static EnumMap<AggregateType, EnumSet<PrimitiveType>> compatibilityMap;
 
@@ -115,11 +115,8 @@ public enum AggregateType {
         compatibilityMap.put(MAX, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
-        // all types except object stored column type, such as bitmap hll
-        // quantile_state.
+        // all types except agg_state.
         EnumSet<PrimitiveType> excObjectStored = EnumSet.allOf(PrimitiveType.class);
-        excObjectStored.remove(PrimitiveType.HLL);
-        excObjectStored.remove(PrimitiveType.QUANTILE_STATE);
         excObjectStored.remove(PrimitiveType.AGG_STATE);
         compatibilityMap.put(REPLACE, EnumSet.copyOf(excObjectStored));
 

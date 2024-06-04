@@ -76,7 +76,7 @@ public:
 };
 
 TEST_F(ParquetThriftReaderTest, normal) {
-    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
+    auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/localfile.parquet",
                                   &reader);
@@ -110,7 +110,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     //   `friend` map<string,string>,
     //   `mark` struct<math:int,english:int>)
 
-    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
+    auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/hive-complex.parquet",
                                   &reader);
@@ -191,18 +191,22 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                                   : chunk_meta.data_page_offset;
     size_t chunk_size = chunk_meta.total_compressed_size;
 
-    bool need_convert = false;
-    auto& parquet_physical_type = column_chunk->meta_data.type;
-    auto& show_type = field_schema->type.type;
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    auto _converter = parquet::PhysicalToLogicalConverter::get_converter(
+            field_schema, field_schema->type, data_type, &ctz, false);
+    if (!_converter->support()) {
+        return Status::InternalError("Not support");
+    }
 
-    ColumnPtr src_column = ParquetConvert::get_column(parquet_physical_type, show_type,
-                                                      doris_column, data_type, &need_convert);
+    ColumnPtr src_column = _converter->get_physical_column(
+            field_schema->physical_type, field_schema->type, doris_column, data_type, false);
+    DataTypePtr& resolved_type = _converter->get_physical_type();
 
     io::BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
 
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-    ColumnChunkReader chunk_reader(&stream_reader, column_chunk, field_schema, &ctz, nullptr);
+    ColumnChunkReader chunk_reader(&stream_reader, column_chunk, field_schema, nullptr, &ctz,
+                                   nullptr);
     // initialize chunk reader
     static_cast<void>(chunk_reader.init());
     // seek to next page header
@@ -232,7 +236,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
         // required column
         std::vector<u_short> null_map = {(u_short)rows};
         run_length_map.set_run_length_null_map(null_map, rows, nullptr);
-        RETURN_IF_ERROR(chunk_reader.decode_values(data_column, data_type, run_length_map, false));
+        RETURN_IF_ERROR(
+                chunk_reader.decode_values(data_column, resolved_type, run_length_map, false));
     } else {
         // column with null values
         level_t level_type = definitions[0];
@@ -245,7 +250,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                 } else {
                     std::vector<u_short> null_map = {(u_short)num_values};
                     run_length_map.set_run_length_null_map(null_map, rows, nullptr);
-                    RETURN_IF_ERROR(chunk_reader.decode_values(data_column, data_type,
+                    RETURN_IF_ERROR(chunk_reader.decode_values(data_column, resolved_type,
                                                                run_length_map, false));
                 }
                 level_type = definitions[i];
@@ -261,20 +266,10 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
             std::vector<u_short> null_map = {(u_short)num_values};
             run_length_map.set_run_length_null_map(null_map, rows, nullptr);
             RETURN_IF_ERROR(
-                    chunk_reader.decode_values(data_column, data_type, run_length_map, false));
+                    chunk_reader.decode_values(data_column, resolved_type, run_length_map, false));
         }
     }
-    if (need_convert) {
-        std::unique_ptr<ParquetConvert::ColumnConvert> converter;
-        ParquetConvert::ConvertParams convert_params;
-        convert_params.init(field_schema, &ctz, doris_column->size());
-        RETURN_IF_ERROR(ParquetConvert::get_converter(parquet_physical_type, show_type, data_type,
-                                                      &converter, &convert_params));
-        auto x = doris_column->assume_mutable();
-        RETURN_IF_ERROR(converter->convert(src_column, x));
-    }
-
-    return Status::OK();
+    return _converter->convert(src_column, field_schema->type, data_type, doris_column, false);
 }
 
 // Only the unit test depend on this, but it is wrong, should not use TTupleDesc to create tuple desc, not
@@ -334,7 +329,7 @@ static doris::TupleDescriptor* create_tuple_desc(
 
     TTupleDescriptor t_tuple_desc;
     t_tuple_desc.__set_byteSize(offset);
-    t_tuple_desc.__set_numNullBytes((null_byte * 8 + null_bit + 7) / 8);
+    t_tuple_desc.__set_numNullBytes(0);
     doris::TupleDescriptor* tuple_desc =
             pool->add(new (std::nothrow) doris::TupleDescriptor(t_tuple_desc));
 
@@ -401,7 +396,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
      * `list_string` array<string>) // 14
      */
 
-    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
+    auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file(parquet_file, &reader);
     EXPECT_TRUE(st.ok());
@@ -414,7 +409,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schema_descriptor;
     static_cast<void>(schema_descriptor.parse_from_thrift(t_metadata.schema));
-    level_t defs[rows];
+    std::vector<level_t> defs(rows);
 
     for (int c = 0; c < 14; ++c) {
         auto& column_name_with_type = block->get_by_position(c);
@@ -423,7 +418,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
         static_cast<void>(
                 get_column_values(reader, &t_metadata.row_groups[0].columns[c],
                                   const_cast<FieldSchema*>(schema_descriptor.get_column(c)),
-                                  data_column, data_type, defs));
+                                  data_column, data_type, defs.data()));
     }
     // `date_v2_col` date, // 14 - 13, DATEV2
     {
@@ -433,7 +428,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
         static_cast<void>(
                 get_column_values(reader, &t_metadata.row_groups[0].columns[13],
                                   const_cast<FieldSchema*>(schema_descriptor.get_column(13)),
-                                  data_column, data_type, defs));
+                                  data_column, data_type, defs.data()));
     }
     // `timestamp_v2_col` timestamp, // 15 - 9, DATETIMEV2
     {
@@ -443,18 +438,18 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
         static_cast<void>(
                 get_column_values(reader, &t_metadata.row_groups[0].columns[9],
                                   const_cast<FieldSchema*>(schema_descriptor.get_column(9)),
-                                  data_column, data_type, defs));
+                                  data_column, data_type, defs.data()));
     }
 
     io::FileReaderSPtr result;
     auto rst = local_fs->open_file(result_file, &result);
     EXPECT_TRUE(rst.ok());
-    uint8_t result_buf[result->size() + 1];
+    std::vector<uint8_t> result_buf(result->size() + 1);
     result_buf[result->size()] = '\0';
     size_t bytes_read;
-    Slice res(result_buf, result->size());
+    Slice res(result_buf.data(), result->size());
     static_cast<void>(result->read_at(0, res, &bytes_read));
-    ASSERT_STREQ(block->dump_data(0, rows).c_str(), reinterpret_cast<char*>(result_buf));
+    ASSERT_STREQ(block->dump_data(0, rows).c_str(), reinterpret_cast<char*>(result_buf.data()));
     delete metadata;
 }
 

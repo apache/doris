@@ -52,11 +52,11 @@ public class AlterTableStmtTest {
                 minTimes = 0;
                 result = true;
 
-                accessManager.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                accessManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
@@ -70,9 +70,9 @@ public class AlterTableStmtTest {
         ops.add(new DropColumnClause("col2", "", null));
         AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
         stmt.analyze(analyzer);
-        Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` DROP COLUMN `col1`, \nDROP COLUMN `col2`",
+        Assert.assertEquals("ALTER TABLE `testDb`.`testTbl` DROP COLUMN `col1`, \nDROP COLUMN `col2`",
                 stmt.toSql());
-        Assert.assertEquals("testCluster:testDb", stmt.getTbl().getDb());
+        Assert.assertEquals("testDb", stmt.getTbl().getDb());
         Assert.assertEquals(2, stmt.getOps().size());
     }
 
@@ -83,11 +83,11 @@ public class AlterTableStmtTest {
         ops.add(new AddRollupClause("index2", Lists.newArrayList("col2", "col3"), null, "testTbl", null));
         AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
         stmt.analyze(analyzer);
-        Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl`"
+        Assert.assertEquals("ALTER TABLE `testDb`.`testTbl`"
                         + " ADD ROLLUP `index1` (`col1`, `col2`) FROM `testTbl`, \n"
                         + " `index2` (`col2`, `col3`) FROM `testTbl`",
                 stmt.toSql());
-        Assert.assertEquals("testCluster:testDb", stmt.getTbl().getDb());
+        Assert.assertEquals("testDb", stmt.getTbl().getDb());
         Assert.assertEquals(2, stmt.getOps().size());
     }
 
@@ -119,8 +119,8 @@ public class AlterTableStmtTest {
         AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
         stmt.analyze(analyzer);
 
-        Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` ENABLE FEATURE \"sequence_load\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",
+        Assert.assertEquals("ALTER TABLE `testDb`.`testTbl` ENABLE FEATURE \"sequence_load\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",
                 stmt.toSql());
-        Assert.assertEquals("testCluster:testDb", stmt.getTbl().getDb());
+        Assert.assertEquals("testDb", stmt.getTbl().getDb());
     }
 }

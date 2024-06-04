@@ -17,16 +17,20 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
+import org.apache.doris.analysis.ModifyPartitionClause;
+import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TypeDef;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -34,9 +38,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.plugin.audit.AuditLoaderPlugin;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -55,6 +59,10 @@ public class InternalSchemaInitializer extends Thread {
 
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
 
+    public InternalSchemaInitializer() {
+        super("InternalSchemaInitializer");
+    }
+
     public void run() {
         if (!FeConstants.enableInternalSchemaDb) {
             return;
@@ -69,10 +77,15 @@ public class InternalSchemaInitializer extends Thread {
                 }
                 Thread.currentThread()
                         .join(TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS * 1000L);
-                createDB();
+                createDb();
                 createTbl();
             } catch (Throwable e) {
                 LOG.warn("Statistics storage initiated failed, will try again later", e);
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException ex) {
+                    LOG.info("Sleep interrupted. {}", ex.getMessage());
+                }
             }
         }
         LOG.info("Internal schema is initialized");
@@ -83,33 +96,57 @@ public class InternalSchemaInitializer extends Thread {
             return;
         }
         Database database = op.get();
-        modifyTblReplicaCount(database, StatisticConstants.STATISTIC_TBL_NAME);
-        modifyTblReplicaCount(database, StatisticConstants.HISTOGRAM_TBL_NAME);
+        modifyTblReplicaCount(database, StatisticConstants.TABLE_STATISTIC_TBL_NAME);
+        modifyTblReplicaCount(database, StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
+        modifyTblReplicaCount(database, AuditLoaderPlugin.AUDIT_LOG_TABLE);
     }
 
-    public void modifyTblReplicaCount(Database database, String tblName) {
-        if (!(Config.min_replication_num_per_tablet < StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM
-                && Config.max_replication_num_per_tablet >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM)) {
+    @VisibleForTesting
+    public static void modifyTblReplicaCount(Database database, String tblName) {
+        if (Config.isCloudMode()
+                || Config.min_replication_num_per_tablet >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM
+                || Config.max_replication_num_per_tablet < StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
             return;
         }
         while (true) {
-            if (Env.getCurrentSystemInfo().aliveBECount() >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
+            int backendNum = Env.getCurrentSystemInfo().getBackendNumFromDiffHosts(true);
+            if (FeConstants.runningUnitTest) {
+                backendNum = Env.getCurrentSystemInfo().getAllBackendIds().size();
+            }
+            if (backendNum >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
                 try {
-                    Map<String, String> props = new HashMap<>();
-                    props.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.default: "
-                            + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
-                    TableIf colStatsTbl = StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+                    OlapTable tbl = (OlapTable) StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                             StatisticConstants.DB_NAME, tblName);
-                    OlapTable olapTable = (OlapTable) colStatsTbl;
-                    if (olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum()
-                            >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
-                        return;
-                    }
+                    tbl.writeLock();
                     try {
-                        colStatsTbl.writeLock();
-                        Env.getCurrentEnv().modifyTableReplicaAllocation(database, (OlapTable) colStatsTbl, props);
+                        if (tbl.getTableProperty().getReplicaAllocation().getTotalReplicaNum()
+                                >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
+                            return;
+                        }
+                        if (!tbl.isPartitionedTable()) {
+                            Map<String, String> props = new HashMap<>();
+                            props.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.default: "
+                                    + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
+                            Env.getCurrentEnv().modifyTableReplicaAllocation(database, tbl, props);
+                        } else {
+                            TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    StatisticConstants.DB_NAME, tbl.getName());
+                            // 1. modify table's default replica num
+                            Map<String, String> props = new HashMap<>();
+                            props.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                                    "" + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
+                            Env.getCurrentEnv().modifyTableDefaultReplicaAllocation(database, tbl, props);
+                            // 2. modify each partition's replica num
+                            List<AlterClause> clauses = Lists.newArrayList();
+                            props.clear();
+                            props.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                                    "" + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
+                            clauses.add(ModifyPartitionClause.createStarClause(props, false));
+                            AlterTableStmt alter = new AlterTableStmt(tableName, clauses);
+                            Env.getCurrentEnv().alterTable(alter);
+                        }
                     } finally {
-                        colStatsTbl.writeUnlock();
+                        tbl.writeUnlock();
                     }
                     break;
                 } catch (Throwable t) {
@@ -124,17 +161,23 @@ public class InternalSchemaInitializer extends Thread {
         }
     }
 
-    private void createTbl() throws UserException {
-        Env.getCurrentEnv().getInternalCatalog().createTable(buildStatisticsTblStmt());
-        Env.getCurrentEnv().getInternalCatalog().createTable(buildHistogramTblStmt());
+    @VisibleForTesting
+    public static void createTbl() throws UserException {
+        // statistics
+        Env.getCurrentEnv().getInternalCatalog().createTable(
+                buildStatisticsTblStmt(StatisticConstants.TABLE_STATISTIC_TBL_NAME,
+                    Lists.newArrayList("id", "catalog_id", "db_id", "tbl_id", "idx_id", "col_id", "part_id")));
+        Env.getCurrentEnv().getInternalCatalog().createTable(
+                buildStatisticsTblStmt(StatisticConstants.PARTITION_STATISTIC_TBL_NAME,
+                    Lists.newArrayList("catalog_id", "db_id", "tbl_id", "idx_id", "part_id", "col_id")));
+        // audit table
+        Env.getCurrentEnv().getInternalCatalog().createTable(buildAuditTblStmt());
     }
 
     @VisibleForTesting
-    public static void createDB() {
+    public static void createDb() {
         CreateDbStmt createDbStmt = new CreateDbStmt(true,
-                ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, FeConstants.INTERNAL_DB_NAME),
-                null);
-        createDbStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
+                new DbName("internal", FeConstants.INTERNAL_DB_NAME), null);
         try {
             Env.getCurrentEnv().createDb(createDbStmt);
         } catch (DdlException e) {
@@ -143,94 +186,87 @@ public class InternalSchemaInitializer extends Thread {
         }
     }
 
-    @VisibleForTesting
-    public CreateTableStmt buildStatisticsTblStmt() throws UserException {
-        TableName tableName = new TableName("",
-                FeConstants.INTERNAL_DB_NAME, StatisticConstants.STATISTIC_TBL_NAME);
-        List<ColumnDef> columnDefs = new ArrayList<>();
-        columnDefs.add(new ColumnDef("id", TypeDef.createVarchar(StatisticConstants.ID_LEN)));
-        columnDefs.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("db_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("tbl_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("col_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        ColumnDef partId = new ColumnDef("part_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN));
-        partId.setAllowNull(true);
-        columnDefs.add(partId);
-        columnDefs.add(new ColumnDef("count", TypeDef.create(PrimitiveType.BIGINT), true));
-        columnDefs.add(new ColumnDef("ndv", TypeDef.create(PrimitiveType.BIGINT), true));
-        columnDefs.add(new ColumnDef("null_count", TypeDef.create(PrimitiveType.BIGINT), true));
-        columnDefs.add(new ColumnDef("min", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
-        columnDefs.add(new ColumnDef("max", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
-        columnDefs.add(new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT), true));
-        columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
+    private static CreateTableStmt buildStatisticsTblStmt(String statsTableName, List<String> uniqueKeys)
+            throws UserException {
+        TableName tableName = new TableName("", FeConstants.INTERNAL_DB_NAME, statsTableName);
         String engineName = "olap";
-        ArrayList<String> uniqueKeys = Lists.newArrayList("id", "catalog_id",
-                "db_id", "tbl_id", "idx_id", "col_id", "part_id");
         KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS, uniqueKeys);
         DistributionDesc distributionDesc = new HashDistributionDesc(
                 StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
         Map<String, String> properties = new HashMap<String, String>() {
             {
-                put("replication_num", String.valueOf(
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
                         Math.max(1, Config.min_replication_num_per_tablet)));
             }
         };
+
+        if (Config.isCloudMode() && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
+        }
+
+        PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
+                tableName, InternalSchema.getCopiedSchema(statsTableName),
+                engineName, keysDesc, null, distributionDesc,
                 properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
-        // createTableStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         StatisticsUtil.analyze(createTableStmt);
         return createTableStmt;
     }
 
-    @VisibleForTesting
-    public CreateTableStmt buildHistogramTblStmt() throws UserException {
+    private static CreateTableStmt buildAuditTblStmt() throws UserException {
         TableName tableName = new TableName("",
-                FeConstants.INTERNAL_DB_NAME, StatisticConstants.HISTOGRAM_TBL_NAME);
-        List<ColumnDef> columnDefs = new ArrayList<>();
-        columnDefs.add(new ColumnDef("id", TypeDef.createVarchar(StatisticConstants.ID_LEN)));
-        columnDefs.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("db_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("tbl_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("col_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("sample_rate", TypeDef.create(PrimitiveType.DOUBLE)));
-        columnDefs.add(new ColumnDef("buckets", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
-        columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
+                FeConstants.INTERNAL_DB_NAME, AuditLoaderPlugin.AUDIT_LOG_TABLE);
+
         String engineName = "olap";
-        ArrayList<String> uniqueKeys = Lists.newArrayList("id", "catalog_id",
-                "db_id", "tbl_id", "idx_id", "col_id");
-        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS, uniqueKeys);
-        DistributionDesc distributionDesc = new HashDistributionDesc(
-                StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
+        ArrayList<String> dupKeys = Lists.newArrayList("query_id", "time", "client_ip");
+        KeysDesc keysDesc = new KeysDesc(KeysType.DUP_KEYS, dupKeys);
+        // partition
+        PartitionDesc partitionDesc = new RangePartitionDesc(Lists.newArrayList("time"), Lists.newArrayList());
+        // distribution
+        int bucketNum = 2;
+        DistributionDesc distributionDesc = new HashDistributionDesc(bucketNum, Lists.newArrayList("query_id"));
         Map<String, String> properties = new HashMap<String, String>() {
             {
+                put("dynamic_partition.time_unit", "DAY");
+                put("dynamic_partition.start", "-30");
+                put("dynamic_partition.end", "3");
+                put("dynamic_partition.prefix", "p");
+                put("dynamic_partition.buckets", String.valueOf(bucketNum));
+                put("dynamic_partition.enable", "true");
                 put("replication_num", String.valueOf(Math.max(1,
                         Config.min_replication_num_per_tablet)));
             }
         };
+
+        if (Config.isCloudMode() && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
+        }
+
+        PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
-                properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
+                tableName, InternalSchema.getCopiedSchema(AuditLoaderPlugin.AUDIT_LOG_TABLE),
+                engineName, keysDesc, partitionDesc, distributionDesc,
+                properties, null, "Doris internal audit table, DO NOT MODIFY IT", null);
         StatisticsUtil.analyze(createTableStmt);
-        // createTableStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         return createTableStmt;
     }
 
+
     private boolean created() {
+        // 1. check database exist
         Optional<Database> optionalDatabase =
                 Env.getCurrentEnv().getInternalCatalog()
-                        .getDb(SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME);
+                        .getDb(FeConstants.INTERNAL_DB_NAME);
         if (!optionalDatabase.isPresent()) {
             return false;
         }
         Database db = optionalDatabase.get();
-        Optional<Table> optionalStatsTbl = db.getTable(StatisticConstants.STATISTIC_TBL_NAME);
+        Optional<Table> optionalStatsTbl = db.getTable(StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         if (!optionalStatsTbl.isPresent()) {
             return false;
         }
 
+        // 2. check statistic tables
         Table statsTbl = optionalStatsTbl.get();
         Optional<Column> optionalColumn =
                 statsTbl.fullSchema.stream().filter(c -> c.getName().equals("count")).findFirst();
@@ -238,14 +274,20 @@ public class InternalSchemaInitializer extends Thread {
             try {
                 Env.getCurrentEnv().getInternalCatalog()
                         .dropTable(new DropTableStmt(true, new TableName(null,
-                                StatisticConstants.DB_NAME, StatisticConstants.STATISTIC_TBL_NAME), true));
+                                StatisticConstants.DB_NAME, StatisticConstants.TABLE_STATISTIC_TBL_NAME), true));
             } catch (Exception e) {
                 LOG.warn("Failed to drop outdated table", e);
             }
             return false;
         }
-        return db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).isPresent();
+        optionalStatsTbl = db.getTable(StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
+        if (!optionalStatsTbl.isPresent()) {
+            return false;
+        }
+
+        // 3. check audit table
+        optionalStatsTbl = db.getTable(AuditLoaderPlugin.AUDIT_LOG_TABLE);
+        return optionalStatsTbl.isPresent();
     }
 
 }
-

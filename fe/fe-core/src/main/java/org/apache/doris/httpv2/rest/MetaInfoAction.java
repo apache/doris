@@ -75,9 +75,9 @@ public class MetaInfoAction extends RestBaseController {
      *   "msg": "success",
      *   "code": 0,
      *   "data": [
-     *     "default_cluster:db1",
-     *     "default_cluster:doris_audit_db__",
-     *     "default_cluster:information_schema"
+     *     "db1",
+     *     "doris_audit_db__",
+     *     "information_schema"
      *   ],
      *   "count": 0
      * }
@@ -105,7 +105,8 @@ public class MetaInfoAction extends RestBaseController {
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), fullName, PrivPredicate.SHOW)) {
+                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullName,
+                            PrivPredicate.SHOW)) {
                 continue;
             }
             dbNameSet.add(db);
@@ -142,7 +143,6 @@ public class MetaInfoAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
-
         String fullDbName = getFullDbName(dbName);
         Database db;
         try {
@@ -153,8 +153,10 @@ public class MetaInfoAction extends RestBaseController {
 
         List<String> tblNames = Lists.newArrayList();
         for (Table tbl : db.getTables()) {
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
-                    PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName,
+                            tbl.getName(),
+                            PrivPredicate.SHOW)) {
                 continue;
             }
             tblNames.add(tbl.getName());

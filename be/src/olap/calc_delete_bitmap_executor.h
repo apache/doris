@@ -29,6 +29,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/tablet_fwd.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -36,7 +37,6 @@ namespace doris {
 class DataDir;
 class Tablet;
 enum RowsetTypePB : int;
-using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 // A thin wrapper of ThreadPoolToken to submit calc delete bitmap task.
 // Usage:
@@ -49,7 +49,7 @@ public:
     explicit CalcDeleteBitmapToken(std::unique_ptr<ThreadPoolToken> thread_token)
             : _thread_token(std::move(thread_token)), _status(Status::OK()) {}
 
-    Status submit(TabletSharedPtr tablet, RowsetSharedPtr cur_rowset,
+    Status submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_rowset,
                   const segment_v2::SegmentSharedPtr& cur_segment,
                   const std::vector<RowsetSharedPtr>& target_rowsets, int64_t end_version,
                   DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer);
@@ -66,13 +66,14 @@ private:
     // Records the current status of the calc delete bitmap job.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
     Status _status;
+    QueryThreadContext _query_thread_context;
 };
 
 // CalcDeleteBitmapExecutor is responsible for calc delete bitmap concurrently.
 // It encapsulate a ThreadPool to handle all tasks.
 class CalcDeleteBitmapExecutor {
 public:
-    CalcDeleteBitmapExecutor() {}
+    CalcDeleteBitmapExecutor() = default;
     ~CalcDeleteBitmapExecutor() { _thread_pool->shutdown(); }
 
     // init should be called after storage engine is opened,

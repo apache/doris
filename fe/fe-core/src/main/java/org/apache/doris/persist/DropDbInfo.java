@@ -17,8 +17,10 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -27,7 +29,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class DropDbInfo implements Writable {
+public class DropDbInfo implements Writable, GsonPostProcessable {
     @SerializedName(value = "dbName")
     private String dbName;
     @SerializedName(value = "forceDrop")
@@ -89,4 +91,8 @@ public class DropDbInfo implements Writable {
             && (recycleTime == info.getRecycleTime());
     }
 
+    @Override
+    public void gsonPostProcess() throws IOException {
+        dbName = ClusterNamespace.getNameFromFullName(dbName);
+    }
 }

@@ -41,7 +41,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaCollationsScanner::_s_cols_columns 
 };
 
 SchemaCollationsScanner::CollationStruct SchemaCollationsScanner::_s_collations[] = {
-        {"utf8_general_ci", "utf8", 33, "Yes", "Yes", 1},
+        {"utf8mb4_0900_bin", "utf8mb4", 309, "Yes", "Yes", 1},
         {nullptr, nullptr, 0, nullptr, nullptr, 0},
 };
 
@@ -72,55 +72,55 @@ Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
 
     // COLLATION_NAME
     {
-        StringRef strs[row_num];
+        std::vector<StringRef> strs(row_num);
         for (int i = 0; i < row_num; ++i) {
             strs[i] = StringRef(_s_collations[i].name, strlen(_s_collations[i].name));
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
     }
     // charset
     {
-        StringRef strs[row_num];
+        std::vector<StringRef> strs(row_num);
         for (int i = 0; i < row_num; ++i) {
             strs[i] = StringRef(_s_collations[i].charset, strlen(_s_collations[i].charset));
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // id
     {
-        int64_t srcs[row_num];
+        std::vector<int64_t> srcs(row_num);
         for (int i = 0; i < row_num; ++i) {
             srcs[i] = _s_collations[i].id;
-            datas[i] = srcs + i;
+            datas[i] = srcs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // is_default
     {
-        StringRef strs[row_num];
+        std::vector<StringRef> strs(row_num);
         for (int i = 0; i < row_num; ++i) {
             strs[i] = StringRef(_s_collations[i].is_default, strlen(_s_collations[i].is_default));
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     // IS_COMPILED
     {
-        StringRef strs[row_num];
+        std::vector<StringRef> strs(row_num);
         for (int i = 0; i < row_num; ++i) {
             strs[i] = StringRef(_s_collations[i].is_compile, strlen(_s_collations[i].is_compile));
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
     }
     // sortlen
     {
-        int64_t srcs[row_num];
+        std::vector<int64_t> srcs(row_num);
         for (int i = 0; i < row_num; ++i) {
             srcs[i] = _s_collations[i].sortlen;
-            datas[i] = srcs + i;
+            datas[i] = srcs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
     }
