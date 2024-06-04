@@ -25,6 +25,9 @@
 #include "vec/common/arena.h"
 
 namespace doris {
+namespace pipeline {
+class HashJoinProbeLocalState;
+}
 namespace vectorized {
 
 class Block;
@@ -37,9 +40,9 @@ using MutableColumns = std::vector<MutableColumnPtr>;
 using NullMap = ColumnUInt8::Container;
 using ConstNullMapPtr = const NullMap*;
 
-template <int JoinOpType, typename Parent>
+template <int JoinOpType>
 struct ProcessHashTableProbe {
-    ProcessHashTableProbe(Parent* parent, int batch_size);
+    ProcessHashTableProbe(pipeline::HashJoinProbeLocalState* parent, int batch_size);
     ~ProcessHashTableProbe() = default;
 
     // output build side result column
@@ -88,7 +91,7 @@ struct ProcessHashTableProbe {
     /// we should make this row match with all rows in build side.
     size_t _process_probe_null_key(uint32_t probe_idx);
 
-    Parent* _parent = nullptr;
+    pipeline::HashJoinProbeLocalState* _parent = nullptr;
     const int _batch_size;
     const std::shared_ptr<Block>& _build_block;
     std::unique_ptr<Arena> _arena;

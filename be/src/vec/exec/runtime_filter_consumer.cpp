@@ -95,8 +95,10 @@ void RuntimeFilterConsumer::init_runtime_filter_dependency(
                     local_runtime_filter_dependencies);
         }
     }
-    ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer(
-            std::move(runtime_filter_timers));
+    if (!runtime_filter_timers.empty()) {
+        ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer(
+                std::move(runtime_filter_timers));
+    }
 }
 
 Status RuntimeFilterConsumer::_acquire_runtime_filter(bool pipeline_x) {
