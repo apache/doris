@@ -26,6 +26,7 @@ class ShuffleExchanger;
 class PassthroughExchanger;
 class BroadcastExchanger;
 class PassToOneExchanger;
+class LocalMergeSortExchanger;
 class LocalExchangeSourceOperatorX;
 class LocalExchangeSourceLocalState final : public PipelineXLocalState<LocalExchangeSharedState> {
 public:
@@ -46,6 +47,7 @@ private:
     friend class PassthroughExchanger;
     friend class BroadcastExchanger;
     friend class PassToOneExchanger;
+    friend class LocalMergeSortExchanger;
     friend class AdaptivePassthroughExchanger;
 
     Exchanger* _exchanger = nullptr;

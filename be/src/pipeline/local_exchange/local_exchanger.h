@@ -25,6 +25,7 @@ namespace doris::pipeline {
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
 struct ShuffleBlockWrapper;
+class SortSourceOperatorX;
 
 class Exchanger {
 public:
@@ -175,6 +176,31 @@ public:
 
 private:
     std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
+};
+
+class LocalMergeSortExchanger final : public Exchanger {
+public:
+    ENABLE_FACTORY_CREATOR(LocalMergeSortExchanger);
+    LocalMergeSortExchanger(std::shared_ptr<SortSourceOperatorX> sort_source,
+                            int running_sink_operators, int num_partitions, int free_block_limit)
+            : Exchanger(running_sink_operators, num_partitions, free_block_limit),
+              _sort_source(std::move(sort_source)) {
+        _data_queue.resize(num_partitions);
+    }
+    ~LocalMergeSortExchanger() override = default;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
+                LocalExchangeSinkLocalState& local_state) override;
+
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
+                     LocalExchangeSourceLocalState& local_state) override;
+    ExchangeType get_type() const override { return ExchangeType::LOCAL_MERGE_SORT; }
+
+    Status build_merger(RuntimeState* statem, LocalExchangeSourceLocalState& local_state);
+
+private:
+    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
+    std::unique_ptr<vectorized::VSortedRunMerger> _merger;
+    std::shared_ptr<SortSourceOperatorX> _sort_source;
 };
 
 class BroadcastExchanger final : public Exchanger {

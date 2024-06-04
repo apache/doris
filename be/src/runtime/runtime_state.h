@@ -597,6 +597,11 @@ public:
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
 
+    bool enable_local_merge_sort() const {
+        return _query_options.__isset.enable_local_merge_sort &&
+               _query_options.enable_local_merge_sort;
+    }
+
     int64_t min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
             return _query_options.min_revocable_mem;

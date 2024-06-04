@@ -813,6 +813,8 @@ enum class ExchangeType : uint8_t {
     ADAPTIVE_PASSTHROUGH = 5,
     // Send all data to the first channel.
     PASS_TO_ONE = 6,
+    // merge all data to ont channel.
+    LOCAL_MERGE_SORT = 7,
 };
 
 inline std::string get_exchange_type_name(ExchangeType idx) {
@@ -831,6 +833,8 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
         return "ADAPTIVE_PASSTHROUGH";
     case ExchangeType::PASS_TO_ONE:
         return "PASS_TO_ONE";
+    case ExchangeType::LOCAL_MERGE_SORT:
+        return "LOCAL_MERGE_SORT";
     }
     LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();

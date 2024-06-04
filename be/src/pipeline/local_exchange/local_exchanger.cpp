@@ -17,6 +17,9 @@
 
 #include "pipeline/local_exchange/local_exchanger.h"
 
+#include "common/status.h"
+#include "pipeline/exec/sort_sink_operator.h"
+#include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
 
@@ -258,6 +261,66 @@ Status PassToOneExchanger::get_block(RuntimeState* state, vectorized::Block* blo
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
         local_state._dependency->block();
     }
+    return Status::OK();
+}
+
+Status LocalMergeSortExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
+                                     LocalExchangeSinkLocalState& local_state) {
+    vectorized::Block new_block;
+    if (!_free_blocks.try_dequeue(new_block)) {
+        new_block = {in_block->clone_empty()};
+    }
+    new_block.swap(*in_block);
+    DCHECK_LE(local_state._channel_id, _data_queue.size());
+    _data_queue[local_state._channel_id].enqueue(std::move(new_block));
+    local_state._shared_state->set_ready_to_read(0);
+    return Status::OK();
+}
+
+Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
+                                             LocalExchangeSourceLocalState& local_state) {
+    RETURN_IF_ERROR(_sort_source->build_merger(state, _merger, local_state.profile()));
+    std::vector<vectorized::BlockSupplier> child_block_suppliers;
+    for (int channel_id = 0; channel_id < _num_partitions; channel_id++) {
+        vectorized::BlockSupplier block_supplier = [&, id = channel_id](vectorized::Block* block,
+                                                                        bool* eos) {
+            vectorized::Block next_block;
+            if (_running_sink_operators == 0) {
+                if (_data_queue[id].try_dequeue(next_block)) {
+                    block->swap(next_block);
+                    if (_free_block_limit == 0 ||
+                        _free_blocks.size_approx() < _free_block_limit * _num_sources) {
+                        _free_blocks.enqueue(std::move(next_block));
+                    }
+                } else {
+                    *eos = true;
+                }
+            } else if (_data_queue[id].try_dequeue(next_block)) {
+                block->swap(next_block);
+                if (_free_block_limit == 0 ||
+                    _free_blocks.size_approx() < _free_block_limit * _num_sources) {
+                    _free_blocks.enqueue(std::move(next_block));
+                }
+            }
+            return Status::OK();
+        };
+        child_block_suppliers.push_back(block_supplier);
+    }
+    RETURN_IF_ERROR(_merger->prepare(child_block_suppliers));
+    _merger->set_pipeline_engine_enabled(true);
+    return Status::OK();
+}
+
+Status LocalMergeSortExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
+                                          LocalExchangeSourceLocalState& local_state) {
+    if (local_state._channel_id != 0) {
+        *eos = true;
+        return Status::OK();
+    }
+    if (!_merger) {
+        RETURN_IF_ERROR(build_merger(state, local_state));
+    }
+    RETURN_IF_ERROR(_merger->get_next(block, eos));
     return Status::OK();
 }
 

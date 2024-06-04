@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "common/status.h"
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
@@ -28,7 +29,33 @@ SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
 
 SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                          const DescriptorTbl& descs)
-        : OperatorX<SortLocalState>(pool, tnode, operator_id, descs) {}
+        : OperatorX<SortLocalState>(pool, tnode, operator_id, descs),
+          _merge_by_exchange(tnode.sort_node.merge_by_exchange),
+          _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0) {}
+
+Status SortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(Base::init(tnode, state));
+    RETURN_IF_ERROR(_vsort_exec_exprs.init(tnode.sort_node.sort_info, _pool));
+    _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
+    _nulls_first = tnode.sort_node.sort_info.nulls_first;
+    return Status::OK();
+}
+
+Status SortSourceOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::prepare(state));
+    if (_child_x) {
+        RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor));
+    }
+    return Status::OK();
+}
+
+Status SortSourceOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
+    if (_child_x) {
+        RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
+    }
+    return Status::OK();
+}
 
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
@@ -43,6 +70,17 @@ const vectorized::SortDescription& SortSourceOperatorX::get_sort_description(
         RuntimeState* state) const {
     auto& local_state = get_local_state(state);
     return local_state._shared_state->sorter->get_sort_description();
+}
+
+Status SortSourceOperatorX::build_merger(RuntimeState* state,
+                                         std::unique_ptr<vectorized::VSortedRunMerger>& merger,
+                                         RuntimeProfile* profile) {
+    vectorized::VSortExecExprs vsort_exec_exprs;
+    RETURN_IF_ERROR(_vsort_exec_exprs.clone(state, vsort_exec_exprs));
+    merger = std::make_unique<vectorized::VSortedRunMerger>(
+            vsort_exec_exprs.lhs_ordering_expr_ctxs(), _is_asc_order, _nulls_first,
+            state->batch_size(), _limit, _offset, profile);
+    return Status::OK();
 }
 
 } // namespace doris::pipeline
