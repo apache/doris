@@ -152,6 +152,10 @@ void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     while (!_expiration_txn.empty()) {
         auto iter = _expiration_txn.begin();
+        if (_txn_map.find(iter->second) == _txn_map.end()) {
+            _expiration_txn.erase(iter);
+            continue;
+        }
         int64_t current_time = duration_cast<std::chrono::seconds>(
                                        std::chrono::system_clock::now().time_since_epoch())
                                        .count();
@@ -171,6 +175,23 @@ void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
             _txn_map.erase(iter->second);
         }
         _expiration_txn.erase(iter);
+    }
+}
+
+void CloudTxnDeleteBitmapCache::remove_unused_tablet_txn_info(TTransactionId transaction_id,
+                                                              int64_t tablet_id) {
+    std::unique_lock<std::shared_mutex> wlock(_rwlock);
+    TxnKey txn_key(transaction_id, tablet_id);
+    auto txn_iter = _txn_map.find(txn_key);
+    if (txn_iter != _txn_map.end()) {
+        LOG_INFO("remove unused tablet txn info")
+                .tag("txn_id", txn_iter->first.txn_id)
+                .tag("tablt_id", txn_iter->first.tablet_id);
+        std::string key_str = std::to_string(txn_iter->first.txn_id) + "/" +
+                              std::to_string(txn_iter->first.tablet_id); // Cache key container
+        CacheKey cache_key(key_str);
+        erase(cache_key);
+        _txn_map.erase(txn_key);
     }
 }
 

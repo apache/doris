@@ -371,8 +371,10 @@ public:
     mutable std::shared_mutex lock;
     using SegmentId = uint32_t;
     using Version = uint64_t;
+    enum PublishStatus { NONE = 0, FINALIZED = 1 };
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
     std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
+    std::map<BitmapKey, PublishStatus> status_map;
     constexpr static inline uint32_t INVALID_SEGMENT_ID = std::numeric_limits<uint32_t>::max() - 1;
     constexpr static inline uint32_t ROWSET_SENTINEL_MARK =
             std::numeric_limits<uint32_t>::max() - 1;

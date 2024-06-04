@@ -613,14 +613,24 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
         RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta));
     }
 
+    RowsetSharedPtr tmp_rowset;
+    DeleteBitmapPtr tmp_delete_bitmap;
+    RowsetIdUnorderedSet tmp_rowset_ids;
+    std::shared_ptr<PartialUpdateInfo> tmp_partial_update_info;
+    int64_t tmp_txn_expiration;
+    RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().get_tablet_txn_info(
+            txn_id, tablet_id(), &tmp_rowset, &tmp_delete_bitmap, &tmp_rowset_ids,
+            &tmp_txn_expiration, &tmp_partial_update_info));
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
         // skip sentinel mark, which is used for delete bitmap correctness check
         if (std::get<1>(iter->first) != DeleteBitmap::INVALID_SEGMENT_ID) {
-            new_delete_bitmap->merge(
-                    {std::get<0>(iter->first), std::get<1>(iter->first), cur_version},
-                    iter->second);
+            DeleteBitmap::BitmapKey key = {std::get<0>(iter->first), std::get<1>(iter->first),
+                                           cur_version};
+            tmp_delete_bitmap->status_map.insert(
+                    std::make_pair(key, DeleteBitmap::PublishStatus::FINALIZED));
+            new_delete_bitmap->merge(key, iter->second);
         }
     }
 

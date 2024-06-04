@@ -53,6 +53,8 @@ public:
 
     void remove_expired_tablet_txn_info();
 
+    void remove_unused_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id);
+
 private:
     void _clean_thread_callback();
 
