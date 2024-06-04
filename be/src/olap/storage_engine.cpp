@@ -1304,7 +1304,7 @@ bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id)
 }
 
 PendingRowsetGuard StorageEngine::add_pending_rowset(const RowsetWriterContext& ctx) {
-    if (!ctx.fs || ctx.fs->type() == io::FileSystemType::LOCAL) {
+    if (ctx.is_local_rowset()) {
         return _pending_local_rowsets.add(ctx.rowset_id);
     }
     return _pending_remote_rowsets.add(ctx.rowset_id);
