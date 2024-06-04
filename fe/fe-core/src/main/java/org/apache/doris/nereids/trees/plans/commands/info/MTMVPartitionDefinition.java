@@ -40,6 +40,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.RelatedTableInfo;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
@@ -167,15 +168,20 @@ public class MTMVPartitionDefinition {
     }
 
     private static List<Expr> convertToLegacyArguments(List<Expression> children) {
-        return children.stream().map(child -> {
-            if (child instanceof Slot) {
-                return new SlotRef(null, ((Slot) child).getName());
-            } else if (child instanceof Literal) {
-                return new StringLiteral(((Literal) child).getStringValue());
-            } else {
-                throw new AnalysisException("unsupported argument " + child.toString());
-            }
-        }).collect(Collectors.toList());
+        return children.stream().map(MTMVPartitionDefinition::convertToLegacyRecursion).collect(Collectors.toList());
+    }
+
+    private static Expr convertToLegacyRecursion(Expression expression) {
+        if (expression instanceof Slot) {
+            return new SlotRef(null, ((Slot) expression).getName());
+        } else if (expression instanceof Literal) {
+            return new StringLiteral(((Literal) expression).getStringValue());
+        } else if (expression instanceof Cast) {
+            // mv partition roll up only need the slot in cast
+            return convertToLegacyRecursion(((Cast) expression).child());
+        } else {
+            throw new AnalysisException("unsupported argument " + expression.toString());
+        }
     }
 
     public MTMVPartitionType getPartitionType() {

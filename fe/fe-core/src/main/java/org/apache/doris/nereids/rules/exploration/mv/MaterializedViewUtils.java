@@ -30,7 +30,6 @@ import org.apache.doris.nereids.memo.StructInfoMap;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -299,7 +298,7 @@ public class MaterializedViewUtils {
 
         public static final MaterializedViewIncrementChecker INSTANCE = new MaterializedViewIncrementChecker();
         public static final Set<Class<? extends Expression>> SUPPORT_EXPRESSION_TYPES =
-                ImmutableSet.of(DateTrunc.class, SlotReference.class, Literal.class, Cast.class);
+                ImmutableSet.of(DateTrunc.class, SlotReference.class, Literal.class);
 
         @Override
         public Void visitLogicalProject(LogicalProject<? extends Plan> project, IncrementCheckerContext context) {
@@ -327,8 +326,8 @@ public class MaterializedViewUtils {
                         if (SUPPORT_EXPRESSION_TYPES.stream().noneMatch(
                                 supportExpression -> supportExpression.isAssignableFrom(expression.getClass()))) {
                             context.addFailReason(
-                                    String.format("partition column use invalid expression, invalid expression is %s",
-                                            expression));
+                                    String.format("partition column use invalid implicit expression, invalid "
+                                                    + "expression is %s", expression));
                             return null;
                         }
                     }
@@ -340,14 +339,15 @@ public class MaterializedViewUtils {
                                 + "greater than sql select column");
                         return null;
                     }
-                    Slot columnExpr = (Slot) shuttledExpression.getArgument(0);
-                    if (!columnExpr.isColumnFromTable()) {
-                        context.addFailReason("partition reference column should be direct column "
-                                + "rather then expression except date_trunc");
+                    Optional<Slot> columnExpr =
+                            shuttledExpression.getArgument(0).collectFirst(Slot.class::isInstance);
+                    if (!columnExpr.isPresent() || !columnExpr.get().isColumnFromTable()) {
+                        context.addFailReason(String.format("partition reference column should be direct column "
+                                + "rather then expression except date_trunc, columnExpr is %s", columnExpr));
                         return null;
                     }
                     context.setPartitionExpression(shuttledExpression);
-                    context.setMvPartitionColumn(columnExpr);
+                    context.setMvPartitionColumn(columnExpr.get());
                 }
                 return visit(project, context);
             }

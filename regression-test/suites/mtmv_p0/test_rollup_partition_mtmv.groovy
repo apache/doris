@@ -169,9 +169,11 @@ suite("test_rollup_partition_mtmv") {
     waitingMTMVTaskFinished(jobName)
     order_qt_string_list_month "SELECT * FROM ${mvName} order by k1,k2"
 
-    // fail need support partition_date_format when partitition by column and column is date_trunc
+    // mv partition column type is date, base table is string, partition mapping fail
+    // support later
     sql """drop materialized view if exists ${mvName};"""
-    sql """
+    try {
+        sql """
         CREATE MATERIALIZED VIEW ${mvName}
             BUILD IMMEDIATE REFRESH AUTO ON MANUAL
             partition by (month_alias)
@@ -182,15 +184,11 @@ suite("test_rollup_partition_mtmv") {
             )
             AS
             SELECT date_trunc(`k2`,'month') as month_alias, * FROM ${tableName};
-    """
-    def string_list_month_partitions = sql """show partitions from ${mvName}"""
-    logger.info("showPartitionsResult: " + string_list_month_partitions.toString())
-    assertEquals(2, string_list_month_partitions.size())
-
-    jobName = getJobName(dbName, mvName);
-    log.info(jobName)
-    waitingMTMVTaskFinished(jobName)
-    order_qt_string_list_month_partition_by_column "SELECT * FROM ${mvName}"
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
 
     // range date month
     sql """drop table if exists `${tableName}`"""
