@@ -69,13 +69,13 @@ public class StatisticsRepository {
             + "`col_id`, `count`, hll_to_base64(`ndv`) as ndv, `null_count`, `min`, `max`, `data_size_in_bytes`, "
             + "`update_time` FROM " + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
             + " WHERE `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}' AND `tbl_id` = ${tableId}"
-            + " AND `idx_id` = '${indexId}' AND `part_id` = '${partId}' AND `col_id` = '${columnId}'";
+            + " AND `idx_id` = '${indexId}' AND `part_name` = '${partName}' AND `col_id` = '${columnId}'";
 
-    private static final String FETCH_PARTITIONS_STATISTIC_TEMPLATE = "SELECT col_id, part_id, idx_id, count, "
+    private static final String FETCH_PARTITIONS_STATISTIC_TEMPLATE = "SELECT col_id, part_name, idx_id, count, "
             + "hll_cardinality(ndv) as ndv, null_count, min, max, data_size_in_bytes, update_time FROM "
             + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
             + " WHERE `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}' AND `tbl_id` = ${tableId}"
-            + " AND `part_id` in (${partitionInfo}) AND `col_id` in (${columnInfo})";
+            + " AND `part_name` in (${partitionInfo}) AND `col_id` in (${columnInfo})";
 
     private static final String FETCH_COLUMN_HISTOGRAM_TEMPLATE = "SELECT * FROM "
             + FULL_QUALIFIED_COLUMN_HISTOGRAM_NAME
@@ -113,7 +113,7 @@ public class StatisticsRepository {
                     + "LIMIT ${limit} OFFSET ${offset}";
 
     private static final String FETCH_PARTITION_STATS_FULL_NAME =
-            "SELECT \"\" as id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id FROM "
+            "SELECT \"\" as id, catalog_id, db_id, tbl_id, idx_id, col_id, part_name FROM "
                     + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.PARTITION_STATISTIC_TBL_NAME
                     + " ORDER BY update_time "
                     + "LIMIT ${limit} OFFSET ${offset}";
@@ -206,11 +206,26 @@ public class StatisticsRepository {
     }
 
     public static void dropStatistics(
-            long ctlId, long dbId, long tblId, Set<String> colNames, Set<String> partNames) throws DdlException {
+            long ctlId, long dbId, long tblId, Set<String> colNames) throws DdlException {
         if (colNames == null) {
             executeDropStatisticsAllColumnSql(ctlId, dbId, tblId);
         } else {
             dropStatisticsByColName(ctlId, dbId, tblId, colNames);
+        }
+    }
+
+    public static void dropPartitionsColumnStatistics(long ctlId, long dbId, long tblId,
+            String columnCondition, String partitionCondition) throws DdlException {
+        Map<String, String> params = new HashMap<>();
+        generateCtlDbIdParams(ctlId, dbId, params);
+        params.put("tblId", String.valueOf(tblId));
+        params.put("columnCondition", columnCondition);
+        params.put("partitionCondition", partitionCondition);
+        try {
+            StatisticsUtil.execUpdate(
+                new StringSubstitutor(params).replace(DELETE_PARTITION_STATISTICS_TEMPLATE));
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage(), e);
         }
     }
 
@@ -389,7 +404,7 @@ public class StatisticsRepository {
         generateCtlDbIdParams(ctlId, dbId, params);
         params.put("tableId", String.valueOf(tableId));
         params.put("indexId", String.valueOf(idxId));
-        params.put("partId", partName);
+        params.put("partName", partName);
         params.put("columnId", colName);
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
             .replace(FETCH_PARTITION_STATISTIC_TEMPLATE));
