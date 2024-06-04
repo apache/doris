@@ -100,6 +100,10 @@ public:
 
     int64_t num_rows_written() const { return _num_rows_written; }
 
+    // for partial update
+    int64_t num_rows_updated() const { return _num_rows_updated; }
+    int64_t num_rows_deleted() const { return _num_rows_deleted; }
+    int64_t num_rows_new_added() const { return _num_rows_new_added; }
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
 
     Status close();
@@ -155,6 +159,9 @@ private:
 
     // written rows by add_block/add_row
     std::atomic<int64_t> _num_rows_written = 0;
+    std::atomic<int64_t> _num_rows_updated = 0;
+    std::atomic<int64_t> _num_rows_new_added = 0;
+    std::atomic<int64_t> _num_rows_deleted = 0;
     std::atomic<int64_t> _num_rows_filtered = 0;
 };
 
@@ -176,6 +183,10 @@ public:
 
     int64_t num_rows_written() const { return _segment_flusher.num_rows_written(); }
 
+    // for partial update
+    int64_t num_rows_updated() const { return _segment_flusher.num_rows_updated(); }
+    int64_t num_rows_deleted() const { return _segment_flusher.num_rows_deleted(); }
+    int64_t num_rows_new_added() const { return _segment_flusher.num_rows_new_added(); }
     int64_t num_rows_filtered() const { return _segment_flusher.num_rows_filtered(); }
 
     // Flush a block into a single segment, with pre-allocated segment_id.

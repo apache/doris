@@ -444,6 +444,11 @@ public:
     bool empty() const;
 
     /**
+     * return the total cardinality of the Delete Bitmap
+     */
+    uint64_t cardinality() const;
+
+    /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 1 if the insertion took place, 0 if the assignment took place
