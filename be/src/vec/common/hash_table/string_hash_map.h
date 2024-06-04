@@ -47,7 +47,9 @@ struct StringHashMapCell<StringKey16, TMapped>
 
     // Zero means unoccupied cells in hash table. Use key with last word = 0 as
     // zero keys, because such keys are unrepresentable (no way to encode length).
-    static bool is_zero(const StringKey16& key, const HashTableNoState&) { return key.items[1] == 0; }
+    static bool is_zero(const StringKey16& key, const HashTableNoState&) {
+        return key.items[1] == 0;
+    }
     void set_zero() { this->value.first.items[1] = 0; }
 
     // external
