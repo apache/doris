@@ -32,6 +32,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
@@ -508,6 +509,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             olapTable = (OlapTable) db.getTableNullable(tableId);
             // Only OlapTable has DynamicPartitionProperty
             if (olapTable == null
+                    || olapTable instanceof MTMV
                     || !olapTable.dynamicPartitionExists()
                     || !olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
                 iterator.remove();
