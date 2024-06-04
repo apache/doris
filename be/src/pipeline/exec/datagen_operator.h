@@ -21,7 +21,7 @@
 
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
-#include "vec/exec/vdata_gen_scan_node.h"
+#include "vec/exec/data_gen_functions/vdata_gen_function_inf.h"
 
 namespace doris {
 class RuntimeState;
