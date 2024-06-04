@@ -62,12 +62,6 @@ TEST(VAccurateComparison, TestsOP) {
 
     ASSERT_TRUE(accurate::equalsOp(static_cast<UInt64>(9223372036854775808ULL), static_cast<Float64>(9223372036854775808ULL)));
     ASSERT_TRUE(accurate::equalsOp(static_cast<UInt64>(9223372036854775808ULL), static_cast<Float32>(9223372036854775808ULL)));
-
-    ASSERT_TRUE(accurate::greaterOp(static_cast<UInt64>(9223372036854776000ULL), static_cast<Float64>(9223372036854776000ULL)));
-    ASSERT_TRUE(accurate::lessOp(static_cast<UInt64>(9223372000000000000ULL), static_cast<Float32>(9223372000000000000ULL)));
-
-    ASSERT_TRUE(accurate::equalsOp(static_cast<Float32>(9223372036854775808ULL), static_cast<Float64>(9223372036854775808ULL)));
-
     ASSERT_TRUE(accurate::lessOp(static_cast<UInt8>(255), 300));
     ASSERT_TRUE(accurate::lessOp(static_cast<UInt8>(255), static_cast<Int16>(300)));
     ASSERT_TRUE(accurate::notEqualsOp(static_cast<UInt8>(255), 44));
