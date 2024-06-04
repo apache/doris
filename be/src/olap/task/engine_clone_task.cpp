@@ -269,6 +269,8 @@ Status EngineCloneTask::_do_clone() {
                       << ". signature: " << _signature;
             WARN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_dir),
                           "failed to delete useless clone dir ");
+            WARN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(tablet_dir),
+                          "failed to delete parent dir");
         }};
 
         bool exists = true;

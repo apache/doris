@@ -1144,6 +1144,9 @@ Status TabletManager::start_trash_sweep() {
 }
 
 bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
+    RETURN_IF_ERROR(register_transition_tablet(tablet->tablet_id(), "move to trash"));
+    Defer defer {[&]() { unregister_transition_tablet(tablet->tablet_id(), "move to trash"); }};
+
     TabletSharedPtr tablet_in_not_shutdown = get_tablet(tablet->tablet_id());
     if (tablet_in_not_shutdown) {
         TSchemaHash schema_hash_not_shutdown = tablet_in_not_shutdown->schema_hash();
@@ -1168,9 +1171,6 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
             }
         }
     }
-
-    RETURN_IF_ERROR(register_transition_tablet(tablet->tablet_id(), "move to trash"));
-    Defer defer {[&]() { unregister_transition_tablet(tablet->tablet_id(), "move to trash"); }};
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     int64_t get_meta_ts = MonotonicMicros();
@@ -1245,17 +1245,7 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                           << ", schema_hash=" << tablet->schema_hash()
                           << ", delete tablet_path=" << tablet_path;
                 RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_path));
-
-                auto fs_tablet_path = io::Path(tablet_path);
-                std::string source_parent_dir = fs_tablet_path.parent_path();
-                std::vector<io::FileInfo> sub_files;
-                RETURN_IF_ERROR(io::global_local_filesystem()->list(source_parent_dir, false,
-                                                                    &sub_files, &exists));
-                if (sub_files.empty()) {
-                    LOG(INFO) << "meta key not found remove empty dir=" << source_parent_dir;
-                    RETURN_IF_ERROR(
-                            io::global_local_filesystem()->delete_directory(source_parent_dir));
-                }
+                RETURN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(tablet_path));
                 return true;
             }
             LOG(WARNING) << "errors while load meta from store, skip this tablet. "

@@ -144,6 +144,8 @@ public:
     // Move tablet to trash.
     Status move_to_trash(const std::string& tablet_path);
 
+    static Status delete_tablet_parent_path_if_empty(const std::string& tablet_path);
+
 private:
     Status _init_cluster_id();
     Status _init_capacity_and_create_shards();

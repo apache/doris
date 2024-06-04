@@ -939,8 +939,16 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     }
 
     // 5. check parent dir of source file, delete it when empty
+    RETURN_IF_ERROR(delete_tablet_parent_path_if_empty(tablet_path));
+
+    return Status::OK();
+}
+
+Status DataDir::delete_tablet_parent_path_if_empty(const std::string& tablet_path) {
+    auto fs_tablet_path = io::Path(tablet_path);
     std::string source_parent_dir = fs_tablet_path.parent_path(); // tablet_id level
     std::vector<io::FileInfo> sub_files;
+    bool exists = true;
     RETURN_IF_ERROR(
             io::global_local_filesystem()->list(source_parent_dir, false, &sub_files, &exists));
     if (sub_files.empty()) {
@@ -948,7 +956,6 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
         // no need to exam return status
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(source_parent_dir));
     }
-
     return Status::OK();
 }
 

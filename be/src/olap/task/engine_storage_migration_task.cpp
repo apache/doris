@@ -322,6 +322,7 @@ Status EngineStorageMigrationTask::_migrate() {
     if (!res.ok()) {
         // we should remove the dir directly for avoid disk full of junk data, and it's safe to remove
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(full_path));
+        RETURN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(full_path));
     }
     return res;
 }
