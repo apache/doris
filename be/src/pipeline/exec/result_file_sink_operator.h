@@ -20,7 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "vec/sink/vresult_file_sink.h"
+#include "vec/sink/writer/vfile_result_writer.h"
 
 namespace doris::pipeline {
 
@@ -95,7 +95,7 @@ private:
     const std::vector<TPlanFragmentDestination> _dests;
 
     // set file options when sink type is FILE
-    std::unique_ptr<vectorized::ResultFileOptions> _file_opts;
+    std::unique_ptr<ResultFileOptions> _file_opts;
     TStorageBackendType::type _storage_type;
 
     // Owned by the RuntimeState.

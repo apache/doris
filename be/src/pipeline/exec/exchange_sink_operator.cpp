@@ -31,10 +31,6 @@
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr.h"
 
-namespace doris {
-class DataSink;
-} // namespace doris
-
 namespace doris::pipeline {
 
 Status ExchangeSinkLocalState::serialize_block(vectorized::Block* src, PBlock* dest,

@@ -22,6 +22,7 @@
 
 #include "pipeline/exec/exchange_sink_buffer.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/result_sink_operator.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/result_buffer_mgr.h"
 #include "vec/sink/vdata_stream_sender.h"
@@ -57,7 +58,7 @@ Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
     RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::init(tsink));
     auto& sink = tsink.result_file_sink;
     CHECK(sink.__isset.file_options);
-    _file_opts.reset(new vectorized::ResultFileOptions(sink.file_options));
+    _file_opts.reset(new ResultFileOptions(sink.file_options));
     CHECK(sink.__isset.storage_backend_type);
     _storage_type = sink.storage_backend_type;
 
@@ -98,8 +99,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
     if (p._is_top_sink) {
         // create sender
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->fragment_instance_id(), p._buf_size, &_sender,
-                state->enable_pipeline_x_exec(), state->execution_timeout()));
+                state->fragment_instance_id(), p._buf_size, &_sender, state->execution_timeout()));
         // create writer
         _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
                 p._file_opts.get(), p._storage_type, state->fragment_instance_id(),
@@ -124,14 +124,9 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         std::mt19937 g(rd());
         shuffle(_channels.begin(), _channels.end(), g);
 
-        int local_size = 0;
         for (int i = 0; i < _channels.size(); ++i) {
-            RETURN_IF_ERROR(_channels[i]->init(state));
-            if (_channels[i]->is_local()) {
-                local_size++;
-            }
+            RETURN_IF_ERROR(_channels[i]->init_stub(state));
         }
-        _only_local_exchange = local_size == _channels.size();
     }
     _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
     _writer->set_header_info(p._header_type, p._header);
@@ -141,6 +136,17 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
 Status ResultFileSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
+    auto& p = _parent->cast<ResultFileSinkOperatorX>();
+    if (!p._is_top_sink) {
+        int local_size = 0;
+        for (int i = 0; i < _channels.size(); ++i) {
+            RETURN_IF_ERROR(_channels[i]->open(state));
+            if (_channels[i]->is_local()) {
+                local_size++;
+            }
+        }
+        _only_local_exchange = local_size == _channels.size();
+    }
     return Base::open(state);
 }
 
