@@ -81,11 +81,9 @@ void CloudWarmUpManager::handle_jobs() {
             auto rs_metas = tablet_meta->snapshot_rs_metas();
             for (auto& [_, rs] : rs_metas) {
                 for (int64_t seg_id = 0; seg_id < rs->num_segments(); seg_id++) {
-                    auto fs = rs->fs();
-                    if (!fs) {
-                        LOG(WARNING) << "failed to get fs. tablet_id=" << tablet_id
-                                     << " rowset_id=" << rs->rowset_id()
-                                     << " resource_id=" << rs->resource_id();
+                    auto storage_resource = rs->remote_storage_resource();
+                    if (!storage_resource) {
+                        LOG(WARNING) << storage_resource.error();
                         continue;
                     }
 
@@ -100,10 +98,10 @@ void CloudWarmUpManager::handle_jobs() {
                     wait->add_count();
                     _engine.file_cache_block_downloader().submit_download_task(
                             io::DownloadFileMeta {
-                                    .path = BetaRowset::remote_segment_path(
-                                            rs->tablet_id(), rs->rowset_id(), seg_id),
+                                    .path = storage_resource.value()->remote_segment_path(*rs,
+                                                                                          seg_id),
                                     .file_size = rs->segment_file_size(seg_id),
-                                    .file_system = std::move(fs),
+                                    .file_system = storage_resource.value()->fs,
                                     .ctx =
                                             {
                                                     .expiration_time = expiration_time,

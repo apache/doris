@@ -50,7 +50,6 @@ public:
     BaseTablet(const BaseTablet&) = delete;
     BaseTablet& operator=(const BaseTablet&) = delete;
 
-    const std::string& tablet_path() const { return _tablet_path; }
     TabletState tablet_state() const { return _tablet_meta->tablet_state(); }
     Status set_tablet_state(TabletState state);
     int64_t table_id() const { return _tablet_meta->table_id(); }
@@ -283,8 +282,6 @@ protected:
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
     const TabletMetaSharedPtr _tablet_meta;
     TabletSchemaSPtr _max_version_schema;
-
-    std::string _tablet_path;
 
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity;
