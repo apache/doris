@@ -247,6 +247,33 @@ void QueryContext::cancel_all_pipeline_context(const Status& reason) {
     }
 }
 
+std::string QueryContext::print_all_pipeline_context() {
+    std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_print;
+    fmt::memory_buffer debug_string_buffer;
+    size_t i = 0;
+    {
+        fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts in query {}. \n",
+                       _fragment_id_to_pipeline_ctx.size(), print_id(_query_id));
+
+        {
+            std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+            for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
+                ctx_to_print.push_back(f_context);
+            }
+        }
+        for (auto& f_context : ctx_to_print) {
+            if (auto pipeline_ctx = f_context.lock()) {
+                auto elapsed = pipeline_ctx->elapsed_time() / 1000000000.0;
+                fmt::format_to(debug_string_buffer,
+                               "No.{} (elapse_second={}s, fragment_id={}) : {}\n", i, elapsed,
+                               pipeline_ctx->get_fragment_id(), pipeline_ctx->debug_string());
+                i++;
+            }
+        }
+    }
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status QueryContext::cancel_pipeline_context(const int fragment_id, const Status& reason) {
     std::weak_ptr<pipeline::PipelineFragmentContext> ctx_to_cancel;
     {

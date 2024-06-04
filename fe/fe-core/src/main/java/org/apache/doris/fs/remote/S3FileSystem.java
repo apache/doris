@@ -60,7 +60,10 @@ public class S3FileSystem extends ObjFileSystem {
         if (dfsFileSystem == null) {
             Configuration conf = new Configuration();
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
-            PropertyConverter.convertToHadoopFSProperties(properties).forEach(conf::set);
+            // the entry value in properties may be null, and
+            PropertyConverter.convertToHadoopFSProperties(properties).entrySet().stream()
+                    .filter(entry -> entry.getKey() != null && entry.getValue() != null)
+                    .forEach(entry -> conf.set(entry.getKey(), entry.getValue()));
             try {
                 dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
             } catch (Exception e) {

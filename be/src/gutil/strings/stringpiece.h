@@ -114,14 +114,14 @@
 #include <assert.h>
 #include <stddef.h>
 #include <string.h>
-#include <iosfwd>
-#include <string>
-#include <cstddef>
-#include <iterator>
-#include <string_view>
-#include <limits> // IWYU pragma: keep
 
-#include "gutil/strings/fastmem.h"
+#include <cstddef>
+#include <iosfwd>
+#include <iterator>
+#include <limits> // IWYU pragma: keep
+#include <string>
+#include <string_view>
+
 #include "gutil/hash/string_hash.h"
 #include "gutil/int128.h"
 
@@ -296,7 +296,7 @@ inline bool operator==(StringPiece x, StringPiece y) {
         return false;
     }
 
-    return x.data() == y.data() || len <= 0 || strings::memeq(x.data(), y.data(), len);
+    return x.data() == y.data() || len <= 0 || 0 == memcmp(x.data(), y.data(), len);
 }
 
 inline bool operator!=(StringPiece x, StringPiece y) {

@@ -579,7 +579,7 @@ Status ScalarColumnWriter::append_data_in_current_page(const uint8_t* data, size
                 _inverted_index_builder->add_values(get_field()->name(), data, *num_written));
     }
     if (_opts.need_bloom_filter) {
-        _bloom_filter_index_builder->add_values(data, *num_written);
+        RETURN_IF_ERROR(_bloom_filter_index_builder->add_values(data, *num_written));
     }
 
     _next_rowid += *num_written;
@@ -718,7 +718,7 @@ Status ScalarColumnWriter::finish_current_page() {
     // build data page body : encoded values + [nullmap]
     std::vector<Slice> body;
     OwnedSlice encoded_values = _page_builder->finish();
-    _page_builder->reset();
+    RETURN_IF_ERROR(_page_builder->reset());
     body.push_back(encoded_values.slice());
 
     OwnedSlice nullmap;

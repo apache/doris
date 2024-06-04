@@ -52,6 +52,8 @@ bvar::PerSecond<bvar::Adder<uint64_t>> g_tablet_pk_not_found_per_second(
         "doris_pk", "lookup_not_found_per_second", &g_tablet_pk_not_found, 60);
 bvar::LatencyRecorder g_tablet_update_delete_bitmap_latency("doris_pk", "update_delete_bitmap");
 
+static bvar::Adder<size_t> g_total_tablet_num("doris_total_tablet_num");
+
 // read columns by read plan
 // read_index: ori_pos-> block_idx
 Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
@@ -158,10 +160,12 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
                 tablet_schema_with_merged_max_schema_version(_tablet_meta->all_rs_metas());
     }
     DCHECK(_max_version_schema);
+    g_total_tablet_num << 1;
 }
 
 BaseTablet::~BaseTablet() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
+    g_total_tablet_num << -1;
 }
 
 TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
@@ -338,36 +342,6 @@ Versions BaseTablet::get_missed_versions_unlocked(int64_t spec_version) const {
         existing_versions.emplace_back(rs->version());
     }
     return calc_missed_versions(spec_version, std::move(existing_versions));
-}
-
-Versions BaseTablet::calc_missed_versions(int64_t spec_version, Versions existing_versions) {
-    DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
-
-    // sort the existing versions in ascending order
-    std::sort(existing_versions.begin(), existing_versions.end(),
-              [](const Version& a, const Version& b) {
-                  // simple because 2 versions are certainly not overlapping
-                  return a.first < b.first;
-              });
-
-    // From the first version(=0), find the missing version until spec_version
-    int64_t last_version = -1;
-    Versions missed_versions;
-    for (const Version& version : existing_versions) {
-        if (version.first > last_version + 1) {
-            // there is a hole between versions
-            missed_versions.emplace_back(last_version + 1, std::min(version.first, spec_version));
-        }
-        last_version = version.second;
-        if (last_version >= spec_version) {
-            break;
-        }
-    }
-    if (last_version < spec_version) {
-        // there is a hole between the last version and the specificed version.
-        missed_versions.emplace_back(last_version + 1, spec_version);
-    }
-    return missed_versions;
 }
 
 void BaseTablet::_print_missed_versions(const Versions& missed_versions) const {
@@ -1144,7 +1118,7 @@ void BaseTablet::_remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete
     }
 }
 
-Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, const TabletTxnInfo* txn_info,
+Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
                                         int64_t txn_id, int64_t txn_expiration) {
     SCOPED_BVAR_LATENCY(g_tablet_update_delete_bitmap_latency);
     RowsetIdUnorderedSet cur_rowset_ids;
@@ -1252,6 +1226,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, const Tablet
         RowsetSharedPtr transient_rowset;
         RETURN_IF_ERROR(transient_rs_writer->build(transient_rowset));
         rowset->rowset_meta()->merge_rowset_meta(*transient_rowset->rowset_meta());
+        // update the shared_ptr to new bitmap, which is consistent with current rowset.
+        txn_info->delete_bitmap = delete_bitmap;
 
         // erase segment cache cause we will add a segment to rowset
         SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());

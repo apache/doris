@@ -39,6 +39,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "common/sync_point.h"
 #include "runtime/exec_env.h"
 #include "s3_uri.h"
 #include "vec/exec/scan/scanner_scheduler.h"
@@ -65,7 +66,7 @@ bool is_s3_conf_valid(const S3ClientConf& conf) {
 // Return true is convert `str` to int successfully
 bool to_int(std::string_view str, int& res) {
     auto [_, ec] = std::from_chars(str.data(), str.data() + str.size(), res);
-    return ec != std::errc {};
+    return ec == std::errc {};
 }
 
 const std::string USE_PATH_STYLE = "use_path_style";
@@ -156,6 +157,8 @@ S3ClientFactory& S3ClientFactory::instance() {
 }
 
 std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3ClientConf& s3_conf) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("s3_client_factory::create",
+                                      std::make_shared<Aws::S3::S3Client>());
     if (!is_s3_conf_valid(s3_conf)) {
         return nullptr;
     }
@@ -255,18 +258,19 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     }
     if (auto it = properties.find(S3_MAX_CONN_SIZE); it != properties.end()) {
         if (!to_int(it->second, s3_conf->client_conf.max_connections)) {
-            return Status::InvalidArgument("invalid {} value {}", S3_MAX_CONN_SIZE, it->second);
+            return Status::InvalidArgument("invalid {} value \"{}\"", S3_MAX_CONN_SIZE, it->second);
         }
     }
     if (auto it = properties.find(S3_REQUEST_TIMEOUT_MS); it != properties.end()) {
         if (!to_int(it->second, s3_conf->client_conf.request_timeout_ms)) {
-            return Status::InvalidArgument("invalid {} value {}", S3_REQUEST_TIMEOUT_MS,
+            return Status::InvalidArgument("invalid {} value \"{}\"", S3_REQUEST_TIMEOUT_MS,
                                            it->second);
         }
     }
     if (auto it = properties.find(S3_CONN_TIMEOUT_MS); it != properties.end()) {
         if (!to_int(it->second, s3_conf->client_conf.connect_timeout_ms)) {
-            return Status::InvalidArgument("invalid {} value {}", S3_CONN_TIMEOUT_MS, it->second);
+            return Status::InvalidArgument("invalid {} value \"{}\"", S3_CONN_TIMEOUT_MS,
+                                           it->second);
         }
     }
 

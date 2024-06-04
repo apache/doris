@@ -786,6 +786,10 @@ public class DateLiteral extends LiteralExpr {
         return getLongValue();
     }
 
+    public double getDoubleValueAsDateTime() {
+        return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
+    }
+
     @Override
     protected void toThrift(TExprNode msg) {
         if (type.isDatetimeV2()) {
@@ -963,10 +967,23 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public long unixTimestamp(TimeZone timeZone) {
-        ZonedDateTime zonedDateTime = ZonedDateTime.of((int) year, (int) month, (int) day, (int) hour,
-                (int) minute, (int) second, (int) microsecond, ZoneId.of(timeZone.getID()));
-        Timestamp timestamp = Timestamp.from(zonedDateTime.toInstant());
+        Timestamp timestamp = getTimestamp(timeZone);
         return timestamp.getTime();
+    }
+
+    private Timestamp getTimestamp(TimeZone timeZone) {
+        ZonedDateTime zonedDateTime = ZonedDateTime.of((int) year, (int) month, (int) day, (int) hour,
+                (int) minute, (int) second, (int) microsecond * 1000, ZoneId.of(timeZone.getID()));
+        return Timestamp.from(zonedDateTime.toInstant());
+    }
+
+    public long getUnixTimestampWithMillisecond(TimeZone timeZone) {
+        return unixTimestamp(timeZone);
+    }
+
+    public long getUnixTimestampWithMicroseconds(TimeZone timeZone) {
+        Timestamp timestamp = getTimestamp(timeZone);
+        return timestamp.getTime() * 1000 + timestamp.getNanos() / 1000 % 1000;
     }
 
     public static boolean hasTimePart(String format) {
