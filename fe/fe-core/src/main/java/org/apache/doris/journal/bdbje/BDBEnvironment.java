@@ -105,7 +105,7 @@ public class BDBEnvironment {
             DbResetRepGroup resetUtility = new DbResetRepGroup(
                     envHome, PALO_JOURNAL_GROUP, selfNodeName, selfNodeHostPort);
             resetUtility.reset();
-            LOG.info("group has been reset.");
+            LOG.warn("metadata recovery mode, group has been reset.");
         }
 
         // set replication config
