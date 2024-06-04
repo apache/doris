@@ -49,8 +49,6 @@ public:
     // Write is sync, it will do real IO work.
     virtual Status write(vectorized::Block& block) = 0;
 
-    virtual bool can_sink() { return true; }
-
     void set_output_object_data(bool output_object_data) {
         _output_object_data = output_object_data;
     }

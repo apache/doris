@@ -44,9 +44,9 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
 
     // create sender
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-            state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
+            state->fragment_instance_id(), RESULT_SINK_BUFFER_SIZE, &_sender,
             state->execution_timeout()));
-    ((PipBufferControlBlock*)_sender.get())->set_dependency(_dependency->shared_from_this());
+    _sender->set_dependency(_dependency->shared_from_this());
     return Status::OK();
 }
 

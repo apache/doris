@@ -51,7 +51,6 @@ class ExchangeSinkLocalState;
 } // namespace pipeline
 
 namespace vectorized {
-class VDataStreamSender;
 class PipChannel;
 
 template <typename T>

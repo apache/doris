@@ -36,7 +36,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "exec/data_sink.h"
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"

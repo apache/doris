@@ -28,7 +28,6 @@
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
-class DataSink;
 class RuntimeState;
 class TDataSink;
 
