@@ -18,8 +18,13 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
+
+namespace Aws::S3 {
+class S3Client;
+} // namespace Aws::S3
 
 namespace doris::cloud {
 
@@ -125,6 +130,8 @@ public:
                                                  int64_t* expiration_days) = 0;
     // Check if the objects' versioning is on or off
     virtual ObjectStorageResponse check_versioning(const ObjectStoragePathOptions& opts) = 0;
+
+    virtual const std::shared_ptr<Aws::S3::S3Client>& s3_client() = 0;
 };
 
 } // namespace doris::cloud

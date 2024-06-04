@@ -28,7 +28,8 @@ class BlobContainerClient;
 namespace doris::cloud {
 class AzureObjClient : public ObjStorageClient {
 public:
-    AzureObjClient(std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client) : _client(std::move(client)) {}
+    AzureObjClient(std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client)
+            : _client(std::move(client)) {}
     ~AzureObjClient() override = default;
 
     ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
@@ -46,6 +47,8 @@ public:
                                          int64_t* expiration_days) override;
 
     ObjectStorageResponse check_versioning(const ObjectStoragePathOptions& opts) override;
+
+    const std::shared_ptr<Aws::S3::S3Client>& s3_client() override;
 
 private:
     std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> _client;

@@ -18,6 +18,7 @@
 #include "recycler/azure_obj_client.h"
 
 #include <fmt/core.h>
+#include <glog/logging.h>
 
 #include <algorithm>
 #include <azure/core/io/body_stream.hpp>
@@ -70,13 +71,14 @@ ObjectStorageResponse AzureObjClient::head_object(const ObjectStoragePathOptions
 
 ObjectStorageResponse AzureObjClient::list_objects(const ObjectStoragePathOptions& opts,
                                                    std::vector<ObjectMeta>* files) {
-    auto get_object_meta = [&](Azure::Storage::Blobs::ListBlobsPagedResponse& resp) {
-        std::ranges::transform(resp.Blobs, std::back_inserter(*files), [](auto&& blob_item) {
-            return ObjectMeta {.path = std::move(blob_item.Name),
-                               .size = blob_item.BlobSize,
-                               .last_modify_second =
-                                       blob_item.Details.LastModified.time_since_epoch().count()};
-        });
+    auto get_object_meta = [&](auto&& resp) {
+        std::ranges::transform(
+                resp.Blobs, std::back_inserter(*files), [](auto&& blob_item) -> ObjectMeta {
+                    return {.path = std::move(blob_item.Name),
+                            .size = blob_item.BlobSize,
+                            .last_modify_second =
+                                    blob_item.Details.LastModified.time_since_epoch().count()};
+                });
     };
     return do_azure_client_call([&]() {
         Azure::Storage::Blobs::ListBlobsOptions list_opts;
@@ -184,16 +186,17 @@ ObjectStorageResponse AzureObjClient::delete_expired(const ObjectStorageDeleteEx
 
 ObjectStorageResponse AzureObjClient::get_life_cycle(const ObjectStoragePathOptions& opts,
                                                      int64_t* expiration_days) {
-    try {
-        auto polices = _client->GetAccessPolicy().Policies;
-    } catch (Azure::Storage::StorageException& e) {
-        return {-1, fmt::format("Azure request failed because {}, http code {}, request id {}",
-                                e.Message, static_cast<int>(e.StatusCode), e.RequestId)};
-    }
-
-    return {};
+    return {-1};
 }
 
-ObjectStorageResponse AzureObjClient::check_versioning(const ObjectStoragePathOptions& opts) {}
+ObjectStorageResponse AzureObjClient::check_versioning(const ObjectStoragePathOptions& opts) {
+    return {-1};
+}
+
+const std::shared_ptr<Aws::S3::S3Client>& AzureObjClient::s3_client() {
+    CHECK(true) << "Currently this is unreachable";
+    // TODO(ByteYue): use std::unreachable() instead when compiler supports it
+    __builtin_unreachable();
+}
 
 } // namespace doris::cloud
