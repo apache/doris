@@ -378,13 +378,13 @@ suite("test_rollup_partition_mtmv") {
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
             BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (date_trunc(month_alias, 'month'))
+            partition by (date_trunc(day_alias, 'month'))
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES (
             'replication_num' = '1'
             )
             AS
-            SELECT date_trunc(`k2`,'day') as month_alias FROM ${tableName};
+            SELECT date_trunc(`k2`,'day') as day_alias FROM ${tableName};
     """
     def date_range_month_partitions_level = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + date_range_month_partitions_level.toString())
@@ -424,7 +424,7 @@ suite("test_rollup_partition_mtmv") {
             'replication_num' = '1'
             )
             AS
-            SELECT date_trunc(`k2`,'day') as month_alias FROM ${tableName};
+            SELECT date_trunc(`k2`,'day') as day_alias FROM ${tableName};
         """
         Assert.fail();
     } catch (Exception e) {
@@ -602,13 +602,13 @@ suite("test_rollup_partition_mtmv") {
         sql """
         CREATE MATERIALIZED VIEW ${mvName}
             BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (date_trunc(month_alias, 'hour'))
+            partition by (date_trunc(miniute_alias, 'hour'))
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES (
             'replication_num' = '1'
             )
             AS
-            SELECT date_trunc(`k2`,'miniute') as month_alias, * FROM ${tableName};
+            SELECT date_trunc(`k2`,'miniute') as miniute_alias, * FROM ${tableName};
         """
         Assert.fail();
     } catch (Exception e) {
