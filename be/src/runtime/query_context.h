@@ -322,7 +322,7 @@ private:
 
     std::mutex _profile_mutex;
 
-    // when fragment of pipeline x is closed, it will register its profile to this map by using add_fragment_profile_x
+    // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     // flatten profile of one fragment:
     // Pipeline 0
     //      PipelineTask 0
@@ -339,34 +339,22 @@ private:
     //      PipelineTask 3
     //              Operator 3
     // fragment_id -> list<profile>
-    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map_x;
-    std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map_x;
-
-    // instance_id -> profile
-    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> _profile_map;
-    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
+    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map;
+    std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
     void _report_query_profile();
-    void _report_query_profile_non_pipeline();
-    void _report_query_profile_x();
 
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
-    _collect_realtime_query_profile_x() const;
-
-    std::unordered_map<TUniqueId, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
-    _collect_realtime_query_profile_non_pipeline() const;
+    _collect_realtime_query_profile() const;
 
 public:
-    // when fragment of pipeline x is closed, it will register its profile to this map by using add_fragment_profile_x
-    void add_fragment_profile_x(
+    // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
+    void add_fragment_profile(
             int fragment_id,
             const std::vector<std::shared_ptr<TRuntimeProfileTree>>& pipeline_profile,
             std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
 
-    void add_instance_profile(const TUniqueId& iid, std::shared_ptr<TRuntimeProfileTree> profile,
-                              std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
-
-    TReportExecStatusParams get_realtime_exec_status_x() const;
+    TReportExecStatusParams get_realtime_exec_status() const;
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
