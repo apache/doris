@@ -79,9 +79,4 @@ public class CustomRewriteJob implements RewriteJob {
     public boolean isOnce() {
         return false;
     }
-
-    private void printTraceLog(RuleType ruleType, String traceBefore, String traceAfter) {
-        System.out.println("========== " + getClass().getSimpleName() + " " + ruleType
-                + " ==========\nbefore:\n" + traceBefore + "\n\nafter:\n" + traceAfter + "\n");
-    }
 }

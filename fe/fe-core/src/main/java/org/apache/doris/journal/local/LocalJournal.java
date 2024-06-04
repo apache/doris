@@ -84,7 +84,7 @@ public class LocalJournal implements Journal {
         try {
             storage = new Storage(imageDir);
             if (journalId.get() == storage.getEditsSeq()) {
-                System.out.println("Does not need to roll!");
+                LOG.warn("Does not need to roll! journalId: {}, editsSeq: {}", journalId.get(), storage.getEditsSeq());
                 return;
             }
             if (outputStream != null) {
