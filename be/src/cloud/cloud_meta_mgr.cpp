@@ -573,8 +573,6 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
                  iter != tmp_delete_bitmap->delete_bitmap.end(); ++iter) {
                 DeleteBitmap::BitmapKey key = {std::get<0>(iter->first), std::get<1>(iter->first),
                                                old_max_version + 1};
-                LOG(INFO) << "key " << std::get<0>(iter->first) << "," << std::get<1>(iter->first)
-                          << "," << old_max_version + 1;
                 auto it = tmp_delete_bitmap->status_map.find(key);
                 if (it != tmp_delete_bitmap->status_map.end() &&
                     it->second == DeleteBitmap::PublishStatus::FINALIZED) {
