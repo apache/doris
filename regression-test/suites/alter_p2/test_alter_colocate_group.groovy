@@ -58,6 +58,12 @@ suite ("test_alter_colocate_group") {
     sql " DROP TABLE IF EXISTS tbl2 FORCE; "
     sql " DROP TABLE IF EXISTS tbl3 FORCE; "
 
+    def replicaNum = 1
+    def forceReplicaNum = getFeConfig('force_olap_table_replication_num').toInteger()
+    if (forceReplicaNum > 0) {
+        replicaNum = forceReplicaNum
+    }
+
     sql """
         CREATE TABLE tbl1
         (
@@ -68,7 +74,7 @@ suite ("test_alter_colocate_group") {
         PROPERTIES
         (
             "colocate_with" = "group_1",
-            "replication_num" = "1"
+            "replication_num" = "${replicaNum}"
         );
     """
 
@@ -87,7 +93,7 @@ suite ("test_alter_colocate_group") {
         PROPERTIES
         (
             "colocate_with" = "group_2",
-            "replication_num" = "1"
+            "replication_num" = "${replicaNum}"
         );
     """
 
@@ -103,13 +109,13 @@ suite ("test_alter_colocate_group") {
         PROPERTIES
         (
             "colocate_with" = "group_3",
-            "replication_num" = "1",
+            "replication_num" = "${replicaNum}",
             "dynamic_partition.enable" = "true",
             "dynamic_partition.time_unit" = "DAY",
             "dynamic_partition.end" = "2",
             "dynamic_partition.prefix" = "p",
             "dynamic_partition.buckets" = "4",
-            "dynamic_partition.replication_num" = "1"
+            "dynamic_partition.replication_num" = "${replicaNum}"
          );
     """
 
@@ -140,6 +146,16 @@ suite ("test_alter_colocate_group") {
         }
     }
 
+    def beNum = sql_return_maparray("show backends").size()
+    def modifyReplicaNum = -1
+    for (int i=1; i <= beNum; i++) {
+        if (i != replicaNum) {
+            modifyReplicaNum = i
+            break
+        }
+    }
+    logger.info("old replica num ${replicaNum}, modify replica num ${modifyReplicaNum}")
+
     for (int i = 1; i <= 3; i++) {
         def groupName = "regression_test_alter_p2.group_${i}"
         checkGroupsReplicaAlloc(groupName, 1)
@@ -157,11 +173,13 @@ suite ("test_alter_colocate_group") {
             exception "Failed to find enough host"
         }
 
-        test {
-            sql """
-              ALTER COLOCATE GROUP ${groupName}
-              SET ( "replication_num" = "3" );
-            """
+        if (modifyReplicaNum > 0) {
+            test {
+                sql """
+                  ALTER COLOCATE GROUP ${groupName}
+                  SET ( "replication_num" = "${modifyReplicaNum}" );
+                """
+            }
         }
 
         checkGroupsReplicaAlloc(groupName, 3)
