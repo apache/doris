@@ -57,7 +57,7 @@ protected:
     friend class JoinBuildSinkLocalState;
 
     const TJoinOp::type _join_op;
-    vectorized::JoinOpVariants _join_op_variants;
+    JoinOpVariants _join_op_variants;
 
     const bool _have_other_join_conjunct;
     const bool _match_all_probe; // output all rows coming from the probe input. Full/Left Join

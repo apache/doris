@@ -175,7 +175,7 @@ Status SetSinkLocalState<is_intersect>::open(RuntimeState* state) {
     DCHECK(parent._cur_child_id == 0);
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
     _shared_state->build_not_ignore_null.resize(child_exprs_lists[parent._cur_child_id].size());
-    _shared_state->hash_table_variants = std::make_unique<vectorized::SetHashTableVariants>();
+    _shared_state->hash_table_variants = std::make_unique<SetHashTableVariants>();
 
     for (const auto& ctl : child_exprs_lists) {
         for (int i = 0; i < ctl.size(); ++i) {

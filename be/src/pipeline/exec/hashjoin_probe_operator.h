@@ -29,21 +29,18 @@ namespace pipeline {
 
 class HashJoinProbeLocalState;
 
-using HashTableCtxVariants = std::variant<
-        std::monostate,
-        vectorized::ProcessHashTableProbe<TJoinOp::INNER_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::LEFT_SEMI_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::LEFT_ANTI_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::CROSS_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN,
-                                          HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN,
-                                          HashJoinProbeLocalState>>;
+using HashTableCtxVariants =
+        std::variant<std::monostate, vectorized::ProcessHashTableProbe<TJoinOp::INNER_JOIN>,
+                     vectorized::ProcessHashTableProbe<TJoinOp::LEFT_SEMI_JOIN>,
+                     vectorized::ProcessHashTableProbe<TJoinOp::LEFT_ANTI_JOIN>,
+                     vectorized::ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN>,
+                     vectorized::ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN>,
+                     vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN>,
+                     vectorized::ProcessHashTableProbe<TJoinOp::CROSS_JOIN>,
+                     vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN>,
+                     vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
+                     vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
+                     vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
 
 class HashJoinProbeOperatorX;
 class HashJoinProbeLocalState final
@@ -87,7 +84,7 @@ private:
     std::vector<uint16_t> _convert_block_to_null(vectorized::Block& block);
     Status _extract_join_column(vectorized::Block& block, const std::vector<int>& res_col_ids);
     friend class HashJoinProbeOperatorX;
-    template <int JoinOpType, typename Parent>
+    template <int JoinOpType>
     friend struct vectorized::ProcessHashTableProbe;
 
     int _probe_index = -1;

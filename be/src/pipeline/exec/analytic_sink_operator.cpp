@@ -70,8 +70,7 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-bool AnalyticSinkLocalState::_whether_need_next_partition(
-        vectorized::BlockRowPos& found_partition_end) {
+bool AnalyticSinkLocalState::_whether_need_next_partition(BlockRowPos& found_partition_end) {
     auto& shared_state = *_shared_state;
     if (shared_state.input_eos ||
         (shared_state.current_row_position <
@@ -91,9 +90,9 @@ bool AnalyticSinkLocalState::_whether_need_next_partition(
 }
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-vectorized::BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(
-        int idx, vectorized::BlockRowPos start, vectorized::BlockRowPos end,
-        bool need_check_first) {
+BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(int idx, BlockRowPos start,
+                                                             BlockRowPos end,
+                                                             bool need_check_first) {
     auto& shared_state = *_shared_state;
     int64_t start_init_row_num = start.row_num;
     vectorized::ColumnPtr start_column =
@@ -168,7 +167,7 @@ vectorized::BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(
     return start;
 }
 
-vectorized::BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
+BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
     auto& shared_state = *_shared_state;
     if (shared_state.current_row_position <
         shared_state.partition_by_end.pos) { //still have data, return partition_by_end directly
@@ -180,7 +179,7 @@ vectorized::BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
         return shared_state.all_block_end;
     }
 
-    vectorized::BlockRowPos cal_end = shared_state.all_block_end;
+    BlockRowPos cal_end = shared_state.all_block_end;
     for (size_t i = 0; i < shared_state.partition_by_eq_expr_ctxs.size();
          ++i) { //have partition_by, binary search the partiton end
         cal_end = _compare_row_to_find_end(shared_state.partition_by_column_idxs[i],
