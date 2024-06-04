@@ -308,7 +308,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .when(agg -> agg.getDistinctArguments().size() == 1)
                     .thenApplyMulti(ctx -> threePhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             ),
-            /**
+            /*
              * sql:
              * select count(distinct name), sum(age) from student;
              * <p>
@@ -344,7 +344,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         );
                     })
             ),
-            /**
+            /*
              * sql:
              * select age, count(distinct name) from student group by age;
              * <p>
