@@ -17,6 +17,7 @@
 
 suite("load") {
 
+    sql """ ADMIN SET FRONTEND CONFIG ("enable_create_inverted_index_for_array" = "true"); """
     sql """ DROP TABLE IF EXISTS table_200_undef_partitions2_keys3_properties4_distributed_by521; """
 
     sql """ CREATE TABLE IF NOT EXISTS table_200_undef_partitions2_keys3_properties4_distributed_by521

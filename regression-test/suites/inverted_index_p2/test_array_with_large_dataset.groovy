@@ -53,7 +53,8 @@ suite("test_array_with_large_dataset", "p2"){
         }
     }
 
-    // create table 
+    // create table
+    sql """ ADMIN SET FRONTEND CONFIG ("enable_create_inverted_index_for_array" = "true"); """
     sql """ DROP TABLE IF EXISTS bai;"""
     sql """
             CREATE TABLE `bai` (
