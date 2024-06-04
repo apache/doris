@@ -85,7 +85,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                              DataDir* data_dir, uint32_t max_row_per_segment,
                              const SegmentWriterOptions& opts,
-                             std::shared_ptr<MowContext> mow_context, const io::FileSystemSPtr& fs)
+                             std::shared_ptr<MowContext> mow_context)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
@@ -136,8 +136,10 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
     }
     if (_tablet_schema->has_inverted_index()) {
         _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs ? fs : io::global_local_filesystem(), _file_writer->path().parent_path(),
-                _file_writer->path().filename(),
+                _opts.rowset_ctx->fs(),
+                std::string {InvertedIndexDescriptor::get_index_path_prefix(
+                        _opts.rowset_ctx->segment_path(segment_id))},
+                _opts.rowset_ctx->rowset_id.to_string(), segment_id,
                 _tablet_schema->get_inverted_index_storage_format());
     }
 }

@@ -57,6 +57,7 @@
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/segcompaction.h"
 #include "olap/schema_change.h"
 #include "olap/single_replica_compaction.h"
@@ -1200,20 +1201,24 @@ void StorageEngine::do_remove_unused_remote_files() {
     });
     TConfirmUnusedRemoteFilesRequest req;
     req.__isset.confirm_list = true;
-    // tablet_id -> [fs, unused_remote_files]
-    using unused_remote_files_buffer_t = std::unordered_map<
-            int64_t, std::pair<std::shared_ptr<io::RemoteFileSystem>, std::vector<io::FileInfo>>>;
+    // tablet_id -> [storage_resource, unused_remote_files]
+    using unused_remote_files_buffer_t =
+            std::unordered_map<int64_t, std::pair<StorageResource, std::vector<io::FileInfo>>>;
     unused_remote_files_buffer_t buffer;
     int64_t num_files_in_buffer = 0;
     // assume a filename is 0.1KB, buffer size should not larger than 100MB
     constexpr int64_t max_files_in_buffer = 1000000;
 
     auto calc_unused_remote_files = [&req, &buffer, &num_files_in_buffer, this](Tablet* t) {
-        std::shared_ptr<io::RemoteFileSystem> fs;
-        auto st = get_remote_file_system(t->storage_policy_id(), &fs);
-        if (!st.ok()) {
+        auto storage_resource = get_resource_by_storage_policy_id(t->storage_policy_id());
+        if (!storage_resource) {
             LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
-                         << t->tablet_id() << " : " << st;
+                         << t->tablet_id() << " : " << storage_resource.error();
+            return;
+        }
+
+        // TODO(plat1ko): Support path v1
+        if (storage_resource->path_version > 0) {
             return;
         }
 
@@ -1221,7 +1226,8 @@ void StorageEngine::do_remove_unused_remote_files() {
         // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
         //  Maybe we should also list files in previously uploaded resources.
         bool exists = true;
-        st = fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files, &exists);
+        auto st = storage_resource->fs->list(storage_resource->remote_tablet_path(t->tablet_id()),
+                                             true, &files, &exists);
         if (!st.ok()) {
             LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
                          << t->tablet_id() << " : " << st;
@@ -1251,7 +1257,7 @@ void StorageEngine::do_remove_unused_remote_files() {
         }
         // {cooldown_replica_id}.{cooldown_term}.meta
         std::string remote_meta_path =
-                fmt::format("{}.{}.meta", cooldown_replica_id, cooldown_term);
+                cooldown_tablet_meta_filename(cooldown_replica_id, cooldown_term);
         // filter out the paths that should be reserved
         auto filter = [&, this](io::FileInfo& info) {
             std::string_view filename = info.file_name;
@@ -1271,7 +1277,7 @@ void StorageEngine::do_remove_unused_remote_files() {
         }
         files.shrink_to_fit();
         num_files_in_buffer += files.size();
-        buffer.insert({t->tablet_id(), {std::move(fs), std::move(files)}});
+        buffer.insert({t->tablet_id(), {*storage_resource, std::move(files)}});
         auto& info = req.confirm_list.emplace_back();
         info.__set_tablet_id(t->tablet_id());
         info.__set_cooldown_replica_id(cooldown_replica_id);
@@ -1289,20 +1295,20 @@ void StorageEngine::do_remove_unused_remote_files() {
         }
         for (auto id : result.confirmed_tablets) {
             if (auto it = buffer.find(id); LIKELY(it != buffer.end())) {
-                auto& fs = it->second.first;
+                auto& storage_resource = it->second.first;
                 auto& files = it->second.second;
                 std::vector<io::Path> paths;
                 paths.reserve(files.size());
                 // delete unused files
-                LOG(INFO) << "delete unused files. root_path=" << fs->root_path()
+                LOG(INFO) << "delete unused files. root_path=" << storage_resource.fs->root_path()
                           << " tablet_id=" << id;
-                io::Path dir = remote_tablet_path(id);
+                io::Path dir = storage_resource.remote_tablet_path(id);
                 for (auto& file : files) {
                     auto file_path = dir / file.file_name;
                     LOG(INFO) << "delete unused file: " << file_path.native();
                     paths.push_back(std::move(file_path));
                 }
-                st = fs->batch_delete(paths);
+                st = storage_resource.fs->batch_delete(paths);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to delete unused files, tablet_id=" << id << " : "
                                  << st;

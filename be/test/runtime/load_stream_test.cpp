@@ -641,7 +641,9 @@ public:
             if (tablet.tablet_id != tablet_id || rowset == nullptr) {
                 continue;
             }
-            auto path = static_cast<BetaRowset*>(rowset.get())->segment_file_path(segid);
+
+            auto path = local_segment_path(rowset->tablet_path(), rowset->rowset_id().to_string(),
+                                           segid);
             LOG(INFO) << "read data from " << path;
             std::ifstream inputFile(path, std::ios::binary);
             inputFile.seekg(0, std::ios::end);

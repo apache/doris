@@ -82,11 +82,10 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 class SegmentWriter {
 public:
-    // If `fs` is nullptr, use global local fs
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
                            uint32_t max_row_per_segment, const SegmentWriterOptions& opts,
-                           std::shared_ptr<MowContext> mow_context, const io::FileSystemSPtr& fs);
+                           std::shared_ptr<MowContext> mow_context);
     ~SegmentWriter();
 
     Status init();
