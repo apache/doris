@@ -227,7 +227,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     .setCloudUniqueId(Config.cloud_unique_id)
                     .build();
 
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retryTime:{}, beginTxnRequest:{}", retryTime, beginTxnRequest);
                 }
@@ -457,7 +457,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         int retryTime = 0;
 
         try {
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retryTime:{}, commitTxnRequest:{}", retryTime, commitTxnRequest);
                 }
@@ -647,7 +647,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             GetDeleteBitmapUpdateLockResponse response = null;
 
             int retryTime = 0;
-            while (retryTime++ < Config.meta_service_rpc_retry_times) {
+            while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
                 try {
                     response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
                     if (LOG.isDebugEnabled()) {
@@ -830,7 +830,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         AbortTxnResponse abortTxnResponse = null;
         int retryTime = 0;
         try {
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retryTime:{}, abortTxnRequest:{}", retryTime, abortTxnRequest);
                 }
@@ -881,7 +881,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         int retryTime = 0;
 
         try {
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retyTime:{}, abortTxnRequest:{}", retryTime, abortTxnRequest);
                 }

@@ -222,7 +222,7 @@ public class ColocateTableTest {
                 + ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables must have same bucket num: 1");
+        expectedEx.expectMessage("Colocate tables must have same bucket num: 2 should be 1");
         createTable("create table " + dbName + "." + tableName2 + " (\n"
                 + " `k1` int NULL COMMENT \"\",\n"
                 + " `k2` varchar(10) NULL COMMENT \"\"\n"
@@ -282,7 +282,7 @@ public class ColocateTableTest {
                 + ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables distribution columns size must be same : 2");
+        expectedEx.expectMessage("Colocate tables distribution columns size must be same: 1 should be 2");
         createTable("create table " + dbName + "." + tableName2 + " (\n"
                 + " `k1` int NULL COMMENT \"\",\n"
                 + " `k2` varchar(10) NULL COMMENT \"\"\n"

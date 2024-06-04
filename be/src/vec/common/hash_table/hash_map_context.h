@@ -295,7 +295,7 @@ struct MethodStringNoCache : public MethodBase<TData> {
                 column.is_nullable()
                         ? assert_cast<const ColumnNullable&>(column).get_nested_column()
                         : column);
-        const auto* offsets = column_string.get_offsets().data();
+        const auto& offsets = column_string.get_offsets();
         const auto* chars = column_string.get_chars().data();
 
         stored_keys.resize(column_string.size());
@@ -346,7 +346,10 @@ struct MethodOneNumber : public MethodBase<TData> {
 
     void insert_keys_into_columns(std::vector<typename Base::Key>& input_keys,
                                   MutableColumns& key_columns, const size_t num_rows) override {
-        key_columns[0]->insert_many_raw_data((char*)input_keys.data(), num_rows);
+        if (!input_keys.empty()) {
+            // If size() is ​0​, data() may or may not return a null pointer.
+            key_columns[0]->insert_many_raw_data((char*)input_keys.data(), num_rows);
+        }
     }
 };
 
@@ -570,6 +573,10 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
                                   MutableColumns& key_columns, const size_t num_rows) override {
         auto* col = key_columns[0].get();
         col->reserve(num_rows);
+        if (input_keys.empty()) {
+            // If size() is ​0​, data() may or may not return a null pointer.
+            return;
+        }
         if constexpr (std::is_same_v<typename Base::Key, StringRef>) {
             col->insert_many_strings(input_keys.data(), num_rows);
         } else {

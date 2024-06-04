@@ -131,7 +131,9 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     auto st = _query_ctx->exec_status();
     _query_ctx.reset();
     for (size_t i = 0; i < _tasks.size(); i++) {
-        _call_back(_tasks[i].front()->runtime_state(), &st);
+        if (!_tasks[i].empty()) {
+            _call_back(_tasks[i].front()->runtime_state(), &st);
+        }
     }
     _tasks.clear();
     for (auto& runtime_state : _task_runtime_states) {
@@ -168,6 +170,10 @@ void PipelineFragmentContext::cancel(const Status reason) {
             // All tasks in this PipelineXFragmentContext already closed.
             return;
         }
+    }
+    // Timeout is a special error code, we need print current stack to debug timeout issue.
+    if (reason.is<ErrorCode::TIMEOUT>()) {
+        LOG(WARNING) << "PipelineFragmentContext is cancelled due to timeout : " << debug_string();
     }
     _query_ctx->cancel(reason, _fragment_id);
     if (reason.is<ErrorCode::LIMIT_REACH>()) {

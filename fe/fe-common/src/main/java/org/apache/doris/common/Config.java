@@ -2668,6 +2668,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int meta_service_rpc_retry_times = 200;
 
+    public static int metaServiceRpcRetryTimes() {
+        if (isCloudMode() && enable_check_compatibility_mode) {
+            return 1;
+        }
+        return meta_service_rpc_retry_times;
+    }
+
     // A connection will expire after a random time during [base, 2*base), so that the FE
     // has a chance to connect to a new RS. Set zero to disable it.
     //
@@ -2683,9 +2690,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static int drop_rpc_retry_num = 200;
-
-    @ConfField
-    public static int cloud_meta_service_rpc_failed_retry_times = 200;
 
     @ConfField
     public static int default_get_version_from_ms_timeout_second = 3;

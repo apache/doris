@@ -100,6 +100,7 @@ Status Block::deserialize(const PBlock& pblock) {
             BlockCompressionCodec* codec;
             RETURN_IF_ERROR(get_block_compression_codec(pblock.compression_type(), &codec));
             uncompressed_size = pblock.uncompressed_size();
+            // Should also use allocator to allocate memory here.
             compression_scratch.resize(uncompressed_size);
             Slice decompressed_slice(compression_scratch);
             RETURN_IF_ERROR(codec->decompress(Slice(compressed_data, compressed_size),
@@ -123,7 +124,9 @@ Status Block::deserialize(const PBlock& pblock) {
     for (const auto& pcol_meta : pblock.column_metas()) {
         DataTypePtr type = DataTypeFactory::instance().create_data_type(pcol_meta);
         MutableColumnPtr data_column = type->create_column();
-        buf = type->deserialize(buf, data_column.get(), pblock.be_exec_version());
+        // Here will try to allocate large memory, should return error if failed.
+        RETURN_IF_CATCH_EXCEPTION(
+                buf = type->deserialize(buf, data_column.get(), pblock.be_exec_version()));
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
@@ -792,6 +795,19 @@ void Block::filter_block_internal(Block* block, const IColumn::Filter& filter,
         columns_to_filter[i] = i;
     }
     filter_block_internal(block, columns_to_filter, filter);
+}
+
+void Block::filter_block_internal(Block* block, const IColumn::Filter& filter) {
+    const size_t count =
+            filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
+    for (int i = 0; i < block->columns(); ++i) {
+        auto& column = block->get_by_position(i).column;
+        if (column->is_exclusive()) {
+            column->assume_mutable()->filter(filter);
+        } else {
+            column = column->filter(filter, count);
+        }
+    }
 }
 
 Block Block::copy_block(const std::vector<int>& column_offset) const {

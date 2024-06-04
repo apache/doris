@@ -79,7 +79,6 @@ public:
     Dependency* finishdependency() override { return _finish_dependency.get(); }
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer* buffer);
-    Status get_next_available_buffer(std::shared_ptr<vectorized::BroadcastPBlockHolder>* holder);
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
     RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
@@ -152,7 +151,7 @@ private:
 
     // Sender instance id, unique within a fragment.
     int _sender_id;
-    std::shared_ptr<vectorized::BroadcastPBlockHolderQueue> _broadcast_pb_blocks;
+    std::shared_ptr<vectorized::BroadcastPBlockHolderMemLimiter> _broadcast_pb_mem_limiter;
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
