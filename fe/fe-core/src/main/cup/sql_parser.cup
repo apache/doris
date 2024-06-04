@@ -3944,6 +3944,14 @@ show_stmt ::=
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null, null);
     :}
+    | KW_SHOW KW_STORAGE KW_POLICY KW_USING
+    {:
+        RESULT = new ShowStoragePolicyUsingStmt(null);
+    :}
+    | KW_SHOW KW_STORAGE KW_POLICY KW_USING KW_FOR ident:policy
+    {:
+        RESULT = new ShowStoragePolicyUsingStmt(policy);
+    :}
     ;
 
 show_param ::=
