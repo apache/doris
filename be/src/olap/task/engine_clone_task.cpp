@@ -171,14 +171,14 @@ Status EngineCloneTask::_do_clone() {
     Status status = Status::OK();
     string src_file_path;
     TBackend src_host;
-    // Check local tablet exist or not
-    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(_clone_req.tablet_id);
-
     RETURN_IF_ERROR(
             _engine.tablet_manager()->register_transition_tablet(_clone_req.tablet_id, "clone"));
     Defer defer {[&]() {
         _engine.tablet_manager()->unregister_transition_tablet(_clone_req.tablet_id, "clone");
     }};
+
+    // Check local tablet exist or not
+    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(_clone_req.tablet_id);
 
     // The status of a tablet is not ready, indicating that it is a residual tablet after a schema
     // change failure. Clone a new tablet from remote be to overwrite it. This situation basically only

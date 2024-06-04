@@ -657,8 +657,7 @@ void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path, int
     if (!tablet || tablet->data_dir() != this) {
         if (tablet) {
             LOG(INFO) << "The tablet in path " << tablet_schema_hash_path
-                      << " is not same with the running one: " << tablet->data_dir()->_path << "/"
-                      << tablet->tablet_path()
+                      << " is not same with the running one: " << tablet->tablet_path()
                       << ", might be the old tablet after migration, try to move it to trash";
         }
         _engine.tablet_manager()->try_delete_unused_tablet_path(this, tablet_id, schema_hash,

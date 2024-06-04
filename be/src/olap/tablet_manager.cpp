@@ -533,6 +533,9 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
               << ", is_drop_table_or_partition=" << is_drop_table_or_partition;
     DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
 
+    RETURN_IF_ERROR(register_transition_tablet(tablet_id, "drop tablet"));
+    Defer defer {[&]() { unregister_transition_tablet(tablet_id, "drop tablet"); }};
+
     // Fetch tablet which need to be dropped
     TabletSharedPtr to_drop_tablet = _get_tablet_unlocked(tablet_id);
     if (to_drop_tablet == nullptr) {
@@ -547,9 +550,6 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
         return Status::Aborted("replica_id not match({} vs {})", to_drop_tablet->replica_id(),
                                replica_id);
     }
-
-    RETURN_IF_ERROR(register_transition_tablet(tablet_id, "drop tablet"));
-    Defer defer {[&]() { unregister_transition_tablet(tablet_id, "drop tablet"); }};
 
     _remove_tablet_from_partition(to_drop_tablet);
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
@@ -1347,17 +1347,17 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
         return;
     }
 
-    TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id);
-    if (tablet != nullptr && tablet->tablet_path() == schema_hash_path) {
-        LOG(INFO) << "tablet , skip delete the path " << schema_hash_path;
-        return;
-    }
-
     bool succ = register_transition_tablet(tablet_id, "path gc");
     if (!succ) {
         return;
     }
     Defer defer {[&]() { unregister_transition_tablet(tablet_id, "path gc"); }};
+
+    TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id);
+    if (tablet != nullptr && tablet->tablet_path() == schema_hash_path) {
+        LOG(INFO) << "tablet , skip delete the path " << schema_hash_path;
+        return;
+    }
 
     // TODO(ygl): may do other checks in the future
     bool exists = false;
