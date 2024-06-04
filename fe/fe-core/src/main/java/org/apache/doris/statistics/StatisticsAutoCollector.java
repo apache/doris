@@ -153,7 +153,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
         }
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
-        if (tableStatsStatus != null && tableStatsStatus.newPartitionLoaded.get()) {
+        if (tableStatsStatus != null && tableStatsStatus.partitionChanged.get()) {
             OlapTable olapTable = (OlapTable) table;
             columns.addAll(olapTable.getColumnIndexPairs(olapTable.getPartitionColumnNames()));
         }
