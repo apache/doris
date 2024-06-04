@@ -989,7 +989,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     // if failed convert history data, then just remove the new tablet
     if (!res) {
         LOG(WARNING) << "failed to alter tablet. base_tablet=" << base_tablet->tablet_id()
-                     << ", drop new_tablet=" << new_tablet->tablet_id();
+                     << ", drop new_tablet=" << new_tablet->tablet_id() << res;
         // do not drop the new tablet and its data. GC thread will
     }
 
