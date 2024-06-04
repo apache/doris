@@ -30,7 +30,6 @@
 #include "concurrentqueue.h"
 #include "gutil/integral_types.h"
 #include "pipeline/exec/data_queue.h"
-#include "pipeline/exec/multi_cast_data_streamer.h"
 #include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
@@ -566,11 +565,12 @@ public:
     const int _child_count;
 };
 
+class MultiCastDataStreamer;
+
 struct MultiCastSharedState : public BasicSharedState {
 public:
-    MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count)
-            : multi_cast_data_streamer(row_desc, pool, cast_sender_count, true) {}
-    pipeline::MultiCastDataStreamer multi_cast_data_streamer;
+    MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count);
+    std::unique_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
 };
 
 struct BlockRowPos {

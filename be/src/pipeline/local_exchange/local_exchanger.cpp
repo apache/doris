@@ -19,6 +19,7 @@
 
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
+#include "vec/runtime/partitioner.h"
 
 namespace doris::pipeline {
 

@@ -37,7 +37,6 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/runtime/vdata_stream_recvr.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class DataSink;
