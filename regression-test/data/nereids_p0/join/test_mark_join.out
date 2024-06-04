@@ -50,3 +50,6 @@
 2	q	5
 0		6
 
+-- !mark_join_null_conjunct --
+\N
+
