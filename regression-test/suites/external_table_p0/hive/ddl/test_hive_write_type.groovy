@@ -178,7 +178,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                   `col7` DECIMAL(6,4) COMMENT 'col7',
                   `col8` VARCHAR(11) COMMENT 'col8',
                   `col9` STRING COMMENT 'col9',
-                  `pt3` DATE COMMENT 'pt3'，
+                  `pt3` DATE COMMENT 'pt3',
                   `pt1` VARCHAR COMMENT 'pt1',
                   `pt2` STRING COMMENT 'pt2'
                 )  ENGINE=hive 
