@@ -120,7 +120,7 @@ public final class GlobalVariable {
     public static String sqlConverterServiceUrl = "";
 
     @VariableMgr.VarAttr(name = ENABLE_AUDIT_PLUGIN, flag = VariableMgr.GLOBAL)
-    public static boolean enableAuditLoader = false;
+    public static boolean enableAuditLoader = true;
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_BATCH_BYTES, flag = VariableMgr.GLOBAL)
     public static long auditPluginMaxBatchBytes = 50 * 1024 * 1024;
