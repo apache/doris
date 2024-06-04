@@ -40,7 +40,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
-#include "util/bitmap_value.h"
 #include "util/jsonb_utils.h"
 #include "util/quantile_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
