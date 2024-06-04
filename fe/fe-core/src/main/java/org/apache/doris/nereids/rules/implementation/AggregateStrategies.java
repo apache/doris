@@ -363,7 +363,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
              */
             RuleType.FOUR_PHASE_AGGREGATE_WITH_DISTINCT_WITH_FULL_DISTRIBUTE.build(
                 basePattern
-                    .when(agg -> agg.getDistinctArguments().size() == 1 && !agg.getGroupByExpressions().isEmpty())
+                    .when(agg -> agg.everyDistinctArgumentsIsOne() && !agg.getGroupByExpressions().isEmpty())
                     .when(agg ->
                         ImmutableSet.builder()
                             .addAll(agg.getGroupByExpressions())
