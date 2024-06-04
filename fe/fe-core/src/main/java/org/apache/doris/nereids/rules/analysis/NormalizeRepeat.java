@@ -82,6 +82,12 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     public Rule build() {
         return RuleType.NORMALIZE_REPEAT.build(
             logicalRepeat(any()).when(LogicalRepeat::canBindVirtualSlot).then(repeat -> {
+                if (repeat.getGroupingSets().size() == 1
+                        && ExpressionUtils.collect(repeat.getOutputExpressions(),
+                        GroupingScalarFunction.class::isInstance).isEmpty()) {
+                    return new LogicalAggregate<>(repeat.getGroupByExpressions(),
+                            repeat.getOutputExpressions(), repeat.child());
+                }
                 checkRepeatLegality(repeat);
                 repeat = removeDuplicateColumns(repeat);
                 // add virtual slot, LogicalAggregate and LogicalProject for normalize
@@ -116,11 +122,6 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private LogicalAggregate<Plan> normalizeRepeat(LogicalRepeat<Plan> repeat) {
-        if (repeat.getGroupingSets().size() == 1 && ExpressionUtils
-                .collect(repeat.getOutputExpressions(), GroupingScalarFunction.class::isInstance).isEmpty()) {
-            return new LogicalAggregate<>(repeat.getGroupByExpressions(),
-                    repeat.getOutputExpressions(), Optional.empty(), repeat.child());
-        }
         Set<Expression> needToSlotsGroupingExpr = collectNeedToSlotGroupingExpr(repeat);
         NormalizeToSlotContext groupingExprContext = buildContext(repeat, needToSlotsGroupingExpr);
         Map<Expression, NormalizeToSlotTriplet> groupingExprMap = groupingExprContext.getNormalizeToSlotMap();
@@ -321,9 +322,6 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
      */
     private LogicalAggregate<Plan> dealSlotAppearBothInAggFuncAndGroupingSets(
             @NotNull LogicalAggregate<Plan> aggregate) {
-        if (!(aggregate.child() instanceof LogicalRepeat)) {
-            return aggregate;
-        }
         LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) aggregate.child();
         Map<Slot, Alias> commonSlotToAliasMap = getCommonSlotToAliasMap(repeat, aggregate);
         if (commonSlotToAliasMap.isEmpty()) {
