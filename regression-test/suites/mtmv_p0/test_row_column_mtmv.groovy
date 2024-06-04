@@ -56,7 +56,10 @@ suite("test_row_column_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName)
 
-    order_qt_init "SELECT * FROM ${mvName} order by k1 limit 1"
+    order_qt_k1 "SELECT * FROM ${mvName} order by k1 limit 1"
+    order_qt_k2 "SELECT * FROM ${mvName} order by k2 limit 1"
+    order_qt_k1_k2 "SELECT * FROM ${mvName} order by k1,k2 limit 1"
+    order_qt_k2_k1 "SELECT * FROM ${mvName} order by k2,k1 limit 1 desc"
 
     sql """SET show_hidden_columns=true;"""
     def colRes = sql """desc ${mvName};"""
