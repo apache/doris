@@ -41,6 +41,13 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     std::string debug_string(int indentation_level) const override;
+    std::vector<Dependency*> dependencies() const override {
+        auto deps = Base::dependencies();
+        if (auto local_state_sink_dep = _exchanger->get_local_state_dependency(_channel_id)) {
+            deps.push_back(local_state_sink_dep.get());
+        }
+        return deps;
+    }
 
 private:
     friend class LocalExchangeSinkOperatorX;

@@ -43,6 +43,7 @@ Status SortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status SortSourceOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
+    // spill sort _child_x may be nullptr.
     if (_child_x) {
         RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor));
     }
@@ -51,6 +52,7 @@ Status SortSourceOperatorX::prepare(RuntimeState* state) {
 
 Status SortSourceOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
+    // spill sort _child_x may be nullptr.
     if (_child_x) {
         RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     }
@@ -75,7 +77,9 @@ const vectorized::SortDescription& SortSourceOperatorX::get_sort_description(
 Status SortSourceOperatorX::build_merger(RuntimeState* state,
                                          std::unique_ptr<vectorized::VSortedRunMerger>& merger,
                                          RuntimeProfile* profile) {
+    // now only use in LocalMergeSortExchanger::get_block
     vectorized::VSortExecExprs vsort_exec_exprs;
+    // clone vsort_exec_exprs in LocalMergeSortExchanger
     RETURN_IF_ERROR(_vsort_exec_exprs.clone(state, vsort_exec_exprs));
     merger = std::make_unique<vectorized::VSortedRunMerger>(
             vsort_exec_exprs.lhs_ordering_expr_ctxs(), _is_asc_order, _nulls_first,
