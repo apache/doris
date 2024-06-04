@@ -200,6 +200,7 @@ public enum RuleType {
     REWRITE_REPEAT_EXPRESSION(RuleTypeClass.REWRITE),
     EXTRACT_FILTER_FROM_JOIN(RuleTypeClass.REWRITE),
     REORDER_JOIN(RuleTypeClass.REWRITE),
+    MERGE_PERCENTILE_TO_ARRAY(RuleTypeClass.REWRITE),
     // Merge Consecutive plan
     MERGE_PROJECTS(RuleTypeClass.REWRITE),
     MERGE_FILTERS(RuleTypeClass.REWRITE),
