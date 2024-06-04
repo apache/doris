@@ -46,7 +46,7 @@ public class UnixTimestamp extends ScalarFunction
     // we got changes when computeSignature
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE).args(),
-            FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(16, 6)).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateType.INSTANCE),
@@ -102,6 +102,7 @@ public class UnixTimestamp extends ScalarFunction
 
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
+        signature = super.computeSignature(signature);
         if (arity() != 1) {
             return signature;
         }
@@ -120,7 +121,7 @@ public class UnixTimestamp extends ScalarFunction
      */
     @Override
     public UnixTimestamp withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 0
+        Preconditions.checkArgument(children.isEmpty()
                 || children.size() == 1
                 || children.size() == 2);
         if (children.isEmpty() && arity() == 0) {

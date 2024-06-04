@@ -36,6 +36,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.BitSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -90,9 +91,16 @@ public class InitMaterializationContextHook implements PlannerHook {
             if (mtmvCache == null) {
                 continue;
             }
+            // For async materialization context, the cascades context when construct the struct info maybe
+            // different from the current cascadesContext
+            // so regenerate the struct info table bitset
+            StructInfo mvStructInfo = mtmvCache.getStructInfo();
+            BitSet tableBitSetInCurrentCascadesContext = new BitSet();
+            mvStructInfo.getRelations().forEach(relation -> tableBitSetInCurrentCascadesContext.set(
+                    cascadesContext.getStatementContext().getTableId(relation.getTable()).asInt()));
             cascadesContext.addMaterializationContext(new AsyncMaterializationContext(materializedView,
                     mtmvCache.getLogicalPlan(), mtmvCache.getOriginalPlan(), ImmutableList.of(), ImmutableList.of(),
-                    cascadesContext));
+                    cascadesContext, mtmvCache.getStructInfo().withTableBitSet(tableBitSetInCurrentCascadesContext)));
         }
     }
 }

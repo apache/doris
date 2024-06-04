@@ -934,7 +934,7 @@ protected:
         rsm->set_rowset_id(id);
         rsm->set_delete_predicate(del_pred);
         rsm->set_tablet_schema(tablet->tablet_schema());
-        RowsetSharedPtr rowset = std::make_shared<BetaRowset>(tablet->tablet_schema(), "", rsm);
+        RowsetSharedPtr rowset = std::make_shared<BetaRowset>(tablet->tablet_schema(), rsm, "");
         static_cast<void>(tablet->add_rowset(rowset));
     }
 

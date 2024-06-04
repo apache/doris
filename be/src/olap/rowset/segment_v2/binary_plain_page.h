@@ -109,14 +109,16 @@ public:
     }
 
     Status reset() override {
-        _offsets.clear();
-        _buffer.clear();
-        _buffer.reserve(_options.data_page_size == 0
-                                ? 1024
-                                : std::min(_options.data_page_size, _options.dict_page_size));
-        _size_estimate = sizeof(uint32_t);
-        _finished = false;
-        _last_value_size = 0;
+        RETURN_IF_CATCH_EXCEPTION({
+            _offsets.clear();
+            _buffer.clear();
+            _buffer.reserve(_options.data_page_size == 0
+                                    ? 1024
+                                    : std::min(_options.data_page_size, _options.dict_page_size));
+            _size_estimate = sizeof(uint32_t);
+            _finished = false;
+            _last_value_size = 0;
+        });
         return Status::OK();
     }
 

@@ -25,7 +25,9 @@ import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -38,6 +40,9 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.BitSet;
+import java.util.Optional;
+
 /**
  * The cache for materialized view cache
  */
@@ -49,11 +54,13 @@ public class MTMVCache {
     // The original plan of mv def sql
     private final Plan originalPlan;
     private final Statistics statistics;
+    private final StructInfo structInfo;
 
-    public MTMVCache(Plan logicalPlan, Plan originalPlan, Statistics statistics) {
+    public MTMVCache(Plan logicalPlan, Plan originalPlan, Statistics statistics, StructInfo structInfo) {
         this.logicalPlan = logicalPlan;
         this.originalPlan = originalPlan;
         this.statistics = statistics;
+        this.structInfo = structInfo;
     }
 
     public Plan getLogicalPlan() {
@@ -66,6 +73,10 @@ public class MTMVCache {
 
     public Statistics getStatistics() {
         return statistics;
+    }
+
+    public StructInfo getStructInfo() {
+        return structInfo;
     }
 
     public static MTMVCache from(MTMV mtmv, ConnectContext connectContext) {
@@ -96,6 +107,11 @@ public class MTMVCache {
                     ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
             return childContext.getRewritePlan();
         }, mvPlan, originPlan);
-        return new MTMVCache(mvPlan, originPlan, planner.getCascadesContext().getMemo().getRoot().getStatistics());
+        // Construct structInfo once for use later
+        Optional<StructInfo> structInfoOptional = MaterializationContext.constructStructInfo(mvPlan,
+                planner.getCascadesContext(),
+                new BitSet());
+        return new MTMVCache(mvPlan, originPlan, planner.getCascadesContext().getMemo().getRoot().getStatistics(),
+                structInfoOptional.orElseGet(() -> null));
     }
 }

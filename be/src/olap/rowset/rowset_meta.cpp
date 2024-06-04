@@ -86,23 +86,44 @@ bool RowsetMeta::json_rowset_meta(std::string* json_rowset_meta) {
     return ret;
 }
 
-const io::FileSystemSPtr& RowsetMeta::fs() {
-    if (!_fs) {
-        if (is_local()) {
-            _fs = io::global_local_filesystem();
-        } else {
-            _fs = get_filesystem(resource_id());
-            LOG_IF(WARNING, !_fs) << "Cannot get file system: " << resource_id();
-        }
+io::FileSystemSPtr RowsetMeta::fs() {
+    if (is_local()) {
+        return io::global_local_filesystem();
     }
-    return _fs;
+
+    auto storage_resource = remote_storage_resource();
+    if (storage_resource) {
+        return storage_resource.value()->fs;
+    } else {
+        LOG(WARNING) << storage_resource.error();
+        return nullptr;
+    }
 }
 
-void RowsetMeta::set_fs(io::FileSystemSPtr fs) {
-    if (fs && fs->type() != io::FileSystemType::LOCAL) {
-        _rowset_meta_pb.set_resource_id(fs->id());
+Result<const StorageResource*> RowsetMeta::remote_storage_resource() {
+    if (is_local()) {
+        return ResultError(Status::InternalError(
+                "local rowset has no storage resource. tablet_id={} rowset_id={}", tablet_id(),
+                _rowset_id.to_string()));
     }
-    _fs = std::move(fs);
+
+    if (!_storage_resource.fs) {
+        // not initialized yet
+        auto storage_resource = get_storage_resource(resource_id());
+        if (storage_resource) {
+            _storage_resource = std::move(storage_resource->first);
+        } else {
+            return ResultError(Status::InternalError("cannot find storage resource. resource_id={}",
+                                                     resource_id()));
+        }
+    }
+
+    return &_storage_resource;
+}
+
+void RowsetMeta::set_remote_storage_resource(StorageResource resource) {
+    _storage_resource = std::move(resource);
+    _rowset_meta_pb.set_resource_id(_storage_resource.fs->id());
 }
 
 bool RowsetMeta::has_variant_type_in_schema() const {

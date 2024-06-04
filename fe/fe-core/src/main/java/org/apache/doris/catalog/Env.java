@@ -103,6 +103,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.LogUtils;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsSqlCacheManager;
 import org.apache.doris.common.Pair;
@@ -191,6 +192,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -1507,7 +1509,7 @@ public class Env {
             if (Config.enable_check_compatibility_mode) {
                 String msg = "check metadata compatibility successfully";
                 LOG.info(msg);
-                System.out.println(msg);
+                LogUtils.stdout(msg);
                 System.exit(0);
             }
 
@@ -1611,7 +1613,7 @@ public class Env {
             checkLowerCaseTableNames();
 
             String msg = "master finished to replay journal, can write now.";
-            Util.stdoutWithTime(msg);
+            LogUtils.stdout(msg);
             LOG.info(msg);
             // for master, there are some new thread pools need to register metric
             ThreadPoolManager.registerAllThreadPoolMetric();
@@ -2720,7 +2722,7 @@ public class Env {
         try {
             String msg = "notify new FE type transfer: " + newType;
             LOG.warn(msg);
-            Util.stdoutWithTime(msg);
+            LogUtils.stdout(msg);
             this.typeTransferQueue.put(newType);
         } catch (InterruptedException e) {
             LOG.error("failed to put new FE type: {}", newType, e);
@@ -2738,7 +2740,7 @@ public class Env {
                         newType = typeTransferQueue.take();
                     } catch (InterruptedException e) {
                         LOG.error("got exception when take FE type from queue", e);
-                        Util.stdoutWithTime("got exception when take FE type from queue. " + e.getMessage());
+                        LogUtils.stdout("got exception when take FE type from queue. " + e.getMessage());
                         System.exit(-1);
                     }
                     Preconditions.checkNotNull(newType);
@@ -2820,7 +2822,7 @@ public class Env {
                             // exit if master changed to any other type
                             String msg = "transfer FE type from MASTER to " + newType.name() + ". exit";
                             LOG.error(msg);
-                            Util.stdoutWithTime(msg);
+                            LogUtils.stdout(msg);
                             System.exit(-1);
                             break;
                         }
@@ -3131,6 +3133,10 @@ public class Env {
 
     public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
         getInternalCatalog().recoverPartition(recoverStmt);
+    }
+
+    public void dropCatalogRecycleBin(IdType idType, long id) throws DdlException {
+        getInternalCatalog().dropCatalogRecycleBin(idType, id);
     }
 
     public void replayEraseDatabase(long dbId) throws DdlException {
@@ -6315,13 +6321,13 @@ public class Env {
     private void replayJournalsAndExit() {
         replayJournal(-1);
         LOG.info("check metadata compatibility successfully");
-        System.out.println("check metadata compatibility successfully");
+        LogUtils.stdout("check metadata compatibility successfully");
 
         if (Config.checkpoint_after_check_compatibility) {
             String imagePath = dumpImage();
             String msg = "the new image file path is: " + imagePath;
             LOG.info(msg);
-            System.out.println(msg);
+            LogUtils.stdout(msg);
         }
 
         System.exit(0);

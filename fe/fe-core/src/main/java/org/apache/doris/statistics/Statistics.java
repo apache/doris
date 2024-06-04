@@ -65,6 +65,10 @@ public class Statistics {
         return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
     }
 
+    public Statistics withExpressionToColumnStats(Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
+    }
+
     /**
      * Update by count.
      */
@@ -152,6 +156,15 @@ public class Statistics {
         }
         DecimalFormat format = new DecimalFormat("#,###.##");
         return format.format(rowCount);
+    }
+
+    public String printColumnStats() {
+        StringBuilder builder = new StringBuilder();
+        for (Expression key : expressionToColumnStats.keySet()) {
+            ColumnStatistic columnStatistic = expressionToColumnStats.get(key);
+            builder.append("  ").append(key).append(" -> ").append(columnStatistic).append("\n");
+        }
+        return builder.toString();
     }
 
     public int getBENumber() {

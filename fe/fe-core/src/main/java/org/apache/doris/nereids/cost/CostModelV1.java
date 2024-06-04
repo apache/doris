@@ -203,7 +203,14 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
-        return CostV1.ofCpu(context.getSessionVariable(), 1);
+        ExpressionCostEvaluator expressionCostEvaluator = new ExpressionCostEvaluator();
+        double exprCost = 0.0;
+        for (Expression expr : physicalProject.getProjects()) {
+            if (!(expr instanceof SlotReference)) {
+                exprCost += expr.accept(expressionCostEvaluator, null);
+            }
+        }
+        return CostV1.ofCpu(context.getSessionVariable(), exprCost + 1);
     }
 
     @Override

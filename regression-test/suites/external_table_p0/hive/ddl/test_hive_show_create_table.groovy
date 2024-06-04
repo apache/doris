@@ -30,7 +30,8 @@ suite("test_hive_show_create_table", "p0,external,hive,external_docker,external_
             create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+                'use_meta_cache' = 'true'
             );
         """
         logger.info("catalog " + catalog_name + " created")
