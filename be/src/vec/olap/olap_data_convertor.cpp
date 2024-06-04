@@ -93,11 +93,14 @@ OlapBlockDataConvertor::create_agg_state_convertor(const TabletColumn& column) {
     const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
     auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
 
+    // Terialized type of most functions is string, and some of them are fixed object.
+    // Finally, the serialized type of some special functions is bitmap/array/map...
     if (type == PrimitiveType::TYPE_STRING) {
         return std::make_unique<OlapColumnDataConvertorVarChar>(false);
     } else if (type == PrimitiveType::TYPE_OBJECT) {
         return std::make_unique<OlapColumnDataConvertorBitMap>();
     } else if (type == PrimitiveType::INVALID_TYPE) {
+        // INVALID_TYPE means function's serialized type is fixed object
         return std::make_unique<OlapColumnDataConvertorAggState>();
     } else {
         throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -208,10 +211,10 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return create_map_convertor(column);
     }
     default: {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid type in olap data convertor: {}",
+                        int(column.type()));
     }
     }
-    throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid type in olap data convertor: {}",
-                    int(column.type()));
 }
 
 void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, size_t row_pos,
@@ -1062,8 +1065,6 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
                                                 "map.value"};
     _value_convertor->set_source_column(value_typed_column, start_offset, elem_size);
     RETURN_IF_ERROR(_value_convertor->convert_to_olap());
-
-    LOG(WARNING) << _data_type.get_name();
 
     // todo (Amory). put this value into MapValue
     _results[0] = (void*)elem_size;

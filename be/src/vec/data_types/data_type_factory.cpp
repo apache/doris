@@ -613,13 +613,10 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
     } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_STRUCT)) {
         DCHECK_GE(pcolumn.children_columns().size(), 1);
         size_t col_size = pcolumn.children_columns().size();
-        DataTypes dataTypes;
-        Strings names;
-        dataTypes.reserve(col_size);
-        names.reserve(col_size);
+        DataTypes dataTypes(col_size);
+        Strings names(col_size);
         for (size_t i = 0; i < col_size; i++) {
-            dataTypes.push_back(create_data_type(pcolumn.children_columns(i)));
-            names.emplace_back("");
+            dataTypes[i] = create_data_type(pcolumn.children_columns(i));
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
     } else {

@@ -78,13 +78,17 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
 
-namespace doris {
-namespace segment_v2 {
+namespace doris::segment_v2 {
+
+inline bool read_as_string(PrimitiveType type) {
+    return type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
+           type == PrimitiveType::TYPE_OBJECT;
+}
 
 static bvar::Adder<size_t> g_column_reader_memory_bytes("doris_column_reader_memory_bytes");
 static bvar::Adder<size_t> g_column_reader_num("doris_column_reader_num");
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                                  uint64_t num_rows, const io::FileReaderSPtr& file_reader,
+                                  const io::FileReaderSPtr& file_reader,
                                   std::unique_ptr<ColumnReader>* reader) {
     DCHECK(meta.children_columns_size() == 2 || meta.children_columns_size() == 3);
 
@@ -106,8 +110,9 @@ Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnM
     }
 
     // The num rows of the array reader equals to the num rows of the length reader.
-    num_rows = meta.children_columns(1).num_rows();
-    std::unique_ptr<ColumnReader> array_reader(new ColumnReader(opts, meta, num_rows, file_reader));
+    uint64_t array_num_rows = meta.children_columns(1).num_rows();
+    std::unique_ptr<ColumnReader> array_reader(
+            new ColumnReader(opts, meta, array_num_rows, file_reader));
     //  array reader do not need to init
     array_reader->_sub_readers.resize(meta.children_columns_size());
     array_reader->_sub_readers[0] = std::move(item_reader);
@@ -120,7 +125,7 @@ Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnM
 }
 
 Status ColumnReader::create_map(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                                uint64_t num_rows, const io::FileReaderSPtr& file_reader,
+                                const io::FileReaderSPtr& file_reader,
                                 std::unique_ptr<ColumnReader>* reader) {
     // map reader now has 3 sub readers for key, value, offsets(scalar), null(scala)
     std::unique_ptr<ColumnReader> key_reader;
@@ -143,8 +148,9 @@ Status ColumnReader::create_map(const ColumnReaderOptions& opts, const ColumnMet
     }
 
     // The num rows of the map reader equals to the num rows of the length reader.
-    num_rows = meta.children_columns(2).num_rows();
-    std::unique_ptr<ColumnReader> map_reader(new ColumnReader(opts, meta, num_rows, file_reader));
+    uint64_t map_num_rows = meta.children_columns(2).num_rows();
+    std::unique_ptr<ColumnReader> map_reader(
+            new ColumnReader(opts, meta, map_num_rows, file_reader));
     map_reader->_sub_readers.resize(meta.children_columns_size());
 
     map_reader->_sub_readers[0] = std::move(key_reader);
@@ -192,8 +198,7 @@ Status ColumnReader::create_agg_state(const ColumnReaderOptions& opts, const Col
     const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
     auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
 
-    if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
-        type == PrimitiveType::TYPE_OBJECT) {
+    if (read_as_string(type)) {
         std::unique_ptr<ColumnReader> reader_local(
                 new ColumnReader(opts, meta, num_rows, file_reader));
         RETURN_IF_ERROR(reader_local->init(&meta));
@@ -223,10 +228,10 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
             return create_struct(opts, meta, num_rows, file_reader, reader);
         }
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-            return create_array(opts, meta, num_rows, file_reader, reader);
+            return create_array(opts, meta, file_reader, reader);
         }
         case FieldType::OLAP_FIELD_TYPE_MAP: {
-            return create_map(opts, meta, num_rows, file_reader, reader);
+            return create_map(opts, meta, file_reader, reader);
         }
         case FieldType::OLAP_FIELD_TYPE_VARIANT: {
             // Read variant only root data using a single ColumnReader
@@ -729,8 +734,7 @@ Status ColumnReader::new_agg_state_iterator(ColumnIterator** iterator) {
             assert_cast<const vectorized::DataTypeAggState*>(_agg_state_ptr.get());
     auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
 
-    if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
-        type == PrimitiveType::TYPE_OBJECT) {
+    if (read_as_string(type)) {
         *iterator = new FileColumnIterator(this);
         return Status::OK();
     }
@@ -1652,5 +1656,4 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
     return Status::OK();
 }
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

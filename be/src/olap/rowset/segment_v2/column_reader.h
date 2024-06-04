@@ -115,10 +115,10 @@ public:
                          uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                          std::unique_ptr<ColumnReader>* reader);
     static Status create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                               uint64_t num_rows, const io::FileReaderSPtr& file_reader,
+                               const io::FileReaderSPtr& file_reader,
                                std::unique_ptr<ColumnReader>* reader);
     static Status create_map(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                             uint64_t num_rows, const io::FileReaderSPtr& file_reader,
+                             const io::FileReaderSPtr& file_reader,
                              std::unique_ptr<ColumnReader>* reader);
     static Status create_struct(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                 uint64_t num_rows, const io::FileReaderSPtr& file_reader,
