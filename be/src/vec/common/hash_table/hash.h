@@ -156,10 +156,10 @@ struct HashCRC32<doris::vectorized::UInt256> {
     size_t operator()(const doris::vectorized::UInt256& x) const {
 #if defined(__SSE4_2__) || defined(__aarch64__)
         doris::vectorized::UInt64 crc = -1ULL;
-        crc = _mm_crc32_u64(crc, x.a);
-        crc = _mm_crc32_u64(crc, x.b);
-        crc = _mm_crc32_u64(crc, x.c);
-        crc = _mm_crc32_u64(crc, x.d);
+        crc = _mm_crc32_u64(crc, x.items[0]);
+        crc = _mm_crc32_u64(crc, x.items[1]);
+        crc = _mm_crc32_u64(crc, x.items[2]);
+        crc = _mm_crc32_u64(crc, x.items[3]);
         return crc;
 #else
         return Hash128to64({Hash128to64({x.a, x.b}), Hash128to64({x.c, x.d})});

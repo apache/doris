@@ -26,9 +26,9 @@
 #include <tuple>
 
 #include "gutil/hash/city.h"
-#include "gutil/hash/hash128to64.h"
 #include "util/sse_util.hpp"
 #include "vec/core/types.h"
+#include "vec/core/wide_integer.h"
 
 namespace doris::vectorized {
 
@@ -129,10 +129,6 @@ struct TypeId<UInt128> {
     static constexpr const TypeIndex value = TypeIndex::UInt128;
 };
 
-struct UInt128Hash {
-    size_t operator()(UInt128 x) const { return Hash128to64({x.low, x.high}); }
-};
-
 #if defined(__SSE4_2__) || defined(__aarch64__)
 
 struct UInt128HashCRC32 {
@@ -155,28 +151,7 @@ struct UInt128TrivialHash {
     size_t operator()(UInt128 x) const { return x.low; }
 };
 
-/** Used for aggregation, for putting a large number of constant-length keys in a hash table.
-  */
-struct UInt256 {
-    UInt64 a;
-    UInt64 b;
-    UInt64 c;
-    UInt64 d;
-
-    bool operator==(const UInt256 rhs) const {
-        return a == rhs.a && b == rhs.b && c == rhs.c && d == rhs.d;
-    }
-
-    bool operator==(const UInt64 rhs) const { return a == rhs && b == 0 && c == 0 && d == 0; }
-
-    UInt256& operator=(const UInt64 rhs) {
-        a = rhs;
-        b = 0;
-        c = 0;
-        d = 0;
-        return *this;
-    }
-};
+using UInt256 = wide::UInt256;
 
 #pragma pack(1)
 struct UInt136 {
@@ -194,7 +169,7 @@ struct UInt136 {
 template <>
 struct std::hash<doris::vectorized::UInt128> {
     size_t operator()(const doris::vectorized::UInt128& u) const {
-        return Hash128to64({u.low, u.high});
+        return util_hash::HashLen16(u.low, u.high);
     }
 };
 
