@@ -37,8 +37,8 @@ suite("test_ip_in_inverted_index") {
         );
         """
 
-    sql """insert into test_ip_with_inverted_index values(1, '59.50.185.152', '2a02:e980:83:5b09:ecb8:c669:b336:650e'),(3, '119.36.22.147', '2001:4888:1f:e891:161:26::')"""
-    sql "insert into test_ip_with_inverted_index values(2, '42.117.228.166', '2001:16a0:2:200a::2')"
+    sql """insert into test_ip_with_inverted_index values(111, '59.50.185.152', '2a02:e980:83:5b09:ecb8:c669:b336:650e'),(113, '119.36.22.147', '2001:4888:1f:e891:161:26::')"""
+    sql "insert into test_ip_with_inverted_index values(112, '42.117.228.166', '2001:16a0:2:200a::2')"
     
     // query with inverted index and no inverted index
     sql """set enable_inverted_index_query=true; """
