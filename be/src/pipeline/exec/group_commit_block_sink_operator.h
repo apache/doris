@@ -17,8 +17,13 @@
 
 #pragma once
 
+#include "exec/tablet_info.h"
 #include "operator.h"
 #include "runtime/group_commit_mgr.h"
+
+namespace doris::vectorized {
+class OlapTableBlockConvertor;
+}
 
 namespace doris::pipeline {
 

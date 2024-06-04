@@ -18,9 +18,12 @@
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 
 #include "pipeline/local_exchange/local_exchanger.h"
+#include "vec/runtime/partitioner.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::pipeline {
+
+LocalExchangeSinkLocalState::~LocalExchangeSinkLocalState() = default;
 
 Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets,
                                         const bool is_shuffled_hash_join,
@@ -51,6 +54,21 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
         _partitioner.reset(
                 new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(num_buckets));
         RETURN_IF_ERROR(_partitioner->init(_texprs));
+    }
+
+    return Status::OK();
+}
+Status LocalExchangeSinkOperatorX::prepare(RuntimeState* state) {
+    if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
+        RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
+    }
+
+    return Status::OK();
+}
+
+Status LocalExchangeSinkOperatorX::open(RuntimeState* state) {
+    if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
+        RETURN_IF_ERROR(_partitioner->open(state));
     }
 
     return Status::OK();

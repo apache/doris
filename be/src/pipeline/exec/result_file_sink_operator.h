@@ -22,6 +22,14 @@
 #include "operator.h"
 #include "vec/sink/writer/vfile_result_writer.h"
 
+namespace doris::vectorized {
+template <typename Parent>
+class BlockSerializer;
+template <typename Parent>
+class Channel;
+class BroadcastPBlockHolder;
+}
+
 namespace doris::pipeline {
 
 class ResultFileSinkOperatorX;
@@ -31,6 +39,7 @@ public:
     using Base = AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
     ENABLE_FACTORY_CREATOR(ResultFileSinkLocalState);
     ResultFileSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
+    ~ResultFileSinkLocalState();
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
@@ -57,7 +66,7 @@ private:
 
     std::vector<vectorized::Channel<ResultFileSinkLocalState>*> _channels;
     bool _only_local_exchange = false;
-    vectorized::BlockSerializer<ResultFileSinkLocalState> _serializer;
+    std::unique_ptr<vectorized::BlockSerializer<ResultFileSinkLocalState>> _serializer;
     std::shared_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
     RuntimeProfile::Counter* _brpc_wait_timer = nullptr;
     RuntimeProfile::Counter* _local_send_timer = nullptr;

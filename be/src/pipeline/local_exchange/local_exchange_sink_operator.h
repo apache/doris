@@ -19,6 +19,10 @@
 
 #include "pipeline/exec/operator.h"
 
+namespace doris::vectorized {
+class PartitionerBase;
+}
+
 namespace doris::pipeline {
 
 class Exchanger;
@@ -34,7 +38,7 @@ public:
 
     LocalExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
-    ~LocalExchangeSinkLocalState() override = default;
+    ~LocalExchangeSinkLocalState() override;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
@@ -96,21 +100,9 @@ public:
     Status init(ExchangeType type, const int num_buckets, const bool is_shuffled_hash_join,
                 const std::map<int, int>& shuffle_idx_to_instance_idx) override;
 
-    Status prepare(RuntimeState* state) override {
-        if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
-            RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
-        }
+    Status prepare(RuntimeState* state) override;
 
-        return Status::OK();
-    }
-
-    Status open(RuntimeState* state) override {
-        if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
-            RETURN_IF_ERROR(_partitioner->open(state));
-        }
-
-        return Status::OK();
-    }
+    Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 

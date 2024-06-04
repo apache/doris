@@ -32,7 +32,8 @@ namespace doris::pipeline {
 ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent,
                                                    RuntimeState* state)
         : AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>(parent, state),
-          _serializer(this) {}
+          _serializer(
+                  std::make_unique<vectorized::BlockSerializer<ResultFileSinkLocalState>>(this)) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                                  const std::vector<TExpr>& t_output_expr)
@@ -53,6 +54,8 @@ ResultFileSinkOperatorX::ResultFileSinkOperatorX(
           _is_top_sink(false) {
     CHECK_EQ(destinations.size(), 1);
 }
+
+ResultFileSinkLocalState::~ResultFileSinkLocalState() = default;
 
 Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
     RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::init(tsink));
@@ -209,13 +212,13 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                 {
                     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                     bool serialized = false;
-                    RETURN_IF_ERROR(_serializer.next_serialized_block(
+                    RETURN_IF_ERROR(_serializer->next_serialized_block(
                             _output_block.get(), _block_holder->get_block(), _channels.size(),
                             &serialized, true));
                     if (serialized) {
-                        auto cur_block = _serializer.get_block()->to_block();
+                        auto cur_block = _serializer->get_block()->to_block();
                         if (!cur_block.empty()) {
-                            RETURN_IF_ERROR(_serializer.serialize_block(
+                            RETURN_IF_ERROR(_serializer->serialize_block(
                                     &cur_block, _block_holder->get_block(), _channels.size()));
                         } else {
                             _block_holder->get_block()->Clear();
@@ -233,7 +236,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                             }
                         }
                         cur_block.clear_column_data();
-                        _serializer.get_block()->set_mutable_columns(cur_block.mutate_columns());
+                        _serializer->get_block()->set_mutable_columns(cur_block.mutate_columns());
                     }
                 }
             }
