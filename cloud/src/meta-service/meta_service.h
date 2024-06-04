@@ -652,13 +652,23 @@ private:
                 (retry_times > 1 && code == MetaServiceCode::KV_TXN_TOO_OLD)) {
                 // For KV_TXN_CONFLICT, we should return KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES,
                 // because BE will retries the KV_TXN_CONFLICT error.
+                // ATTN: However, old versions FE/BE DONOT know about KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES
+                //       We have to make it take effect when all old versions
+                //       are able to process it
                 resp->mutable_status()->set_code(
                         code == MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE   ? KV_TXN_COMMIT_ERR
                         : code == MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE    ? KV_TXN_GET_ERR
                         : code == MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE ? KV_TXN_CREATE_ERR
                         : code == MetaServiceCode::KV_TXN_CONFLICT
-                                ? KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES
+                                // should be KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES
+                                ? MetaServiceCode::KV_TXN_COMMIT_ERR
                                 : MetaServiceCode::KV_TXN_TOO_OLD);
+                if (code == MetaServiceCode::KV_TXN_CONFLICT) {
+                    LOG(WARNING) << "txn error code has been changed to "
+                                 << MetaServiceCode_Name(MetaServiceCode::KV_TXN_COMMIT_ERR)
+                                 << ", original code: " << MetaServiceCode_Name(code)
+                                 << ", msg: " << resp->status().msg();
+                }
                 return;
             }
 
