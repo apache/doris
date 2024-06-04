@@ -28,7 +28,7 @@ class BlockSerializer;
 template <typename Parent>
 class Channel;
 class BroadcastPBlockHolder;
-}
+} // namespace doris::vectorized
 
 namespace doris::pipeline {
 
