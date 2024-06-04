@@ -107,6 +107,12 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         return new UpdateMvByPartitionCommand(sink);
     }
 
+    // Only allow insert overwrite mtmv to be executed through MTMVTask
+    @Override
+    protected boolean allowMTMV() {
+        return true;
+    }
+
     private static List<String> constructPartsForMv(Set<String> partitionNames) {
         return Lists.newArrayList(partitionNames);
     }

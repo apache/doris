@@ -113,7 +113,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             throw new AnalysisException("insert into overwrite only support OLAP and HMS table."
                     + " But current table type is " + targetTableIf.getType());
         }
-        if (targetTableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData()) {
+        if (targetTableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData() && !allowMTMV()) {
             throw new AnalysisException("Not allowed to perform current operation on async materialized view");
         }
         this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
@@ -261,6 +261,10 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             throw new UserException("Current catalog does not support insert overwrite yet.");
         }
         runInsertCommand(logicalQuery, insertCtx, ctx, executor);
+    }
+
+    protected boolean allowMTMV() {
+        return false;
     }
 
     @Override
