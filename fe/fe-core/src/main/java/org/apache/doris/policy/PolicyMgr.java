@@ -470,17 +470,20 @@ public class PolicyMgr implements Writable {
                             String[] policyArray = policyToPartitionsMap.keySet().toArray(new String[0]);
                             List<String> partitionsList = new ArrayList<>(policyToPartitionsMap.values()).get(0);
                             if (partitionsList.size() == olapTable.getPartitionNum()) {
-                                List<String> row = Arrays.asList(policyArray[0], db.getFullName(), olapTable.getName(),
+                                List<String> row = Arrays.asList(policyArray[0],
+                                        ClusterNamespace.getNameFromFullName(db.getFullName()), olapTable.getName(),
                                         "ALL");
                                 rows.add(row);
                             } else {
-                                List<String> row = Arrays.asList(policyArray[0], db.getFullName(), olapTable.getName(),
+                                List<String> row = Arrays.asList(policyArray[0],
+                                        ClusterNamespace.getNameFromFullName(db.getFullName()), olapTable.getName(),
                                         String.join(",", partitionsList));
                                 rows.add(row);
                             }
                         } else {
                             for (Map.Entry<String, List<String>> entry : policyToPartitionsMap.entrySet()) {
-                                List<String> row = Arrays.asList(entry.getKey(), db.getFullName(), olapTable.getName(),
+                                List<String> row = Arrays.asList(entry.getKey(),
+                                        ClusterNamespace.getNameFromFullName(db.getFullName()), olapTable.getName(),
                                         String.join(",", entry.getValue()));
                                 rows.add(row);
                             }
@@ -518,7 +521,8 @@ public class PolicyMgr implements Writable {
                             matchPartitionsStr = matchPartitionsStr.substring(0, matchPartitionsStr.length() - 1);
                         }
 
-                        List<String> row = Arrays.asList(targetPolicyName, db.getFullName(), olapTable.getName(),
+                        List<String> row = Arrays.asList(targetPolicyName,
+                                ClusterNamespace.getNameFromFullName(db.getFullName()), olapTable.getName(),
                                 matchPartitionsStr);
                         rows.add(row);
                     }
