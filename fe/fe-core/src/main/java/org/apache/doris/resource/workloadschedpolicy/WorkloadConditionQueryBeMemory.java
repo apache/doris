@@ -19,24 +19,29 @@ package org.apache.doris.resource.workloadschedpolicy;
 
 import org.apache.doris.common.UserException;
 
-public class WorkloadConditionQueryTime implements WorkloadCondition {
+public class WorkloadConditionQueryBeMemory implements WorkloadCondition {
 
     private long value;
+
     private WorkloadConditionOperator op;
 
-    public WorkloadConditionQueryTime(WorkloadConditionOperator op, long value) {
-        this.op = op;
+    public WorkloadConditionQueryBeMemory(WorkloadConditionOperator op, long value) {
         this.value = value;
+        this.op = op;
     }
 
     @Override
     public boolean eval(String strValue) {
-        long inputLongValue = Long.parseLong(strValue);
-        return WorkloadConditionCompareUtils.compareInteger(op, inputLongValue, value);
+        return false;
     }
 
-    public static WorkloadConditionQueryTime createWorkloadCondition(WorkloadConditionOperator op, String value)
-            throws UserException {
+    @Override
+    public WorkloadMetricType getMetricType() {
+        return WorkloadMetricType.QUERY_BE_MEMORY_BYTES;
+    }
+
+    public static WorkloadConditionQueryBeMemory createWorkloadCondition(WorkloadConditionOperator op,
+            String value) throws UserException {
         long longValue = -1;
         try {
             longValue = Long.parseLong(value);
@@ -44,14 +49,8 @@ public class WorkloadConditionQueryTime implements WorkloadCondition {
                 throw new NumberFormatException();
             }
         } catch (NumberFormatException e) {
-            throw new UserException("invalid query time value: " + value + ", it requires >= 0");
+            throw new UserException("invalid query be memory value: " + value + ", it requires >= 0");
         }
-        return new WorkloadConditionQueryTime(op, longValue);
+        return new WorkloadConditionQueryBeMemory(op, longValue);
     }
-
-    @Override
-    public WorkloadMetricType getMetricType() {
-        return WorkloadMetricType.QUERY_TIME;
-    }
-
 }
