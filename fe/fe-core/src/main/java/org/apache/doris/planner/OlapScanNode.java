@@ -1354,7 +1354,7 @@ public class OlapScanNode extends ScanNode {
                 .collect(Collectors.joining(","));
         output.append(prefix).append(String.format("partitions=%s/%s (%s)", selectedPartitionNum,
                 olapTable.getPartitions().size(), selectedPartitions)).append("\n");
-        output.append(prefix).append(String.format("tablets=%s/%s", selectedTabletsNum, totalTabletsNum)).append("\n");
+        output.append(prefix).append(String.format("tablets=%s/%s", selectedTabletsNum, totalTabletsNum));
         // We print up to 3 tablet, and we print "..." if the number is more than 3
         if (scanTabletIds.size() > 3) {
             List<Long> firstTenTabletIds = scanTabletIds.subList(0, 3);
