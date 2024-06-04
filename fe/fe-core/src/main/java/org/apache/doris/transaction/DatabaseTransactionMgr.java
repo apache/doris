@@ -354,7 +354,7 @@ public class DatabaseTransactionMgr {
         if (!coordinator.isFromInternal) {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         }
-        checkModifyMTMVData(db, tableIdList);
+        MTMVUtil.checkModifyMTMVData(db, tableIdList);
         checkDatabaseDataQuota();
         Preconditions.checkNotNull(coordinator);
         Preconditions.checkNotNull(label);
@@ -412,18 +412,6 @@ public class DatabaseTransactionMgr {
         LOG.info("begin transaction: txn id {} with label {} from coordinator {}, listener id: {}",
                     tid, label, coordinator, listenerId);
         return tid;
-    }
-
-    private void checkModifyMTMVData(Database db, List<Long> tableIdList) throws AnalysisException {
-        if (CollectionUtils.isEmpty(tableIdList)) {
-            return;
-        }
-        for (long tableId : tableIdList) {
-            Optional<Table> table = db.getTable(tableId);
-            if (table.isPresent() && table.get() instanceof MTMV && !MTMVUtil.allowModifyMTMVData()) {
-                throw new AnalysisException("Not allowed to perform current operation on async materialized view");
-            }
-        }
     }
 
     private void checkDatabaseDataQuota() throws MetaNotFoundException, QuotaExceedException {

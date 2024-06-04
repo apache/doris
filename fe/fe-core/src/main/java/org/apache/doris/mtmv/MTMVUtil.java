@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
@@ -34,6 +35,9 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
+import org.apache.commons.collections.CollectionUtils;
+
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -129,5 +133,17 @@ public class MTMVUtil {
 
     public static boolean allowModifyMTMVData() {
         return false;
+    }
+
+    public static void checkModifyMTMVData(Database db, List<Long> tableIdList) throws AnalysisException {
+        if (CollectionUtils.isEmpty(tableIdList)) {
+            return;
+        }
+        for (long tableId : tableIdList) {
+            Optional<Table> table = db.getTable(tableId);
+            if (table.isPresent() && table.get() instanceof MTMV && !MTMVUtil.allowModifyMTMVData()) {
+                throw new AnalysisException("Not allowed to perform current operation on async materialized view");
+            }
+        }
     }
 }
