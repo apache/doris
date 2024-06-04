@@ -634,6 +634,17 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
         delete_bitmap->merge({rst_id, segment_ids[i], vers[i]},
                              roaring::Roaring::read(delete_bitmaps[i].data()));
     }
+    int64_t latency = cntl.latency_us();
+    if (latency > 100 * 1000) { // 100ms
+        LOG(INFO) << "finish get_delete_bitmap rpc. rowset_ids.size()=" << rowset_ids.size()
+                  << ", delete_bitmaps.size()=" << delete_bitmaps.size() << ", latency=" << latency
+                  << "us";
+    } else {
+        LOG_EVERY_N(INFO, 100) << "finish get_delete_bitmap rpc. rowset_ids.size()="
+                               << rowset_ids.size()
+                               << ", delete_bitmaps.size()=" << delete_bitmaps.size()
+                               << ", latency=" << latency << "us";
+    }
     return Status::OK();
 }
 
