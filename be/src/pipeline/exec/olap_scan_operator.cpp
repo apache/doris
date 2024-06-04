@@ -60,6 +60,7 @@ Status OlapScanLocalState::_init_profile() {
     _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
     _delete_bitmap_get_agg_timer = ADD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime");
+    _sync_rowset_timer = ADD_TIMER(_scanner_profile, "SyncRowsetTime");
     _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
@@ -278,8 +279,9 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                         scan_range->version.data() + scan_range->version.size(), version);
         tablets.emplace_back(std::move(tablet), version);
     }
-
+    int64_t duration_ns = 0;
     if (config::is_cloud_mode()) {
+        SCOPED_RAW_TIMER(&duration_ns);
         std::vector<std::function<Status()>> tasks;
         tasks.reserve(_scan_ranges.size());
         for (auto&& [tablet, version] : tablets) {
@@ -289,6 +291,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         }
         RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
     }
+    _sync_rowset_timer->update(duration_ns);
 
     if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
         p._push_down_agg_type == TPushAggOp::NONE &&
