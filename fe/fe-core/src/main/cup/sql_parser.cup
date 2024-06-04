@@ -8192,6 +8192,30 @@ keyword ::=
     {: RESULT = id; :}
     | KW_MATCH_PHRASE_EDGE:id
     {: RESULT = id; :}
+    | KW_SQL:id
+    {: RESULT = id; :}
+    | KW_CACHE:id
+    {: RESULT = id; :}
+    | KW_COLOCATE:id
+    {: RESULT = id; :}
+    | KW_COMPRESS_TYPE:id
+    {: RESULT = id; :}
+    | KW_DORIS_INTERNAL_TABLE_ID:id
+    {: RESULT = id; :}
+    | KW_HOTSPOT:id
+    {: RESULT = id; :}
+    | KW_PRIVILEGES:id
+    {: RESULT = id; :}
+    | KW_RECENT:id
+    {: RESULT = id; :}
+    | KW_STAGES:id
+    {: RESULT = id; :}
+    | KW_WARM:id
+    {: RESULT = id; :}
+    | KW_UP:id
+    {: RESULT = id; :}
+    | KW_CONVERT_LSC:id
+    {: RESULT = id; :}
     ;
 
 // Identifier that contain keyword
