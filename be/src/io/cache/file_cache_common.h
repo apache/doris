@@ -63,7 +63,7 @@ struct FileCacheAllocatorBuilder {
 
 struct KeyHash {
     std::size_t operator()(const UInt128Wrapper& w) const {
-        return util_hash::HashLen16(w.value_.high, w.value_.low);
+        return util_hash::HashLen16(w.value_.items[0], w.value_.items[1]);
     }
 };
 
