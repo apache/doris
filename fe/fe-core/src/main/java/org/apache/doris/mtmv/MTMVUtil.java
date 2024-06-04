@@ -126,4 +126,8 @@ public class MTMVUtil {
                             expr.getStringValue(), dateFormat));
         }
     }
+
+    public static boolean allowModifyMTMVData() {
+        return false;
+    }
 }

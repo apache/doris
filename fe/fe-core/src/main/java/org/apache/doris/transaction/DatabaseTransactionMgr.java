@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -52,6 +53,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.CleanLabelOperationLog;
@@ -89,6 +91,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -351,6 +354,7 @@ public class DatabaseTransactionMgr {
         if (!coordinator.isFromInternal) {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         }
+        checkModifyMTMVData(db, tableIdList);
         checkDatabaseDataQuota();
         Preconditions.checkNotNull(coordinator);
         Preconditions.checkNotNull(label);
@@ -408,6 +412,18 @@ public class DatabaseTransactionMgr {
         LOG.info("begin transaction: txn id {} with label {} from coordinator {}, listener id: {}",
                     tid, label, coordinator, listenerId);
         return tid;
+    }
+
+    private void checkModifyMTMVData(Database db, List<Long> tableIdList) throws AnalysisException {
+        if (CollectionUtils.isEmpty(tableIdList)) {
+            return;
+        }
+        for (long tableId : tableIdList) {
+            Optional<Table> table = db.getTable(tableId);
+            if (table.isPresent() && table.get() instanceof MTMV && !MTMVUtil.allowModifyMTMVData()) {
+                throw new AnalysisException("Not allowed to perform current operation on async materialized view");
+            }
+        }
     }
 
     private void checkDatabaseDataQuota() throws MetaNotFoundException, QuotaExceedException {
