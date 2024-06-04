@@ -88,7 +88,6 @@ public class IcebergUtils {
             return 0;
         }
     };
-    static long MILLIS_TO_NANO_TIME = 1000;
     public static final String TOTAL_RECORDS = "total-records";
     public static final String TOTAL_POSITION_DELETES = "total-position-deletes";
     public static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
@@ -454,7 +453,7 @@ public class IcebergUtils {
                 case DATE:
                     return dateLiteral.getStringValue();
                 case TIMESTAMP:
-                    return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
+                    return dateLiteral.getUnixTimestampWithMicroseconds(TimeUtils.getTimeZone());
                 default:
                     return null;
             }
