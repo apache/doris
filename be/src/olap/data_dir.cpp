@@ -639,7 +639,7 @@ Status DataDir::load() {
 }
 
 // gc unused local tablet dir
-void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path) {
+void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path, int16_t shard_id) {
     if (_stop_bg_worker) {
         return;
     }
@@ -662,7 +662,7 @@ void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path) {
                       << ", might be the old tablet after migration, try to move it to trash";
         }
         _engine.tablet_manager()->try_delete_unused_tablet_path(this, tablet_id, schema_hash,
-                                                                tablet_schema_hash_path);
+                                                                tablet_schema_hash_path, shard_id);
         return;
     }
 
@@ -831,7 +831,14 @@ void DataDir::perform_path_gc() {
                     std::this_thread::sleep_for(
                             std::chrono::milliseconds(config::path_gc_check_step_interval_ms));
                 }
-                _perform_tablet_gc(tablet_id_path + '/' + schema_hash.file_name);
+                int16_t shard_id = -1;
+                try {
+                    shard_id = std::stoi(shard.file_name);
+                } catch (const std::exception&) {
+                    LOG(WARNING) << "failed to stoi shard_id, shard name=" << shard.file_name;
+                    continue;
+                }
+                _perform_tablet_gc(tablet_id_path + '/' + schema_hash.file_name, shard_id);
             }
         }
     }

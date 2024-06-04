@@ -1151,7 +1151,21 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
         if (tablet->schema_hash() == schema_hash_not_shutdown &&
             tablet->data_dir()->path_hash() == path_hash_not_shutdown) {
             tablet->clear_cache();
-            return true;
+            // shard_id in memory not eq shard_id in shutdown
+            if (tablet_in_not_shutdown->tablet_path() != tablet->tablet_path()) {
+                LOG(INFO) << "tablet path not eq shutdown tablet path, move it to trash, tablet_id="
+                          << tablet_in_not_shutdown->tablet_id()
+                          << " mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
+                          << " shutdown tablet path=" << tablet->tablet_path();
+                return tablet_in_not_shutdown->data_dir()->move_to_trash(
+                        tablet_in_not_shutdown->tablet_path());
+            } else {
+                LOG(INFO) << "tablet path eq shutdown tablet path, not move to trash, tablet_id="
+                          << tablet_in_not_shutdown->tablet_id()
+                          << " mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
+                          << " shutdown tablet path=" << tablet->tablet_path();
+                return true;
+            }
         }
     }
 
@@ -1318,7 +1332,8 @@ void TabletManager::unregister_transition_tablet(int64_t tablet_id, std::string 
 
 void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
                                                   SchemaHash schema_hash,
-                                                  const string& schema_hash_path) {
+                                                  const string& schema_hash_path,
+                                                  int16_t shard_id) {
     // acquire the read lock, so that there is no creating tablet or load tablet from meta tasks
     // create tablet and load tablet task should check whether the dir exists
     tablets_shard& shard = _get_tablets_shard(tablet_id);
@@ -1327,8 +1342,14 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
     // check if meta already exists
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     Status check_st = TabletMetaManager::get_meta(data_dir, tablet_id, schema_hash, tablet_meta);
-    if (check_st.ok()) {
+    if (check_st.ok() && tablet_meta->shard_id() == shard_id) {
         LOG(INFO) << "tablet meta exists in meta store, skip delete the path " << schema_hash_path;
+        return;
+    }
+
+    TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id);
+    if (tablet != nullptr && tablet->tablet_path() == schema_hash_path) {
+        LOG(INFO) << "tablet , skip delete the path " << schema_hash_path;
         return;
     }
 

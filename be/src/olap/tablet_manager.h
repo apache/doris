@@ -143,7 +143,8 @@ public:
     Status start_trash_sweep();
 
     void try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
-                                       SchemaHash schema_hash, const std::string& schema_hash_path);
+                                       SchemaHash schema_hash, const std::string& schema_hash_path,
+                                       int16_t shard_id);
 
     void update_root_path_info(std::map<std::string, DataDirInfo>* path_map,
                                size_t* tablet_counter);

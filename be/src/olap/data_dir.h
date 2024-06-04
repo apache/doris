@@ -158,7 +158,7 @@ private:
 
     int _path_gc_step {0};
 
-    void _perform_tablet_gc(const std::string& tablet_schema_hash_path);
+    void _perform_tablet_gc(const std::string& tablet_schema_hash_path, int16_t shard_name);
 
     void _perform_rowset_gc(const std::string& tablet_schema_hash_path);
 
