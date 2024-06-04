@@ -170,27 +170,27 @@ suite("test_rollup_partition_mtmv") {
     order_qt_string_list_month "SELECT * FROM ${mvName} order by k1,k2"
 
     // fail need support partition_date_format when partitition by column and column is date_trunc
-//    sql """drop materialized view if exists ${mvName};"""
-//    sql """
-//        CREATE MATERIALIZED VIEW ${mvName}
-//            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-//            partition by (month_alias)
-//            DISTRIBUTED BY RANDOM BUCKETS 2
-//            PROPERTIES (
-//            'replication_num' = '1',
-//            'partition_date_format'='%Y==%m==%d'
-//            )
-//            AS
-//            SELECT date_trunc(`k2`,'month') as month_alias, * FROM ${tableName};
-//    """
-//    def string_list_month_partitions = sql """show partitions from ${mvName}"""
-//    logger.info("showPartitionsResult: " + string_list_month_partitions.toString())
-//    assertEquals(2, string_list_month_partitions.size())
-//
-//    jobName = getJobName(dbName, mvName);
-//    log.info(jobName)
-//    waitingMTMVTaskFinished(jobName)
-//    order_qt_string_list_month_partition_by_column "SELECT * FROM ${mvName}"
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+            partition by (month_alias)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1',
+            'partition_date_format'='%Y==%m==%d'
+            )
+            AS
+            SELECT date_trunc(`k2`,'month') as month_alias, * FROM ${tableName};
+    """
+    def string_list_month_partitions = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + string_list_month_partitions.toString())
+    assertEquals(2, string_list_month_partitions.size())
+
+    jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+    order_qt_string_list_month_partition_by_column "SELECT * FROM ${mvName}"
 
     // range date month
     sql """drop table if exists `${tableName}`"""

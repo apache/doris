@@ -30,6 +30,7 @@ import org.apache.doris.nereids.memo.StructInfoMap;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -298,7 +299,7 @@ public class MaterializedViewUtils {
 
         public static final MaterializedViewIncrementChecker INSTANCE = new MaterializedViewIncrementChecker();
         public static final Set<Class<? extends Expression>> SUPPORT_EXPRESSION_TYPES =
-                ImmutableSet.of(DateTrunc.class, SlotReference.class, Literal.class);
+                ImmutableSet.of(DateTrunc.class, SlotReference.class, Literal.class, Cast.class);
 
         @Override
         public Void visitLogicalProject(LogicalProject<? extends Plan> project, IncrementCheckerContext context) {
