@@ -19,6 +19,10 @@
 
 #include "pipeline/exec/operator.h"
 
+namespace doris::vectorized {
+class PartitionerBase;
+}
+
 namespace doris::pipeline {
 
 class Exchanger;
@@ -34,7 +38,7 @@ public:
 
     LocalExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
-    ~LocalExchangeSinkLocalState() override = default;
+    ~LocalExchangeSinkLocalState() override;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
@@ -94,53 +98,11 @@ public:
     }
 
     Status init(ExchangeType type, const int num_buckets, const bool is_shuffled_hash_join,
-                const std::map<int, int>& shuffle_idx_to_instance_idx) override {
-        _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
-        _type = type;
-        if (_type == ExchangeType::HASH_SHUFFLE) {
-            // For shuffle join, if data distribution has been broken by previous operator, we
-            // should use a HASH_SHUFFLE local exchanger to shuffle data again. To be mentioned,
-            // we should use map shuffle idx to instance idx because all instances will be
-            // distributed to all BEs. Otherwise, we should use shuffle idx directly.
-            if (is_shuffled_hash_join) {
-                std::for_each(shuffle_idx_to_instance_idx.begin(),
-                              shuffle_idx_to_instance_idx.end(), [&](const auto& item) {
-                                  DCHECK(item.first != -1);
-                                  _shuffle_idx_to_instance_idx.push_back({item.first, item.second});
-                              });
-            } else {
-                _shuffle_idx_to_instance_idx.resize(_num_partitions);
-                for (int i = 0; i < _num_partitions; i++) {
-                    _shuffle_idx_to_instance_idx[i] = {i, i};
-                }
-            }
-            _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
-                    _num_partitions));
-            RETURN_IF_ERROR(_partitioner->init(_texprs));
-        } else if (_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
-            _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
-                    num_buckets));
-            RETURN_IF_ERROR(_partitioner->init(_texprs));
-        }
+                const std::map<int, int>& shuffle_idx_to_instance_idx) override;
 
-        return Status::OK();
-    }
+    Status prepare(RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override {
-        if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
-            RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
-        }
-
-        return Status::OK();
-    }
-
-    Status open(RuntimeState* state) override {
-        if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
-            RETURN_IF_ERROR(_partitioner->open(state));
-        }
-
-        return Status::OK();
-    }
+    Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 

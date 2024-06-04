@@ -39,7 +39,6 @@
 #include "common/global_types.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "exec/data_sink.h"
 #include "exec/tablet_info.h"
 #include "pipeline/exec/exchange_sink_buffer.h"
 #include "service/backend_options.h"
@@ -75,7 +74,6 @@ class ExchangeSinkLocalState;
 namespace vectorized {
 template <typename>
 class Channel;
-class VDataStreamSender;
 
 template <typename Parent>
 class BlockSerializer {
@@ -107,143 +105,9 @@ struct ShuffleChannelIds {
     }
 };
 
-class VDataStreamSender : public DataSink {
-public:
-    VDataStreamSender(RuntimeState* state, ObjectPool* pool, int sender_id,
-                      const RowDescriptor& row_desc, const TDataStreamSink& sink,
-                      const std::vector<TPlanFragmentDestination>& destinations);
-
-    VDataStreamSender(RuntimeState* state, ObjectPool* pool, int sender_id,
-                      const RowDescriptor& row_desc, PlanNodeId dest_node_id,
-                      const std::vector<TPlanFragmentDestination>& destinations);
-
-    ~VDataStreamSender() override;
-
-    Status init(const TDataSink& thrift_sink) override;
-
-    Status prepare(RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
-
-    Status send(RuntimeState* state, Block* block, bool eos = false) override;
-
-    Status close(RuntimeState* state, Status exec_status) override;
-
-    RuntimeState* state() { return _state; }
-
-    int sender_id() const { return _sender_id; }
-
-    RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
-    RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
-    RuntimeProfile::Counter* local_send_timer() { return _local_send_timer; }
-    RuntimeProfile::Counter* local_bytes_send_counter() { return _local_bytes_send_counter; }
-    RuntimeProfile::Counter* local_sent_rows() { return _local_sent_rows; }
-    RuntimeProfile::Counter* brpc_send_timer() { return _brpc_send_timer; }
-    RuntimeProfile::Counter* split_block_distribute_by_channel_timer() {
-        return _split_block_distribute_by_channel_timer;
-    }
-    MemTracker* mem_tracker() { return _mem_tracker.get(); }
-    bool transfer_large_data_by_brpc() { return _transfer_large_data_by_brpc; }
-    RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
-    segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
-
-protected:
-    friend class BlockSerializer<VDataStreamSender>;
-    friend class Channel<VDataStreamSender>;
-    friend class PipChannel;
-
-    void _roll_pb_block();
-
-    template <typename Channels, typename HashValueType>
-    Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
-                            const HashValueType* __restrict channel_ids, int rows, Block* block,
-                            bool eos);
-    template <typename Channels>
-    Status channel_add_rows_with_idx(RuntimeState* state, Channels& channels, int num_channels,
-                                     std::vector<std::vector<uint32_t>>& channel2rows, Block* block,
-                                     bool eos);
-
-    template <typename ChannelPtrType>
-    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
-
-    static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {
-        return Status::OK();
-    }
-    Status _send_new_partition_batch();
-    // Sender instance id, unique within a fragment.
-    int _sender_id;
-
-    RuntimeState* _state = nullptr;
-    ObjectPool* _pool = nullptr;
-
-    int _current_channel_idx; // index of current channel to send to if _random == true
-
-    TPartitionType::type _part_type;
-
-    // serialized batches for broadcasting; we need two so we can write
-    // one while the other one is still being sent
-    PBlock _pb_block1;
-    PBlock _pb_block2;
-    PBlock* _cur_pb_block = nullptr;
-
-    std::unique_ptr<PartitionerBase> _partitioner;
-    size_t _partition_count;
-
-    std::vector<Channel<VDataStreamSender>*> _channels;
-    std::vector<std::shared_ptr<Channel<VDataStreamSender>>> _channel_shared_ptrs;
-
-    RuntimeProfile::Counter* _serialize_batch_timer {};
-    RuntimeProfile::Counter* _compress_timer {};
-    RuntimeProfile::Counter* _brpc_send_timer {};
-    RuntimeProfile::Counter* _brpc_wait_timer {};
-    RuntimeProfile::Counter* _bytes_sent_counter {};
-    RuntimeProfile::Counter* _uncompressed_bytes_counter {};
-    RuntimeProfile::Counter* _local_sent_rows {};
-    RuntimeProfile::Counter* _local_send_timer {};
-    RuntimeProfile::Counter* _split_block_hash_compute_timer {};
-    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer {};
-    RuntimeProfile::Counter* _merge_block_timer {};
-    RuntimeProfile::Counter* _memory_usage_counter {};
-    RuntimeProfile::Counter* _peak_memory_usage_counter {};
-
-    std::unique_ptr<MemTracker> _mem_tracker;
-
-    // Throughput per total time spent in sender
-    RuntimeProfile::Counter* _overall_throughput = nullptr;
-    // Used to counter send bytes under local data exchange
-    RuntimeProfile::Counter* _local_bytes_send_counter = nullptr;
-    // Identifier of the destination plan node.
-    PlanNodeId _dest_node_id;
-
-    // User can change this config at runtime, avoid it being modified during query or loading process.
-    bool _transfer_large_data_by_brpc = false;
-
-    segment_v2::CompressionTypePB _compression_type;
-
-    bool _only_local_exchange = false;
-
-    BlockSerializer<VDataStreamSender> _serializer;
-
-    // for shuffle data by partition and tablet
-    VRowDistribution _row_distribution;
-    RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
-    int64_t _txn_id = -1;
-    RowDescriptor* _tablet_sink_row_desc = nullptr;
-    TupleDescriptor* _tablet_sink_tuple_desc = nullptr;
-    OlapTableLocationParam* _location = nullptr;
-    int64_t _number_input_rows = 0;
-    // reuse to avoid frequent memory allocation and release.
-    std::vector<RowPartTabletIds> _row_part_tablet_ids;
-    vectorized::VExprContextSPtrs _fake_expr_ctxs;
-    std::unique_ptr<VOlapTablePartitionParam> _vpartition = nullptr;
-    std::unique_ptr<OlapTabletFinder> _tablet_finder = nullptr;
-    std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
-    std::unique_ptr<vectorized::OlapTableBlockConvertor> _block_convertor = nullptr;
-};
-
-template <typename Parent = VDataStreamSender>
+template <typename Parent>
 class Channel {
 public:
-    friend class VDataStreamSender;
     friend class pipeline::ExchangeSinkBuffer;
     // Create channel to send data to particular ipaddress/port/query/node
     // combination. buffer_size is specified in bytes and a soft limit on
@@ -273,8 +137,6 @@ public:
 
     // Initialize channel.
     // Returns OK if successful, error indication otherwise.
-    Status init(RuntimeState* state);
-
     Status init_stub(RuntimeState* state);
     Status open(RuntimeState* state);
 
@@ -353,9 +215,6 @@ protected:
         return _receiver_status;
     }
 
-    // Serialize _batch into _thrift_batch and send via send_batch().
-    // Returns send_batch() status.
-    Status send_current_batch(bool eos = false);
     Status close_internal(Status exec_status);
 
     Parent* _parent = nullptr;
@@ -405,44 +264,6 @@ protected:
             RETURN_IF_ERROR(status);                     \
         }                                                \
     } while (0)
-
-template <typename Channels, typename HashValueType>
-Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channels,
-                                           int num_channels,
-                                           const HashValueType* __restrict channel_ids, int rows,
-                                           Block* block, bool eos) {
-    std::vector<std::vector<uint32_t>> channel2rows;
-    channel2rows.resize(num_channels);
-    for (uint32_t i = 0; i < rows; i++) {
-        channel2rows[channel_ids[i]].emplace_back(i);
-    }
-    RETURN_IF_ERROR(
-            channel_add_rows_with_idx(state, channels, num_channels, channel2rows, block, eos));
-    return Status::OK();
-}
-
-template <typename Channels>
-Status VDataStreamSender::channel_add_rows_with_idx(
-        RuntimeState* state, Channels& channels, int num_channels,
-        std::vector<std::vector<uint32_t>>& channel2rows, Block* block, bool eos) {
-    Status status;
-    for (int i = 0; i < num_channels; ++i) {
-        if (!channels[i]->is_receiver_eof() && !channel2rows[i].empty()) {
-            status = channels[i]->add_rows(block, channel2rows[i], false);
-            HANDLE_CHANNEL_STATUS(state, channels[i], status);
-            channel2rows[i].clear();
-        }
-    }
-    if (eos) {
-        for (int i = 0; i < num_channels; ++i) {
-            if (!channels[i]->is_receiver_eof()) {
-                status = channels[i]->add_rows(block, channel2rows[i], true);
-                HANDLE_CHANNEL_STATUS(state, channels[i], status);
-            }
-        }
-    }
-    return Status::OK();
-}
 
 class PipChannel final : public Channel<pipeline::ExchangeSinkLocalState> {
 public:
@@ -520,8 +341,6 @@ public:
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency();
 
 private:
-    friend class VDataStreamSender;
-
     pipeline::ExchangeSinkBuffer* _buffer = nullptr;
     bool _eos_send = false;
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> _send_callback;

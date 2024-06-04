@@ -18,7 +18,7 @@
 #pragma once
 
 #include "operator.h"
-#include "vec/sink/viceberg_table_sink.h"
+#include "vec/sink/writer/iceberg/viceberg_table_writer.h"
 
 namespace doris::pipeline {
 
