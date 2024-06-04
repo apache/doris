@@ -1426,7 +1426,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         BeginSubTxnResponse response = null;
         int retryTime = 0;
         try {
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retryTime:{}, beginSubTxnRequest:{}", retryTime, request);
                 }
@@ -1467,7 +1467,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         AbortSubTxnResponse response = null;
         int retryTime = 0;
         try {
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retryTime:{}, abortSubTxnRequest:{}", retryTime, request);
                 }
