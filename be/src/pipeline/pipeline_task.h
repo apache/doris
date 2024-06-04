@@ -84,8 +84,6 @@ public:
 
     void finalize();
 
-    bool is_finished() const { return _finished.load(); }
-
     std::string debug_string();
 
     bool is_pending_finish() {
@@ -142,7 +140,7 @@ public:
     void clear_blocking_state() {
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
-        if (!_finished) {
+        if (!_finalized) {
             _execution_dep->set_always_ready();
             for (auto* dep : _filter_dependencies) {
                 dep->set_always_ready();
@@ -222,6 +220,12 @@ public:
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
+    void stop_if_finished() {
+        if (_sink->is_finished(_state)) {
+            clear_blocking_state();
+        }
+    }
+
 private:
     friend class RuntimeFilterDependency;
     bool _is_blocked();
@@ -297,7 +301,7 @@ private:
 
     Dependency* _execution_dep = nullptr;
 
-    std::atomic<bool> _finished {false};
+    std::atomic<bool> _finalized {false};
     std::mutex _dependency_lock;
 
     std::atomic<bool> _running {false};

@@ -44,6 +44,7 @@ import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
+import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
@@ -1687,6 +1688,38 @@ class Suite implements GroovyInterceptable {
             logger.info("set be_id ${id} ${paramName} to ${paramValue}".toString())
             def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
             assertTrue(out.contains("OK"))
+        }
+    }
+
+    def check_table_version_continuous = { db_name, table_name ->
+        def tablets = sql_return_maparray """ show tablets from ${db_name}.${table_name} """
+        for (def tablet_info : tablets) {
+            logger.info("tablet: $tablet_info")
+            def compact_url = tablet_info.get("CompactionStatus")
+            String command = "curl ${compact_url}"
+            Process process = command.execute()
+            def code = process.waitFor()
+            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+            def out = process.getText()
+            logger.info("code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+
+            def compactJson = parseJson(out.trim())
+            def rowsets = compactJson.get("rowsets")
+
+            def last_start_version = 0
+            def last_end_version = -1
+            for(def rowset : rowsets) {
+                def version_str = rowset.substring(1, rowset.indexOf("]"))
+                logger.info("version_str: $version_str")
+                def versions = version_str.split("-")
+                def start_version = versions[0].toLong()
+                def end_version = versions[1].toLong()
+                logger.info("cur_version:[$start_version - $end_version], last_version:[$last_start_version - $last_end_version]")
+                assertEquals(last_end_version + 1, start_version)
+                last_start_version = start_version
+                last_end_version = end_version
+            }
         }
     }
 }

@@ -787,7 +787,6 @@ suite("test_json_load", "p0") {
                 assertEquals("${reason}", "${out}")
             }
         }
-
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
@@ -823,6 +822,45 @@ suite("test_json_load", "p0") {
                 assertEquals("${reason}", "${out}")
             }
         }
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+      
+    // iterate read json when read_json_by_line = false
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+
+        create_json_test_table.call(testTable)
+        def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+        load_json_data.call("${testTable}", test_load_label, 'false', 'false', 'json', '', '', '', '', '', 'iterate_read_json.json')
+        sql "sync" 
+        
+        qt_iterate_read_json "select * from ${testTable} order by name"
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // add something like $.tag. [a.b] key's json case
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `k1` varchar(1024) NULL,
+                `k2` varchar(1024) NULL
+            )
+            DUPLICATE KEY(`k1`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+        load_json_data.call("${testTable}", "${testTable}_case28_1", 'false', '', 'json', '', '[\"$.tags.\\\"a.b\\\"\",\"$.tags.k2\"]',
+                             '', '', '', 'test_special_key_json.json')
+        
+        sql "sync"
+        sleep(1000)
+        qt_select28 "select * from ${testTable}"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")

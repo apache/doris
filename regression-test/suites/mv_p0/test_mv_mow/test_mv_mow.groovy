@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite ("mow_invalid") {
+suite ("test_mv_mow") {
     sql """ drop table if exists u_table; """
 
     sql """
@@ -32,9 +32,16 @@ suite ("mow_invalid") {
                 "enable_unique_key_merge_on_write" = "true"
             );
         """
+    sql "insert into u_table select 1,1,1,1;"
+    sql "insert into u_table select 1,2,1,1;"
+    createMV("create materialized view k123p as select k1,k2+k3 from u_table;")
 
-    test {
-        sql "create materialized view k123p as select k1,k2+k3 from u_table;"
-        exception "errCode = 2,"
+    sql "insert into u_table select 1,1,1,1;"
+    sql "insert into u_table select 1,2,1,1;"
+
+    explain {
+        sql("select k1,k2+k3 from u_table order by k1;")
+        contains "(k123p)"
     }
+    qt_select_mv "select k1,k2+k3 from u_table order by k1;"
 }

@@ -1036,6 +1036,14 @@ bool DeleteBitmap::empty() const {
     return delete_bitmap.empty();
 }
 
+uint64_t DeleteBitmap::cardinality() const {
+    uint64_t res = 0;
+    for (auto entry : delete_bitmap) {
+        res += entry.second.cardinality();
+    }
+    return res;
+}
+
 bool DeleteBitmap::contains_agg_without_cache(const BitmapKey& bmk, uint32_t row_id) const {
     std::shared_lock l(lock);
     DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};

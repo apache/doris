@@ -18,6 +18,7 @@
 #include "cloud/cloud_rowset_writer.h"
 
 #include "io/cache/block_file_cache_factory.h"
+#include "io/fs/file_system.h"
 #include "olap/rowset/rowset_factory.h"
 
 namespace doris {
@@ -29,13 +30,15 @@ CloudRowsetWriter::~CloudRowsetWriter() = default;
 Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
     _rowset_meta = std::make_shared<RowsetMeta>();
-    if (_context.fs) {
-        _rowset_meta->set_fs(_context.fs);
-    } else {
+
+    if (_context.is_local_rowset()) {
         // In cloud mode, this branch implies it is an intermediate rowset for external merge sort,
-        // we use `global_local_filesystem` to write data to `tmp_file_dir`(see `BetaRowset::segment_file_path`).
-        _context.rowset_dir = io::FileCacheFactory::instance()->get_cache_path();
+        // we use `global_local_filesystem` to write data to `tmp_file_dir`(see `local_segment_path`).
+        _context.tablet_path = io::FileCacheFactory::instance()->get_cache_path();
+    } else {
+        _rowset_meta->set_remote_storage_resource(*_context.storage_resource);
     }
+
     _rowset_meta->set_rowset_id(_context.rowset_id);
     _rowset_meta->set_partition_id(_context.partition_id);
     _rowset_meta->set_tablet_id(_context.tablet_id);
@@ -113,7 +116,7 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
-            RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, _rowset_meta,
+            RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path, _rowset_meta,
                                          &rowset),
             "rowset init failed when build new rowset");
     _already_built = true;

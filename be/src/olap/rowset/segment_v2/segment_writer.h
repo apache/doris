@@ -82,11 +82,10 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 class SegmentWriter {
 public:
-    // If `fs` is nullptr, use global local fs
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
                            uint32_t max_row_per_segment, const SegmentWriterOptions& opts,
-                           std::shared_ptr<MowContext> mow_context, const io::FileSystemSPtr& fs);
+                           std::shared_ptr<MowContext> mow_context);
     ~SegmentWriter();
 
     Status init();
@@ -108,7 +107,13 @@ public:
 
     size_t get_inverted_index_file_size() const { return _inverted_index_file_size; }
     uint32_t num_rows_written() const { return _num_rows_written; }
+
+    // for partial update
+    int64_t num_rows_updated() const { return _num_rows_updated; }
+    int64_t num_rows_deleted() const { return _num_rows_deleted; }
+    int64_t num_rows_new_added() const { return _num_rows_new_added; }
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
+
     uint32_t row_count() const { return _row_count; }
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
@@ -213,6 +218,11 @@ private:
     bool _has_key = true;
     // _num_rows_written means row count already written in this current column group
     uint32_t _num_rows_written = 0;
+
+    /** for partial update stats **/
+    int64_t _num_rows_updated = 0;
+    int64_t _num_rows_new_added = 0;
+    int64_t _num_rows_deleted = 0;
     // number of rows filtered in strict mode partial update
     int64_t _num_rows_filtered = 0;
     // _row_count means total row count of this segment

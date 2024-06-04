@@ -61,12 +61,13 @@ private:
 
 class InvertedIndexFileWriter {
 public:
-    InvertedIndexFileWriter(io::FileSystemSPtr fs, io::Path segment_file_dir,
-                            std::string segment_file_name,
+    InvertedIndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
+                            std::string rowset_id, int64_t seg_id,
                             InvertedIndexStorageFormatPB storage_format)
             : _fs(std::move(fs)),
-              _index_file_dir(std::move(segment_file_dir)),
-              _segment_file_name(std::move(segment_file_name)),
+              _index_path_prefix(std::move(index_path_prefix)),
+              _rowset_id(std::move(rowset_id)),
+              _seg_id(seg_id),
               _storage_format(storage_format) {}
 
     Result<DorisFSDirectory*> open(const TabletIndex* index_meta);
@@ -76,20 +77,16 @@ public:
     size_t write();
     Status close();
     size_t headerLength();
-    const io::Path& get_index_file_dir() const { return _index_file_dir; };
-    std::string get_index_file_name() const {
-        return InvertedIndexDescriptor::get_index_file_name(_segment_file_name);
-    };
-    std::string get_index_file_path(const TabletIndex* index_meta) const;
+    std::string get_index_file_path() const;
     size_t get_index_file_size() const { return _file_size; }
     const io::FileSystemSPtr& get_fs() const { return _fs; }
 
 private:
     InvertedIndexDirectoryMap _indices_dirs;
     const io::FileSystemSPtr _fs;
-    io::FileSystemSPtr _lfs;
-    io::Path _index_file_dir;
-    std::string _segment_file_name;
+    std::string _index_path_prefix;
+    std::string _rowset_id;
+    int64_t _seg_id;
     InvertedIndexStorageFormatPB _storage_format;
     size_t _file_size = 0;
 };

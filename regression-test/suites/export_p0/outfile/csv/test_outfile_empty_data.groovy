@@ -152,12 +152,12 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
                     """
         
         qt_select_tvf3 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_to_s3_directly_url.substring(4, outfile_to_s3_directly_url.length())}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_to_s3_directly_url.substring(5 + bucket.length(), outfile_to_s3_directly_url.length())}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "${format}",
                 "region" = "${region}",
-                "use_path_style" = "true"
+                "use_path_style" = "false" -- aliyun does not support path_style
             );
             """
 

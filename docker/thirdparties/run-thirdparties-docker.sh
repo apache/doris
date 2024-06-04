@@ -276,8 +276,8 @@ fi
 if [[ "${RUN_KAFKA}" -eq 1 ]]; then
     # kafka
     KAFKA_CONTAINER_ID="${CONTAINER_UID}kafka"
-    eth0_num=$(ifconfig -a|grep flags=|grep -n ^eth0|awk -F ':' '{print $1}')
-    IP_HOST=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|tail -n +${eth0_num}|head -n 1)
+    eth_name=$(ifconfig -a|grep -E "^eth[0-9]"|sort -k1.4n|awk -F ':' '{print $1}'|head -n 1)
+    IP_HOST=$(ifconfig "${eth_name}"|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|head -n 1)
     cp "${ROOT}"/docker-compose/kafka/kafka.yaml.tpl "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/localhost/${IP_HOST}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
@@ -288,7 +288,7 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
        local ip_host="$2"
        local backup_dir=/home/work/pipline/backup_center
 
-        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone")
+        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "trino_kafka_basic_data")
 
         for topic in "${topics[@]}"; do
             echo "docker exec "${container_id}" bash -c echo '/opt/bitnami/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'"
@@ -309,8 +309,9 @@ if [[ "${RUN_HIVE2}" -eq 1 ]]; then
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
     #default value
     IP_HOST="127.0.0.1"
-    eth0_num=$(ifconfig -a|grep flags=|grep -n ^eth0|awk -F ':' '{print $1}')
-    IP_HOST=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|tail -n +${eth0_num}|head -n 1)
+    eth_name=$(ifconfig -a|grep -E "^eth[0-9]"|sort -k1.4n|awk -F ':' '{print $1}'|head -n 1)
+    IP_HOST=$(ifconfig "${eth_name}"|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|head -n 1)
+
     if [ "_${IP_HOST}" == "_" ];then
         echo "please set IP_HOST according to your actual situation"
         exit -1
@@ -335,8 +336,8 @@ if [[ "${RUN_HIVE3}" -eq 1 ]]; then
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
     #default value
     IP_HOST="127.0.0.1"
-    eth0_num=$(ifconfig -a|grep flags=|grep -n ^eth0|awk -F ':' '{print $1}')
-    IP_HOST=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|tail -n +${eth0_num}|head -n 1)
+    eth_name=$(ifconfig -a|grep -E "^eth[0-9]"|sort -k1.4n|awk -F ':' '{print $1}'|head -n 1)
+    IP_HOST=$(ifconfig "${eth_name}"|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|head -n 1)
     if [ "_${IP_HOST}" == "_" ];then
         echo "please set IP_HOST according to your actual situation"
         exit -1

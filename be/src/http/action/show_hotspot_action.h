@@ -15,19 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+#pragma once
 
-public class PlatformName {
+#include "cloud/cloud_storage_engine.h"
+#include "http/http_handler.h"
 
-    private static final String platformName = System.getProperty("os.name") + "-"
-            + System.getProperty("os.arch") + "-"
-            + System.getProperty("sun.arch.data.model");
+namespace doris {
+class CloudStorageEngine;
 
-    public static String getPlatformName() {
-        return platformName;
-    }
+class ShowHotspotAction final : public HttpHandler {
+public:
+    ShowHotspotAction(CloudStorageEngine& eng) : _storage_engine(eng) {}
 
-    public static void main(String[] args) {
-        System.out.println(platformName);
-    }
-}
+    ~ShowHotspotAction() override = default;
+
+    void handle(HttpRequest* req) override;
+
+private:
+    CloudStorageEngine& _storage_engine;
+};
+
+} // namespace doris
