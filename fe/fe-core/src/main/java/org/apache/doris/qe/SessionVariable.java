@@ -920,18 +920,18 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML, needForward = true, varType = VariableAnnotation.REMOVED)
     public boolean enableNereidsDML = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML_WITH_PIPELINE, needForward = true,
-            varType = VariableAnnotation.EXPERIMENTAL,
+            varType = VariableAnnotation.REMOVED,
             description = {"在新优化器中，使用pipeline引擎执行DML", "execute DML with pipeline engine in Nereids"})
     public boolean enableNereidsDmlWithPipeline = true;
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
     public boolean enableStrictConsistencyDml = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
+    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, varType = VariableAnnotation.REMOVED)
     public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, needForward = true,
@@ -2504,10 +2504,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableRewriteElementAtToSlot(boolean rewriteElementAtToSlot) {
         enableRewriteElementAtToSlot = rewriteElementAtToSlot;
-    }
-
-    public boolean isEnableNereidsDML() {
-        return enableNereidsDML;
     }
 
     public void setEnableFoldConstantByBe(boolean foldConstantByBe) {

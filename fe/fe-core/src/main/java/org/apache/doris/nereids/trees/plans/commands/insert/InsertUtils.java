@@ -407,14 +407,6 @@ public class InsertUtils {
      * get plan for explain.
      */
     public static Plan getPlanForExplain(ConnectContext ctx, LogicalPlan logicalQuery) {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
-        }
         return InsertUtils.normalizePlan(logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx));
     }
 }

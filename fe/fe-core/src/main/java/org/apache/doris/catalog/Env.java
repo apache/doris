@@ -1568,8 +1568,6 @@ public class Env {
                             "true");
                 }
                 if (journalVersion <= FeMetaVersion.VERSION_123) {
-                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1", SessionVariable.ENABLE_NEREIDS_DML,
-                            "true");
                     VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
                             SessionVariable.FRAGMENT_TRANSMISSION_COMPRESSION_CODEC, "none");
                     if (VariableMgr.newSessionVariable().nereidsTimeoutSecond == 5) {

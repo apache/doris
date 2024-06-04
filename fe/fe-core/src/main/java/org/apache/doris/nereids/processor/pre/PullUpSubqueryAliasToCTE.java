@@ -31,7 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * TODO turnoff pipeline for any dml temporary, remove this pre-process when pipeline-sink is ok.
+ * turn subquery to cte if query have hint
  */
 public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
     private List<LogicalSubQueryAlias<Plan>> aliasQueries = new ArrayList<>();

@@ -71,7 +71,6 @@ public class BulkLoadDataDescTest extends TestWithFeService {
         connectContext.getState().setNereids(true);
         connectContext.getSessionVariable().enableFallbackToOriginalPlanner = false;
         connectContext.getSessionVariable().enableNereidsTimeout = false;
-        connectContext.getSessionVariable().enableNereidsDML = true;
         FeConstants.runningUnitTest = true;
 
         createDatabase("nereids_load");
