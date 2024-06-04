@@ -61,6 +61,10 @@ public:
     void commit_txn(::google::protobuf::RpcController* controller, const CommitTxnRequest* request,
                     CommitTxnResponse* response, ::google::protobuf::Closure* done) override;
 
+    void commit_txn_with_sub_txn(::google::protobuf::RpcController* controller,
+                                 const CommitTxnRequest* request, CommitTxnResponse* response,
+                                 ::google::protobuf::Closure* done);
+
     void abort_txn(::google::protobuf::RpcController* controller, const AbortTxnRequest* request,
                    AbortTxnResponse* response, ::google::protobuf::Closure* done) override;
 
@@ -75,6 +79,14 @@ public:
                                 const GetCurrentMaxTxnRequest* request,
                                 GetCurrentMaxTxnResponse* response,
                                 ::google::protobuf::Closure* done) override;
+
+    void begin_sub_txn(::google::protobuf::RpcController* controller,
+                       const BeginSubTxnRequest* request, BeginSubTxnResponse* response,
+                       ::google::protobuf::Closure* done) override;
+
+    void abort_sub_txn(::google::protobuf::RpcController* controller,
+                       const AbortSubTxnRequest* request, AbortSubTxnResponse* response,
+                       ::google::protobuf::Closure* done) override;
 
     void check_txn_conflict(::google::protobuf::RpcController* controller,
                             const CheckTxnConflictRequest* request,
@@ -319,6 +331,18 @@ public:
                                 GetCurrentMaxTxnResponse* response,
                                 ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_current_max_txn_id, controller, request, response, done);
+    }
+
+    void begin_sub_txn(::google::protobuf::RpcController* controller,
+                       const BeginSubTxnRequest* request, BeginSubTxnResponse* response,
+                       ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::begin_sub_txn, controller, request, response, done);
+    }
+
+    void abort_sub_txn(::google::protobuf::RpcController* controller,
+                       const AbortSubTxnRequest* request, AbortSubTxnResponse* response,
+                       ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::abort_sub_txn, controller, request, response, done);
     }
 
     void check_txn_conflict(::google::protobuf::RpcController* controller,
