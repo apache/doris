@@ -21,7 +21,7 @@
 #include <mutex>
 
 #include "common/logging.h"
-#include "pipeline/local_exchange/local_exchanger.h"
+#include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
@@ -370,4 +370,10 @@ void SpillSortSharedState::close() {
     }
     sorted_streams.clear();
 }
+
+MultiCastSharedState::MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool,
+                                           int cast_sender_count)
+        : multi_cast_data_streamer(std::make_unique<pipeline::MultiCastDataStreamer>(
+                  row_desc, pool, cast_sender_count, true)) {}
+
 } // namespace doris::pipeline
