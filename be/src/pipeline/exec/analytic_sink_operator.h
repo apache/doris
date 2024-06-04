@@ -83,12 +83,14 @@ public:
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
         } else if (_order_by_eq_expr_ctxs.empty()) {
-            return _is_colocate
+            return _is_colocate && _require_bucket_distribution
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
         return DataSinkOperatorX<AnalyticSinkLocalState>::required_data_distribution();
     }
+
+    bool require_data_distribution() const override { return true; }
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
@@ -106,6 +108,7 @@ private:
 
     std::vector<size_t> _num_agg_input;
     const bool _is_colocate;
+    const bool _require_bucket_distribution;
     const std::vector<TExpr> _partition_exprs;
 };
 
