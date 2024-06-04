@@ -1260,8 +1260,8 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
 
 Status TabletManager::register_transition_tablet(int64_t tablet_id, std::string reason) {
     tablets_shard& shard = _get_tablets_shard(tablet_id);
-    std::lock_guard<std::mutex> lk(shard.lock_for_transition);
     std::thread::id thread_id = std::this_thread::get_id();
+    std::lock_guard<std::mutex> lk(shard.lock_for_transition);
     if (auto search = shard.tablets_under_transition.find(tablet_id);
         search == shard.tablets_under_transition.end()) {
         // not found
@@ -1271,7 +1271,7 @@ Status TabletManager::register_transition_tablet(int64_t tablet_id, std::string 
         return Status::OK();
     } else {
         // found
-        auto [r, thread_id_in_map, lock_times] = search->second;
+        auto& [r, thread_id_in_map, lock_times] = search->second;
         if (thread_id != thread_id_in_map) {
             // other thread, failed
             LOG(INFO) << "tablet_id = " << tablet_id << " is doing " << r
@@ -1280,37 +1280,38 @@ Status TabletManager::register_transition_tablet(int64_t tablet_id, std::string 
             return Status::InternalError<false>("{} failed try later, tablet_id={}", reason,
                                                 tablet_id);
         }
-        shard.tablets_under_transition[tablet_id] =
-                std::make_tuple(r, thread_id_in_map, ++lock_times);
+        // add lock times
+        ++lock_times;
         LOG(INFO) << "add tablet_id= " << tablet_id << " to map, reason=" << reason
-                  << " lock times=" << lock_times << " thread_id_in_map" << thread_id_in_map;
+                  << " lock times=" << lock_times << " thread_id_in_map=" << thread_id_in_map;
         return Status::OK();
     }
 }
 
 void TabletManager::unregister_transition_tablet(int64_t tablet_id, std::string reason) {
     tablets_shard& shard = _get_tablets_shard(tablet_id);
-    std::lock_guard<std::mutex> lk(shard.lock_for_transition);
     std::thread::id thread_id = std::this_thread::get_id();
+    std::lock_guard<std::mutex> lk(shard.lock_for_transition);
     if (auto search = shard.tablets_under_transition.find(tablet_id);
         search == shard.tablets_under_transition.end()) {
         // impossible, bug
         DCHECK(false) << "tablet " << tablet_id
                       << " must be found, before unreg must have been reg";
     } else {
-        auto [r, thread_id_in_map, lock_times] = search->second;
+        auto& [r, thread_id_in_map, lock_times] = search->second;
         if (thread_id_in_map != thread_id) {
             // impossible, bug
             DCHECK(false) << "tablet " << tablet_id << " unreg thread must same reg thread";
         }
+        // sub lock times
         --lock_times;
         if (lock_times != 0) {
             LOG(INFO) << "erase tablet_id= " << tablet_id << " from map, reason=" << reason
                       << " left=" << lock_times << " thread_id_in_map=" << thread_id_in_map;
         } else {
-            shard.tablets_under_transition.erase(tablet_id);
             LOG(INFO) << "erase tablet_id= " << tablet_id << " from map, reason=" << reason
                       << " thread_id_in_map=" << thread_id_in_map;
+            shard.tablets_under_transition.erase(tablet_id);
         }
     }
 }
