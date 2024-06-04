@@ -269,7 +269,7 @@ protected:
                                              SlotDescriptor* slot, ColumnValueRange<T>& range,
                                              vectorized::VScanNode::PushDownType* pdt);
 
-    void _normalize_compound_predicate(
+    Status _normalize_compound_predicate(
             vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
             vectorized::VScanNode::PushDownType* pdt, bool is_runtimer_filter_predicate,
             const std::function<bool(const vectorized::VExprSPtrs&,

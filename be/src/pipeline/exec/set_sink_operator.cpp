@@ -88,21 +88,20 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
     vectorized::ColumnRawPtrs raw_ptrs(_child_exprs.size());
     RETURN_IF_ERROR(_extract_build_column(local_state, block, raw_ptrs, rows));
 
-    std::visit(
+    return std::visit(
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     vectorized::HashTableBuild<HashTableCtxType, is_intersect>
                             hash_table_build_process(&local_state, rows, raw_ptrs, state);
-                    static_cast<void>(hash_table_build_process(arg, local_state._arena));
+                    return hash_table_build_process(arg, local_state._arena);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
                     __builtin_unreachable();
+                    return Status::InternalError("FATAL: uninited hash table");
                 }
             },
             *local_state._shared_state->hash_table_variants);
-
-    return Status::OK();
 }
 
 template <bool is_intersect>

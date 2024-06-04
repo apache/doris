@@ -58,7 +58,7 @@ Status PartitionSorter::append_block(Block* input_block) {
     Block sorted_block = VectorizedUtils::create_empty_columnswithtypename(_row_desc);
     DCHECK(input_block->columns() == sorted_block.columns());
     RETURN_IF_ERROR(partial_sort(*input_block, sorted_block));
-    RETURN_IF_ERROR(_state->add_sorted_block(sorted_block));
+    _state->add_sorted_block(sorted_block);
     return Status::OK();
 }
 

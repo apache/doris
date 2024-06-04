@@ -331,8 +331,9 @@ Status ScanLocalState<Derived>::_normalize_predicate(
 
             if (pdt == vectorized::VScanNode::PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                _normalize_compound_predicate(cur_expr, context, &pdt, _is_runtime_filter_predicate,
-                                              in_predicate_checker, eq_predicate_checker);
+                RETURN_IF_ERROR(_normalize_compound_predicate(
+                        cur_expr, context, &pdt, _is_runtime_filter_predicate, in_predicate_checker,
+                        eq_predicate_checker));
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
@@ -643,7 +644,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(
                     temp_range, value, ColumnValueRange<T>::add_fixed_value_range, ""));
             iter->next();
         }
-        range.intersection(temp_range);
+        RETURN_IF_ERROR(range.intersection(temp_range));
         *pdt = vectorized::VScanNode::PushDownType::ACCEPTABLE;
     } else if (TExprNodeType::BINARY_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 2);
@@ -679,7 +680,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(
                         temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
             }
-            range.intersection(temp_range);
+            RETURN_IF_ERROR(range.intersection(temp_range));
         }
         *pdt = temp_pdt;
     }
@@ -853,9 +854,10 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
         memcpy(&tmp_value, value, sizeof(VecDateTimeValue));
         if constexpr (IsFixed) {
             if (!tmp_value.check_loss_accuracy_cast_to_date()) {
-                func(temp_range,
-                     reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                             &tmp_value));
+                RETURN_IF_ERROR(func(
+                        temp_range,
+                        reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                                &tmp_value)));
             }
         } else {
             if (tmp_value.check_loss_accuracy_cast_to_date()) {
@@ -863,18 +865,22 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                     ++tmp_value;
                 }
             }
-            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         &tmp_value));
+            RETURN_IF_ERROR(
+                    func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+                         reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                                 &tmp_value)));
         }
     } else if constexpr (PrimitiveType == TYPE_DATETIME) {
         if constexpr (IsFixed) {
-            func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+            RETURN_IF_ERROR(
+                    func(temp_range,
+                         reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                                 value)));
         } else {
-            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         reinterpret_cast<char*>(value)));
+            RETURN_IF_ERROR(
+                    func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+                         reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                                 reinterpret_cast<char*>(value))));
         }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
                          (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_HLL) ||
@@ -887,11 +893,15 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_STRING) ||
                          (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
         if constexpr (IsFixed) {
-            func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+            RETURN_IF_ERROR(
+                    func(temp_range,
+                         reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                                 value)));
         } else {
-            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+            RETURN_IF_ERROR(
+                    func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+                         reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                                 value)));
         }
     } else {
         static_assert(always_false_v<PrimitiveType>);
@@ -916,14 +926,14 @@ Status ScanLocalState<Derived>::_normalize_is_null_predicate(
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
                     slot->is_nullable(), slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(true);
-            range.intersection(temp_range);
+            RETURN_IF_ERROR(range.intersection(temp_range));
             *pdt = temp_pdt;
         } else if (reinterpret_cast<vectorized::VectorizedFnCall*>(expr)->fn().name.function_name ==
                    "is_not_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
                     slot->is_nullable(), slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(false);
-            range.intersection(temp_range);
+            RETURN_IF_ERROR(range.intersection(temp_range));
             *pdt = temp_pdt;
         }
     }
@@ -973,7 +983,7 @@ Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
 }
 
 template <typename Derived>
-void ScanLocalState<Derived>::_normalize_compound_predicate(
+Status ScanLocalState<Derived>::_normalize_compound_predicate(
         vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
         vectorized::VScanNode::PushDownType* pdt, bool _is_runtime_filter_predicate,
         const std::function<bool(const vectorized::VExprSPtrs&,
@@ -996,16 +1006,16 @@ void ScanLocalState<Derived>::_normalize_compound_predicate(
                                                  &range_on_slot)) {
                     ColumnValueRangeType active_range =
                             *range_on_slot; // copy, in order not to affect the range in the _colname_to_value_range
-                    std::visit(
+                    RETURN_IF_ERROR(std::visit(
                             [&](auto& value_range) {
                                 Defer mark_runtime_filter_flag {[&]() {
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                static_cast<void>(_normalize_binary_in_compound_predicate(
-                                        child_expr, expr_ctx, slot, value_range, pdt));
+                                return _normalize_binary_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt);
                             },
-                            active_range);
+                            active_range));
 
                     _compound_value_ranges.emplace_back(active_range);
                 }
@@ -1018,26 +1028,27 @@ void ScanLocalState<Derived>::_normalize_compound_predicate(
                                                  &range_on_slot)) {
                     ColumnValueRangeType active_range =
                             *range_on_slot; // copy, in order not to affect the range in the _colname_to_value_range
-                    std::visit(
+                    RETURN_IF_ERROR(std::visit(
                             [&](auto& value_range) {
                                 Defer mark_runtime_filter_flag {[&]() {
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                static_cast<void>(_normalize_match_in_compound_predicate(
-                                        child_expr, expr_ctx, slot, value_range, pdt));
+                                return _normalize_match_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt);
                             },
-                            active_range);
+                            active_range));
 
                     _compound_value_ranges.emplace_back(active_range);
                 }
             } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
-                _normalize_compound_predicate(child_expr, expr_ctx, pdt,
-                                              _is_runtime_filter_predicate, in_predicate_checker,
-                                              eq_predicate_checker);
+                RETURN_IF_ERROR(_normalize_compound_predicate(
+                        child_expr, expr_ctx, pdt, _is_runtime_filter_predicate,
+                        in_predicate_checker, eq_predicate_checker));
             }
         }
     }
+    return Status::OK();
 }
 
 template <typename Derived>
@@ -1147,7 +1158,7 @@ Status ScanLocalState<Derived>::_normalize_match_predicate(
                             temp_range, to_match_type(expr->op()),
                             reinterpret_cast<CppType*>(const_cast<char*>(value.data)));
                 }
-                range.intersection(temp_range);
+                RETURN_IF_ERROR(range.intersection(temp_range));
             }
             *pdt = temp_pdt;
         }

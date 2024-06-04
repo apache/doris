@@ -779,7 +779,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
     // TODO need check the status, but when I add return_if_error the P0 will not pass
-    static_cast<void>(_runtimefilter_controller.add_entity(
+    RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
             params.params, params.params.query_id, params.query_options, &handler,
             RuntimeFilterParamsContext::create(fragment_executor->runtime_state())));
     int64 now = duration_cast<std::chrono::milliseconds>(

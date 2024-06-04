@@ -537,26 +537,29 @@ struct BitmapNot {
     using T1 = typename RightDataType::FieldType;
     using TData = std::vector<BitmapValue>;
 
-    static void vector_vector(const TData& lvec, const TData& rvec, TData& res) {
+    static Status vector_vector(const TData& lvec, const TData& rvec, TData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lvec[i];
             res[i] -= rvec[i];
         }
+        return Status::OK();
     }
-    static void vector_scalar(const TData& lvec, const BitmapValue& rval, TData& res) {
+    static Status vector_scalar(const TData& lvec, const BitmapValue& rval, TData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lvec[i];
             res[i] -= rval;
         }
+        return Status::OK();
     }
-    static void scalar_vector(const BitmapValue& lval, const TData& rvec, TData& res) {
+    static Status scalar_vector(const BitmapValue& lval, const TData& rvec, TData& res) {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lval;
             res[i] -= rvec[i];
         }
+        return Status::OK();
     }
 };
 
@@ -571,7 +574,7 @@ struct BitmapAndNot {
     using T1 = typename RightDataType::FieldType;
     using TData = std::vector<BitmapValue>;
 
-    static void vector_vector(const TData& lvec, const TData& rvec, TData& res) {
+    static Status vector_vector(const TData& lvec, const TData& rvec, TData& res) {
         size_t size = lvec.size();
         BitmapValue mid_data;
         for (size_t i = 0; i < size; ++i) {
@@ -581,8 +584,9 @@ struct BitmapAndNot {
             res[i] -= mid_data;
             mid_data.reset();
         }
+        return Status::OK();
     }
-    static void vector_scalar(const TData& lvec, const BitmapValue& rval, TData& res) {
+    static Status vector_scalar(const TData& lvec, const BitmapValue& rval, TData& res) {
         size_t size = lvec.size();
         BitmapValue mid_data;
         for (size_t i = 0; i < size; ++i) {
@@ -592,8 +596,9 @@ struct BitmapAndNot {
             res[i] -= mid_data;
             mid_data.reset();
         }
+        return Status::OK();
     }
-    static void scalar_vector(const BitmapValue& lval, const TData& rvec, TData& res) {
+    static Status scalar_vector(const BitmapValue& lval, const TData& rvec, TData& res) {
         size_t size = rvec.size();
         BitmapValue mid_data;
         for (size_t i = 0; i < size; ++i) {
@@ -603,6 +608,7 @@ struct BitmapAndNot {
             res[i] -= mid_data;
             mid_data.reset();
         }
+        return Status::OK();
     }
 };
 
@@ -816,23 +822,26 @@ struct BitmapContains {
     using RTData = typename ColumnVector<T1>::Container;
     using ResTData = typename ColumnVector<UInt8>::Container;
 
-    static void vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
+    static Status vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lvec[i].contains(rvec[i]);
         }
+        return Status::OK();
     }
-    static void vector_scalar(const LTData& lvec, const T1& rval, ResTData& res) {
+    static Status vector_scalar(const LTData& lvec, const T1& rval, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lvec[i].contains(rval);
         }
+        return Status::OK();
     }
-    static void scalar_vector(const BitmapValue& lval, const RTData& rvec, ResTData& res) {
+    static Status scalar_vector(const BitmapValue& lval, const RTData& rvec, ResTData& res) {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lval.contains(rvec[i]);
         }
+        return Status::OK();
     }
 };
 
@@ -849,26 +858,29 @@ struct BitmapRemove {
     using RTData = typename ColumnVector<T1>::Container;
     using ResTData = std::vector<BitmapValue>;
 
-    static void vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
+    static Status vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lvec[i];
             res[i].remove(rvec[i]);
         }
+        return Status::OK();
     }
-    static void vector_scalar(const LTData& lvec, const T1& rval, ResTData& res) {
+    static Status vector_scalar(const LTData& lvec, const T1& rval, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lvec[i];
             res[i].remove(rval);
         }
+        return Status::OK();
     }
-    static void scalar_vector(const BitmapValue& lval, const RTData& rvec, ResTData& res) {
+    static Status scalar_vector(const BitmapValue& lval, const RTData& rvec, ResTData& res) {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lval;
             res[i].remove(rvec[i]);
         }
+        return Status::OK();
     }
 };
 
@@ -884,29 +896,32 @@ struct BitmapHasAny {
     using TData = std::vector<BitmapValue>;
     using ResTData = typename ColumnVector<UInt8>::Container;
 
-    static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
+    static Status vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             auto bitmap = const_cast<BitmapValue&>(lvec[i]);
             bitmap &= rvec[i];
             res[i] = bitmap.cardinality() != 0;
         }
+        return Status::OK();
     }
-    static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
+    static Status vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             auto bitmap = const_cast<BitmapValue&>(lvec[i]);
             bitmap &= rval;
             res[i] = bitmap.cardinality() != 0;
         }
+        return Status::OK();
     }
-    static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
+    static Status scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
             auto bitmap = const_cast<BitmapValue&>(lval);
             bitmap &= rvec[i];
             res[i] = bitmap.cardinality() != 0;
         }
+        return Status::OK();
     }
 };
 
@@ -922,7 +937,7 @@ struct BitmapHasAll {
     using TData = std::vector<BitmapValue>;
     using ResTData = typename ColumnVector<UInt8>::Container;
 
-    static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
+    static Status vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             uint64_t lhs_cardinality = lvec[i].cardinality();
@@ -930,8 +945,9 @@ struct BitmapHasAll {
             bitmap |= rvec[i];
             res[i] = bitmap.cardinality() == lhs_cardinality;
         }
+        return Status::OK();
     }
-    static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
+    static Status vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             uint64_t lhs_cardinality = lvec[i].cardinality();
@@ -939,8 +955,9 @@ struct BitmapHasAll {
             bitmap |= rval;
             res[i] = bitmap.cardinality() == lhs_cardinality;
         }
+        return Status::OK();
     }
-    static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
+    static Status scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
             uint64_t lhs_cardinality = lval.cardinality();
@@ -948,6 +965,7 @@ struct BitmapHasAll {
             bitmap |= rvec[i];
             res[i] = bitmap.cardinality() == lhs_cardinality;
         }
+        return Status::OK();
     }
 };
 

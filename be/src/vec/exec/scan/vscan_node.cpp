@@ -738,7 +738,7 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
                     temp_range, value, ColumnValueRange<T>::add_fixed_value_range, ""));
             iter->next();
         }
-        range.intersection(temp_range);
+        RETURN_IF_ERROR(range.intersection(temp_range));
         *pdt = PushDownType::ACCEPTABLE;
     } else if (TExprNodeType::BINARY_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 2);
@@ -775,7 +775,7 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
                         temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
             }
-            range.intersection(temp_range);
+            RETURN_IF_ERROR(range.intersection(temp_range));
         }
         *pdt = temp_pdt;
     }
@@ -900,14 +900,14 @@ Status VScanNode::_normalize_is_null_predicate(VExpr* expr, VExprContext* expr_c
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
                     slot->is_nullable(), slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(true);
-            range.intersection(temp_range);
+            RETURN_IF_ERROR(range.intersection(temp_range));
             *pdt = temp_pdt;
         } else if (reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name ==
                    "is_not_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
                     slot->is_nullable(), slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(false);
-            range.intersection(temp_range);
+            RETURN_IF_ERROR(range.intersection(temp_range));
             *pdt = temp_pdt;
         }
     }
@@ -1164,7 +1164,7 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
                             temp_range, to_match_type(expr->op()),
                             reinterpret_cast<CppType*>(const_cast<char*>(value.data)));
                 }
-                range.intersection(temp_range);
+                RETURN_IF_ERROR(range.intersection(temp_range));
             }
             *pdt = temp_pdt;
         }
@@ -1181,9 +1181,10 @@ Status VScanNode::_change_value_range(ColumnValueRange<PrimitiveType>& temp_rang
         memcpy(&tmp_value, value, sizeof(VecDateTimeValue));
         if constexpr (IsFixed) {
             if (!tmp_value.check_loss_accuracy_cast_to_date()) {
-                func(temp_range,
-                     reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                             &tmp_value));
+                RETURN_IF_ERROR(func(
+                        temp_range,
+                        reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                                &tmp_value)));
             }
         } else {
             if (tmp_value.check_loss_accuracy_cast_to_date()) {
@@ -1191,18 +1192,22 @@ Status VScanNode::_change_value_range(ColumnValueRange<PrimitiveType>& temp_rang
                     ++tmp_value;
                 }
             }
-            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         &tmp_value));
+            RETURN_IF_ERROR(
+                    func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+                         reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                                 &tmp_value)));
         }
     } else if constexpr (PrimitiveType == TYPE_DATETIME) {
         if constexpr (IsFixed) {
-            func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+            RETURN_IF_ERROR(
+                    func(temp_range,
+                         reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                                 value)));
         } else {
-            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         reinterpret_cast<char*>(value)));
+            RETURN_IF_ERROR(
+                    func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+                         reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                                 reinterpret_cast<char*>(value))));
         }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
                          (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_HLL) ||
@@ -1215,11 +1220,15 @@ Status VScanNode::_change_value_range(ColumnValueRange<PrimitiveType>& temp_rang
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_STRING) ||
                          (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
         if constexpr (IsFixed) {
-            func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+            RETURN_IF_ERROR(
+                    func(temp_range,
+                         reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                                 value)));
         } else {
-            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+            RETURN_IF_ERROR(
+                    func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+                         reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                                 value)));
         }
     } else {
         static_assert(always_false_v<PrimitiveType>);

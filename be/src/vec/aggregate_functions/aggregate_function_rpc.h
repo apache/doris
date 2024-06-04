@@ -75,7 +75,7 @@ public:
     bool has_error() { return _error == true; }
 
     Status merge(AggregateRpcUdafData& rhs) {
-        static_cast<void>(send_buffer_to_rpc_server());
+        RETURN_IF_ERROR(send_buffer_to_rpc_server());
         if (has_last_result()) {
             PFunctionCallRequest request;
             PFunctionCallResponse response;
@@ -192,10 +192,10 @@ public:
     Status buffer_add(const IColumn** columns, int start, int end,
                       const DataTypes& argument_types) {
         PFunctionCallRequest request;
-        static_cast<void>(gen_request_data(request, columns, start, end, argument_types));
+        RETURN_IF_ERROR(gen_request_data(request, columns, start, end, argument_types));
         _buffer_request.push_back(request);
         if (_buffer_request.size() >= max_buffered_rows) {
-            static_cast<void>(send_buffer_to_rpc_server());
+            RETURN_IF_ERROR(send_buffer_to_rpc_server());
         }
         return Status::OK();
     }
@@ -226,7 +226,7 @@ public:
         PFunctionCallResponse response;
         brpc::Controller cntl;
         request.set_function_name(_update_fn);
-        static_cast<void>(gen_request_data(request, columns, start, end, argument_types));
+        RETURN_IF_ERROR(gen_request_data(request, columns, start, end, argument_types));
         if (has_last_result()) {
             request.mutable_context()->mutable_function_context()->mutable_args_data()->CopyFrom(
                     _res.result());
@@ -278,14 +278,14 @@ public:
             to.insert_default();
             return Status::OK();
         }
-        static_cast<void>(send_buffer_to_rpc_server());
+        RETURN_IF_ERROR(send_buffer_to_rpc_server());
         PFunctionCallRequest request;
         PFunctionCallResponse response;
         brpc::Controller cntl;
         request.set_function_name(_finalize_fn);
         request.mutable_context()->mutable_function_context()->mutable_args_data()->CopyFrom(
                 _res.result());
-        static_cast<void>(send_rpc_request(cntl, request, response));
+        RETURN_IF_ERROR(send_rpc_request(cntl, request, response));
         if (has_error()) {
             to.insert_default();
             return Status::OK();

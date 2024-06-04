@@ -615,11 +615,11 @@ Status VDataStreamSender::open(RuntimeState* state) {
 }
 
 template <typename ChannelPtrType>
-void VDataStreamSender::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
-                                            Status st) {
+Status VDataStreamSender::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
+                                              Status st) {
     channel->set_receiver_eof(st);
     // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
-    static_cast<void>(channel->close(state, Status::OK()));
+    return channel->close(state, Status::OK());
 }
 
 Status VDataStreamSender::_send_new_partition_batch() {

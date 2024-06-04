@@ -355,10 +355,10 @@ struct StringFunctionImpl {
     using ResultDataType = typename OP::ResultDataType;
     using ResultPaddedPODArray = typename OP::ResultPaddedPODArray;
 
-    static void vector_vector(const ColumnString::Chars& ldata,
-                              const ColumnString::Offsets& loffsets,
-                              const ColumnString::Chars& rdata,
-                              const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+    static Status vector_vector(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets,
+                                const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         DCHECK_EQ(loffsets.size(), roffsets.size());
 
         auto size = loffsets.size();
@@ -375,10 +375,11 @@ struct StringFunctionImpl {
 
             OP::execute(lview, rview, res[i]);
         }
+        return Status::OK();
     }
-    static void vector_scalar(const ColumnString::Chars& ldata,
-                              const ColumnString::Offsets& loffsets, const StringRef& rdata,
-                              ResultPaddedPODArray& res) {
+    static Status vector_scalar(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets, const StringRef& rdata,
+                                ResultPaddedPODArray& res) {
         auto size = loffsets.size();
         res.resize(size);
         std::string_view rview(rdata.data, rdata.size);
@@ -389,9 +390,10 @@ struct StringFunctionImpl {
 
             OP::execute(lview, rview, res[i]);
         }
+        return Status::OK();
     }
-    static void scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
-                              const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+    static Status scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         auto size = roffsets.size();
         res.resize(size);
         std::string_view lview(ldata.data, ldata.size);
@@ -402,6 +404,7 @@ struct StringFunctionImpl {
 
             OP::execute(lview, rview, res[i]);
         }
+        return Status::OK();
     }
 };
 
