@@ -111,11 +111,11 @@ jdk_version() {
     local IFS=$'\n'
 
     if ! command -v "${java_cmd}" >/dev/null; then
-        echo "ERROR: invalid java_cmd ${java_cmd}" >> "${STDOUT_LOGGER}"
+        echo "ERROR: invalid java_cmd ${java_cmd}" >>"${STDOUT_LOGGER}"
         result=no_java
         return 1
     else
-        echo "INFO: java_cmd ${java_cmd}" >> "${STDOUT_LOGGER}"
+        echo "INFO: java_cmd ${java_cmd}" >>"${STDOUT_LOGGER}"
         local version
         # remove \r for Cygwin
         version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
@@ -125,7 +125,7 @@ jdk_version() {
         else
             result="$(echo "${version}" | awk -F '.' '{print $1}')"
         fi
-        echo "INFO: jdk_version ${result}" >> "${STDOUT_LOGGER}"
+        echo "INFO: jdk_version ${result}" >>"${STDOUT_LOGGER}"
     fi
     echo "${result}"
     return 0
@@ -263,7 +263,7 @@ if [[ -z "${JAVA_HOME}" ]]; then
     log "The JAVA_HOME environment variable is not set correctly"
     log "This environment variable is required to run this program"
     log "Note: JAVA_HOME should point to a JDK and not a JRE"
-    log  "You can set JAVA_HOME in the be.conf configuration file"
+    log "You can set JAVA_HOME in the be.conf configuration file"
     exit 1
 fi
 
