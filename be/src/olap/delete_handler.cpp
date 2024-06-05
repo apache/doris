@@ -21,12 +21,9 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <algorithm>
 #include <boost/regex.hpp>
-#include <limits>
 #include <sstream>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -48,6 +45,47 @@ using ::google::protobuf::RepeatedPtrField;
 
 namespace doris {
 using namespace ErrorCode;
+
+// construct sub condition from TCondition
+std::string construct_sub_predicate(const TCondition& condition) {
+    string op = condition.condition_op;
+    if (op == "<") {
+        op += "<";
+    } else if (op == ">") {
+        op += ">";
+    }
+    string condition_str;
+    if ("IS" == op) {
+        // ATTN: tricky! Surround IS with spaces to make it "special"
+        condition_str = condition.column_name + " IS " + condition.condition_values[0];
+    } else { // multi-elements IN expr has been processed with InPredicatePB
+        if (op == "*=") {
+            op = "=";
+        } else if (op == "!*=") {
+            op = "!=";
+        }
+        condition_str = condition.column_name + op + "'" + condition.condition_values[0] + "'";
+    }
+    return condition_str;
+}
+
+// make operators from FE adaptive to BE
+std::string trans_op(const std::string& opt) {
+    std::string op = string(opt);
+    if (op == "<") {
+        op += "<";
+    } else if (op == ">") {
+        op += ">";
+    }
+    if ("IS" != op) {
+        if (op == "*=") {
+            op = "=";
+        } else if (op == "!*=") {
+            op = "!=";
+        }
+    }
+    return op;
+}
 
 Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
                                                 const std::vector<TCondition>& conditions,
@@ -124,45 +162,6 @@ void DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred,
     for (auto& in_pred : *in_pred_list) {
         in_pred.set_column_unique_id(schema->column(in_pred.column_name()).unique_id());
     }
-}
-
-std::string DeleteHandler::construct_sub_predicate(const TCondition& condition) {
-    string op = condition.condition_op;
-    if (op == "<") {
-        op += "<";
-    } else if (op == ">") {
-        op += ">";
-    }
-    string condition_str;
-    if ("IS" == op) {
-        // ATTN: tricky! Surround IS with spaces to make it "special"
-        condition_str = condition.column_name + " IS " + condition.condition_values[0];
-    } else { // multi-elements IN expr has been processed with InPredicatePB
-        if (op == "*=") {
-            op = "=";
-        } else if (op == "!*=") {
-            op = "!=";
-        }
-        condition_str = condition.column_name + op + "'" + condition.condition_values[0] + "'";
-    }
-    return condition_str;
-}
-
-std::string DeleteHandler::trans_op(const std::string& opt) {
-    std::string op = string(opt);
-    if (op == "<") {
-        op += "<";
-    } else if (op == ">") {
-        op += ">";
-    }
-    if ("IS" != op) {
-        if (op == "*=") {
-            op = "=";
-        } else if (op == "!*=") {
-            op = "!=";
-        }
-    }
-    return op;
 }
 
 bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
@@ -395,7 +394,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         const auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
         temp.filter_version = delete_pred->version().first;
-        if (with_sub_pred_v2) {
+        if (with_sub_pred_v2 && !delete_condition.sub_predicates_v2().empty()) {
             RETURN_IF_ERROR(_parse_column_pred(tablet_schema, delete_pred_related_schema,
                                                delete_condition.sub_predicates_v2(), &temp));
         } else {
