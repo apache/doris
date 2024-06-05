@@ -813,7 +813,7 @@ enum class ExchangeType : uint8_t {
     ADAPTIVE_PASSTHROUGH = 5,
     // Send all data to the first channel.
     PASS_TO_ONE = 6,
-    // merge all data to ont channel.
+    // merge all data to one channel.
     LOCAL_MERGE_SORT = 7,
 };
 

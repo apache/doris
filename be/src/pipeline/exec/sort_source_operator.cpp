@@ -19,7 +19,6 @@
 
 #include <string>
 
-#include "common/status.h"
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
