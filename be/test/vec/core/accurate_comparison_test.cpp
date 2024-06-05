@@ -16,13 +16,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/core/accurate_comparison.h"
+
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include <string>
 
 #include "gtest/gtest_pred_impl.h"
-#include "vec/core/accurate_comparison.h"
 
 namespace doris::vectorized {
 TEST(VAccurateComparison, TestsOP) {
@@ -60,8 +61,10 @@ TEST(VAccurateComparison, TestsOP) {
     ASSERT_TRUE(accurate::lessOp(-1e100, 1));
     ASSERT_TRUE(accurate::lessOp(-1e100, -1));
 
-    ASSERT_TRUE(accurate::equalsOp(static_cast<UInt64>(9223372036854775808ULL), static_cast<Float64>(9223372036854775808ULL)));
-    ASSERT_TRUE(accurate::equalsOp(static_cast<UInt64>(9223372036854775808ULL), static_cast<Float32>(9223372036854775808ULL)));
+    ASSERT_TRUE(accurate::equalsOp(static_cast<UInt64>(9223372036854775808ULL),
+                                   static_cast<Float64>(9223372036854775808ULL)));
+    ASSERT_TRUE(accurate::equalsOp(static_cast<UInt64>(9223372036854775808ULL),
+                                   static_cast<Float32>(9223372036854775808ULL)));
     ASSERT_TRUE(accurate::lessOp(static_cast<UInt8>(255), 300));
     ASSERT_TRUE(accurate::lessOp(static_cast<UInt8>(255), static_cast<Int16>(300)));
     ASSERT_TRUE(accurate::notEqualsOp(static_cast<UInt8>(255), 44));

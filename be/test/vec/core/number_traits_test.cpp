@@ -16,6 +16,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/data_types/number_traits.h"
+
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -23,7 +25,6 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "vec/core/types.h"
-#include "vec/data_types/number_traits.h"
 
 namespace doris::vectorized {
 
@@ -55,29 +56,48 @@ static std::string getTypeString(Float64) {
     return "Float64";
 }
 void test() {
-    std::cout<<getTypeString(UInt8(0))<<" "<<getTypeString(UInt16(0))<<" "<<getTypeString(UInt32(0))<<" "<<getTypeString(UInt64(0))<<" "<<getTypeString(Float32(0))<<" ";
+    std::cout << getTypeString(UInt8(0)) << " " << getTypeString(UInt16(0)) << " "
+              << getTypeString(UInt32(0)) << " " << getTypeString(UInt64(0)) << " "
+              << getTypeString(Float32(0)) << " ";
 }
 
-TEST(VNumberTraits, ResultOfAdditionMultiplication)
-{
-    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfAdditionMultiplication<UInt8, UInt8>::Type()), "Int32");
-    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfAdditionMultiplication<UInt8, Int32>::Type()), "Int64");
-    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfAdditionMultiplication<UInt8, Float32>::Type()), "Float64");
+TEST(VNumberTraits, ResultOfAdditionMultiplication) {
+    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfAdditionMultiplication<
+                            UInt8, UInt8>::Type()),
+              "Int32");
+    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfAdditionMultiplication<
+                            UInt8, Int32>::Type()),
+              "Int64");
+    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfAdditionMultiplication<
+                            UInt8, Float32>::Type()),
+              "Float64");
 }
 
-TEST(VNumberTraits, ResultOfSubtraction)
-{
-    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfSubtraction<UInt8, UInt8>::Type()), "Int16");
-    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfSubtraction<UInt16, UInt8>::Type()), "Int32");
-    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfSubtraction<UInt16, Int8>::Type()), "Int32");
+TEST(VNumberTraits, ResultOfSubtraction) {
+    ASSERT_EQ(getTypeString(
+                      doris::vectorized::NumberTraits::ResultOfSubtraction<UInt8, UInt8>::Type()),
+              "Int16");
+    ASSERT_EQ(getTypeString(
+                      doris::vectorized::NumberTraits::ResultOfSubtraction<UInt16, UInt8>::Type()),
+              "Int32");
+    ASSERT_EQ(getTypeString(
+                      doris::vectorized::NumberTraits::ResultOfSubtraction<UInt16, Int8>::Type()),
+              "Int32");
 }
 
-TEST(VNumberTraits, Others)
-{
-    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfFloatingPointDivision<UInt16, Int16>::Type()), "Float64");
-    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfFloatingPointDivision<UInt32, Int16>::Type()), "Float64");
-    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfIntegerDivision<UInt8, Int16>::Type()), "Int8");
-    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfModulo<UInt32, Int8>::Type()), "Int32");
+TEST(VNumberTraits, Others) {
+    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfFloatingPointDivision<
+                            UInt16, Int16>::Type()),
+              "Float64");
+    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfFloatingPointDivision<
+                            UInt32, Int16>::Type()),
+              "Float64");
+    ASSERT_EQ(
+            getTypeString(
+                    doris::vectorized::NumberTraits::ResultOfIntegerDivision<UInt8, Int16>::Type()),
+            "Int8");
+    ASSERT_EQ(getTypeString(doris::vectorized::NumberTraits::ResultOfModulo<UInt32, Int8>::Type()),
+              "Int32");
 }
 
 } // namespace doris::vectorized

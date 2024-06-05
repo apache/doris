@@ -16,13 +16,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/core/field.h"
+
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include <string>
 
 #include "gtest/gtest_pred_impl.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
