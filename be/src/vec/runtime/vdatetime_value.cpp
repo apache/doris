@@ -3390,7 +3390,8 @@ void DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
     int32_t millisecond = (nano_seconds /= 10) * common::exp10_i32(6 - scale);
     cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
     const auto tp = cctz::convert(t, ctz);
-    unchecked_set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(), millisecond);
+    unchecked_set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
+                       millisecond);
 }
 
 template <typename T>
