@@ -280,7 +280,7 @@ public class CloudLoadManager extends LoadManager {
                 if (jobs.size() <= Config.cloud_max_copy_job_per_table) {
                     continue;
                 }
-                jobs.sort((o1, o2) -> Long.compare(o2.finishTimestamp, o1.finishTimestamp));
+                jobs.sort((o1, o2) -> Long.compare(o2.getFinishTimestamp(), o1.getFinishTimestamp()));
                 int finishJobCount = 0;
                 boolean found = false;
                 for (LoadJob job : jobs) {
