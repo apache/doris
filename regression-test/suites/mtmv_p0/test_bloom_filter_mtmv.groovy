@@ -28,7 +28,8 @@ suite("test_bloom_filter_mtmv","mtmv") {
     sql """
         CREATE TABLE ${tableName}
         (
-            k2 TINYINT,
+            k1 TINYINT,
+            k2 INT,
             k3 INT not null
         )
         DISTRIBUTED BY HASH(k2) BUCKETS 2
