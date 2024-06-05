@@ -127,6 +127,13 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(description = {"是否使用文件记录日志。当使用 --console 启动 FE 时，全部日志同时写入到标准输出和文件。"
+            + "如果关闭这个选项，不再使用文件记录日志。",
+            "Whether to use file to record log. When starting FE with --console, "
+                    + "all logs will be written to both standard output and file. "
+                    + "Close this option will no longer use file to record log."})
+    public static boolean enable_file_logger = true;
+
     @ConfField(mutable = false, masterOnly = false,
             description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
@@ -2599,6 +2606,16 @@ public class Config extends ConfigBase {
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
+    @ConfField(description = {"是否启用FE 日志文件按照大小删除策略，当日志大小超过指定大小，删除相关的log。默认为按照时间策略删除",
+        "Whether to enable the FE log file deletion policy based on size, "
+            + "where logs exceeding the specified size are deleted. "
+            + "It is disabled by default and follows a time-based deletion policy."},
+            options = {"age", "size"})
+    public static String log_rollover_strategy = "age";
+
+    @ConfField public static int info_sys_accumulated_file_size = 4;
+    @ConfField public static int warn_sys_accumulated_file_size = 2;
+    @ConfField public static int audit_sys_accumulated_file_size = 4;
 
     @ConfField
     public static String cloud_unique_id = "";

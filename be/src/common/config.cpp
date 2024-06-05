@@ -1225,6 +1225,9 @@ DEFINE_mBool(ignore_schema_change_check, "false");
 //JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues. The default setting is off.
 DEFINE_Bool(enable_jvm_monitor, "false");
 
+// Skip loading stale rowset meta when initializing `TabletMeta` from protobuf
+DEFINE_mBool(skip_loading_stale_rowset_meta, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

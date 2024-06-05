@@ -581,17 +581,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _rs_metas.push_back(std::move(rs_meta));
     }
 
-    // init _stale_rs_metas
-    for (auto& it : tablet_meta_pb.stale_rs_metas()) {
-        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
-        rs_meta->init_from_pb(it);
-        _stale_rs_metas.push_back(std::move(rs_meta));
-    }
-
     // For mow table, delete bitmap of stale rowsets has not been persisted.
     // When be restart, query should not read the stale rowset, otherwise duplicate keys
     // will be read out. Therefore, we don't add them to _stale_rs_meta for mow table.
-    if (!_enable_unique_key_merge_on_write) {
+    if (!config::skip_loading_stale_rowset_meta && !_enable_unique_key_merge_on_write) {
         for (auto& it : tablet_meta_pb.stale_rs_metas()) {
             RowsetMetaSharedPtr rs_meta(new RowsetMeta());
             rs_meta->init_from_pb(it);
@@ -1018,6 +1011,14 @@ bool DeleteBitmap::contains_agg(const BitmapKey& bmk, uint32_t row_id) const {
 bool DeleteBitmap::empty() const {
     std::shared_lock l(lock);
     return delete_bitmap.empty();
+}
+
+uint64_t DeleteBitmap::cardinality() const {
+    uint64_t res = 0;
+    for (auto entry : delete_bitmap) {
+        res += entry.second.cardinality();
+    }
+    return res;
 }
 
 bool DeleteBitmap::contains_agg_without_cache(const BitmapKey& bmk, uint32_t row_id) const {

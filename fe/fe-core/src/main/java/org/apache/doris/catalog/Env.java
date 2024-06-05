@@ -103,6 +103,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.LogUtils;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsSqlCacheManager;
 import org.apache.doris.common.Pair;
@@ -1581,7 +1582,7 @@ public class Env {
             checkLowerCaseTableNames();
 
             String msg = "master finished to replay journal, can write now.";
-            Util.stdoutWithTime(msg);
+            LogUtils.stdout(msg);
             LOG.info(msg);
             // for master, there are some new thread pools need to register metric
             ThreadPoolManager.registerAllThreadPoolMetric();
@@ -2655,7 +2656,7 @@ public class Env {
         try {
             String msg = "notify new FE type transfer: " + newType;
             LOG.warn(msg);
-            Util.stdoutWithTime(msg);
+            LogUtils.stdout(msg);
             this.typeTransferQueue.put(newType);
         } catch (InterruptedException e) {
             LOG.error("failed to put new FE type: {}", newType, e);
@@ -2673,7 +2674,7 @@ public class Env {
                         newType = typeTransferQueue.take();
                     } catch (InterruptedException e) {
                         LOG.error("got exception when take FE type from queue", e);
-                        Util.stdoutWithTime("got exception when take FE type from queue. " + e.getMessage());
+                        LogUtils.stdout("got exception when take FE type from queue. " + e.getMessage());
                         System.exit(-1);
                     }
                     Preconditions.checkNotNull(newType);
@@ -2755,7 +2756,7 @@ public class Env {
                             // exit if master changed to any other type
                             String msg = "transfer FE type from MASTER to " + newType.name() + ". exit";
                             LOG.error(msg);
-                            Util.stdoutWithTime(msg);
+                            LogUtils.stdout(msg);
                             System.exit(-1);
                             break;
                         }
@@ -6189,3 +6190,4 @@ public class Env {
         }
     }
 }
+

@@ -1279,9 +1279,13 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
         } else if (resource.__isset.hdfs_storage_param) {
             Status st;
             std::shared_ptr<io::HdfsFileSystem> fs;
+            std::string root_path = resource.hdfs_storage_param.__isset.root_path
+                                            ? resource.hdfs_storage_param.root_path
+                                            : "";
             if (existed_resource.fs == nullptr) {
                 st = io::HdfsFileSystem::create(resource.hdfs_storage_param,
-                                                std::to_string(resource.id), "", nullptr, &fs);
+                                                std::to_string(resource.id), root_path, nullptr,
+                                                &fs);
             } else {
                 fs = std::static_pointer_cast<io::HdfsFileSystem>(existed_resource.fs);
             }
@@ -1290,7 +1294,8 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
             } else {
                 LOG_INFO("successfully update hdfs resource")
                         .tag("resource_id", resource.id)
-                        .tag("resource_name", resource.name);
+                        .tag("resource_name", resource.name)
+                        .tag("root_path", fs->root_path().string());
                 put_storage_resource(resource.id, {std::move(fs), resource.version});
             }
         } else {
