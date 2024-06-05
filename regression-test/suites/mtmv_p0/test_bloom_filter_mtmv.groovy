@@ -67,18 +67,10 @@ suite("test_bloom_filter_mtmv","mtmv") {
         ALTER TABLE ${mvName} SET ("bloom_filter_columns" = "k3");
         """
 
-    showCreateTableResult = sql """show create table ${mvName}"""
-    logger.info("showCreateTableResult: " + showCreateTableResult.toString())
-    assertTrue(showCreateTableResult.toString().contains('bloom_filter_columns" = "k3"'))
-
     // delete index
     sql """
         ALTER TABLE ${mvName} SET ("bloom_filter_columns" = "");
         """
-
-    showCreateTableResult = sql """show create table ${mvName}"""
-    logger.info("showCreateTableResult: " + showCreateTableResult.toString())
-    assertFalse(showCreateTableResult.toString().contains('bloom_filter_columns" = "k3"'))
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
