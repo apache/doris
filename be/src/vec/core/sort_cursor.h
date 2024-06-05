@@ -195,6 +195,9 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
     }
 
     bool has_next_block() override {
+        if (_is_eof) {
+            return false;
+        }
         _block.clear();
         Status status;
         do {
