@@ -2769,31 +2769,12 @@ public class Coordinator implements CoordInterface {
             if (!params.done) {
                 return false;
             }
-            if (enablePipelineX) {
-                if (this.done) {
-                    // duplicate packet
-                    return false;
-                }
-                this.done = true;
-                return true;
-            } else {
-                // could not find the related instances, not update and return false, to indicate
-                // that the caller should not update any more.
-                if (!fragmentInstancesMap.containsKey(params.fragment_instance_id)) {
-                    return false;
-                }
-                Boolean instanceDone = fragmentInstancesMap.get(params.fragment_instance_id);
-                if (instanceDone) {
-                    // duplicate packet
-                    return false;
-                }
-                fragmentInstancesMap.put(params.fragment_instance_id, true);
-                profileReportProgress++;
-                if (profileReportProgress == numInstances) {
-                    this.done = true;
-                }
-                return true;
+            if (this.done) {
+                // duplicate packet
+                return false;
             }
+            this.done = true;
+            return true;
         }
 
         public boolean isBackendStateHealthy() {
