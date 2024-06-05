@@ -767,7 +767,7 @@ public class Alter {
             } else {
                 if (partition.getRemoteDataSize() > 0) {
                     throw new AnalysisException(
-                        "Cannot cancel storage policy for partition which is already on code storage.");
+                        "Cannot cancel storage policy for partition which is already on cold storage.");
                 }
                 partitionInfo.setStoragePolicy(partition.getId(), "");
             }
