@@ -88,6 +88,8 @@ github:
         checks:
           - context: COMPILE (DORIS_COMPILE)
             app_id: -1
+          - context: P0 Regression (Doris Regression)
+            app_id: -1
 
     branch-2.0:
       required_status_checks:
