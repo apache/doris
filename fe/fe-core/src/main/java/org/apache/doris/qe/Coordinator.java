@@ -214,8 +214,6 @@ public class Coordinator implements CoordInterface {
 
     private Map<Long, PipelineExecContexts> beToPipelineExecCtxs = Maps.newHashMap();
 
-    // backend execute state
-    private final List<BackendExecState> backendExecStates = Lists.newArrayList();
     private final Map<Pair<Integer, Long>, PipelineExecContext> pipelineExecContexts = new HashMap<>();
     private final List<PipelineExecContext> needCheckPipelineExecContexts = Lists.newArrayList();
     private ResultReceiver receiver;
@@ -2706,86 +2704,6 @@ public class Coordinator implements CoordInterface {
     private final Set<Integer> colocateFragmentIds = new HashSet<>();
     private final BucketShuffleJoinController bucketShuffleJoinController
             = new BucketShuffleJoinController(fragmentIdToScanNodeIds);
-
-    // record backend execute state
-    // TODO(zhaochun): add profile information and others
-    public class BackendExecState {
-        TExecPlanFragmentParams rpcParams;
-        PlanFragmentId fragmentId;
-        boolean initiated;
-        volatile boolean done;
-        TNetworkAddress brpcAddress;
-        TNetworkAddress address;
-        Backend backend;
-        long lastMissingHeartbeatTime = -1;
-        TUniqueId instanceId;
-
-        public BackendExecState(PlanFragmentId fragmentId, int instanceId,
-                                TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID,
-                                ExecutionProfile executionProfile) {
-            this.fragmentId = fragmentId;
-            this.rpcParams = rpcParams;
-            this.initiated = false;
-            this.done = false;
-            FInstanceExecParam fi = fragmentExecParamsMap.get(fragmentId).instanceExecParams.get(instanceId);
-            this.instanceId = fi.instanceId;
-            this.address = fi.host;
-            this.backend = idToBackend.get(addressToBackendID.get(address));
-            this.brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-            this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
-            String profileName = "Instance " + DebugUtil.printId(
-                    fi.instanceId) + " (host=" + this.backend.getHeartbeatAddress() + ")";
-            RuntimeProfile instanceProfile = new RuntimeProfile(profileName);
-            executionProfile.addInstanceProfile(fragmentId, fi.instanceId, instanceProfile);
-        }
-
-        /**
-         * Some information common to all Fragments does not need to be sent repeatedly.
-         * Therefore, when we confirm that a certain BE has accepted the information,
-         * we will delete the information in the subsequent Fragment to avoid repeated sending.
-         * This information can be obtained from the cache of BE.
-         */
-        public void unsetFields() {
-            this.rpcParams.unsetDescTbl();
-            this.rpcParams.unsetFileScanParams();
-            this.rpcParams.unsetCoord();
-            this.rpcParams.unsetQueryGlobals();
-            this.rpcParams.unsetResourceInfo();
-            this.rpcParams.setIsSimplifiedParam(true);
-        }
-
-        // update the instance status, if it is already finished, then not update any more.
-        public synchronized boolean updateInstanceStatus(TReportExecStatusParams params) {
-            if (this.done) {
-                // duplicate packet
-                return false;
-            }
-            this.done = params.done;
-            if (statsErrorEstimator != null) {
-                statsErrorEstimator.updateExactReturnedRows(params);
-            }
-            return true;
-        }
-
-        public boolean isBackendStateHealthy() {
-            if (backend.getLastMissingHeartbeatTime() > lastMissingHeartbeatTime && !backend.isAlive()) {
-                LOG.warn("backend {} is down while joining the coordinator. job id: {}",
-                        backend.getId(), jobId);
-                return false;
-            }
-            return true;
-        }
-
-        public FragmentInstanceInfo buildFragmentInstanceInfo() {
-            return new QueryStatisticsItem.FragmentInstanceInfo.Builder().instanceId(fragmentInstanceId())
-                    .fragmentId(String.valueOf(fragmentId)).address(this.address).build();
-        }
-
-        private TUniqueId fragmentInstanceId() {
-            return this.rpcParams.params.getFragmentInstanceId();
-        }
-    }
-
     public class PipelineExecContext {
         TPipelineFragmentParams rpcParams;
         PlanFragmentId fragmentId;
@@ -3438,26 +3356,13 @@ public class Coordinator implements CoordInterface {
                 Lists.newArrayList();
         lock();
         try {
-            if (enablePipelineEngine) {
-                for (int index = 0; index < fragments.size(); index++) {
-                    for (PipelineExecContext ctx : pipelineExecContexts.values()) {
-                        if (fragments.get(index).getFragmentId() != ctx.fragmentId) {
-                            continue;
-                        }
-                        final List<QueryStatisticsItem.FragmentInstanceInfo> info = ctx.buildFragmentInstanceInfo();
-                        result.addAll(info);
+            for (int index = 0; index < fragments.size(); index++) {
+                for (PipelineExecContext ctx : pipelineExecContexts.values()) {
+                    if (fragments.get(index).getFragmentId() != ctx.fragmentId) {
+                        continue;
                     }
-                }
-            } else {
-                for (int index = 0; index < fragments.size(); index++) {
-                    for (BackendExecState backendExecState : backendExecStates) {
-                        if (fragments.get(index).getFragmentId() != backendExecState.fragmentId) {
-                            continue;
-                        }
-                        final QueryStatisticsItem.FragmentInstanceInfo info =
-                                backendExecState.buildFragmentInstanceInfo();
-                        result.add(info);
-                    }
+                    final List<QueryStatisticsItem.FragmentInstanceInfo> info = ctx.buildFragmentInstanceInfo();
+                    result.addAll(info);
                 }
             }
         } finally {
