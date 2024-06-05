@@ -493,7 +493,6 @@ public class Coordinator implements CoordInterface {
     public void clearExportStatus() {
         lock.lock();
         try {
-            this.backendExecStates.clear();
             this.pipelineExecContexts.clear();
             this.queryStatus.updateStatus(TStatusCode.OK, "");
             if (this.exportFiles == null) {
