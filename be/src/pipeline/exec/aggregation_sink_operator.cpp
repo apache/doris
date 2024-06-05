@@ -24,6 +24,7 @@
 #include "pipeline/exec/operator.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/hash_table/hash.h"
+#include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
 
@@ -110,25 +111,24 @@ Status AggSinkLocalState::open(RuntimeState* state) {
     } else {
         RETURN_IF_ERROR(_init_hash_method(Base::_shared_state->probe_expr_ctxs));
 
-        std::visit(vectorized::Overload {
-                           [&](std::monostate& arg) {
-                               throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                      "uninited hash table");
-                           },
-                           [&](auto& agg_method) {
-                               using HashTableType = std::decay_t<decltype(agg_method)>;
-                               using KeyType = typename HashTableType::Key;
+        std::visit(vectorized::Overload {[&](std::monostate& arg) {
+                                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                                    "uninited hash table");
+                                         },
+                                         [&](auto& agg_method) {
+                                             using HashTableType =
+                                                     std::decay_t<decltype(agg_method)>;
+                                             using KeyType = typename HashTableType::Key;
 
-                               /// some aggregate functions (like AVG for decimal) have align issues.
-                               Base::_shared_state->aggregate_data_container =
-                                       std::make_unique<vectorized::AggregateDataContainer>(
-
-                                               sizeof(KeyType),
-                                               ((p._total_size_of_aggregate_states +
-                                                 p._align_aggregate_states - 1) /
-                                                p._align_aggregate_states) *
-                                                       p._align_aggregate_states);
-                           }},
+                                             /// some aggregate functions (like AVG for decimal) have align issues.
+                                             Base::_shared_state->aggregate_data_container =
+                                                     std::make_unique<AggregateDataContainer>(
+                                                             sizeof(KeyType),
+                                                             ((p._total_size_of_aggregate_states +
+                                                               p._align_aggregate_states - 1) /
+                                                              p._align_aggregate_states) *
+                                                                     p._align_aggregate_states);
+                                         }},
                    _agg_data->method_variant);
         if (p._is_merge) {
             _executor = std::make_unique<Executor<false, true>>();
@@ -726,10 +726,11 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPla
           _limit(tnode.limit),
           _have_conjuncts((tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) ||
                           (tnode.__isset.conjuncts && !tnode.conjuncts.empty())),
-          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
-                                                               : std::vector<TExpr> {}),
-          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate &&
-                       require_bucket_distribution),
+          _partition_exprs(tnode.__isset.distribute_expr_lists && require_bucket_distribution
+                                   ? tnode.distribute_expr_lists[0]
+                                   : tnode.agg_node.grouping_exprs),
+          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate),
+          _require_bucket_distribution(require_bucket_distribution),
           _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
 
 Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {

@@ -80,6 +80,13 @@ public class StreamLoadHandler {
         this.clientAddr = clientAddr;
     }
 
+    /**
+     * Select a random backend in the given cloud cluster.
+     *
+     * @param clusterName cloud cluster name
+     * @param groupCommit if this selection is for group commit
+     * @throws LoadException if there is no available backend
+     */
     public static Backend selectBackend(String clusterName, boolean groupCommit) throws LoadException {
         List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterName(clusterName)

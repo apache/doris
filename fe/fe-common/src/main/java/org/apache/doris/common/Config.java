@@ -127,6 +127,13 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(description = {"是否使用文件记录日志。当使用 --console 启动 FE 时，全部日志同时写入到标准输出和文件。"
+            + "如果关闭这个选项，不再使用文件记录日志。",
+            "Whether to use file to record log. When starting FE with --console, "
+                    + "all logs will be written to both standard output and file. "
+                    + "Close this option will no longer use file to record log."})
+    public static boolean enable_file_logger = true;
+
     @ConfField(mutable = false, masterOnly = false,
             description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
@@ -150,6 +157,10 @@ public class Config extends ConfigBase {
                     + "separated by semicolons"
                     + "The default is * to allow all, if set to empty, also means to allow all"})
     public static String jdbc_driver_secure_path = "*";
+
+    @ConfField(description = {"MySQL Jdbc Catalog mysql 不支持下推的函数",
+            "MySQL Jdbc Catalog mysql does not support pushdown functions"})
+    public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
@@ -393,6 +404,16 @@ public class Config extends ConfigBase {
     @ConfField(description = {"thrift client 的连接超时时间，单位是毫秒。0 表示不设置超时时间。",
             "The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
     public static int thrift_client_timeout_ms = 0;
+
+    // The default value is inherited from org.apache.thrift.TConfiguration
+    @ConfField(description = {"thrift server 接收请求大小的上限",
+            "The maximum size of a (received) message of the thrift server, in bytes"})
+    public static int thrift_max_message_size = 100 * 1024 * 1024;
+
+    // The default value is inherited from org.apache.thrift.TConfiguration
+    @ConfField(description = {"thrift server transport 接收的每帧数据大小的上限",
+            "The limits of the size of one frame of thrift server transport"})
+    public static int thrift_max_frame_size = 16384000;
 
     @ConfField(description = {"thrift server 的 backlog 数量。"
             + "如果调大这个值，则需同时调整 /proc/sys/net/core/somaxconn 的值",
@@ -1205,6 +1226,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean force_do_metadata_checkpoint = false;
+
+    /**
+     * If some joural is wrong, and FE can't start, we can use this to skip it.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String[] force_skip_journal_ids = {};
 
     /**
      * Decide how often to check dynamic partition

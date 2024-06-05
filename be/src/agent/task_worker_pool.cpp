@@ -1418,7 +1418,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         LOG_INFO("successfully update hdfs resource")
                 .tag("resource_id", param.id)
                 .tag("resource_name", param.name);
-        put_storage_resource(param.id, {std::move(fs), param.version});
+        put_storage_resource(param.id, {std::move(fs), 0}, param.version);
     }
 }
 
@@ -1452,7 +1452,7 @@ void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPt
                 .tag("resource_id", param.id)
                 .tag("resource_name", param.name)
                 .tag("root_path", fs->root_path().string());
-        put_storage_resource(param.id, {std::move(fs), param.version});
+        put_storage_resource(param.id, {std::move(fs), 0}, param.version);
     }
 }
 
@@ -1462,16 +1462,20 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
     const auto& push_storage_policy_req = req.push_storage_policy_req;
     // refresh resource
     for (auto&& param : push_storage_policy_req.resource) {
-        auto existed_resource = get_storage_resource(param.id);
-        if (existed_resource.version >= param.version) {
-            // Stale request, ignore
-            continue;
+        io::RemoteFileSystemSPtr fs;
+        if (auto existed_resource = get_storage_resource(param.id); existed_resource) {
+            if (existed_resource->second >= param.version) {
+                // Stale request, ignore
+                continue;
+            }
+
+            fs = std::move(existed_resource->first.fs);
         }
 
         if (param.__isset.s3_storage_param) {
-            update_s3_resource(param, std::move(existed_resource.fs));
+            update_s3_resource(param, std::move(fs));
         } else if (param.__isset.hdfs_storage_param) {
-            update_hdfs_resource(param, std::move(existed_resource.fs));
+            update_hdfs_resource(param, std::move(fs));
         } else {
             LOG(WARNING) << "unknown resource=" << param;
         }

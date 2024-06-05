@@ -66,7 +66,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_is_analytic_sort) {
-            return _is_colocate
+            return _is_colocate && _require_bucket_distribution
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         } else if (_merge_by_exchange) {
@@ -75,6 +75,7 @@ public:
         }
         return DataSinkOperatorX<SortSinkLocalState>::required_data_distribution();
     }
+    bool require_data_distribution() const override { return _is_colocate; }
 
     bool is_full_sort() const { return _algorithm == SortAlgorithm::FULL_SORT; }
 
@@ -106,6 +107,7 @@ private:
     const bool _use_two_phase_read;
     const bool _merge_by_exchange;
     const bool _is_colocate = false;
+    const bool _require_bucket_distribution = false;
     const bool _is_analytic_sort = false;
     const std::vector<TExpr> _partition_exprs;
 };

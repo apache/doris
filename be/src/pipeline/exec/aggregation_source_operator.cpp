@@ -22,6 +22,7 @@
 
 #include "common/exception.h"
 #include "pipeline/exec/operator.h"
+#include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
 

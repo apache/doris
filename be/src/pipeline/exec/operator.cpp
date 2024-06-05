@@ -19,7 +19,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "exec/exec_node.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"

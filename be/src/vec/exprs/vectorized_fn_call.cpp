@@ -74,7 +74,9 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
         if (config::enable_java_support) {
             if (_fn.is_udtf_function) {
                 // fake function. it's no use and can't execute.
-                _function = FunctionFake<UDTFImpl>::create();
+                auto builder =
+                        std::make_shared<DefaultFunctionBuilder>(FunctionFake<UDTFImpl>::create());
+                _function = builder->build(argument_template, std::make_shared<DataTypeUInt8>());
             } else {
                 _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
             }

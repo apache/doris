@@ -252,6 +252,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
 
+    public static final String ENABLE_LOCAL_MERGE_SORT = "enable_local_merge_sort";
+
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
     public static final String ENABLE_BUCKET_SHUFFLE_DOWNGRADE = "enable_bucket_shuffle_downgrade";
@@ -972,6 +974,9 @@ public class SessionVariable implements Serializable, Writable {
                 description = {"是否在pipelineX引擎上强制开启local shuffle优化",
                         "Whether to force to local shuffle on pipelineX engine."})
     private boolean forceToLocalShuffle = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_MERGE_SORT)
+    private boolean enableLocalMergeSort = true;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
@@ -3391,6 +3396,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setMinRevocableMem(minRevocableMem);
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
 
+        tResult.setEnableLocalMergeSort(enableLocalMergeSort);
         return tResult;
     }
 

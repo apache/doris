@@ -46,8 +46,6 @@ public:
 
     Status write(Block& block) override;
 
-    bool can_sink() override;
-
     Status close(Status) override;
 
 private:

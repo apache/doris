@@ -984,13 +984,13 @@ public class StatisticsUtil {
         }
         // Partition table partition stats never been collected.
         if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()
-                && (columnStatsMeta.partitionUpdateRows == null || columnStatsMeta.partitionUpdateRows.isEmpty())) {
+                && columnStatsMeta.partitionUpdateRows == null) {
             return true;
         }
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
             // 0. Check new partition first time loaded flag.
-            if (olapTable.isPartitionColumn(column.second) && tableStatsStatus.newPartitionLoaded.get()) {
+            if (olapTable.isPartitionColumn(column.second) && tableStatsStatus.partitionChanged.get()) {
                 return true;
             }
             // 1. Check row count.
@@ -1061,16 +1061,14 @@ public class StatisticsUtil {
             if (!partitionUpdateRows.containsKey(id)) {
                 return true;
             }
-            long currentUpdateRows = tableStatsStatus.partitionUpdateRows.get(id);
+            long currentUpdateRows = tableStatsStatus.partitionUpdateRows.getOrDefault(id, 0L);
             long lastUpdateRows = partitionUpdateRows.get(id);
-            if (currentUpdateRows != 0) {
-                long changedRows = currentUpdateRows - lastUpdateRows;
-                if (changedRows > 0) {
-                    changedPartitions++;
-                    // Too much partition changed, need to reanalyze.
-                    if (changedPartitions > UPDATED_PARTITION_THRESHOLD) {
-                        return true;
-                    }
+            long changedRows = currentUpdateRows - lastUpdateRows;
+            if (changedRows > 0) {
+                changedPartitions++;
+                // Too much partition changed, need to reanalyze.
+                if (changedPartitions > UPDATED_PARTITION_THRESHOLD) {
+                    return true;
                 }
                 double changeRate = ((double) changedRows) / currentUpdateRows;
                 // One partition changed too much, need to reanalyze.

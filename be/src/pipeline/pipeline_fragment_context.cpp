@@ -36,8 +36,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "exec/data_sink.h"
 #include "io/fs/stream_load_pipe.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
@@ -91,6 +91,7 @@
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
+#include "pipeline/local_exchange/local_exchanger.h"
 #include "pipeline/task_scheduler.h"
 #include "pipeline_task.h"
 #include "runtime/exec_env.h"
@@ -104,7 +105,6 @@
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
-#include "vec/exec/scan/vscan_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
@@ -744,6 +744,21 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                         ? _runtime_state->query_options().local_exchange_free_blocks_limit
                         : 0);
         break;
+    case ExchangeType::LOCAL_MERGE_SORT: {
+        auto child_op = cur_pipe->sink_x()->child_x();
+        auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(child_op);
+        if (!sort_source) {
+            return Status::InternalError(
+                    "LOCAL_MERGE_SORT must use in SortSourceOperatorX , but now is {} ",
+                    child_op->get_name());
+        }
+        shared_state->exchanger = LocalMergeSortExchanger::create_unique(
+                sort_source, cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
+        break;
+    }
     case ExchangeType::ADAPTIVE_PASSTHROUGH:
         shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
                 cur_pipe->num_tasks(), _num_instances,
@@ -1178,6 +1193,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             !tnode.agg_node.grouping_exprs.empty()) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs,
                                                        _require_bucket_distribution));
+            _require_bucket_distribution =
+                    _require_bucket_distribution || op->require_data_distribution();
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
                    tnode.agg_node.use_streaming_preaggregation &&
@@ -1207,6 +1224,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                                 _require_bucket_distribution));
             }
+            _require_bucket_distribution =
+                    _require_bucket_distribution || sink->require_data_distribution();
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1345,6 +1364,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                              _require_bucket_distribution));
         }
+        _require_bucket_distribution =
+                _require_bucket_distribution || sink->require_data_distribution();
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1382,6 +1403,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         DataSinkOperatorXPtr sink;
         sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                              _require_bucket_distribution));
+        _require_bucket_distribution =
+                _require_bucket_distribution || sink->require_data_distribution();
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1551,8 +1574,8 @@ void PipelineFragmentContext::_close_fragment_instance() {
     }
 
     if (_query_ctx->enable_profile()) {
-        _query_ctx->add_fragment_profile_x(_fragment_id, collect_realtime_profile_x(),
-                                           collect_realtime_load_channel_profile_x());
+        _query_ctx->add_fragment_profile(_fragment_id, collect_realtime_profile_x(),
+                                         collect_realtime_load_channel_profile_x());
     }
 
     // all submitted tasks done

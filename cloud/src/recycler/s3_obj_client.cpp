@@ -122,6 +122,10 @@ ObjectStorageResponse S3ObjClient::list_objects(const ObjectStoragePathOptions& 
 }
 ObjectStorageResponse S3ObjClient::delete_objects(const ObjectStoragePathOptions& opts,
                                                   std::vector<std::string> objs) {
+    if (objs.empty()) {
+        LOG_INFO("No objects to delete").tag("endpoint", opts.endpoint).tag("bucket", opts.bucket);
+        return {0};
+    }
     Aws::S3::Model::DeleteObjectsRequest delete_request;
     delete_request.SetBucket(opts.bucket);
     Aws::S3::Model::Delete del;
@@ -286,9 +290,10 @@ ObjectStorageResponse S3ObjClient::delete_expired(const ObjectStorageDeleteExpir
             }
         }
 
-        auto ret = delete_objects(opts.path_opts, std::move(expired_keys));
-        if (ret.ret != 0) {
-            return ret;
+        if (!expired_keys.empty()) {
+            if (auto ret = delete_objects(opts.path_opts, std::move(expired_keys)); ret.ret != 0) {
+                return ret;
+            }
         }
         LOG_INFO("delete expired objects")
                 .tag("endpoint", opts.path_opts.endpoint)

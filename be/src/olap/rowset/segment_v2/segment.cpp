@@ -28,6 +28,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/block_file_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/io_common.h"
@@ -102,6 +103,10 @@ Segment::~Segment() {
     g_total_segment_num << -1;
 }
 
+io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t seg_id) {
+    return io::BlockFileCache::hash(fmt::format("{}_{}.dat", rowset_id, seg_id));
+}
+
 Status Segment::_open() {
     _footer_pb = std::make_unique<SegmentFooterPB>();
     RETURN_IF_ERROR(_parse_footer(_footer_pb.get()));
@@ -128,7 +133,9 @@ Status Segment::_open() {
 
 Status Segment::_open_inverted_index() {
     _inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
-            _fs, _file_reader->path().parent_path(), _file_reader->path().filename().native(),
+            _fs,
+            std::string {
+                    InvertedIndexDescriptor::get_index_path_prefix(_file_reader->path().native())},
             _tablet_schema->get_inverted_index_storage_format());
     bool open_idx_file_cache = true;
     auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,

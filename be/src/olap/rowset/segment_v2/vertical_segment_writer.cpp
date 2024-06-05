@@ -44,6 +44,7 @@
 #include "olap/row_cursor.h"                      // RowCursor // IWYU pragma: keep
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
@@ -81,8 +82,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir, uint32_t max_row_per_segment,
                                              const VerticalSegmentWriterOptions& opts,
-                                             std::shared_ptr<MowContext> mow_context,
-                                             const io::FileSystemSPtr& fs)
+                                             std::shared_ptr<MowContext> mow_context)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
@@ -109,8 +109,10 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
     }
     if (_tablet_schema->has_inverted_index()) {
         _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs ? fs : io::global_local_filesystem(), _file_writer->path().parent_path(),
-                _file_writer->path().filename(),
+                _opts.rowset_ctx->fs(),
+                std::string {InvertedIndexDescriptor::get_index_path_prefix(
+                        _opts.rowset_ctx->segment_path(segment_id))},
+                _opts.rowset_ctx->rowset_id.to_string(), segment_id,
                 _tablet_schema->get_inverted_index_storage_format());
     }
 }
@@ -384,8 +386,11 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
-    // locate rows in base data
 
+    // locate rows in base data
+    int64_t num_rows_updated = 0;
+    int64_t num_rows_new_added = 0;
+    int64_t num_rows_deleted = 0;
     int64_t num_rows_filtered = 0;
     for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
         // block   segment
@@ -442,6 +447,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                             error_column);
                 }
             }
+            ++num_rows_new_added;
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
             continue;
@@ -472,9 +478,11 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             _mow_context->delete_bitmap->add(
                     {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
                     segment_pos);
+            ++num_rows_deleted;
         } else {
             _mow_context->delete_bitmap->add(
                     {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id);
+            ++num_rows_updated;
         }
     }
     CHECK_EQ(use_default_or_null_flag.size(), data.num_rows);
@@ -488,6 +496,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     auto mutable_full_columns = full_block.mutate_columns();
     RETURN_IF_ERROR(_fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
                                           has_default_or_nullable, segment_start_pos, data.block));
+
     // row column should be filled here
     if (_tablet_schema->store_row_column()) {
         // convert block to row store format
@@ -512,6 +521,9 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                                                      data.num_rows));
     }
 
+    _num_rows_updated += num_rows_updated;
+    _num_rows_deleted += num_rows_deleted;
+    _num_rows_new_added += num_rows_new_added;
     _num_rows_filtered += num_rows_filtered;
     if (_tablet_schema->has_sequence_col() && !have_input_seq_column) {
         DCHECK_NE(seq_column, nullptr);

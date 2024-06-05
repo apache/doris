@@ -1351,4 +1351,823 @@ suite("test_unique_model_schema_value_change","p0") {
      }, insertSql, true, "${tbName}")
 
 
+     /**
+      *  Test the unique model by modify a value type from FLOAT to other type
+      */
+     sql """ DROP TABLE IF EXISTS ${tbName} """
+     initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
+             "          (\n" +
+             "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
+             "              `username` VARCHAR(50) NOT NULL COMMENT \"用户昵称\",\n" +
+             "              `score` FLOAT COMMENT \"分数\",\n" +
+             "              `city` VARCHAR(20) COMMENT \"用户所在城市\",\n" +
+             "              `age` SMALLINT COMMENT \"用户年龄\",\n" +
+             "              `sex` TINYINT COMMENT \"用户性别\",\n" +
+             "              `phone` LARGEINT COMMENT \"用户电话\",\n" +
+             "              `address` VARCHAR(500) COMMENT \"用户地址\",\n" +
+             "              `register_time` DATETIME COMMENT \"用户注册时间\",\n" +
+             "              `m` Map<STRING, INT> NULL COMMENT \"\",\n" +
+             "              `j` JSON NULL COMMENT \"\"\n" +
+             "          )\n" +
+             "          UNIQUE KEY(`user_id`, `username`)\n" +
+             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
+             "          PROPERTIES (\n" +
+             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          );"
+
+     initTableData = "insert into ${tbName} values(123456789, 'Alice', 1.8, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (234567890, 'Bob', 1.89, 'Shanghai', 30, 1, 13998765432, 'No. 456 Street, Shanghai', '2022-02-02 12:00:00', {'a': 200, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (345678901, 'Carol', 2.6, 'Guangzhou', 28, 0, 13724681357, 'No. 789 Street, Guangzhou', '2022-03-03 14:00:00', {'a': 300, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (456789012, 'Dave', 3.9, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (567890123, 'Eve', 4.2, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00', {'a': 500, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (678901234, 'Frank', 2.5, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00', {'a': 600, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (789012345, 'Grace', 2.1, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00', {'a': 700, 'b': 200}, '[\"abc\", \"def\"]');"
+
+     //TODO Test the unique model by modify a value type from FLOAT  to BOOLEAN
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to BOOLEAN"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score BOOLEAN  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', false, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     // TODO Test the unique model by modify a value type from FLOAT  to TINYINT
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to TINYINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score TINYINT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a value type from FLOAT  to SMALLINT
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to SMALLINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score SMALLINT   """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //Test the unique model by modify a value type from FLOAT  to INT
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to INT"
+     expectException({
+          sql initTable
+          sql initTableData
+
+          sql """ alter  table ${tbName} MODIFY  column score INT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a value type from FLOAT  to BIGINT
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to BIGINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score BIGINT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 545645, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //Test the unique model by modify a value type from  FLOAT to LARGEINT
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to LARGEINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score LARGEINT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 156546, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a value type from FLOAT  to DOUBLE
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to DOUBLE"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DOUBLE  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from FLOAT  to DECIMAL
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to DECIMAL128"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DECIMAL(38,0)  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from FLOAT  to DATE
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to DATEV2"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DATE  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '2003-12-31', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a value type from FLOAT  to DATE
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to DATEV2"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DATEV2  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '2003-12-31', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from FLOAT  to DATETIME
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to DATETIMEV2"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DATETIME  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '2003-12-31 20:12:12', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a value type from FLOAT  to DATETIME
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to DATETIMEV2"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DATETIMEV2  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '2003-12-31 20:12:12', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a  value type from FLOAT  to CHAR
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to CHAR"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score CHAR(15)  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a  value type from FLOAT  to VARCHAR
+     //Test the unique model by modify a value type from FLOAT  to VARCHAR
+     errorMessage = "errCode = 2, detailMessage = Can not change aggregation type"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score VARCHAR(100)  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a  value type from FLOAT  to STRING
+     //Test the unique model by modify a value type from FLOAT  to STRING
+     errorMessage = "errCode = 2, detailMessage = Can not change aggregation type"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score STRING  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //TODO Test the unique model by modify a  value type from FLOAT  to map
+     //Test the unique model by modify a value type from FLOAT  to STRING
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to MAP"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score Map<STRING, INT>  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', {'a': 100, 'b': 200}, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a value type from FLOAT  to JSON
+     errorMessage = "errCode = 2, detailMessage = Can not change FLOAT to JSON"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score JSON  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '{'a': 100, 'b': 200}', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+
+     /**
+      *  Test the unique model by modify a value type from DOUBLE to other type
+      */
+     sql """ DROP TABLE IF EXISTS ${tbName} """
+     initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
+             "          (\n" +
+             "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
+             "              `username` VARCHAR(50) NOT NULL COMMENT \"用户昵称\",\n" +
+             "              `score` DOUBLE COMMENT \"分数\",\n" +
+             "              `city` VARCHAR(20) COMMENT \"用户所在城市\",\n" +
+             "              `age` SMALLINT COMMENT \"用户年龄\",\n" +
+             "              `sex` TINYINT COMMENT \"用户性别\",\n" +
+             "              `phone` LARGEINT COMMENT \"用户电话\",\n" +
+             "              `address` VARCHAR(500) COMMENT \"用户地址\",\n" +
+             "              `register_time` DATETIME COMMENT \"用户注册时间\",\n" +
+             "              `m` Map<STRING, INT> NULL COMMENT \"\",\n" +
+             "              `j` JSON NULL COMMENT \"\"\n" +
+             "          )\n" +
+             "          UNIQUE KEY(`user_id`, `username`)\n" +
+             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
+             "          PROPERTIES (\n" +
+             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          );"
+
+     initTableData = "insert into ${tbName} values(123456789, 'Alice', 1.8, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (234567890, 'Bob', 1.89, 'Shanghai', 30, 1, 13998765432, 'No. 456 Street, Shanghai', '2022-02-02 12:00:00', {'a': 200, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (345678901, 'Carol', 2.6, 'Guangzhou', 28, 0, 13724681357, 'No. 789 Street, Guangzhou', '2022-03-03 14:00:00', {'a': 300, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (456789012, 'Dave', 3.9, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (567890123, 'Eve', 4.2, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00', {'a': 500, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (678901234, 'Frank', 2.5, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00', {'a': 600, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (789012345, 'Grace', 2.1, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00', {'a': 700, 'b': 200}, '[\"abc\", \"def\"]');"
+
+     //TODO Test the unique model by modify a value type from DOUBLE  to BOOLEAN
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to BOOLEAN"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score BOOLEAN  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', false, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     // TODO Test the unique model by modify a value type from DOUBLE  to TINYINT
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to TINYINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score TINYINT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a value type from DOUBLE  to SMALLINT
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to SMALLINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score SMALLINT   """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //Test the unique model by modify a value type from DOUBLE  to INT
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to INT"
+     expectException({
+          sql initTable
+          sql initTableData
+
+          sql """ alter  table ${tbName} MODIFY  column score INT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a value type from DOUBLE  to BIGINT
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to BIGINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score BIGINT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 545645, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //Test the unique model by modify a value type from  DOUBLE to LARGEINT
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to LARGEINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score LARGEINT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 156546, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a value type from DOUBLE  to FLOAT
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to FLOAT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score FLOAT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from DOUBLE  to DECIMAL
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to DECIMAL128"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DECIMAL(38,0)  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from DOUBLE  to DATE
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to DATEV2"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DATE  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '2003-12-31', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a value type from DOUBLE  to DATE
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to DATEV2"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DATEV2  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '2003-12-31', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from DOUBLE  to DATETIME
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to DATETIMEV2"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DATETIME  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '2003-12-31 20:12:12', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a value type from DOUBLE  to DATETIME
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to DATETIMEV2"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DATETIMEV2  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '2003-12-31 20:12:12', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a  value type from DOUBLE  to CHAR
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to CHAR"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score CHAR(15)  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a  value type from DOUBLE  to VARCHAR
+     //Test the unique model by modify a value type from DOUBLE  to VARCHAR
+     errorMessage = "errCode = 2, detailMessage = Can not change aggregation type"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score VARCHAR(100)  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a  value type from DOUBLE  to STRING
+     //Test the unique model by modify a value type from DOUBLE  to STRING
+     errorMessage = "errCode = 2, detailMessage = Can not change aggregation type"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score STRING  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //TODO Test the unique model by modify a  value type from DOUBLE  to map
+     //Test the unique model by modify a value type from DOUBLE  to STRING
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to MAP"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score Map<STRING, INT>  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', {'a': 100, 'b': 200}, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a value type from DOUBLE  to JSON
+     errorMessage = "errCode = 2, detailMessage = Can not change DOUBLE to JSON"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score JSON  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '{'a': 100, 'b': 200}', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     /**
+      *  Test the unique model by modify a value type from DECIMAL to other type
+      */
+     sql """ DROP TABLE IF EXISTS ${tbName} """
+     initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
+             "          (\n" +
+             "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
+             "              `username` VARCHAR(50) NOT NULL COMMENT \"用户昵称\",\n" +
+             "              `score` DECIMAL(38,10) COMMENT \"分数\",\n" +
+             "              `city` VARCHAR(20) COMMENT \"用户所在城市\",\n" +
+             "              `age` SMALLINT COMMENT \"用户年龄\",\n" +
+             "              `sex` TINYINT COMMENT \"用户性别\",\n" +
+             "              `phone` LARGEINT COMMENT \"用户电话\",\n" +
+             "              `address` VARCHAR(500) COMMENT \"用户地址\",\n" +
+             "              `register_time` DATETIME COMMENT \"用户注册时间\",\n" +
+             "              `m` Map<STRING, INT> NULL COMMENT \"\",\n" +
+             "              `j` JSON NULL COMMENT \"\"\n" +
+             "          )\n" +
+             "          UNIQUE KEY(`user_id`, `username`)\n" +
+             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
+             "          PROPERTIES (\n" +
+             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          );"
+
+     initTableData = "insert into ${tbName} values(123456789, 'Alice', 1.83, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (234567890, 'Bob', 1.89, 'Shanghai', 30, 1, 13998765432, 'No. 456 Street, Shanghai', '2022-02-02 12:00:00', {'a': 200, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (345678901, 'Carol', 2.6689, 'Guangzhou', 28, 0, 13724681357, 'No. 789 Street, Guangzhou', '2022-03-03 14:00:00', {'a': 300, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (456789012, 'Dave', 3.9456, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (567890123, 'Eve', 4.223, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00', {'a': 500, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (678901234, 'Frank', 2.5454, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00', {'a': 600, 'b': 200}, '[\"abc\", \"def\"]')," +
+             "               (789012345, 'Grace', 2.19656, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00', {'a': 700, 'b': 200}, '[\"abc\", \"def\"]');"
+
+     //TODO Test the unique model by modify a value type from DECIMAL128  to BOOLEAN
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to BOOLEAN"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score BOOLEAN  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', false, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     // TODO Test the unique model by modify a value type from DECIMAL128  to TINYINT
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to TINYINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score TINYINT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a value type from DECIMAL128  to SMALLINT
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to SMALLINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score SMALLINT   """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //Test the unique model by modify a value type from DECIMAL128  to INT
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to INT"
+     expectException({
+          sql initTable
+          sql initTableData
+
+          sql """ alter  table ${tbName} MODIFY  column score INT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a value type from DECIMAL128  to BIGINT
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to BIGINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score BIGINT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 545645, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //Test the unique model by modify a value type from  DECIMAL128 to LARGEINT
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to LARGEINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score LARGEINT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 156546, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a value type from DECIMAL128  to FLOAT
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to FLOAT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score FLOAT  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from DECIMAL128  to DECIMAL
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to DECIMAL128"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DECIMAL(38,0)  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from DECIMAL128  to DATE
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to DATEV2"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DATE  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '2003-12-31', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a value type from DECIMAL128  to DATE
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to DATEV2"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DATEV2  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '2003-12-31', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from DECIMAL128  to DATETIME
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to DATETIMEV2"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DATETIME  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '2003-12-31 20:12:12', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a value type from DECIMAL128  to DATETIME
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to DATETIMEV2"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score DATETIMEV2  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '2003-12-31 20:12:12', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a  value type from DECIMAL128  to CHAR
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to CHAR"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score CHAR(15)  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a  value type from DECIMAL128  to VARCHAR
+     //Test the unique model by modify a value type from DECIMAL128  to VARCHAR
+     errorMessage = "errCode = 2, detailMessage = Can not change aggregation type"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score VARCHAR(100)  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a  value type from DECIMAL128  to STRING
+     //Test the unique model by modify a value type from DECIMAL128  to STRING
+     errorMessage = "errCode = 2, detailMessage = Can not change aggregation type"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score STRING  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //TODO Test the unique model by modify a  value type from DECIMAL128  to map
+     //Test the unique model by modify a value type from DECIMAL128  to STRING
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to MAP"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score Map<STRING, INT>  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', {'a': 100, 'b': 200}, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a value type from DECIMAL128  to JSON
+     errorMessage = "errCode = 2, detailMessage = Can not change DECIMAL128 to JSON"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column score JSON  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '{'a': 100, 'b': 200}', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
 }

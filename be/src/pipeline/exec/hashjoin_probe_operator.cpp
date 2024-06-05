@@ -73,8 +73,8 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
                 using JoinOpType = std::decay_t<decltype(join_op_variants)>;
-                _process_hashtable_ctx_variants->emplace<vectorized::ProcessHashTableProbe<
-                        JoinOpType::value, HashJoinProbeLocalState>>(this, state->batch_size());
+                _process_hashtable_ctx_variants->emplace<ProcessHashTableProbe<JoinOpType::value>>(
+                        this, state->batch_size());
             },
             _shared_state->join_op_variants,
             vectorized::make_bool_variant(p._have_other_join_conjunct));

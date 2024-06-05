@@ -28,8 +28,15 @@ namespace doris {
 
 static bvar::Adder<size_t> g_total_rowset_num("doris_total_rowset_num");
 
-Rowset::Rowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta)
-        : _rowset_meta(rowset_meta), _refs_by_reader(0) {
+Rowset::Rowset(const TabletSchemaSPtr& schema, RowsetMetaSharedPtr rowset_meta,
+               std::string tablet_path)
+        : _rowset_meta(std::move(rowset_meta)),
+          _tablet_path(std::move(tablet_path)),
+          _refs_by_reader(0) {
+#ifndef BE_TEST
+    DCHECK(!is_local() || !_tablet_path.empty()); // local rowset MUST has tablet path
+#endif
+
     _is_pending = !_rowset_meta->has_version();
     if (_is_pending) {
         _is_cumulative = false;
@@ -104,6 +111,17 @@ std::string Rowset::get_rowset_info_str() {
 void Rowset::clear_cache() {
     SegmentLoader::instance()->erase_segments(rowset_id(), num_segments());
     clear_inverted_index_cache();
+}
+
+Result<std::string> Rowset::segment_path(int64_t seg_id) {
+    if (is_local()) {
+        return local_segment_path(_tablet_path, _rowset_meta->rowset_id().to_string(), seg_id);
+    }
+
+    return _rowset_meta->remote_storage_resource().transform([=, this](auto&& storage_resource) {
+        return storage_resource->remote_segment_path(_rowset_meta->tablet_id(),
+                                                     _rowset_meta->rowset_id().to_string(), seg_id);
+    });
 }
 
 Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
