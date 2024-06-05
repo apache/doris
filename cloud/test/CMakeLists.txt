@@ -47,7 +47,11 @@ add_executable(fdb_injection_test fdb_injection_test.cpp)
 
 add_executable(s3_accessor_test s3_accessor_test.cpp)
 
-add_executable(hdfs_accessor_test hdfs_accessor_test.cpp)
+option(ENABLE_HDFS "enable hdfs" ON)
+message("Meta-service test enable HDFS: ${ENABLE_HDFS}")
+if (ENABLE_HDFS)
+    add_executable(hdfs_accessor_test hdfs_accessor_test.cpp)
+endif()
 
 add_executable(stopwatch_test stopwatch_test.cpp)
 
@@ -80,7 +84,9 @@ target_link_libraries(http_encode_key_test ${TEST_LINK_LIBS})
 
 target_link_libraries(s3_accessor_test ${TEST_LINK_LIBS})
 
-target_link_libraries(hdfs_accessor_test ${TEST_LINK_LIBS})
+if (ENABLE_HDFS)
+    target_link_libraries(hdfs_accessor_test ${TEST_LINK_LIBS})
+endif()
 
 target_link_libraries(stopwatch_test ${TEST_LINK_LIBS})
 

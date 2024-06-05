@@ -163,6 +163,10 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF=OFF
 fi
 
+if [[ -z "${ENABLE_HDFS}" ]]; then
+    ENABLE_HDFS=OFF
+fi
+
 MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
 
@@ -178,6 +182,7 @@ find . -name "*.gcda" -exec rm {} \;
     -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_MEM_TRACKER=ON \
     -DUSE_JEMALLOC=OFF \
+    -DENABLE_HDFS="${ENABLE_HDFS}" \
     -DSTRICT_MEMORY_USE=OFF \
     -DENABLE_CLANG_COVERAGE="${ENABLE_CLANG_COVERAGE}" \
     "${CMAKE_USE_CCACHE}" \
