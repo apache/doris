@@ -289,10 +289,8 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                         auto with_other_conjuncts) -> Status {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         using JoinOpType = std::decay_t<decltype(join_op)>;
-                        vectorized::ProcessHashTableBuild<HashTableCtxType,
-                                                          HashJoinBuildSinkLocalState>
-                                hash_table_build_process(rows, raw_ptrs, this, state->batch_size(),
-                                                         state);
+                        ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
+                                rows, raw_ptrs, this, state->batch_size(), state);
                         auto old_hash_table_size = arg.hash_table->get_byte_size();
                         auto old_key_size = arg.serialized_keys_size(true);
                         auto st = hash_table_build_process.template run<
@@ -338,26 +336,22 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                     switch (_build_expr_ctxs[0]->root()->result_type()) {
                     case TYPE_BOOLEAN:
                     case TYPE_TINYINT:
-                        _shared_state->hash_table_variants
-                                ->emplace<vectorized::I8HashTableContext>();
+                        _shared_state->hash_table_variants->emplace<I8HashTableContext>();
                         break;
                     case TYPE_SMALLINT:
-                        _shared_state->hash_table_variants
-                                ->emplace<vectorized::I16HashTableContext>();
+                        _shared_state->hash_table_variants->emplace<I16HashTableContext>();
                         break;
                     case TYPE_INT:
                     case TYPE_FLOAT:
                     case TYPE_DATEV2:
-                        _shared_state->hash_table_variants
-                                ->emplace<vectorized::I32HashTableContext>();
+                        _shared_state->hash_table_variants->emplace<I32HashTableContext>();
                         break;
                     case TYPE_BIGINT:
                     case TYPE_DOUBLE:
                     case TYPE_DATETIME:
                     case TYPE_DATE:
                     case TYPE_DATETIMEV2:
-                        _shared_state->hash_table_variants
-                                ->emplace<vectorized::I64HashTableContext>();
+                        _shared_state->hash_table_variants->emplace<I64HashTableContext>();
                         break;
                     case TYPE_LARGEINT:
                     case TYPE_DECIMALV2:
@@ -375,14 +369,11 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                                         : type_ptr->get_type_id();
                         vectorized::WhichDataType which(idx);
                         if (which.is_decimal32()) {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I32HashTableContext>();
+                            _shared_state->hash_table_variants->emplace<I32HashTableContext>();
                         } else if (which.is_decimal64()) {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I64HashTableContext>();
+                            _shared_state->hash_table_variants->emplace<I64HashTableContext>();
                         } else {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I128HashTableContext>();
+                            _shared_state->hash_table_variants->emplace<I128HashTableContext>();
                         }
                         break;
                     }
@@ -606,7 +597,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     }
                 },
                 *local_state._shared_state->hash_table_variants,
-                *std::static_pointer_cast<vectorized::HashTableVariants>(
+                *std::static_pointer_cast<HashTableVariants>(
                         _shared_hash_table_context->hash_table_variants));
 
         local_state._shared_state->build_block = _shared_hash_table_context->block;

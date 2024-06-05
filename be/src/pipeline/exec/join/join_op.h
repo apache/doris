@@ -20,7 +20,7 @@
 #include "vec/common/columns_hashing.h"
 #include "vec/core/block.h"
 
-namespace doris::vectorized {
+namespace doris::pipeline {
 /**
  * Now we have different kinds of RowRef for join operation. Overall, RowRef is the base class and
  * the class inheritance is below:
@@ -72,7 +72,7 @@ struct Batch {
 
     bool full() const { return size == MAX_SIZE; }
 
-    Batch<RowRefType>* insert(RowRefType&& row_ref, Arena& pool) {
+    Batch<RowRefType>* insert(RowRefType&& row_ref, vectorized::Arena& pool) {
         if (full()) {
             auto batch = pool.alloc<Batch<RowRefType>>();
             *batch = Batch<RowRefType>(this);
@@ -132,7 +132,9 @@ struct RowRefList : RowRef {
     ForwardIterator<RowRefList> begin() { return ForwardIterator<RowRefList>(this); }
 
     /// insert element after current one
-    void insert(RowRefType&& row_ref, Arena& pool) { next.emplace_back(std::move(row_ref)); }
+    void insert(RowRefType&& row_ref, vectorized::Arena& pool) {
+        next.emplace_back(std::move(row_ref));
+    }
 
     void clear() { next.clear(); }
 
@@ -152,7 +154,7 @@ struct RowRefListWithFlag : RowRef {
     }
 
     /// insert element after current one
-    void insert(RowRefType&& row_ref, Arena& pool) { next.emplace_back(row_ref); }
+    void insert(RowRefType&& row_ref, vectorized::Arena& pool) { next.emplace_back(row_ref); }
 
     void clear() { next.clear(); }
 
@@ -174,7 +176,7 @@ struct RowRefListWithFlags : RowRefWithFlag {
     }
 
     /// insert element after current one
-    void insert(RowRefType&& row_ref, Arena& pool) { next.emplace_back(row_ref); }
+    void insert(RowRefType&& row_ref, vectorized::Arena& pool) { next.emplace_back(row_ref); }
 
     void clear() { next.clear(); }
 
@@ -183,4 +185,4 @@ private:
     std::vector<RowRefType> next;
 };
 
-} // namespace doris::vectorized
+} // namespace doris::pipeline
