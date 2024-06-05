@@ -332,7 +332,6 @@ void register_function_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMatchPhrase>();
     factory.register_function<FunctionMatchPhrasePrefix>();
     factory.register_function<FunctionMatchRegexp>();
-    factory.register_function<FunctionMatchPhraseEdge>();
 }
 
 } // namespace doris::vectorized
