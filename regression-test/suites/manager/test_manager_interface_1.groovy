@@ -93,10 +93,35 @@ suite('test_manager_interface_1',"p0") {
     test_information_tables()
 
 //select * from information_schema.metadata_name_ids
-    def metadata_name_ids = {
+    def test_metadata_name_ids = {
         logger.info("TEST select * from information_schema.metadata_name_ids")
         List<List<Object>>  result = sql   """select * from information_schema.metadata_name_ids """
+        def tableName = "internal.information_schema.metadata_name_ids"
+        sql """ create database if not exists test_manager_metadata_name_ids; """
+        sql """ use test_manager_metadata_name_ids ; """ 
+
+    	qt_metadata_1 """ select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${tableName}
+	    	where CATALOG_NAME="internal" and DATABASE_NAME ="test_manager_metadata_name_ids"  """ 
+
+        sql """ create table if not exists test_metadata_name_ids  (
+            a int ,
+            b varchar(30)
+        )
+        DUPLICATE KEY(`a`)
+        DISTRIBUTED BY HASH(`a`) BUCKETS 10
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        ); """
+
+    	qt_metadata_2 """ select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${tableName}
+	    	where CATALOG_NAME="internal" and DATABASE_NAME ="test_manager_metadata_name_ids"  """ 
+    
+	    sql """ drop table test_metadata_name_ids """ 
+
+        qt_metadata_2 """ select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${tableName}
+            where CATALOG_NAME="internal" and DATABASE_NAME ="test_manager_metadata_name_ids" and TABLE_NAME="test_metadata_name_ids";""" 
     }
+    test_metadata_name_ids()
 
 
 
@@ -473,25 +498,93 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
 
 
 
-//show proc '/current_query_stmts'
+// show proc '/current_query_stmts'
 // show proc '/current_queries'
 // show processlist
 // kill query $query_id
 // SHOW PROC '/cluster_health/tablet_health' 
     def test_proc = {
-        List<List<Object>> result = sql """ show proc '/current_query_stmts' """ 
 
-        result = sql """  show proc '/current_queries' """
+        def futures = []
+        
 
+        futures.add( thread {
 
-        result = sql """  show processlist  """
-        for( int i =0 ;i < result.size();i++ ){
-            assertTrue( result[i][2].toLowerCase() != "null"  )//User
-            assertTrue( result[i][3].toLowerCase() != "null"  )//Host
-            assertTrue( result[i][5].toLowerCase() != "null"  )//Catalog
-            assertTrue( result[i][6].toLowerCase() != "null"  )//Db
-            assertTrue( result[i][10].toLowerCase() != "null"  )//QueryId
-        }
+            try{
+                sql """ select sleep(9809); """
+            }catch(Exception e){
+                
+            }
+        })
+        futures.add( thread {
+            sleep(1000);
+            List<List<Object>> result = sql """ show proc '/current_query_stmts' """ 
+            def x = 0
+            def queryid = ""
+            logger.info("result = ${result}")
+
+            for( int i = 0;i<result.size();i++) {
+                if (result[i][7] != null && result[i][7].contains("sleep(9809)") )//Statement
+                {
+                    x = 1
+                    queryid = result[i][0]
+                    logger.info("query ID = ${queryid}")
+                    assertTrue(result[i][0]!= null) //QueryId
+                    assertTrue(result[i][1]!= null) //ConnectionId
+                    assertTrue(result[i][2]!= null)//Catalog
+                    assertTrue(result[i][3]!= null)//Database
+                    assertTrue(result[i][4]!= null)//User
+                    assertTrue(result[i][5]!= null)//ExecTime
+                    assertTrue(result[i][5].isNumber())//ExecTime
+                    assertTrue(result[i][6]!= null)//SqlHash
+                }
+            }
+            assertTrue(x == 1)
+            
+            x = 0 
+            result = sql """  show proc '/current_queries' """
+            logger.info("result = ${result}")
+            for( int i = 0;i<result.size();i++) {
+                if (result[i][0] == queryid )//QueryId
+                {
+                    x = 1
+                    assertTrue(result[i][5]!= null)//ScanBytes
+                    assertTrue(result[i][6]!= null)//ProcessBytes
+                }
+            }
+            assertTrue(x == 1)
+
+            result = sql """  show processlist  """
+            logger.info("result = ${result}")
+            for( int i =0 ;i < result.size();i++ ){
+                assertTrue( result[i][2].toLowerCase() != "null"  )//User
+                assertTrue( result[i][3].toLowerCase() != "null"  )//Host
+                assertTrue( result[i][5].toLowerCase() != "null"  )//Catalog
+                assertTrue( result[i][6].toLowerCase() != "null"  )//Db
+                assertTrue( result[i][10].toLowerCase() != "null"  )//QueryId
+                if (result[i][10] == queryid) {
+                    x = 1
+                }
+            }
+
+            assertTrue(x == 1)
+            sql """ kill query "${queryid}" """
+            
+            x =  0
+            sleep(5000)
+
+            result = sql """  show proc '/current_queries' """
+            logger.info("result = ${result}")
+            for( int i = 0;i<result.size();i++) {
+                if (result[i][0] == queryid )//QueryId
+                {
+                    x = 1
+                }
+            }
+            assertTrue(x == 0)
+        })
+        futures.each { it.get() }
+
 
         def tablet_num  = 0;
         def healthy_num = 0;
@@ -501,11 +594,11 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         for( int i =0 ;i < result.size();i++ ){
             assertTrue(result[i][0].toLowerCase() != null ) // DbId
             if (result[i][0].toLowerCase() == "total") {
-                total_tablet_num = result[i][2].toInteger();
-                total_healthy_num = result[i][3].toInteger();
+                total_tablet_num = result[i][2].toBigInteger();
+                total_healthy_num = result[i][3].toBigInteger();
             }else {
-                tablet_num += result[i][2].toInteger();
-                healthy_num += result[i][3].toInteger();
+                tablet_num += result[i][2].toBigInteger();
+                healthy_num += result[i][3].toBigInteger();
                 
             }
             // assertTrue(result[i][2]()) // TabletNum
@@ -513,83 +606,64 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         }
         assertTrue(total_healthy_num == healthy_num )
         assertTrue(total_healthy_num == healthy_num )
+    
+
+
     }
     test_proc();
 
 
 
-//select a.*, b.Name as WorkloadGroupName from active_queries() a left join workload_groups b on a.WORKLOAD_GROUP_ID = b.Id;
 //select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME from information_schema.active_queries a left join information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
-
     def  test_active_query = {
 
-        List<List<Object>> result = sql """ select a.*,b.Name as WorkloadGroupName from  information_schema.active_queries  
-        a left join information_schema.workload_groups b on a.WORKLOAD_GROUP_ID = b.Id;"""
-
-        result = sql """ 
-        select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME from information_schema.active_queries a left join information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
-        """
-
-        // - QueryId
-        // - BeHost
-        // - BePort
-        // - StartTime
-        // - QueryTimeMs
-        // - WorkloadGroupName
-        // - ScanRows
-        // - Sql
-        // - ShuffleSendBytes
-        // - ShuffleSendRows
-        // - CurrentUsedMemoryBytes
-        // - QueryCpuTimeMs 
-
-        // *************************** 1. row ***************************
-        //                  QUERY_ID: 53bad1fbf51741df-8712f288eef9c503
-        //          QUERY_START_TIME: 2024-06-03 19:39:37
-        //             QUERY_TIME_MS: 17
-        //         WORKLOAD_GROUP_ID: 1
-        //                  DATABASE: test_manager_tb_case_5
-        //         FRONTEND_INSTANCE: 172.22.0.1
-        //          QUEUE_START_TIME: 2024-06-03 19:39:37
-        //            QUEUE_END_TIME: 2024-06-03 19:39:37
-        //              QUERY_STATUS: RUNNING
-        //                       SQL: select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME from information_schema.active_queries a left join information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
-        //                     BE_ID: 10004
-        //                   FE_HOST: 172.22.0.1
-        //                  QUERY_ID: 53bad1fbf51741df-8712f288eef9c503
-        //              TASK_TIME_MS: 8
-        //          TASK_CPU_TIME_MS: 0
-        //                 SCAN_ROWS: 0
-        //                SCAN_BYTES: 0
-        //      BE_PEAK_MEMORY_BYTES: 20480
-        // CURRENT_USED_MEMORY_BYTES: 20480
-        //        SHUFFLE_SEND_BYTES: 0
-        //         SHUFFLE_SEND_ROWS: 0
-        //                QUERY_TYPE: SELECT
-        //       WORKLOAD_GROUP_NAME: normal
-
-        //缺少 
-        // - BeHost
-        // - BePort
-        for( int i =0 ;i < result.size();i++ ){
-            assertTrue(result[i][0]) // QueryId
-            assertTrue(result[i][1]) // QUERY_START_TIME   StartTime
-            assertTrue(result[i][2]) // QUERY_TIME_MS  QueryTimeMs
-            assertTrue(result[i][11]) // SQL  Sql 
-            assertTrue(result[i][16]) // TASK_CPU_TIME_MS QueryCpuTimeMs  
+        List<List<Object>> result = sql """ select 1;"""
 
 
-            assertTrue(result[i][17]) // SCAN_ROWS  ScanRows
-            assertTrue(result[i][21]) // SHUFFLE_SEND_BYTES    ShuffleSendBytes 
-            assertTrue(result[i][22]) // SHUFFLE_SEND_ROWS   ShuffleSendRows
-            assertTrue(result[i][20]) // CURRENT_USED_MEMORY_BYTES   CurrentUsedMemoryBytes
-            assertTrue(result[i][24]) // WORKLOAD_GROUP_NAME  WorkloadGroupName
+        def futures = []
+        futures.add( thread {
+            
+            try{
+                sql """ select sleep(87676); """
+            }catch(Exception e){
+            }
+        })
 
-        }
+        futures.add( thread {
+            sleep(3000)
 
+            result = sql """ 
+            select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME from information_schema.active_queries a left join 
+            information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
+            """
+            logger.info("result = ${result}")
+            
+            def x = 0
+            def queryId = ""
+            for( int i =0 ;i < result.size();i++ ){
+                assertTrue(result[i][0] != null ) // QueryId
+
+                if ( result[i][9].contains("sleep(87676)")  ){
+                    x = 1 
+                    queryId = result[i][0]
+                    logger.info("result = ${queryId}}")
+
+                    assertTrue(result[i][2]!=null) // QUERY_TIME_MS  
+                    assertTrue(result[i][14]!=null) // TASK_CPU_TIME_MS   
+                    assertTrue(result[i][15].toBigInteger() ==0 ) // SCAN_ROWS  
+                    assertTrue(result[i][16].toBigInteger() ==0)//SCAN_BYTES
+                    assertTrue(result[i][19].toBigInteger() ==0) // SHUFFLE_SEND_BYTES     
+                    assertTrue(result[i][20].toBigInteger() ==0) // SHUFFLE_SEND_ROWS   
+                    assertTrue(result[i][18]!=null) // CURRENT_USED_MEMORY_BYTES   
+                    assertTrue(result[i][22]!=null) // WORKLOAD_GROUP_NAME              
+                }
+            }
+            assertTrue(x == 1)
+            sql """ kill query "${queryId}" """ 
+        })
+        futures.each { it.get() }
     }
-
-
+    test_active_query()
 
 
 
@@ -657,7 +731,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         for(int i = 0 ;i<result.size();i++) {
             if (result[i][0] == "query_metadata_name_ids_timeout"){
                 x = 1
-                val =  result[i][1].toInteger() + 2 
+                val =  result[i][1].toBigInteger() + 2 
                 assertTrue( result[i][2] =="long" )
                 assertTrue( result[i][3] =="true" )
                 assertTrue( result[i][4] == "false")
@@ -690,11 +764,11 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         x = 0
         result = sql """ show global variables like "create_table_partition_max_num" """
         assert(result[0][0] == "create_table_partition_max_num")
-        val = result[0][1].toInteger() + 1 ; 
+        val = result[0][1].toBigInteger() + 1 ; 
         assert(result[0][2] == "10000")
         sql """ set global create_table_partition_max_num = ${val} """ 
         result = sql """ show global variables like "create_table_partition_max_num" """
-        assert(result[0][1].toInteger() == val)        
+        assert(result[0][1].toBigInteger() == val)        
         val -= 1
         sql """ set global create_table_partition_max_num = ${val} """ 
 

@@ -93,7 +93,7 @@ suite('test_manager_interface_2',"p0") {
 
         for( int i =0 ; i <result.size();i++) {
             assertTrue( result[i][1] in ["less100","less200","less2000"])
-            assertTrue( result[i][9].toInteger() == 1) // ReplicationNum
+            assertTrue( result[i][9].toBigInteger() == 1) // ReplicationNum
         }
 
 
@@ -149,7 +149,7 @@ suite('test_manager_interface_2',"p0") {
         result = sql """  show load from test_manager_load_case where state='FINISHED'  """
         for(int i =0 ;i< result.size();i++) {
             assertTrue(result[i][0].toLowerCase() != "null"  )//JobId 
-            assertTrue(result[i][0].toInteger() != 0  )//JobId 
+            assertTrue(result[i][0].toBigInteger() != 0  )//JobId 
             assertTrue(result[i][2]  == "FINISHED") //State 
             assertTrue(result[i][3].contains( result[i][0]))// Progress 
         }
@@ -185,7 +185,7 @@ suite('test_manager_interface_2',"p0") {
         def x = 0 
         for(int i  =0 ;i<result.size();i++) {
             //HeartbeatPort: 
-            if (result[i][2].toInteger() == notExistPort) {
+            if (result[i][2].toBigInteger() == notExistPort) {
                 assertTrue(result[i][0]!=null)//name 
 
                 assert(result[i][19].toLowerCase() != "null") // TAG 
@@ -193,15 +193,15 @@ suite('test_manager_interface_2',"p0") {
                 def json = parseJson(result[i][19])
                 assertEquals("default", json.location)
                 
-                assertEquals(result[i][3].toInteger(),-1)//BePort: -1
-                assertEquals(result[i][4].toInteger(),-1)//HttpPort: -1
-                assertEquals(result[i][5].toInteger(),-1)// BrpcPort: -1
-                assertEquals(result[i][6].toInteger(),-1)//ArrowFlightSqlPort: -1
+                assertEquals(result[i][3].toBigInteger(),-1)//BePort: -1
+                assertEquals(result[i][4].toBigInteger(),-1)//HttpPort: -1
+                assertEquals(result[i][5].toBigInteger(),-1)// BrpcPort: -1
+                assertEquals(result[i][6].toBigInteger(),-1)//ArrowFlightSqlPort: -1
                 assertEquals(result[i][7],null)//LastStartTime : NULL 
                 assertEquals(result[i][8],null)//LastHeartbeat: NULL
                 assertEquals(result[i][9],"false")// Alive: false
                 assertEquals(result[i][10],"false")//SystemDecommissioned: false
-                assertEquals(result[i][11].toInteger(),0)// TabletNum: 0
+                assertEquals(result[i][11].toBigInteger(),0)// TabletNum: 0
                 assertEquals(result[i][12],"0.000 ")//  DataUsedCapacity: 0.000 
                 assertEquals(result[i][13],"0.000 ")//   TrashUsedCapacity: 0.000 
                 assertEquals(result[i][14],"1.000 B")//       AvailCapacity: 1.000 B
@@ -225,7 +225,7 @@ suite('test_manager_interface_2',"p0") {
         x = 0
         for(int i  =0 ;i<result.size();i++) {
             //HeartbeatPort: 
-            if (result[i][2].toInteger() == notExistPort) {
+            if (result[i][2].toBigInteger() == notExistPort) {
                 x ++ 
                 assertTrue( result[i][22].contains("lastSuccessReportTabletsTime") )//Status 
                 assertTrue( result[i][22].contains("""isQueryDisabled":true""") )
@@ -241,7 +241,7 @@ suite('test_manager_interface_2',"p0") {
         x = 0 
         for(int i  =0 ;i<result.size();i++) {
             //HeartbeatPort: 
-            if (result[i][2].toInteger() == notExistPort) {
+            if (result[i][2].toBigInteger() == notExistPort) {
                 x ++ 
             }
         }        
@@ -312,8 +312,6 @@ suite('test_manager_interface_2',"p0") {
 
     }
     test_system()
-
-
 
 
 }

@@ -57,7 +57,6 @@ suite('test_manager_interface_3',"p0") {
 
         def tbName = 'test_manager_tb'
         
-        def tokens = context.config.jdbcUrl.split('/')
         def url=tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
 
         sql """drop user if exists ${user1}"""
@@ -379,7 +378,6 @@ suite('test_manager_interface_3',"p0") {
         def role = 'test_manager_resource_role'
         def resource_name = "test_manager_resource_case"
         def pwd = "123456"
-        def tokens = context.config.jdbcUrl.split('/')
         def url=tokens[0] + "//" + tokens[2] + "/" + "?"
         
         sql """ drop RESOURCE if exists  ${resource_name} """ 
@@ -387,7 +385,7 @@ suite('test_manager_interface_3',"p0") {
                 "user" = "${jdbcUser}",
                 "type" = "jdbc",
                 "password" = "${jdbcPassword}",
-                "jdbc_url" = "${jdbcUrl}",
+                "jdbc_url" = "${url}",
                 "driver_url" = "${driver_url}",
                 "driver_class" = "com.mysql.cj.jdbc.Driver"
         )"""
@@ -586,7 +584,6 @@ suite('test_manager_interface_3',"p0") {
     def test_property = {
         def user = 'test_manager_property_user'
         def pwd = "123456"
-        def tokens = context.config.jdbcUrl.split('/')
         def url=tokens[0] + "//" + tokens[2] + "/" + "?"
 
         sql """drop user if exists ${user}"""
