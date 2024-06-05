@@ -74,9 +74,9 @@ public:
                                            const std::string& segment_file_name,
                                            const std::string& dir, const io::FileSystemSPtr& fs,
                                            const TabletIndex* index_meta,
-					   const bool single_field = true)
+                                           const bool single_field = true)
             : _single_field(single_field),
-	      _segment_file_name(segment_file_name),
+              _segment_file_name(segment_file_name),
               _directory(dir),
               _fs(fs),
               _index_meta(index_meta) {
@@ -242,7 +242,7 @@ public:
         } else {
             _field->setOmitTermFreqAndPositions(true);
         }
-	if (_single_field) {
+        if (_single_field) {
             _doc->add(*_field);
         } else {
             // array's inverted index do need create field first
@@ -423,7 +423,7 @@ public:
                     if (null_map[j] == 1) {
                         continue;
                     }
-		    // now we temp create field . later make a pool
+                    // now we temp create field . later make a pool
                     if (Status st = create_field(&new_field); st != Status::OK()) {
                         LOG(ERROR)
                                 << "create field " << string(_field_name.begin(), _field_name.end())
@@ -431,7 +431,7 @@ public:
                         return st;
                     }
                     auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
-		    if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                    if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
                          v->get_size() > ignore_above) ||
                         (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
                         // is here a null value?
@@ -442,7 +442,7 @@ public:
                             _parser_type != InvertedIndexParserType::PARSER_NONE) {
                             // in this case stream need to delete after add_document, because the
                             // stream can not reuse for different field
-			    std::unique_ptr<lucene::util::Reader> char_string_reader = nullptr;
+                            std::unique_ptr<lucene::util::Reader> char_string_reader = nullptr;
                             RETURN_IF_ERROR(create_char_string_reader(char_string_reader));
                             char_string_reader->init(v->get_data(), v->get_size(), false);
                             ts = _analyzer->tokenStream(new_field->name(),
@@ -453,7 +453,7 @@ public:
                         }
                         _doc->add(*new_field);
                     }
-		}
+                }
                 start_off += array_elem_size;
                 if (!_doc->getFields()->empty()) {
                     // if this array is null, we just ignore to write inverted index
@@ -461,7 +461,7 @@ public:
                     _doc->clear();
                     _CLDELETE(ts);
                 } else {
-		    // avoid to add doc which without any field which may make threadState init skip
+                    // avoid to add doc which without any field which may make threadState init skip
                     // init fieldDataArray, then will make error with next doc with fields in
                     // resetCurrentFieldData
                     if (Status st = create_field(&new_field); st != Status::OK()) {
@@ -474,7 +474,6 @@ public:
                     RETURN_IF_ERROR(add_null_document());
                     _doc->clear();
                     _CLDELETE(ts);
-
                 }
                 _rid++;
             }
@@ -699,7 +698,7 @@ Status InvertedIndexColumnWriter::create(const Field* field,
     bool single_field = true;
     if (type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         const auto array_typeinfo = dynamic_cast<const ArrayTypeInfo*>(typeinfo);
-	if (array_typeinfo != nullptr) {
+        if (array_typeinfo != nullptr) {
             typeinfo = array_typeinfo->item_type_info();
             type = typeinfo->type();
             single_field = false;
@@ -709,9 +708,9 @@ Status InvertedIndexColumnWriter::create(const Field* field,
         }
     }
     switch (type) {
-#define M(TYPE)                                                           \
-    case TYPE:                                                            \
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<TYPE>>(     \
+#define M(TYPE)                                                                    \
+    case TYPE:                                                                     \
+        *res = std::make_unique<InvertedIndexColumnWriterImpl<TYPE>>(              \
                 field_name, segment_file_name, dir, fs, index_meta, single_field); \
         break;
         M(FieldType::OLAP_FIELD_TYPE_TINYINT)
