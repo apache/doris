@@ -57,7 +57,7 @@ suite("test_bloom_filter_mtmv","mtmv") {
         insert into ${tableName} values(1,1),(2,2),(3,3);
         """
      sql """
-        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        REFRESH MATERIALIZED VIEW ${mvName} complete
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_mv "SELECT * FROM ${mvName}"
@@ -66,6 +66,12 @@ suite("test_bloom_filter_mtmv","mtmv") {
     sql """
         ALTER TABLE ${mvName} SET ("bloom_filter_columns" = "k3");
         """
+
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} complete
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_refresh_mv2 "SELECT * FROM ${mvName}"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
