@@ -28,18 +28,18 @@ const std::string InvertedIndexDescriptor::index_suffix = ".idx";
 const std::string InvertedIndexDescriptor::index_name_separator = "_";
 
 std::string InvertedIndexDescriptor::get_temporary_index_path(
-        const std::string& segment_path, uint64_t uuid, const std::string& index_suffix_path) {
+        const std::string& segment_path, int64_t index_id, const std::string& index_suffix_path) {
     std::string suffix = index_suffix_path.empty() ? "" : "@" + index_suffix_path;
     return StripSuffixString(segment_path, segment_suffix) + index_name_separator +
-           std::to_string(uuid) + suffix;
+           std::to_string(index_id) + suffix;
 }
 
 std::string InvertedIndexDescriptor::get_index_file_name(const std::string& segment_path,
-                                                         uint64_t uuid,
+                                                         int64_t index_id,
                                                          const std::string& index_suffix_path) {
     std::string suffix = index_suffix_path.empty() ? "" : "@" + index_suffix_path;
     return StripSuffixString(segment_path, segment_suffix) + index_name_separator +
-           std::to_string(uuid) + suffix + index_suffix;
+           std::to_string(index_id) + suffix + index_suffix;
 }
 
 std::string InvertedIndexDescriptor::inverted_index_file_path(
