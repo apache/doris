@@ -73,7 +73,7 @@ private:
     bool _stop_emplace_flag = false;
     const int batch_size;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
-    vectorized::AggregatedDataVariantsUPtr _agg_data = nullptr;
+    AggregatedDataVariantsUPtr _agg_data = nullptr;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;

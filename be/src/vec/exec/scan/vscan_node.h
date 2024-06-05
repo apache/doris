@@ -17,59 +17,7 @@
 
 #pragma once
 
-#include <fmt/format.h>
-#include <gen_cpp/Exprs_types.h>
-#include <gen_cpp/PlanNodes_types.h>
-#include <parallel_hashmap/phmap.h>
-#include <stdint.h>
-
-#include <functional>
-#include <list>
-#include <map>
-#include <memory>
-#include <string>
-#include <unordered_map>
-#include <utility>
-#include <vector>
-
-#include "common/global_types.h"
-#include "common/object_pool.h"
-#include "common/status.h"
-#include "exec/olap_common.h"
-#include "exprs/function_filter.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/query_context.h"
-#include "runtime/runtime_state.h"
-#include "util/runtime_profile.h"
-#include "vec/exec/runtime_filter_consumer.h"
-#include "vec/exec/scan/scanner_context.h"
 #include "vec/exec/scan/vscanner.h"
-#include "vec/runtime/shared_scanner_controller.h"
-
-namespace doris {
-class BitmapFilterFuncBase;
-class BloomFilterFuncBase;
-class DescriptorTbl;
-class FunctionContext;
-class HybridSetBase;
-class IRuntimeFilter;
-class SlotDescriptor;
-class TScanRangeParams;
-class TupleDescriptor;
-
-namespace vectorized {
-class Block;
-class VExpr;
-class VExprContext;
-class VInPredicate;
-class VectorizedFnCall;
-} // namespace vectorized
-struct StringRef;
-} // namespace doris
-
-namespace doris::pipeline {
-class ScanOperator;
-}
 
 namespace doris::vectorized {
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/data_gen_functions/vnumbers_tvf.h"
+#include "pipeline/common/data_gen_functions/vnumbers_tvf.h"
 
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -35,7 +35,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
-namespace doris::vectorized {
+namespace doris::pipeline {
 
 VNumbersTVF::VNumbersTVF(TupleId tuple_id, const TupleDescriptor* tuple_desc)
         : VDataGenFunctionInf(tuple_id, tuple_desc) {}
@@ -59,7 +59,7 @@ Status VNumbersTVF::get_next(RuntimeState* state, vectorized::Block* block, bool
             *eos = true;
             continue;
         }
-        auto* column_res = assert_cast<ColumnInt64*>(columns[i].get()); //BIGINT
+        auto* column_res = assert_cast<vectorized::ColumnInt64*>(columns[i].get()); //BIGINT
         int64_t end_value = std::min((int64_t)(_next_number + batch_size), _total_numbers);
         if (_use_const) {
             column_res->insert_many_vals(_const_value, end_value - _next_number);
@@ -78,9 +78,9 @@ Status VNumbersTVF::get_next(RuntimeState* state, vectorized::Block* block, bool
     } else {
         size_t n_columns = 0;
         for (const auto* slot_desc : _tuple_desc->slots()) {
-            block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
-                                                slot_desc->get_data_type_ptr(),
-                                                slot_desc->col_name()));
+            block->insert(vectorized::ColumnWithTypeAndName(std::move(columns[n_columns++]),
+                                                            slot_desc->get_data_type_ptr(),
+                                                            slot_desc->col_name()));
         }
     }
     return Status::OK();
@@ -97,4 +97,4 @@ Status VNumbersTVF::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ra
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris::pipeline
