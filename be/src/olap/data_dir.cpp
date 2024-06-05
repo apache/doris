@@ -632,6 +632,36 @@ void DataDir::add_pending_ids(const std::string& id) {
     _pending_path_ids.insert(id);
 }
 
+// gc unused local tablet dir
+void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path, int16_t shard_id) {
+    if (_stop_bg_worker) {
+        return;
+    }
+
+    TTabletId tablet_id = -1;
+    TSchemaHash schema_hash = -1;
+    bool is_valid = TabletManager::get_tablet_id_and_schema_hash_from_path(
+            tablet_schema_hash_path, &tablet_id, &schema_hash);
+    if (!is_valid || tablet_id < 1 || schema_hash < 1) [[unlikely]] {
+        LOG(WARNING) << "[path gc] unknown path: " << tablet_schema_hash_path;
+        return;
+    }
+
+    auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+    if (!tablet || tablet->data_dir() != this) {
+        if (tablet) {
+            LOG(INFO) << "The tablet in path " << tablet_schema_hash_path
+                      << " is not same with the running one: " << tablet->tablet_path()
+                      << ", might be the old tablet after migration, try to move it to trash";
+        }
+        _engine.tablet_manager()->try_delete_unused_tablet_path(this, tablet_id, schema_hash,
+                                                                tablet_schema_hash_path, shard_id);
+        return;
+    }
+
+    _perform_rowset_gc(tablet_schema_hash_path);
+}
+
 void DataDir::remove_pending_ids(const std::string& id) {
     std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
     _pending_path_ids.erase(id);
@@ -815,6 +845,14 @@ Status DataDir::perform_path_scan() {
                             fmt::format("{}/{}", tablet_schema_hash_path, rowset_file.file_name);
                     _all_check_paths.insert(rowset_file_path);
                 }
+                int16_t shard_id = -1;
+                try {
+                    shard_id = std::stoi(shard.file_name);
+                } catch (const std::exception&) {
+                    LOG(WARNING) << "failed to stoi shard_id, shard name=" << shard.file_name;
+                    continue;
+                }
+                _perform_tablet_gc(tablet_id_path + '/' + schema_hash.file_name, shard_id);
             }
         }
     }
@@ -947,8 +985,16 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     }
 
     // 5. check parent dir of source file, delete it when empty
+    RETURN_IF_ERROR(delete_tablet_parent_path_if_empty(tablet_path));
+
+    return Status::OK();
+}
+
+Status DataDir::delete_tablet_parent_path_if_empty(const std::string& tablet_path) {
+    auto fs_tablet_path = io::Path(tablet_path);
     std::string source_parent_dir = fs_tablet_path.parent_path(); // tablet_id level
     std::vector<io::FileInfo> sub_files;
+    bool exists = true;
     RETURN_IF_ERROR(
             io::global_local_filesystem()->list(source_parent_dir, false, &sub_files, &exists));
     if (sub_files.empty()) {
@@ -956,7 +1002,6 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
         // no need to exam return status
         io::global_local_filesystem()->delete_directory(source_parent_dir);
     }
-
     return Status::OK();
 }
 

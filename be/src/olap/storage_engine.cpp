@@ -1039,6 +1039,8 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
             string path_name = sorted_path.string();
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
                 res = io::global_local_filesystem()->delete_directory(path_name);
+                LOG(INFO) << "do sweep delete directory " << path_name << " local_now " << local_now
+                          << "actual_expire " << actual_expire << " res " << res;
                 if (!res.ok()) {
                     continue;
                 }
