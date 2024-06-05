@@ -169,19 +169,19 @@ fi
 if [[ "$(uname -s)" != 'Darwin' ]]; then
     MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
     if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
-        log "Set kernel parameter 'vm.max_map_count' to a value greater than 2000000, example: 'sysctl -w vm.max_map_count=2000000'"
+        echo "Set kernel parameter 'vm.max_map_count' to a value greater than 2000000, example: 'sysctl -w vm.max_map_count=2000000'"
         exit 1
     fi
 
     if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
-        log "Disable swap memory before starting be"
+        echo "Disable swap memory before starting be"
         exit 1
     fi
 fi
 
 MAX_FILE_COUNT="$(ulimit -n)"
 if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
-    log "Set max number of open file descriptors to a value greater than 60000, example: 'ulimit -n 60000'"
+    echo "Set max number of open file descriptors to a value greater than 60000, example: 'ulimit -n 60000'"
     exit 1
 fi
 
@@ -260,10 +260,10 @@ fi
 export PPROF_TMPDIR="${LOG_DIR}"
 
 if [[ -z "${JAVA_HOME}" ]]; then
-    log "The JAVA_HOME environment variable is not set correctly"
-    log "This environment variable is required to run this program"
-    log "Note: JAVA_HOME should point to a JDK and not a JRE"
-    log "You can set JAVA_HOME in the be.conf configuration file"
+    echo "The JAVA_HOME environment variable is not set correctly"
+    echo "This environment variable is required to run this program"
+    echo "Note: JAVA_HOME should point to a JDK and not a JRE"
+    echo "You can set JAVA_HOME in the be.conf configuration file"
     exit 1
 fi
 
@@ -370,7 +370,7 @@ if [[ "${java_version}" -eq 17 ]]; then
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
 else
-    log "ERROR: The jdk_version is ${java_version}, it must be 17." >>"${LOG_DIR}/be.out"
+    echo "ERROR: The jdk_version is ${java_version}, it must be 17." >>"${LOG_DIR}/be.out"
     exit 1
 fi
 

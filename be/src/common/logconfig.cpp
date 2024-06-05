@@ -79,7 +79,6 @@ bool init_glog(const char* basename) {
     }
 
     bool log_to_console = (getenv("DORIS_LOG_TO_STDERR") != nullptr);
-    std::cout << "xxx log_to_console: " << log_to_console << std::endl;
     if (log_to_console) {
         if (config::enable_file_logger) {
             FLAGS_alsologtostderr = true;
