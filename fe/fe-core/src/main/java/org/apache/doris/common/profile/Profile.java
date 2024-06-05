@@ -79,9 +79,6 @@ public class Profile {
             LOG.warn("try to set a null excecution profile, it is abnormal", new Exception());
             return;
         }
-        if (this.isPipelineX) {
-            executionProfile.setPipelineX();
-        }
         executionProfile.setSummaryProfile(summaryProfile);
         this.executionProfiles.add(executionProfile);
     }
