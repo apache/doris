@@ -103,13 +103,17 @@ suite("test_mysql_load", "p0") {
     """
 
     def test_line_delimiter_file = getLoalFilePath "test_line_delimiter.csv"
+    def fileContent = new File(test_line_delimiter_file).text
+    def newFileContent = fileContent.replace("\\r\\n", "\r\n")
+    new File(test_line_delimiter_file).withWriter { writer -> writer << newFileContent }
+
     sql """
         LOAD DATA 
         LOCAL
         INFILE '${test_line_delimiter_file}'
         INTO TABLE ${tableName}
         COLUMNS TERMINATED BY '|'
-        LINES TERMINATED BY 'weizuo'
+        LINES TERMINATED BY '\r\n'
         (id, value);
     """
 
