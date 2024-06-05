@@ -2326,7 +2326,7 @@ public class Coordinator implements CoordInterface {
                         DebugUtil.printId(queryId), ctx.fragmentId);
             }
             fragmentsDoneLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
-        }      
+        }
 
         if (params.isSetLoadedRows() && jobId != -1) {
             Env.getCurrentEnv().getLoadManager().updateJobProgress(
