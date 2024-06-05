@@ -391,6 +391,7 @@ public class AnalysisManager implements Writable {
         if (jobInfo.scheduleType == ScheduleType.PERIOD && jobInfo.lastExecTimeInMs > 0) {
             return;
         }
+        // TODO: why create a new info object?
         AnalysisInfoBuilder jobInfoBuilder = new AnalysisInfoBuilder(jobInfo);
         AnalysisInfo analysisInfo = jobInfoBuilder.setTaskId(-1).build();
         replayCreateAnalysisJob(analysisInfo);
@@ -1119,6 +1120,9 @@ public class AnalysisManager implements Writable {
                     OlapTable olapTable = (OlapTable) table;
                     short replicaNum = olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum();
                     Map<Long, Long> tabletRows = record.getValue();
+                    if (tabletRows == null) {
+                        continue;
+                    }
                     long tableUpdateRows = 0;
                     for (Entry<Long, Long> entry : tabletRows.entrySet()) {
                         tableUpdateRows += entry.getValue() / replicaNum;
@@ -1151,13 +1155,16 @@ public class AnalysisManager implements Writable {
     }
 
     protected void updatePartitionRows(OlapTable table, Map<Long, Long> originTabletToRows,
-                                       TableStatsMeta statsStatus, short replicaNum) {
+                                       TableStatsMeta tableStats, short replicaNum) {
+        if (!table.isPartitionedTable()) {
+            return;
+        }
         List<Partition> partitions = table.getPartitions().stream().sorted(
                 Comparator.comparing(Partition::getVisibleVersionTime).reversed()).collect(Collectors.toList());
         Map<Long, Long> tabletToRows = new HashMap<>(originTabletToRows);
         int tabletCount = tabletToRows.size();
-        if (statsStatus.partitionUpdateRows == null) {
-            statsStatus.partitionUpdateRows = new ConcurrentHashMap<>();
+        if (tableStats.partitionUpdateRows == null) {
+            tableStats.partitionUpdateRows = new ConcurrentHashMap<>();
         }
         for (Partition p : partitions) {
             MaterializedIndex baseIndex = p.getBaseIndex();
@@ -1170,9 +1177,9 @@ public class AnalysisManager implements Writable {
                     continue;
                 }
                 long tabletRows = entry.getValue();
-                statsStatus.partitionUpdateRows.computeIfPresent(p.getId(),
+                tableStats.partitionUpdateRows.computeIfPresent(p.getId(),
                         (id, rows) -> rows += tabletRows / replicaNum);
-                statsStatus.partitionUpdateRows.putIfAbsent(p.getId(), tabletRows / replicaNum);
+                tableStats.partitionUpdateRows.putIfAbsent(p.getId(), tabletRows / replicaNum);
                 iterator.remove();
                 tabletCount--;
             }
