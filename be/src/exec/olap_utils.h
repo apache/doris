@@ -190,9 +190,6 @@ inline MatchType to_match_type(TExprOpcode::type type) {
     case TExprOpcode::type::MATCH_REGEXP:
         return MatchType::MATCH_REGEXP;
         break;
-    case TExprOpcode::type::MATCH_PHRASE_EDGE:
-        return MatchType::MATCH_PHRASE_EDGE;
-        break;
     default:
         VLOG_CRITICAL << "TExprOpcode: " << type;
         DCHECK(false);
@@ -211,8 +208,6 @@ inline MatchType to_match_type(const std::string& condition_op) {
         return MatchType::MATCH_PHRASE_PREFIX;
     } else if (condition_op.compare("match_regexp") == 0) {
         return MatchType::MATCH_REGEXP;
-    } else if (condition_op.compare("match_phrase_edge") == 0) {
-        return MatchType::MATCH_PHRASE_EDGE;
     }
     return MatchType::UNKNOWN;
 }
@@ -221,8 +216,7 @@ inline bool is_match_condition(const std::string& op) {
     if (0 == strcasecmp(op.c_str(), "match_any") || 0 == strcasecmp(op.c_str(), "match_all") ||
         0 == strcasecmp(op.c_str(), "match_phrase") ||
         0 == strcasecmp(op.c_str(), "match_phrase_prefix") ||
-        0 == strcasecmp(op.c_str(), "match_regexp") ||
-        0 == strcasecmp(op.c_str(), "match_phrase_edge")) {
+        0 == strcasecmp(op.c_str(), "match_regexp")) {
         return true;
     }
     return false;
@@ -231,7 +225,7 @@ inline bool is_match_condition(const std::string& op) {
 inline bool is_match_operator(const TExprOpcode::type& op_type) {
     return TExprOpcode::MATCH_ANY == op_type || TExprOpcode::MATCH_ALL == op_type ||
            TExprOpcode::MATCH_PHRASE == op_type || TExprOpcode::MATCH_PHRASE_PREFIX == op_type ||
-           TExprOpcode::MATCH_REGEXP == op_type || TExprOpcode::MATCH_PHRASE_EDGE == op_type;
+           TExprOpcode::MATCH_REGEXP == op_type;
 }
 
 } // namespace doris

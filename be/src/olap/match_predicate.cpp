@@ -101,9 +101,6 @@ InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType m
     case MatchType::MATCH_REGEXP:
         ret = InvertedIndexQueryType::MATCH_REGEXP_QUERY;
         break;
-    case MatchType::MATCH_PHRASE_EDGE:
-        ret = InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY;
-        break;
     default:
         DCHECK(false);
     }

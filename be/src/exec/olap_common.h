@@ -310,8 +310,6 @@ public:
                 condition.__set_condition_op("match_phrase_prefix");
             } else if (value.first == MatchType::MATCH_REGEXP) {
                 condition.__set_condition_op("match_regexp");
-            } else if (value.first == MatchType::MATCH_PHRASE_EDGE) {
-                condition.__set_condition_op("match_phrase_edge");
             }
             condition.condition_values.push_back(
                     cast_to_string<primitive_type, CppType>(value.second, _scale));
