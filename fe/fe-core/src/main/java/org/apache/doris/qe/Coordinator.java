@@ -2268,202 +2268,69 @@ public class Coordinator implements CoordInterface {
 
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
-        if (enablePipelineXEngine) {
-            PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
-            if (ctx == null || !ctx.updatePipelineStatus(params)) {
-                return;
-            }
+        // Do not move this code, it will affect load process, we should throw exception to avoid load data error
+        if (!enablePipelineXEngine) {
+            throw new UserException("Not pipeline engine, it is not supported any more");
+        }
+        PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
+        if (ctx == null || !ctx.updatePipelineStatus(params)) {
+            return;
+        }
 
-            Status status = new Status(params.status);
-            // for now, abort the query if we see any error except if the error is cancelled
-            // and returned_all_results_ is true.
-            // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
-            if (!status.ok()) {
-                if (returnedAllResults && status.isCancelled()) {
-                    LOG.warn("Query {} has returned all results, fragment_id={} instance_id={}, be={}"
-                            + " is reporting failed status {}",
-                            DebugUtil.printId(queryId), params.getFragmentId(),
-                            DebugUtil.printId(params.getFragmentInstanceId()),
-                            params.getBackendId(),
-                            status.toString());
-                } else {
-                    LOG.warn("one instance report fail, query_id={} fragment_id={} instance_id={}, be={},"
-                                    + " error message: {}",
-                            DebugUtil.printId(queryId), params.getFragmentId(),
-                            DebugUtil.printId(params.getFragmentInstanceId()),
-                            params.getBackendId(), status.toString());
-                    updateStatus(status);
-                }
-            }
-            if (params.isSetDeltaUrls()) {
-                updateDeltas(params.getDeltaUrls());
-            }
-            if (params.isSetLoadCounters()) {
-                updateLoadCounters(params.getLoadCounters());
-            }
-            if (params.isSetTrackingUrl()) {
-                trackingUrl = params.getTrackingUrl();
-            }
-            if (params.isSetExportFiles()) {
-                updateExportFiles(params.getExportFiles());
-            }
-            if (params.isSetCommitInfos()) {
-                updateCommitInfos(params.getCommitInfos());
-            }
-            if (params.isSetErrorTabletInfos()) {
-                updateErrorTabletInfos(params.getErrorTabletInfos());
-            }
-            if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
-                hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
-            }
-            if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
-                icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
-            }
-
-            if (ctx.done) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Query {} fragment {} is marked done",
-                            DebugUtil.printId(queryId), ctx.fragmentId);
-                }
-                fragmentsDoneLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
-            }
-        } else if (enablePipelineEngine) {
-            PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
-            if (ctx == null || !ctx.updatePipelineStatus(params)) {
-                return;
-            }
-
-            Status status = new Status(params.status);
-            // for now, abort the query if we see any error except if the error is cancelled
-            // and returned_all_results_ is true.
-            // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
-            if (!status.ok()) {
-                if (returnedAllResults && status.isCancelled()) {
-                    LOG.warn("Query {} has returned all results, fragment_id={} instance_id={}, be={}"
-                            + " is reporting failed status {}",
-                            DebugUtil.printId(queryId), params.getFragmentId(),
-                            DebugUtil.printId(params.getFragmentInstanceId()),
-                            params.getBackendId(),
-                            status.toString());
-                } else {
-                    LOG.warn("one instance report fail, query_id={} fragment_id={} instance_id={}, be={},"
-                                    + " error message: {}",
-                            DebugUtil.printId(queryId), params.getFragmentId(),
-                            DebugUtil.printId(params.getFragmentInstanceId()),
-                            params.getBackendId(), status.toString());
-                    updateStatus(status);
-                }
-            }
-
-            // params.isDone() should be promised.
-            // There are some periodic reports during the load process,
-            // and the reports from the intermediate process may be concurrent with the last report.
-            // The last report causes the counter to decrease to zero,
-            // but it is possible that the report without commit-info triggered the commit operation,
-            // resulting in the data not being published.
-            if (ctx.fragmentInstancesMap.get(params.fragment_instance_id) && params.isDone()) {
-                if (params.isSetDeltaUrls()) {
-                    updateDeltas(params.getDeltaUrls());
-                }
-                if (params.isSetLoadCounters()) {
-                    updateLoadCounters(params.getLoadCounters());
-                }
-                if (params.isSetTrackingUrl()) {
-                    trackingUrl = params.getTrackingUrl();
-                }
-                if (params.isSetExportFiles()) {
-                    updateExportFiles(params.getExportFiles());
-                }
-                if (params.isSetCommitInfos()) {
-                    updateCommitInfos(params.getCommitInfos());
-                }
-                if (params.isSetErrorTabletInfos()) {
-                    updateErrorTabletInfos(params.getErrorTabletInfos());
-                }
-                if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
-                    hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
-                }
-                if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
-                    icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
-                }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Query {} instance {} is marked done",
-                            DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
-                }
-                instancesDoneLatch.markedCountDown(params.getFragmentInstanceId(), -1L);
+        Status status = new Status(params.status);
+        // for now, abort the query if we see any error except if the error is cancelled
+        // and returned_all_results_ is true.
+        // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
+        if (!status.ok()) {
+            if (returnedAllResults && status.isCancelled()) {
+                LOG.warn("Query {} has returned all results, fragment_id={} instance_id={}, be={}"
+                        + " is reporting failed status {}",
+                        DebugUtil.printId(queryId), params.getFragmentId(),
+                        DebugUtil.printId(params.getFragmentInstanceId()),
+                        params.getBackendId(),
+                        status.toString());
             } else {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Query {} instance {} is not marked done",
-                            DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
-                }
-            }
-        } else {
-            if (params.backend_num >= backendExecStates.size()) {
-                LOG.warn("Query {} instance {} unknown backend number: {}, expected less than: {}",
-                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
-                        params.backend_num, backendExecStates.size());
-                return;
-            }
-            BackendExecState execState = backendExecStates.get(params.backend_num);
-            if (!execState.updateInstanceStatus(params)) {
-                // Has to return here, to avoid out of order report messages. For example,
-                // the first message is done, then we update commit messages, but the new
-                // message is running, then we will also update commit messages. It will
-                // lead to data corrupt.
-                return;
-            }
-
-            Status status = new Status(params.status);
-            // for now, abort the query if we see any error except if the error is cancelled
-            // and returned_all_results_ is true.
-            // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
-            if (!status.ok()) {
-                if (status.isCancelled() && returnedAllResults) {
-                    LOG.warn("Query {} has returned all results, its instance {} is reporting failed status {}",
-                            DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
-                            status.toString());
-                } else {
-                    LOG.warn("Instance {} of query {} report failed status, error msg: {}",
-                            DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
-                            status.toString());
-                    updateStatus(status);
-                }
-            }
-
-            // params.isDone() should be promised.
-            // There are some periodic reports during the load process,
-            // and the reports from the intermediate process may be concurrent with the last report.
-            // The last report causes the counter to decrease to zero,
-            // but it is possible that the report without commit-info triggered the commit operation,
-            // resulting in the data not being published.
-            if (execState.done && params.isDone()) {
-                if (params.isSetDeltaUrls()) {
-                    updateDeltas(params.getDeltaUrls());
-                }
-                if (params.isSetLoadCounters()) {
-                    updateLoadCounters(params.getLoadCounters());
-                }
-                if (params.isSetTrackingUrl()) {
-                    trackingUrl = params.getTrackingUrl();
-                }
-                if (params.isSetExportFiles()) {
-                    updateExportFiles(params.getExportFiles());
-                }
-                if (params.isSetCommitInfos()) {
-                    updateCommitInfos(params.getCommitInfos());
-                }
-                if (params.isSetErrorTabletInfos()) {
-                    updateErrorTabletInfos(params.getErrorTabletInfos());
-                }
-                if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
-                    hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
-                }
-                if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
-                    icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
-                }
-                instancesDoneLatch.markedCountDown(params.getFragmentInstanceId(), -1L);
+                LOG.warn("one instance report fail, query_id={} fragment_id={} instance_id={}, be={},"
+                                + " error message: {}",
+                        DebugUtil.printId(queryId), params.getFragmentId(),
+                        DebugUtil.printId(params.getFragmentInstanceId()),
+                        params.getBackendId(), status.toString());
+                updateStatus(status);
             }
         }
+        if (params.isSetDeltaUrls()) {
+            updateDeltas(params.getDeltaUrls());
+        }
+        if (params.isSetLoadCounters()) {
+            updateLoadCounters(params.getLoadCounters());
+        }
+        if (params.isSetTrackingUrl()) {
+            trackingUrl = params.getTrackingUrl();
+        }
+        if (params.isSetExportFiles()) {
+            updateExportFiles(params.getExportFiles());
+        }
+        if (params.isSetCommitInfos()) {
+            updateCommitInfos(params.getCommitInfos());
+        }
+        if (params.isSetErrorTabletInfos()) {
+            updateErrorTabletInfos(params.getErrorTabletInfos());
+        }
+        if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
+            hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+        }
+        if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
+            icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
+        }
+
+        if (ctx.done) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Query {} fragment {} is marked done",
+                        DebugUtil.printId(queryId), ctx.fragmentId);
+            }
+            fragmentsDoneLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
+        }
+        
 
         if (params.isSetLoadedRows() && jobId != -1) {
             Env.getCurrentEnv().getLoadManager().updateJobProgress(
