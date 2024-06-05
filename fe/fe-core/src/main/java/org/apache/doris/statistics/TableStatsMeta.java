@@ -147,8 +147,6 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
                 colStatsMeta.rowCount = analyzedJob.rowCount;
                 if (colStatsMeta.partitionUpdateRows == null) {
                     colStatsMeta.partitionUpdateRows = new ConcurrentHashMap<>();
-                } else {
-                    colStatsMeta.partitionUpdateRows.clear();
                 }
                 colStatsMeta.partitionUpdateRows.putAll(analyzedJob.partitionUpdateRows);
             }

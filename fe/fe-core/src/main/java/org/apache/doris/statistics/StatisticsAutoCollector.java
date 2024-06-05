@@ -39,6 +39,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -215,6 +216,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
                 .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
                 .setAnalysisMethod(analysisMethod)
+                .setPartitionNames(Collections.emptySet())
                 .setSampleRows(analysisMethod.equals(AnalysisMethod.SAMPLE)
                     ? StatisticsUtil.getHugeTableSampleRows() : -1)
                 .setScheduleType(ScheduleType.AUTOMATIC)
