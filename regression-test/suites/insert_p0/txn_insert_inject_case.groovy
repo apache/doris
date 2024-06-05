@@ -19,10 +19,12 @@ import com.mysql.cj.jdbc.StatementImpl
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.Statement
+import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.util.NodeType
 
 suite("txn_insert_inject_case", "nonConcurrent") {
+    // test load fail
     def table = "txn_insert_inject_case"
-
     for (int j = 0; j < 3; j++) {
         def tableName = table + "_" + j
         sql """ DROP TABLE IF EXISTS $tableName """
@@ -37,8 +39,73 @@ suite("txn_insert_inject_case", "nonConcurrent") {
             properties("replication_num" = "1"); 
         """
     }
+    GetDebugPoint().disableDebugPointForAllBEs("FlushToken.submit_flush_error")
     sql """insert into ${table}_1 values(1, 2.2, "abc", [], []), (2, 3.3, "xyz", [1], [1, 0]), (null, null, null, [null], [null, 0])  """
     sql """insert into ${table}_2 values(3, 2.2, "abc", [], []), (4, 3.3, "xyz", [1], [1, 0]), (null, null, null, [null], [null, 0])  """
+
+    def ipList = [:]
+    def portList = [:]
+    (ipList, portList) = GetDebugPoint().getBEHostAndHTTPPort()
+    logger.info("be ips: ${ipList}, ports: ${portList}")
+
+    def enableDebugPoint = { ->
+        ipList.each { beid, ip ->
+            DebugPoint.enableDebugPoint(ip, portList[beid] as int, NodeType.BE, "FlushToken.submit_flush_error")
+        }
+    }
+
+    def disableDebugPoint = { ->
+        ipList.each { beid, ip ->
+            DebugPoint.disableDebugPoint(ip, portList[beid] as int, NodeType.BE, "FlushToken.submit_flush_error")
+        }
+    }
+
+    try {
+        enableDebugPoint()
+        sql """ begin """
+        try {
+            sql """ insert into ${table}_0 select * from ${table}_1; """
+            assertTrue(false, "insert should fail")
+        } catch (Exception e) {
+            logger.info("1" + e.getMessage())
+            assertTrue(e.getMessage().contains("dbug_be_memtable_submit_flush_error"))
+        }
+        try {
+            sql """ insert into ${table}_0 select * from ${table}_1; """
+            assertTrue(false, "insert should fail")
+        } catch (Exception e) {
+            logger.info("2" + e.getMessage())
+            assertTrue(e.getMessage().contains("dbug_be_memtable_submit_flush_error"))
+        }
+
+        disableDebugPoint()
+        sql """ insert into ${table}_0 select * from ${table}_1; """
+
+        enableDebugPoint()
+        try {
+            sql """ insert into ${table}_0 select * from ${table}_1; """
+            assertTrue(false, "insert should fail")
+        } catch (Exception e) {
+            logger.info("4" + e.getMessage())
+            assertTrue(e.getMessage().contains("dbug_be_memtable_submit_flush_error"))
+        }
+
+        disableDebugPoint()
+        sql """ insert into ${table}_0 select * from ${table}_1; """
+        sql """ commit"""
+    } catch (Exception e) {
+        logger.error("failed", e)
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("FlushToken.submit_flush_error")
+    }
+    sql "sync"
+    order_qt_select1 """select * from ${table}_0"""
+
+    if (isCloudMode()) {
+        return
+    }
+
+    sql """ truncate table ${table}_0 """
 
     // 1. publish timeout
     def backendId_to_params = get_be_param("pending_data_expire_time_sec")
