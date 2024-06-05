@@ -123,9 +123,7 @@ ObjectStorageResponse S3ObjClient::list_objects(const ObjectStoragePathOptions& 
 ObjectStorageResponse S3ObjClient::delete_objects(const ObjectStoragePathOptions& opts,
                                                   std::vector<std::string> objs) {
     if (objs.empty()) {
-        LOG_WARNING("No objects to delete")
-                .tag("endpoint", opts.endpoint)
-                .tag("bucket", opts.bucket);
+        LOG_INFO("No objects to delete").tag("endpoint", opts.endpoint).tag("bucket", opts.bucket);
         return {0};
     }
     Aws::S3::Model::DeleteObjectsRequest delete_request;
