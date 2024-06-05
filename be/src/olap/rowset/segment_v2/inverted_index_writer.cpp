@@ -73,7 +73,7 @@ public:
     explicit InvertedIndexColumnWriterImpl(const std::string& field_name,
                                            const std::string& segment_file_name,
                                            const std::string& dir, const io::FileSystemSPtr& fs,
-                                           const TabletIndex* index_meta
+                                           const TabletIndex* index_meta,
 					   const bool single_field = true)
             : _single_field(single_field),
 	      _segment_file_name(segment_file_name),
@@ -248,6 +248,19 @@ public:
             // array's inverted index do need create field first
             _doc->setNeedResetFieldData(true);
         }
+        return Status::OK();
+    }
+
+    Status create_field(lucene::document::Field** field) {
+        int field_config = int(lucene::document::Field::STORE_NO) |
+                           int(lucene::document::Field::INDEX_NONORMS);
+        field_config |= (_parser_type == InvertedIndexParserType::PARSER_NONE)
+                                ? int(lucene::document::Field::INDEX_UNTOKENIZED)
+                                : int(lucene::document::Field::INDEX_TOKENIZED);
+        *field = new lucene::document::Field(_field_name.c_str(), field_config);
+        (*field)->setOmitTermFreqAndPositions(
+                !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
+                  INVERTED_INDEX_PARSER_TRUE));
         return Status::OK();
     }
 
