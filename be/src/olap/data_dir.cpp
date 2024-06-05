@@ -313,7 +313,7 @@ std::string DataDir::get_root_path_from_schema_hash_path_in_trash(
 
 Status DataDir::_check_incompatible_old_format_tablet() {
     auto check_incompatible_old_func = [](int64_t tablet_id, int32_t schema_hash,
-                                          const std::string& value) -> bool {
+                                          std::string_view value) -> bool {
         // if strict check incompatible old format, then log fatal
         if (config::storage_strict_check_incompatible_old_format) {
             LOG(FATAL)
@@ -356,7 +356,7 @@ Status DataDir::load() {
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
     LOG(INFO) << "begin loading rowset from meta";
     auto load_rowset_func = [&dir_rowset_metas, this](TabletUid tablet_uid, RowsetId rowset_id,
-                                                      const std::string& meta_str) -> bool {
+                                                      std::string_view meta_str) -> bool {
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
@@ -417,7 +417,7 @@ Status DataDir::load() {
     std::set<int64_t> failed_tablet_ids;
     auto load_tablet_func = [this, &tablet_ids, &failed_tablet_ids](
                                     int64_t tablet_id, int32_t schema_hash,
-                                    const std::string& value) -> bool {
+                                    std::string_view value) -> bool {
         Status status = _engine.tablet_manager()->load_tablet_from_meta(
                 this, tablet_id, schema_hash, value, false, false, false, false);
         if (!status.ok() && !status.is<TABLE_ALREADY_DELETED_ERROR>() &&
@@ -472,9 +472,9 @@ Status DataDir::load() {
     }
 
     auto load_pending_publish_info_func =
-            [&engine = _engine](int64_t tablet_id, int64_t publish_version, const string& info) {
+            [&engine = _engine](int64_t tablet_id, int64_t publish_version, std::string_view info) {
                 PendingPublishInfoPB pending_publish_info_pb;
-                bool parsed = pending_publish_info_pb.ParseFromString(info);
+                bool parsed = pending_publish_info_pb.ParseFromArray(info.data(), info.size());
                 if (!parsed) {
                     LOG(WARNING) << "parse pending publish info failed, tablet_id: " << tablet_id
                                  << " publish_version: " << publish_version;
@@ -589,7 +589,8 @@ Status DataDir::load() {
         }
     }
 
-    auto load_delete_bitmap_func = [this](int64_t tablet_id, int64_t version, const string& val) {
+    auto load_delete_bitmap_func = [this](int64_t tablet_id, int64_t version,
+                                          std::string_view val) {
         TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
         if (!tablet) {
             return true;
@@ -601,7 +602,7 @@ Status DataDir::load() {
         }
 
         DeleteBitmapPB delete_bitmap_pb;
-        delete_bitmap_pb.ParseFromString(val);
+        delete_bitmap_pb.ParseFromArray(val.data(), val.size());
         int rst_ids_size = delete_bitmap_pb.rowset_ids_size();
         int seg_ids_size = delete_bitmap_pb.segment_ids_size();
         int seg_maps_size = delete_bitmap_pb.segment_delete_bitmaps_size();
@@ -962,8 +963,8 @@ Status DataDir::delete_tablet_parent_path_if_empty(const std::string& tablet_pat
 
 void DataDir::perform_remote_rowset_gc() {
     std::vector<std::pair<std::string, std::string>> gc_kvs;
-    auto traverse_remote_rowset_func = [&gc_kvs](const std::string& key,
-                                                 const std::string& value) -> bool {
+    auto traverse_remote_rowset_func = [&gc_kvs](std::string_view key,
+                                                 std::string_view value) -> bool {
         gc_kvs.emplace_back(key, value);
         return true;
     };
@@ -1009,8 +1010,8 @@ void DataDir::perform_remote_rowset_gc() {
 
 void DataDir::perform_remote_tablet_gc() {
     std::vector<std::pair<std::string, std::string>> tablet_gc_kvs;
-    auto traverse_remote_tablet_func = [&tablet_gc_kvs](const std::string& key,
-                                                        const std::string& value) -> bool {
+    auto traverse_remote_tablet_func = [&tablet_gc_kvs](std::string_view key,
+                                                        std::string_view value) -> bool {
         tablet_gc_kvs.emplace_back(key, value);
         return true;
     };

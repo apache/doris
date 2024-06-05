@@ -31,6 +31,7 @@
 #include <list>
 #include <mutex>
 #include <ostream>
+#include <string_view>
 
 #include "bvar/bvar.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -829,7 +830,7 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
 }
 
 Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
-                                            TSchemaHash schema_hash, const string& meta_binary,
+                                            TSchemaHash schema_hash, std::string_view meta_binary,
                                             bool update_meta, bool force, bool restore,
                                             bool check_path) {
     TabletMetaSharedPtr tablet_meta(new TabletMeta());

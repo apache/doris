@@ -30,6 +30,7 @@
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -125,7 +126,7 @@ public:
     // - restore: whether the request is from restore tablet action,
     //   where we should change tablet status from shutdown back to running
     Status load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id, TSchemaHash schema_hash,
-                                 const std::string& header, bool update_meta, bool force = false,
+                                 std::string_view header, bool update_meta, bool force = false,
                                  bool restore = false, bool check_path = true);
 
     Status load_tablet_from_dir(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
