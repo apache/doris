@@ -331,7 +331,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         if (!isReplay && !(tableRefList.get(0).getTable() instanceof OlapTable)) {
             throw new AnalysisException("The materialized view only support olap table.");
         }
-        if (!isReplay && !(tableRefList.get(0).getTable() instanceof MTMV)) {
+        if (!isReplay && tableRefList.get(0).getTable() instanceof MTMV) {
             throw new AnalysisException("Not allowed to perform current operation on async materialized view.");
         }
         OlapTable olapTable = (OlapTable) tableRefList.get(0).getTable();
