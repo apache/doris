@@ -36,6 +36,7 @@ suite("test_bloom_filter_mtmv","mtmv") {
             "replication_num" = "1"
         );
         """
+    // create mv with index
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
@@ -60,6 +61,24 @@ suite("test_bloom_filter_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_mv "SELECT * FROM ${mvName}"
+
+    // alter index
+    sql """
+        ALTER TABLE ${mvName} SET ("bloom_filter_columns" = "k3");
+        """
+
+    showCreateTableResult = sql """show create table ${mvName}"""
+    logger.info("showCreateTableResult: " + showCreateTableResult.toString())
+    assertTrue(showCreateTableResult.toString().contains('bloom_filter_columns" = "k3"'))
+
+    // delete index
+    sql """
+        ALTER TABLE ${mvName} SET ("bloom_filter_columns" = "");
+        """
+
+    showCreateTableResult = sql """show create table ${mvName}"""
+    logger.info("showCreateTableResult: " + showCreateTableResult.toString())
+    assertFalse(showCreateTableResult.toString().contains('bloom_filter_columns" = "k3"'))
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
