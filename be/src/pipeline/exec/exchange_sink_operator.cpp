@@ -26,7 +26,9 @@
 
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr.h"
@@ -294,7 +296,8 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _tablet_sink_partition(sink.tablet_sink_partition),
           _tablet_sink_location(sink.tablet_sink_location),
           _tablet_sink_tuple_id(sink.tablet_sink_tuple_id),
-          _tablet_sink_txn_id(sink.tablet_sink_txn_id) {
+          _tablet_sink_txn_id(sink.tablet_sink_txn_id),
+          _enable_local_merge_sort(state->enable_local_merge_sort()) {
     DCHECK_GT(destinations.size(), 0);
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
            sink.output_partition.type == TPartitionType::HASH_PARTITIONED ||
@@ -646,6 +649,19 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
         _sink_buffer->close();
     }
     return Base::close(state, exec_status);
+}
+
+DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
+    if (_child_x && _enable_local_merge_sort) {
+        // SORT_OPERATOR -> DATA_STREAM_SINK_OPERATOR
+        // SORT_OPERATOR -> LOCAL_MERGE_SORT -> DATA_STREAM_SINK_OPERATOR
+        if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child_x);
+            sort_source && sort_source->use_local_merge()) {
+            // Sort the data local
+            return ExchangeType::LOCAL_MERGE_SORT;
+        }
+    }
+    return DataSinkOperatorX<ExchangeSinkLocalState>::required_data_distribution();
 }
 
 } // namespace doris::pipeline

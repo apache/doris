@@ -25,6 +25,7 @@ namespace doris::pipeline {
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
 struct ShuffleBlockWrapper;
+class SortSourceOperatorX;
 
 class Exchanger {
 public:
@@ -49,6 +50,8 @@ public:
                         LocalExchangeSinkLocalState& local_state) = 0;
     virtual ExchangeType get_type() const = 0;
     virtual void close(LocalExchangeSourceLocalState& local_state) {}
+
+    virtual DependencySPtr get_local_state_dependency(int _channel_id) { return nullptr; }
 
 protected:
     friend struct LocalExchangeSharedState;
@@ -175,6 +178,50 @@ public:
 
 private:
     std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
+};
+
+class LocalMergeSortExchanger final : public Exchanger {
+public:
+    ENABLE_FACTORY_CREATOR(LocalMergeSortExchanger);
+    LocalMergeSortExchanger(std::shared_ptr<SortSourceOperatorX> sort_source,
+                            int running_sink_operators, int num_partitions, int free_block_limit)
+            : Exchanger(running_sink_operators, num_partitions, free_block_limit),
+              _sort_source(std::move(sort_source)),
+              _queues_mem_usege(num_partitions),
+              _each_queue_limit(config::local_exchange_buffer_mem_limit / num_partitions) {
+        _data_queue.resize(num_partitions);
+        for (size_t i = 0; i < num_partitions; i++) {
+            _queues_mem_usege[i] = 0;
+            _sink_deps.push_back(
+                    std::make_shared<Dependency>(0, 0, "LOCAL_MERGE_SORT_DEPENDENCY", true));
+        }
+    }
+    ~LocalMergeSortExchanger() override = default;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
+                LocalExchangeSinkLocalState& local_state) override;
+
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
+                     LocalExchangeSourceLocalState& local_state) override;
+    ExchangeType get_type() const override { return ExchangeType::LOCAL_MERGE_SORT; }
+
+    Status build_merger(RuntimeState* statem, LocalExchangeSourceLocalState& local_state);
+
+    DependencySPtr get_local_state_dependency(int channel_id) override {
+        DCHECK(_sink_deps[channel_id]);
+        return _sink_deps[channel_id];
+    }
+
+    void add_mem_usage(LocalExchangeSinkLocalState& local_state, int64_t delta);
+
+    void sub_mem_usage(LocalExchangeSourceLocalState& local_state, int channel_id, int64_t delta);
+
+private:
+    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
+    std::unique_ptr<vectorized::VSortedRunMerger> _merger;
+    std::shared_ptr<SortSourceOperatorX> _sort_source;
+    std::vector<DependencySPtr> _sink_deps;
+    std::vector<std::atomic_int64_t> _queues_mem_usege;
+    const int64_t _each_queue_limit;
 };
 
 class BroadcastExchanger final : public Exchanger {
