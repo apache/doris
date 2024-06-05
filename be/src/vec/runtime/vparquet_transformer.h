@@ -130,6 +130,7 @@ private:
     const bool _parquet_disable_dictionary;
     const TParquetVersion::type _parquet_version;
     const std::string* _iceberg_schema_json;
+    uint64_t _write_size = 0;
 };
 
 } // namespace doris::vectorized

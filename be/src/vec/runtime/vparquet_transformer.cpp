@@ -70,6 +70,8 @@
 
 namespace doris::vectorized {
 
+const uint64_t min_row_group_size = 128 * 1024 * 1024; // 128MB
+
 ParquetOutputStream::ParquetOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0) {
     set_mode(arrow::io::FileMode::WRITE);
@@ -292,12 +294,12 @@ Status VParquetTransformer::write(const Block& block) {
     RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
                                            &result, _state->timezone_obj()));
 
-    auto get_table_res = arrow::Table::FromRecordBatches(result->schema(), {result});
-    if (!get_table_res.ok()) {
-        return Status::InternalError("Error when get arrow table from record batchs");
+    RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteRecordBatch(*result));
+    _write_size += block.bytes();
+    if (_write_size >= min_row_group_size) {
+        RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
+        _write_size = 0;
     }
-    auto& table = get_table_res.ValueOrDie();
-    RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteTable(*table, block.rows()));
     return Status::OK();
 }
 
