@@ -896,6 +896,7 @@ public class StmtExecutor {
                 if (context.isReturnResultFromLocal()) {
                     finalizeQuery();
                 }
+                LOG.debug("Finalize query {}", DebugUtil.printId(context.queryId()));
             }
         }
     }
