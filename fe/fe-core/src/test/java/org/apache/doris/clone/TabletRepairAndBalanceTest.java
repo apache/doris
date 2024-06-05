@@ -106,7 +106,6 @@ public class TabletRepairAndBalanceTest {
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
         FeConstants.tablet_checker_interval_ms = 100;
-        Config.tablet_schedule_interval_ms = 100;
         Config.tablet_repair_delay_factor_second = 1;
         Config.colocate_group_relocate_delay_second = 1;
         Config.schedule_slot_num_per_hdd_path = 10000;
