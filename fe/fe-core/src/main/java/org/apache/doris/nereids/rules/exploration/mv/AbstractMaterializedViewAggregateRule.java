@@ -128,8 +128,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // Should not rewrite
         List<Expression> queryGroupByExpressions = queryTopPlanAndAggPair.value().getGroupByExpressions();
         List<Expression> viewGroupByExpressions = viewTopPlanAndAggPair.value().getGroupByExpressions();
-        if ((queryGroupByExpressions.isEmpty() && !viewGroupByExpressions.isEmpty())
-                || (!queryGroupByExpressions.isEmpty() && viewGroupByExpressions.isEmpty())) {
+        if (!queryGroupByExpressions.isEmpty() && viewGroupByExpressions.isEmpty()) {
             materializationContext.recordFailReason(queryStructInfo,
                     "only one the of query or view is scalar aggregate and "
                             + "can not rewrite expression meanwhile",

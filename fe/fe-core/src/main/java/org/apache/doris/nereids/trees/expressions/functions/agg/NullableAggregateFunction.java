@@ -74,6 +74,16 @@ public abstract class NullableAggregateFunction extends AggregateFunction implem
 
     public abstract NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable);
 
+    public boolean equalsIgnoreNullable(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        return super.equals(o);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
