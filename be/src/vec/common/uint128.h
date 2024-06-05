@@ -50,8 +50,8 @@ struct TypeId<UInt128> {
 struct UInt128HashCRC32 {
     size_t operator()(const UInt128& x) const {
         UInt64 crc = -1ULL;
-        crc = _mm_crc32_u64(crc, x.items[0]);
-        crc = _mm_crc32_u64(crc, x.items[1]);
+        crc = _mm_crc32_u64(crc, x.low());
+        crc = _mm_crc32_u64(crc, x.high());
         return crc;
     }
 };
@@ -64,7 +64,7 @@ struct UInt128HashCRC32 : public UInt128Hash {};
 #endif
 
 struct UInt128TrivialHash {
-    size_t operator()(UInt128 x) const { return x.items[0]; }
+    size_t operator()(UInt128 x) const { return x.low(); }
 };
 
 using UInt256 = wide::UInt256;
@@ -85,7 +85,7 @@ struct UInt136 {
 template <>
 struct std::hash<doris::vectorized::UInt128> {
     size_t operator()(const doris::vectorized::UInt128& u) const {
-        return util_hash::HashLen16(u.items[0], u.items[1]);
+        return util_hash::HashLen16(u.low(), u.high());
     }
 };
 

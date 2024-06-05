@@ -150,6 +150,15 @@ public:
 
     base_type items[_impl::item_count];
 
+    uint64_t low() const {
+        static_assert(_impl::item_count == 2);
+        return items[0];
+    }
+    uint64_t high() const {
+        static_assert(_impl::item_count == 2);
+        return items[1];
+    }
+
 private:
     template <size_t Bits2, typename Signed2>
     friend class integer;

@@ -67,8 +67,8 @@ struct StringHashTableHash {
     }
     size_t ALWAYS_INLINE operator()(StringKey16 key) const {
         size_t res = -1ULL;
-        res = _mm_crc32_u64(res, key.items[0]);
-        res = _mm_crc32_u64(res, key.items[1]);
+        res = _mm_crc32_u64(res, key.low());
+        res = _mm_crc32_u64(res, key.high());
         return res;
     }
 #else
