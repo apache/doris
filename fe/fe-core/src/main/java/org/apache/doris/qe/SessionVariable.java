@@ -55,6 +55,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.security.InvalidParameterException;
 import java.security.SecureRandom;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -806,7 +807,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean haveQueryCache = false;
 
     // 4096 minus 16 + 16 bytes padding that in padding pod array
-    @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true)
+    @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
     public int batchSize = 4064;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
@@ -3839,6 +3840,13 @@ public class SessionVariable implements Serializable, Writable {
                 .noneMatch(dialect -> dialect.getDialectName().equalsIgnoreCase(sqlDialect))) {
             LOG.warn("sqlDialect value is invalid, the invalid value is {}", sqlDialect);
             throw new UnsupportedOperationException("sqlDialect value is invalid, the invalid value is " + sqlDialect);
+        }
+    }
+
+    public void checkBatchSize(String batchSize) {
+        Long batchSizeValue = Long.valueOf(batchSize);
+        if (batchSizeValue < 1 || batchSizeValue > 65535) {
+            throw new InvalidParameterException("batch_size should be between 1 and 65535)");
         }
     }
 
