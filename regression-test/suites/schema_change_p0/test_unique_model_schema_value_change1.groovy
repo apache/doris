@@ -724,7 +724,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      //TODO Test the unique model by modify a value type from DATETIME  to DATE
      sql initTable
      sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column register_time DATETIME  """
+     sql """ alter  table ${tbName} MODIFY  column register_time DATE  """
      insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
@@ -734,7 +734,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      //TODO Test the unique model by modify a value type from DATETIME  to DATEV2
      sql initTable
      sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column register_time DATETIMEV2  """
+     sql """ alter  table ${tbName} MODIFY  column register_time DATEV2  """
      insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
@@ -975,7 +975,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      //TODO Test the unique model by modify a value type from DATETIMEV2  to DATE
      sql initTable
      sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column register_time DATETIME  """
+     sql """ alter  table ${tbName} MODIFY  column register_time DATE  """
      insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
@@ -985,7 +985,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      //TODO Test the unique model by modify a value type from DATETIMEV2  to DATEV2
      sql initTable
      sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column register_time DATETIMEV2  """
+     sql """ alter  table ${tbName} MODIFY  column register_time DATEV2  """
      insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
