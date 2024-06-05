@@ -30,6 +30,7 @@
 #include <azure/storage/common/storage_exception.hpp>
 #include <iterator>
 
+#include "common/logging.h"
 #include "recycler/obj_store_accessor.h"
 
 namespace doris::cloud {
@@ -37,12 +38,17 @@ namespace doris::cloud {
 constexpr size_t BlobBatchMaxOperations = 256;
 
 template <typename Func>
-ObjectStorageResponse do_azure_client_call(Func f) {
+ObjectStorageResponse do_azure_client_call(Func f, const ObjectStoragePathOptions& opts) {
     try {
         f();
     } catch (Azure::Storage::StorageException& e) {
-        return {-1, fmt::format("Azure request failed because {}, http code {}, request id {}",
-                                e.Message, static_cast<int>(e.StatusCode), e.RequestId)};
+        auto msg = fmt::format(
+                "Azure request failed because {}, http code {}, request id {}, bucket {}, key {}, "
+                "prefix {}, endpoint {}",
+                e.Message, static_cast<int>(e.StatusCode), e.RequestId, opts.bucket, opts.key,
+                opts.prefix, opts.endpoint);
+        LOG_WARNING(msg);
+        return {-1, std::move(msg)};
     }
     return {};
 }
@@ -50,9 +56,11 @@ ObjectStorageResponse do_azure_client_call(Func f) {
 ObjectStorageResponse AzureObjClient::put_object(const ObjectStoragePathOptions& opts,
                                                  std::string_view stream) {
     auto client = _client->GetBlockBlobClient(opts.key);
-    return do_azure_client_call([&]() {
-        client.UploadFrom(reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
-    });
+    return do_azure_client_call(
+            [&]() {
+                client.UploadFrom(reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
+            },
+            opts);
 }
 
 ObjectStorageResponse AzureObjClient::head_object(const ObjectStoragePathOptions& opts) {
@@ -64,8 +72,13 @@ ObjectStorageResponse AzureObjClient::head_object(const ObjectStoragePathOptions
         if (e.StatusCode == Azure::Core::Http::HttpStatusCode::NotFound) {
             return {1};
         }
-        return {-1, fmt::format("Failed to head azure blob due to {}, http code {}, request id {}",
-                                e.Message, static_cast<int>(e.StatusCode), e.RequestId)};
+        auto msg = fmt::format(
+                "Failed to head azure blob due to {}, http code {}, request id {}, "
+                "bucket {}, key {}, prefix {}, endpoint {}",
+                e.Message, static_cast<int>(e.StatusCode), e.RequestId, opts.bucket, opts.key,
+                opts.prefix, opts.endpoint);
+        LOG_WARNING(msg);
+        return {-1, std::move(msg)};
     }
 }
 
@@ -80,17 +93,19 @@ ObjectStorageResponse AzureObjClient::list_objects(const ObjectStoragePathOption
                                     blob_item.Details.LastModified.time_since_epoch().count()};
                 });
     };
-    return do_azure_client_call([&]() {
-        Azure::Storage::Blobs::ListBlobsOptions list_opts;
-        list_opts.Prefix = opts.prefix;
-        auto resp = _client->ListBlobs(list_opts);
-        get_object_meta(resp);
-        while (!resp.NextPageToken->empty()) {
-            list_opts.ContinuationToken = resp.NextPageToken;
-            resp = _client->ListBlobs(list_opts);
-            get_object_meta(resp);
-        }
-    });
+    return do_azure_client_call(
+            [&]() {
+                Azure::Storage::Blobs::ListBlobsOptions list_opts;
+                list_opts.Prefix = opts.prefix;
+                auto resp = _client->ListBlobs(list_opts);
+                get_object_meta(resp);
+                while (!resp.NextPageToken->empty()) {
+                    list_opts.ContinuationToken = resp.NextPageToken;
+                    resp = _client->ListBlobs(list_opts);
+                    get_object_meta(resp);
+                }
+            },
+            opts);
 }
 
 // As Azure's doc said, the batch size is 256
@@ -98,6 +113,10 @@ ObjectStorageResponse AzureObjClient::list_objects(const ObjectStoragePathOption
 // > Each batch request supports a maximum of 256 subrequests.
 ObjectStorageResponse AzureObjClient::delete_objects(const ObjectStoragePathOptions& opts,
                                                      std::vector<std::string> objs) {
+    if (objs.empty()) {
+        LOG_INFO("No objects to delete").tag("endpoint", opts.endpoint).tag("bucket", opts.bucket);
+        return {};
+    }
     // TODO(ByteYue) : use range to adate this code when compiler is ready
     // auto chunkedView = objs | std::views::chunk(BlobBatchMaxOperations);
     auto begin = std::begin(objs);
@@ -112,7 +131,7 @@ ObjectStorageResponse AzureObjClient::delete_objects(const ObjectStoragePathOpti
             batch.DeleteBlob(*it);
         }
         begin = chunkEnd;
-        auto resp = do_azure_client_call([&]() { _client->SubmitBatch(batch); });
+        auto resp = do_azure_client_call([&]() { _client->SubmitBatch(batch); }, opts);
         if (resp.ret != 0) {
             return resp;
         }
@@ -121,7 +140,7 @@ ObjectStorageResponse AzureObjClient::delete_objects(const ObjectStoragePathOpti
 }
 
 ObjectStorageResponse AzureObjClient::delete_object(const ObjectStoragePathOptions& opts) {
-    return do_azure_client_call([&]() { _client->DeleteBlob(opts.key); });
+    return do_azure_client_call([&]() { _client->DeleteBlob(opts.key); }, opts);
 }
 
 ObjectStorageResponse AzureObjClient::delete_objects_recursively(
@@ -134,7 +153,7 @@ ObjectStorageResponse AzureObjClient::delete_objects_recursively(
     for (auto&& blob_item : resp.Blobs) {
         batch.DeleteBlob(blob_item.Name);
     }
-    auto response = do_azure_client_call([&]() { _client->SubmitBatch(batch); });
+    auto response = do_azure_client_call([&]() { _client->SubmitBatch(batch); }, opts);
     if (response.ret != 0) {
         return response;
     }
@@ -145,7 +164,7 @@ ObjectStorageResponse AzureObjClient::delete_objects_recursively(
         for (auto&& blob_item : resp.Blobs) {
             batch.DeleteBlob(blob_item.Name);
         }
-        auto response = do_azure_client_call([&]() { _client->SubmitBatch(batch); });
+        auto response = do_azure_client_call([&]() { _client->SubmitBatch(batch); }, opts);
         if (response.ret != 0) {
             return response;
         }
@@ -163,7 +182,7 @@ ObjectStorageResponse AzureObjClient::delete_expired(const ObjectStorageDeleteEx
     for (auto&& blob_item : resp.Blobs) {
         batch.DeleteBlob(blob_item.Name);
     }
-    auto response = do_azure_client_call([&]() { _client->SubmitBatch(batch); });
+    auto response = do_azure_client_call([&]() { _client->SubmitBatch(batch); }, opts.path_opts);
     if (response.ret != 0) {
         return response;
     }
@@ -176,7 +195,8 @@ ObjectStorageResponse AzureObjClient::delete_expired(const ObjectStorageDeleteEx
                 batch.DeleteBlob(blob_item.Name);
             }
         }
-        auto response = do_azure_client_call([&]() { _client->SubmitBatch(batch); });
+        auto response =
+                do_azure_client_call([&]() { _client->SubmitBatch(batch); }, opts.path_opts);
         if (response.ret != 0) {
             return response;
         }
