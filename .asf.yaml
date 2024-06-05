@@ -81,6 +81,14 @@ github:
         dismiss_stale_reviews: true
         required_approving_review_count: 1
 
+    branch-2.1:
+      required_status_checks:
+        # strict means "Require branches to be up to date before merging".
+        strict: false
+        checks:
+          - context: COMPILE (DORIS_COMPILE)
+            app_id: -1
+
     branch-2.0:
       required_status_checks:
       # if strict is true, means "Require branches to be up to date before merging".
