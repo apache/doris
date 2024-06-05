@@ -67,11 +67,6 @@ suite("test_bloom_filter_mtmv","mtmv") {
         ALTER TABLE ${mvName} SET ("bloom_filter_columns" = "k3");
         """
 
-    // delete index
-    sql """
-        ALTER TABLE ${mvName} SET ("bloom_filter_columns" = "");
-        """
-
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 }
