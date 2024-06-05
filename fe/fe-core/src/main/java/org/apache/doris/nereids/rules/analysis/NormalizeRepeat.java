@@ -82,6 +82,12 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     public Rule build() {
         return RuleType.NORMALIZE_REPEAT.build(
             logicalRepeat(any()).when(LogicalRepeat::canBindVirtualSlot).then(repeat -> {
+                if (repeat.getGroupingSets().size() == 1
+                        && ExpressionUtils.collect(repeat.getOutputExpressions(),
+                        GroupingScalarFunction.class::isInstance).isEmpty()) {
+                    return new LogicalAggregate<>(repeat.getGroupByExpressions(),
+                            repeat.getOutputExpressions(), repeat.child());
+                }
                 checkRepeatLegality(repeat);
                 repeat = removeDuplicateColumns(repeat);
                 // add virtual slot, LogicalAggregate and LogicalProject for normalize
