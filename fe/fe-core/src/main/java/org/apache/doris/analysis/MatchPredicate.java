@@ -51,8 +51,7 @@ public class MatchPredicate extends Predicate {
         MATCH_ALL("MATCH_ALL", "match_all", TExprOpcode.MATCH_ALL),
         MATCH_PHRASE("MATCH_PHRASE", "match_phrase", TExprOpcode.MATCH_PHRASE),
         MATCH_PHRASE_PREFIX("MATCH_PHRASE_PREFIX", "match_phrase_prefix", TExprOpcode.MATCH_PHRASE_PREFIX),
-        MATCH_REGEXP("MATCH_REGEXP", "match_regexp", TExprOpcode.MATCH_REGEXP),
-        MATCH_PHRASE_EDGE("MATCH_PHRASE_EDGE", "match_phrase_edge", TExprOpcode.MATCH_PHRASE_EDGE);
+        MATCH_REGEXP("MATCH_REGEXP", "match_regexp", TExprOpcode.MATCH_REGEXP);
 
         private final String description;
         private final String name;
@@ -235,7 +234,6 @@ public class MatchPredicate extends Predicate {
                     "no function found for " + op.toString() + "," + toSql());
         }
         Expr e1 = getChild(0);
-        Expr e2 = getChild(1);
 
         if (e1 instanceof SlotRef) {
             SlotRef slotRef = (SlotRef) e1;

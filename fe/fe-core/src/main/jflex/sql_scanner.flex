@@ -314,7 +314,6 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("match_phrase", new Integer(SqlParserSymbols.KW_MATCH_PHRASE));
         keywordMap.put("match_phrase_prefix", new Integer(SqlParserSymbols.KW_MATCH_PHRASE_PREFIX));
         keywordMap.put("match_regexp", new Integer(SqlParserSymbols.KW_MATCH_REGEXP));
-        keywordMap.put("match_phrase_edge", new Integer(SqlParserSymbols.KW_MATCH_PHRASE_EDGE));
         keywordMap.put("materialized", new Integer(SqlParserSymbols.KW_MATERIALIZED));
         keywordMap.put("max", new Integer(SqlParserSymbols.KW_MAX));
         keywordMap.put("maxvalue", new Integer(SqlParserSymbols.KW_MAX_VALUE));
