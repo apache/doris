@@ -40,7 +40,6 @@ suite("test_create_view_mtmv","mtmv") {
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
-        partition by(`k3`)
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
         'replication_num' = '1'
