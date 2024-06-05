@@ -40,7 +40,7 @@ suite("test_colocate_with_mtmv","mtmv") {
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
+        DISTRIBUTED BY HASH(k2) BUCKETS 3
         PROPERTIES (
         'replication_num' = '1',
         "colocate_with" = "${groupName}"
