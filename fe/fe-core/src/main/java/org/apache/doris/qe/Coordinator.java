@@ -387,10 +387,6 @@ public class Coordinator implements CoordInterface {
         // https://github.com/apache/doris/blob/bd6f5b6a0e5f1b12744607336123d7f97eb76af9/fe/fe-core/src/main/java/org/apache/doris/load/loadv2/LoadLoadingTask.java#L155
         this.enablePipelineEngine = Config.enable_pipeline_load;
         this.enablePipelineXEngine = Config.enable_pipeline_load;
-        // make sure Coordinator can update profile correctlly
-        if (this.enablePipelineXEngine) {
-            this.executionProfile.setPipelineX();
-        }
     }
 
     private void setFromUserProperty(ConnectContext connectContext) {
@@ -3248,16 +3244,7 @@ public class Coordinator implements CoordInterface {
 
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
             this.enablePipelineX = enablePipelineX;
-            if (this.enablePipelineX) {
-                executionProfile.addFragmentBackend(fragmentId, backendId);
-            } else {
-                for (TPipelineInstanceParams instanceParam : rpcParams.local_params) {
-                    String profileName = "Instance " + DebugUtil.printId(instanceParam.fragment_instance_id)
-                            + " (host=" + address + ")";
-                    executionProfile.addInstanceProfile(fragmentId, instanceParam.fragment_instance_id,
-                        new RuntimeProfile(profileName));
-                }
-            }
+            executionProfile.addFragmentBackend(fragmentId, backendId);
         }
 
         /**

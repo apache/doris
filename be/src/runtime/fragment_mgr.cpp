@@ -1261,7 +1261,7 @@ Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
     }
 
     if (query_context->enable_pipeline_x_exec()) {
-        *exec_status = query_context->get_realtime_exec_status_x();
+        *exec_status = query_context->get_realtime_exec_status();
     }
 
     return Status::OK();

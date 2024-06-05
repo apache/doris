@@ -1557,8 +1557,8 @@ void PipelineFragmentContext::_close_fragment_instance() {
     }
 
     if (_query_ctx->enable_profile()) {
-        _query_ctx->add_fragment_profile_x(_fragment_id, collect_realtime_profile_x(),
-                                           collect_realtime_load_channel_profile_x());
+        _query_ctx->add_fragment_profile(_fragment_id, collect_realtime_profile_x(),
+                                         collect_realtime_load_channel_profile_x());
     }
 
     // all submitted tasks done
