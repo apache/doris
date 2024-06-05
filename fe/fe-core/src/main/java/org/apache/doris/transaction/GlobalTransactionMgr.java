@@ -522,11 +522,11 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             throws AnalysisException, TimeoutException {
         long dbId = request.getDbId();
         int commitTimeoutSec = Config.commit_timeout_second;
+        TransactionStatus txnStatus = null;
         for (int i = 0; i < commitTimeoutSec; ++i) {
             Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
             TWaitingTxnStatusResult statusResult = new TWaitingTxnStatusResult();
             statusResult.status = new TStatus();
-            TransactionStatus txnStatus = null;
             if (request.isSetTxnId()) {
                 long txnId = request.getTxnId();
                 TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, txnId);
@@ -551,7 +551,13 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("commit sleep exception.", e);
             }
         }
-        throw new TimeoutException("Operation is timeout");
+        if (txnStatus == TransactionStatus.COMMITTED) {
+            TWaitingTxnStatusResult statusResult = new TWaitingTxnStatusResult();
+            statusResult.status = new TStatus();
+            statusResult.setTxnStatusId(txnStatus.value());
+            return statusResult;
+        }
+        throw new TimeoutException("Operation is timeout, txn status is " + txnStatus);
     }
 
     @Override

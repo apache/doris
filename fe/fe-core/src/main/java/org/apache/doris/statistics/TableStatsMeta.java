@@ -74,10 +74,13 @@ public class TableStatsMeta implements Writable {
     public JobType jobType;
 
     @SerializedName("newPartitionLoaded")
-    public AtomicBoolean newPartitionLoaded = new AtomicBoolean(false);
+    public AtomicBoolean partitionChanged = new AtomicBoolean(false);
 
     @SerializedName("userInjected")
     public boolean userInjected;
+
+    @SerializedName("pur")
+    public ConcurrentMap<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
 
     @VisibleForTesting
     public TableStatsMeta() {
@@ -131,16 +134,22 @@ public class TableStatsMeta implements Writable {
         for (Pair<String, String> colPair : analyzedJob.jobColumns) {
             ColStatsMeta colStatsMeta = colToColStatsMeta.get(colPair);
             if (colStatsMeta == null) {
-                colToColStatsMeta.put(colPair, new ColStatsMeta(updatedTime, analyzedJob.analysisMethod,
+                colToColStatsMeta.put(colPair, new ColStatsMeta(analyzedJob.createTime, analyzedJob.analysisMethod,
                         analyzedJob.analysisType, analyzedJob.jobType, 0, analyzedJob.rowCount,
-                        analyzedJob.updateRows));
+                        analyzedJob.updateRows, analyzedJob.partitionUpdateRows));
             } else {
-                colStatsMeta.updatedTime = updatedTime;
+                colStatsMeta.updatedTime = analyzedJob.tblUpdateTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
                 colStatsMeta.jobType = analyzedJob.jobType;
                 colStatsMeta.updatedRows = analyzedJob.updateRows;
                 colStatsMeta.rowCount = analyzedJob.rowCount;
+                if (colStatsMeta.partitionUpdateRows == null) {
+                    colStatsMeta.partitionUpdateRows = new ConcurrentHashMap<>();
+                } else {
+                    colStatsMeta.partitionUpdateRows.clear();
+                }
+                colStatsMeta.partitionUpdateRows.putAll(analyzedJob.partitionUpdateRows);
             }
         }
         jobType = analyzedJob.jobType;
@@ -154,14 +163,14 @@ public class TableStatsMeta implements Writable {
                     tableIf.getSchemaAllIndexes(false).stream()
                             .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                             .map(Column::getName).collect(Collectors.toSet())))) {
-                newPartitionLoaded.set(false);
+                partitionChanged.set(false);
                 userInjected = false;
             } else if (tableIf instanceof OlapTable) {
                 PartitionInfo partitionInfo = ((OlapTable) tableIf).getPartitionInfo();
                 if (partitionInfo != null && analyzedJob.jobColumns
                         .containsAll(tableIf.getColumnIndexPairs(partitionInfo.getPartitionColumns().stream()
                             .map(Column::getName).collect(Collectors.toSet())))) {
-                    newPartitionLoaded.set(false);
+                    partitionChanged.set(false);
                 }
             }
         }

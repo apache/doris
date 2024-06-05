@@ -162,6 +162,11 @@ public class PlanChecker {
         return this;
     }
 
+    public PlanChecker disableNereidsRules(String rules) {
+        connectContext.getSessionVariable().setDisableNereidsRules(rules);
+        return this;
+    }
+
     public PlanChecker printPlanProcess(String sql) {
         List<PlanProcess> planProcesses = explainPlanProcess(sql);
         for (PlanProcess row : planProcesses) {

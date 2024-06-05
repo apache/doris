@@ -84,13 +84,6 @@ public:
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) final;
 
-    Status set_fill_columns(
-            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                    partition_columns,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) final;
-
-    bool fill_all_columns() const final;
-
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) final;
 
@@ -137,6 +130,10 @@ protected:
     void _generate_equality_delete_block(
             Block* block, const std::vector<std::string>& equality_delete_col_names,
             const std::vector<TypeDescriptor>& equality_delete_col_types);
+    // Equality delete should read the primary columns. Add the missing columns
+    Status _expand_block_if_need(Block* block);
+    // Remove the added delete columns
+    Status _shrink_block_if_need(Block* block);
 
     RuntimeProfile* _profile;
     RuntimeState* _state;
@@ -161,6 +158,9 @@ protected:
     std::vector<std::string> _all_required_col_names;
     // col names in table but not in parquet,orc file
     std::vector<std::string> _not_in_file_col_names;
+    // equality delete should read the primary columns
+    std::vector<std::string> _expand_col_names;
+    std::vector<ColumnWithTypeAndName> _expand_columns;
 
     io::IOContext* _io_ctx;
     bool _has_schema_change = false;

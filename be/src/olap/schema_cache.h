@@ -53,10 +53,10 @@ public:
     static void create_global_instance(size_t capacity);
 
     // get cache schema key, delimiter with SCHEMA_DELIMITER
-    static std::string get_schema_key(int32_t tablet_id, const TabletSchemaSPtr& schema,
+    static std::string get_schema_key(int64_t tablet_id, const TabletSchemaSPtr& schema,
                                       const std::vector<uint32_t>& column_ids, int32_t version,
                                       Type type);
-    static std::string get_schema_key(int32_t tablet_id, const std::vector<TColumn>& columns,
+    static std::string get_schema_key(int64_t tablet_id, const std::vector<TColumn>& columns,
                                       int32_t version, Type type);
 
     // Get a shared cached schema from cache, schema_key is a subset of column unique ids

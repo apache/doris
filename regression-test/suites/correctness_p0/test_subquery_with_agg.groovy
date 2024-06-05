@@ -82,4 +82,45 @@ suite("test_subquery_with_agg") {
         drop table if exists agg_subquery_table;
     """
 
+    sql """drop table if exists subquery_table_xyz;"""
+    sql """CREATE TABLE `subquery_table_xyz` (
+            `phone`bigint(20) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`phone`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`phone`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+    sql """WITH tmp1 AS 
+            (SELECT DISTINCT phone
+            FROM subquery_table_xyz oua
+            WHERE (NOT EXISTS 
+                (SELECT 1
+                FROM subquery_table_xyz o1
+                WHERE oua.phone = o1.phone
+                        AND phone IS NOT NULL))), 
+            tmp2 AS 
+                (SELECT DISTINCT phone
+                FROM subquery_table_xyz oua
+                WHERE (NOT EXISTS 
+                    (SELECT 1
+                    FROM subquery_table_xyz o1
+                    WHERE oua.phone = o1.phone
+                            and phone IS NOT NULL))), 
+            tmp3 AS 
+                    (SELECT DISTINCT phone
+                    FROM subquery_table_xyz oua
+                    WHERE (NOT EXISTS 
+                        (SELECT 1
+                        FROM subquery_table_xyz o1
+                        WHERE oua.phone = o1.phone and 
+                                phone IS NOT NULL)))
+                    SELECT COUNT(DISTINCT tmp1.phone)
+                FROM tmp1
+            JOIN tmp2
+            ON tmp1.phone = tmp2.phone
+        JOIN tmp3
+            ON tmp2.phone = tmp3.phone;"""
+
 }

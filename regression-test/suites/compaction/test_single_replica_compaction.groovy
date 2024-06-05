@@ -31,6 +31,10 @@ suite("test_single_replica_compaction", "p2") {
         }
     }
 
+    def calc_file_crc_on_tablet = { ip, port, tablet ->
+        return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
+    }
+
     boolean disableAutoCompaction = true
     boolean has_update_be_config = false
     try {
@@ -197,6 +201,21 @@ suite("test_single_replica_compaction", "p2") {
             }
         }
 
+        def checkTabletFileCrc = {
+            def (master_code, master_out, master_err) = calc_file_crc_on_tablet(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id], tablet_id)
+            logger.info("Run calc_file_crc_on_tablet: ip=" + backendId_to_backendIP[master_backend_id] + " code=" + master_code + ", out=" + master_out + ", err=" + master_err)
+
+            for (String backend: follower_backend_id) {
+                def (follower_code, follower_out, follower_err) = calc_file_crc_on_tablet(backendId_to_backendIP[backend], backendId_to_backendHttpPort[backend], tablet_id)
+                logger.info("Run calc_file_crc_on_tablet: ip=" + backendId_to_backendIP[backend] + " code=" + follower_code + ", out=" + follower_out + ", err=" + follower_err)
+                assertTrue(parseJson(follower_out.trim()).crc_value == parseJson(master_out.trim()).crc_value)
+                assertTrue(parseJson(follower_out.trim()).start_version == parseJson(master_out.trim()).start_version)
+                assertTrue(parseJson(follower_out.trim()).end_version == parseJson(master_out.trim()).end_version)
+                assertTrue(parseJson(follower_out.trim()).file_count == parseJson(master_out.trim()).file_count)
+                assertTrue(parseJson(follower_out.trim()).rowset_count == parseJson(master_out.trim()).rowset_count)
+            }
+        }
+
         sql """ INSERT INTO ${tableName} VALUES (1, "a", 100); """
         sql """ INSERT INTO ${tableName} VALUES (1, "b", 100); """
         sql """ INSERT INTO ${tableName} VALUES (2, "a", 100); """
@@ -252,6 +271,7 @@ suite("test_single_replica_compaction", "p2") {
 
         // check rowsets
         checkCompactionResult.call()
+        checkTabletFileCrc.call()
 
         qt_sql """
         select * from  ${tableName} order by id

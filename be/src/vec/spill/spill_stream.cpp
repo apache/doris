@@ -42,13 +42,17 @@ SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* d
           spill_dir_(std::move(spill_dir)),
           batch_rows_(batch_rows),
           batch_bytes_(batch_bytes),
+          query_id_(state->query_id()),
           profile_(profile) {}
 
 SpillStream::~SpillStream() {
     bool exists = false;
     auto status = io::global_local_filesystem()->exists(spill_dir_, &exists);
     if (status.ok() && exists) {
-        auto gc_dir = fmt::format("{}/{}/{}", get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
+        auto query_dir = fmt::format("{}/{}/{}", get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
+                                     print_id(query_id_));
+        (void)io::global_local_filesystem()->create_directory(query_dir);
+        auto gc_dir = fmt::format("{}/{}", query_dir,
                                   std::filesystem::path(spill_dir_).filename().string());
         (void)io::global_local_filesystem()->rename(spill_dir_, gc_dir);
     }
@@ -61,25 +65,8 @@ Status SpillStream::prepare() {
     return Status::OK();
 }
 
-void SpillStream::close() {
-    if (closed_) {
-        return;
-    }
-    VLOG_ROW << "closing: " << stream_id_;
-    closed_ = true;
-
-    if (writer_) {
-        (void)writer_->close();
-        writer_.reset();
-    }
-    if (reader_) {
-        (void)reader_->close();
-        reader_.reset();
-    }
-}
-
 const TUniqueId& SpillStream::query_id() const {
-    return state_->query_id();
+    return query_id_;
 }
 
 const std::string& SpillStream::get_spill_root_dir() const {
@@ -94,13 +81,17 @@ Status SpillStream::spill_block(RuntimeState* state, const Block& block, bool eo
     RETURN_IF_ERROR(writer_->write(state, block, written_bytes));
     if (eof) {
         RETURN_IF_ERROR(writer_->close());
+        total_written_bytes_ = writer_->get_written_bytes();
         writer_.reset();
+    } else {
+        total_written_bytes_ = writer_->get_written_bytes();
     }
     return Status::OK();
 }
 
 Status SpillStream::spill_eof() {
     RETURN_IF_ERROR(writer_->close());
+    total_written_bytes_ = writer_->get_written_bytes();
     writer_.reset();
     return Status::OK();
 }
@@ -113,6 +104,10 @@ Status SpillStream::read_next_block_sync(Block* block, bool* eos) {
 
     RETURN_IF_ERROR(reader_->open());
     return reader_->read(block, eos);
+}
+
+void SpillStream::decrease_spill_data_usage() {
+    data_dir_->update_spill_data_usage(-total_written_bytes_);
 }
 
 } // namespace doris::vectorized

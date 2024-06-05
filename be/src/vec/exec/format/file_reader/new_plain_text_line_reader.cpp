@@ -444,7 +444,8 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                     std::stringstream ss;
                     ss << "decompress made no progress."
                        << " input_read_bytes: " << input_read_bytes
-                       << " decompressed_len: " << decompressed_len;
+                       << " decompressed_len: " << decompressed_len
+                       << " input len: " << (_input_buf_limit - _input_buf_pos);
                     LOG(WARNING) << ss.str();
                     return Status::InternalError(ss.str());
                 }

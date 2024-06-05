@@ -135,7 +135,7 @@ Status SchemaWorkloadGroupsScanner::get_next_block(vectorized::Block* block, boo
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
     vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
-    mblock.add_rows(_workload_groups_block.get(), _row_idx, current_batch_rows);
+    RETURN_IF_ERROR(mblock.add_rows(_workload_groups_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 
     *eos = _row_idx == _total_rows;

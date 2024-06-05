@@ -579,6 +579,10 @@ public abstract class DataType {
         return this instanceof IPv4Type;
     }
 
+    public boolean isIPType() {
+        return isIPv4Type() || isIPv6Type();
+    }
+
     public boolean isIPv6Type() {
         return this instanceof IPv6Type;
     }

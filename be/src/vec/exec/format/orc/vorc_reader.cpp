@@ -149,6 +149,8 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _ctz(ctz),
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(
+                  state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false),
           _unsupported_pushdown_types(unsupported_pushdown_types) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
@@ -169,6 +171,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _file_system(nullptr),
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
     _init_system_properties();
     _init_file_description();
@@ -192,6 +195,7 @@ void OrcReader::_collect_profile_before_close() {
         COUNTER_UPDATE(_orc_profile.set_fill_column_time, _statistics.set_fill_column_time);
         COUNTER_UPDATE(_orc_profile.decode_value_time, _statistics.decode_value_time);
         COUNTER_UPDATE(_orc_profile.decode_null_map_time, _statistics.decode_null_map_time);
+        COUNTER_UPDATE(_orc_profile.filter_block_time, _statistics.filter_block_time);
 
         if (_file_input_stream != nullptr) {
             _file_input_stream->collect_profile_before_close();
@@ -225,6 +229,8 @@ void OrcReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeValueTime", orc_profile, 1);
         _orc_profile.decode_null_map_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", orc_profile, 1);
+        _orc_profile.filter_block_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FilterBlockTime", orc_profile, 1);
     }
 }
 
@@ -684,7 +690,7 @@ bool static build_search_argument(std::vector<OrcPredicate>& predicates, int ind
 
 bool OrcReader::_init_search_argument(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    if (colname_to_value_range->empty()) {
+    if ((!_enable_filter_by_min_max) || colname_to_value_range->empty()) {
         return false;
     }
     std::vector<OrcPredicate> predicates;
@@ -815,6 +821,15 @@ Status OrcReader::set_fill_columns(
         if (iter == predicate_columns.end()) {
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         } else {
+            //For check missing column :   missing column == xx, missing column is null,missing column is not null.
+            if (_slot_id_to_filter_conjuncts->find(iter->second.second) !=
+                _slot_id_to_filter_conjuncts->end()) {
+                for (auto& ctx : _slot_id_to_filter_conjuncts->find(iter->second.second)->second) {
+                    _filter_conjuncts.emplace_back(ctx);
+                }
+            }
+
+            // predicate_missing_columns is VLiteral.To fill in default values for missing columns.
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
             _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
         }
@@ -859,7 +874,7 @@ Status OrcReader::set_fill_columns(
         _batch = _row_reader->createRowBatch(_batch_size);
         auto& selected_type = _row_reader->getSelectedType();
         int idx = 0;
-        static_cast<void>(_init_select_types(selected_type, idx));
+        RETURN_IF_ERROR(_init_select_types(selected_type, idx));
 
         _remaining_rows = _row_reader->getNumberOfRows();
 
@@ -903,7 +918,7 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
         const orc::Type* sub_type = type.getSubtype(i);
         _col_orc_type.push_back(sub_type);
         if (_is_acid && sub_type->getKind() == orc::TypeKind::STRUCT) {
-            static_cast<void>(_init_select_types(*sub_type, idx));
+            RETURN_IF_ERROR(_init_select_types(*sub_type, idx));
         }
     }
     return Status::OK();
@@ -1524,6 +1539,17 @@ std::string OrcReader::get_field_name_lower_case(const orc::Type* orc_type, int 
 }
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    RETURN_IF_ERROR(get_next_block_impl(block, read_rows, eof));
+    if (_orc_filter) {
+        RETURN_IF_ERROR(_orc_filter->get_status());
+    }
+    if (_string_dict_filter) {
+        RETURN_IF_ERROR(_string_dict_filter->get_status());
+    }
+    return Status::OK();
+}
+
+Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof) {
     if (_io_ctx && _io_ctx->should_stop) {
         *eof = true;
         *read_rows = 0;
@@ -1599,23 +1625,26 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
-            static_cast<void>(_convert_dict_cols_to_string_cols(block, nullptr));
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
             *eof = true;
             *read_rows = 0;
             return Status::OK();
         }
         _execute_filter_position_delete_rowids(*_filter);
-
-        RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter, *_filter));
+        {
+            SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
+            RETURN_IF_CATCH_EXCEPTION(
+                    Block::filter_block_internal(block, columns_to_filter, *_filter));
+        }
         if (!_not_single_slot_filter_conjuncts.empty()) {
-            static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
                             _not_single_slot_filter_conjuncts, nullptr, block, columns_to_filter,
                             column_to_keep)));
         } else {
             Block::erase_useless_column(block, column_to_keep);
-            static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
         }
         *read_rows = block->rows();
     } else {
@@ -1688,7 +1717,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
-            static_cast<void>(_convert_dict_cols_to_string_cols(block, nullptr));
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
             *eof = true;
             *read_rows = 0;
             return Status::OK();
@@ -1712,10 +1741,6 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             for (auto& conjunct : _non_dict_filter_conjuncts) {
                 filter_conjuncts.emplace_back(conjunct);
             }
-            //include missing_columns != missing_columns ; missing_column is null; missing_column != file_columns etc...
-            for (auto& [missing_col, conjunct] : _lazy_read_ctx.predicate_missing_columns) {
-                filter_conjuncts.emplace_back(conjunct);
-            }
             std::vector<IColumn::Filter*> filters;
             if (_delete_rows_filter_ptr) {
                 filters.push_back(_delete_rows_filter_ptr.get());
@@ -1729,29 +1754,40 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                     std::move(*block->get_by_position(col).column).assume_mutable()->clear();
                 }
                 Block::erase_useless_column(block, column_to_keep);
-                static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
-                return Status::OK();
+                return _convert_dict_cols_to_string_cols(block, &batch_vec);
             }
             _execute_filter_position_delete_rowids(result_filter);
-            RETURN_IF_CATCH_EXCEPTION(
-                    Block::filter_block_internal(block, columns_to_filter, result_filter));
+            {
+                SCOPED_RAW_TIMER(&_statistics.filter_block_time);
+                RETURN_IF_CATCH_EXCEPTION(
+                        Block::filter_block_internal(block, columns_to_filter, result_filter));
+            }
+            //_not_single_slot_filter_conjuncts check : missing column1 == missing column2 , missing column == exists column  ...
             if (!_not_single_slot_filter_conjuncts.empty()) {
-                static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
+                RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
                 RETURN_IF_CATCH_EXCEPTION(
                         RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
                                 _not_single_slot_filter_conjuncts, nullptr, block,
                                 columns_to_filter, column_to_keep)));
             } else {
                 Block::erase_useless_column(block, column_to_keep);
-                static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
+                RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
             }
         } else {
             if (_delete_rows_filter_ptr) {
+                _execute_filter_position_delete_rowids(*_delete_rows_filter_ptr);
+                SCOPED_RAW_TIMER(&_statistics.filter_block_time);
                 RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter,
                                                                        (*_delete_rows_filter_ptr)));
+            } else {
+                std::unique_ptr<IColumn::Filter> filter(new IColumn::Filter(block->rows(), 1));
+                _execute_filter_position_delete_rowids(*filter);
+                SCOPED_RAW_TIMER(&_statistics.filter_block_time);
+                RETURN_IF_CATCH_EXCEPTION(
+                        Block::filter_block_internal(block, columns_to_filter, (*filter)));
             }
             Block::erase_useless_column(block, column_to_keep);
-            static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
         }
         *read_rows = block->rows();
     }
@@ -1864,10 +1900,6 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     for (auto& conjunct : _non_dict_filter_conjuncts) {
         filter_conjuncts.emplace_back(conjunct);
     }
-    //include missing_columns != missing_columns ; missing_column is null; missing_column != file_columns etc...
-    for (auto& [missing_col, conjunct] : _lazy_read_ctx.predicate_missing_columns) {
-        filter_conjuncts.emplace_back(conjunct);
-    }
     std::vector<IColumn::Filter*> filters;
     if (_delete_rows_filter_ptr) {
         filters.push_back(_delete_rows_filter_ptr.get());
@@ -1892,7 +1924,7 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
             block->get_by_name(col.first).column->assume_mutable()->clear();
         }
         Block::erase_useless_column(block, origin_column_num);
-        static_cast<void>(_convert_dict_cols_to_string_cols(block, nullptr));
+        RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
     }
 
     uint16_t new_size = 0;
@@ -1957,20 +1989,19 @@ bool OrcReader::_can_filter_by_dict(int slot_id) {
         return false;
     }
 
-    // TODO：check expr like 'a > 10 is null', 'a > 10' should can be filter by dict.
     std::function<bool(const VExpr* expr)> visit_function_call = [&](const VExpr* expr) {
+        // TODO: The current implementation of dictionary filtering does not take into account
+        //  the implementation of NULL values because the dictionary itself does not contain
+        //  NULL value encoding. As a result, many NULL-related functions or expressions
+        //  cannot work properly, such as is null, is not null, coalesce, etc.
+        //  Here we first disable dictionary filtering when predicate contains functions.
+        //  Implementation of NULL value dictionary filtering will be carried out later.
         if (expr->node_type() == TExprNodeType::FUNCTION_CALL) {
-            std::string is_null_str;
-            std::string function_name = expr->fn().name.function_name;
-            if (function_name.compare("is_null_pred") == 0 ||
-                function_name.compare("is_not_null_pred") == 0) {
+            return false;
+        }
+        for (auto& child : expr->children()) {
+            if (!visit_function_call(child.get())) {
                 return false;
-            }
-        } else {
-            for (auto& child : expr->children()) {
-                if (!visit_function_call(child.get())) {
-                    return false;
-                }
             }
         }
         return true;
@@ -2128,7 +2159,7 @@ Status OrcReader::on_string_dicts_loaded(
         }
 
         // 4. Rewrite conjuncts.
-        static_cast<void>(_rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable()));
+        RETURN_IF_ERROR(_rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable()));
         ++it;
     }
     return Status::OK();
@@ -2157,7 +2188,6 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             texpr_node.__set_node_type(TExprNodeType::BINARY_PRED);
             texpr_node.__set_opcode(TExprOpcode::EQ);
             texpr_node.__set_fn(fn);
-            texpr_node.__set_child_type(TPrimitiveType::INT);
             texpr_node.__set_num_children(2);
             texpr_node.__set_is_nullable(is_nullable);
             root = VectorizedFnCall::create_shared(texpr_node);

@@ -14,19 +14,20 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
-----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
-------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[ss_cdemo_sk]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
-----------------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------------PhysicalProject
---------------------------------------filter((customer_demographics.cd_education_status = 'Secondary') and (customer_demographics.cd_gender = 'M') and (customer_demographics.cd_marital_status = 'W'))
-----------------------------------------PhysicalOlapScan[customer_demographics]
-------------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
 --------------------------------PhysicalProject
-----------------------------------filter((store.s_state = 'TN'))
-------------------------------------PhysicalOlapScan[store]
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[ss_cdemo_sk]
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
+------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------------PhysicalProject
+----------------------------------------filter((customer_demographics.cd_education_status = 'Secondary') and (customer_demographics.cd_gender = 'M') and (customer_demographics.cd_marital_status = 'W'))
+------------------------------------------PhysicalOlapScan[customer_demographics]
+--------------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------------PhysicalProject
+------------------------------------filter((store.s_state = 'TN'))
+--------------------------------------PhysicalOlapScan[store]
 ----------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------PhysicalProject
 --------------------------------filter((date_dim.d_year = 1999))

@@ -71,6 +71,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.load.StreamLoadHandler;
@@ -137,11 +138,12 @@ import org.apache.doris.thrift.TDescribeTablesParams;
 import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
+import org.apache.doris.thrift.TFetchSplitBatchRequest;
+import org.apache.doris.thrift.TFetchSplitBatchResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
@@ -212,6 +214,7 @@ import org.apache.doris.thrift.TRestoreSnapshotRequest;
 import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
+import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowProcessListResult;
@@ -968,6 +971,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
+    public TFetchSplitBatchResult fetchSplitBatch(TFetchSplitBatchRequest request) throws TException {
+        TFetchSplitBatchResult result = new TFetchSplitBatchResult();
+        SplitSource splitSource =
+                Env.getCurrentEnv().getSplitSourceManager().getSplitSource(request.getSplitSourceId());
+        if (splitSource == null) {
+            throw new TException("Split source " + request.getSplitSourceId() + " is released");
+        }
+        try {
+            List<TScanRangeLocations> locations = splitSource.getNextBatch(request.getMaxNumSplits());
+            result.setSplits(locations);
+            return result;
+        } catch (Exception e) {
+            throw new TException("Failed to get split source " + request.getSplitSourceId(), e);
+        }
+    }
+
+    @Override
     public TMasterResult finishTask(TFinishTaskRequest request) throws TException {
         return masterImpl.finishTask(request);
     }
@@ -1597,7 +1617,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (Strings.isNullOrEmpty(request.getCluster())) {
                 dbName = request.getDb();
             }
-            throw new UserException("unknown database, database=" + dbName);
+            throw new UserException("unknown database, database=" + dbName + " request.isSetDbId(): "
+                    + request.isSetDbId() + " id: " + Long.toString(request.isSetDbId() ? request.getDbId() : 0)
+                    + " fullDbName: " + fullDbName);
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
         List<Table> tables = queryLoadCommitTables(request, db);
@@ -1926,7 +1948,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
                 httpStreamPutImpl(request, result);
                 if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
-                    result.params.setWorkloadGroups(tWorkloadGroupList);
+                    result.pipeline_params.setWorkloadGroups(tWorkloadGroupList);
                 }
                 return result;
             } else {
@@ -1934,7 +1956,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (Config.enable_pipeline_load) {
                     result.setPipelineParams((TPipelineFragmentParams) streamLoadHandler.getFragmentParams().get(0));
                 } else {
-                    result.setParams((TExecPlanFragmentParams) streamLoadHandler.getFragmentParams().get(0));
+                    throw new UserException("Pipeline load should be enabled");
                 }
             }
             if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
@@ -2082,11 +2104,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             httpStreamParams.getParams().setLoadStreamPerNode(loadStreamPerNode);
             httpStreamParams.getParams().setTotalLoadStreams(loadStreamPerNode);
             httpStreamParams.getParams().setNumLocalSink(1);
-            result.setParams(httpStreamParams.getParams());
-            result.getParams().setDbName(httpStreamParams.getDb().getFullName());
-            result.getParams().setTableName(httpStreamParams.getTable().getName());
-            result.getParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxnId()));
-            result.getParams().setImportLabel(httpStreamParams.getLabel());
+            result.setPipelineParams(httpStreamParams.getParams());
+            result.getPipelineParams().setDbName(httpStreamParams.getDb().getFullName());
+            result.getPipelineParams().setTableName(httpStreamParams.getTable().getName());
+            result.getPipelineParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxnId()));
+            result.getPipelineParams().setImportLabel(httpStreamParams.getLabel());
             result.setDbId(httpStreamParams.getDb().getId());
             result.setTableId(httpStreamParams.getTable().getId());
             result.setBaseSchemaVersion(((OlapTable) httpStreamParams.getTable()).getBaseSchemaVersion());
@@ -2153,15 +2175,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
-        if (!request.isSetSchemaTableName()) {
-            return MetadataGenerator.errorResult("Fetch schema table name is not set");
-        }
-        // tvf queries
-        if (request.getSchemaTableName() == TSchemaTableName.METADATA_TABLE) {
-            return MetadataGenerator.getMetadataTable(request);
-        } else {
-            // database information_schema's tables
-            return MetadataGenerator.getSchemaTableData(request);
+        try {
+            if (!request.isSetSchemaTableName()) {
+                return MetadataGenerator.errorResult("Fetch schema table name is not set");
+            }
+            // tvf queries
+            if (request.getSchemaTableName() == TSchemaTableName.METADATA_TABLE) {
+                return MetadataGenerator.getMetadataTable(request);
+            } else {
+                // database information_schema's tables
+                return MetadataGenerator.getSchemaTableData(request);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to fetchSchemaTableData", e);
+            return MetadataGenerator.errorResult(e.getMessage());
         }
     }
 
@@ -3150,7 +3177,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ColStatsData data = GsonUtils.GSON.fromJson(request.colStatsData, ColStatsData.class);
         ColumnStatistic c = data.toColumnStatistic();
         if (c == ColumnStatistic.UNKNOWN) {
-            Env.getCurrentEnv().getStatisticsCache().invalidate(k.catalogId, k.dbId, k.tableId, k.idxId, k.colName);
+            Env.getCurrentEnv().getStatisticsCache().invalidate(k.catalogId, k.dbId, k.tableId,
+                    k.idxId, null, k.colName);
         } else {
             Env.getCurrentEnv().getStatisticsCache().updateColStatsCache(
                     k.catalogId, k.dbId, k.tableId, k.idxId, k.colName, c);
@@ -3352,7 +3380,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             errorStatus.setStatusCode(TStatusCode.NOT_MASTER);
             errorStatus.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.warn("failed to createPartition: {}", NOT_MASTER_ERR_MSG);
+            LOG.warn("failed to replace Partition: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
@@ -3387,10 +3415,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<String> allReqPartNames; // all request partitions
         try {
             taskLock.lock();
-            // we dont lock the table. other thread in this txn will be controled by
-            // taskLock.
-            // if we have already replaced. dont do it again, but acquire the recorded new
-            // partition directly.
+            // we dont lock the table. other thread in this txn will be controled by taskLock.
+            // if we have already replaced. dont do it again, but acquire the recorded new partition directly.
             // if not by this txn, just let it fail naturally is ok.
             List<Long> replacedPartIds = overwriteManager.tryReplacePartitionIds(taskGroupId, partitionIds);
             // here if replacedPartIds still have null. this will throw exception.
@@ -3400,8 +3426,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     .filter(i -> partitionIds.get(i) == replacedPartIds.get(i)) // equal means not replaced
                     .mapToObj(partitionIds::get)
                     .collect(Collectors.toList());
-            // from here we ONLY deal the pending partitions. not include the dealed(by
-            // others).
+            // from here we ONLY deal the pending partitions. not include the dealed(by others).
             if (!pendingPartitionIds.isEmpty()) {
                 // below two must have same order inner.
                 List<String> pendingPartitionNames = olapTable.uncheckedGetPartNamesById(pendingPartitionIds);
@@ -3412,8 +3437,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 overwriteManager.registerTaskInGroup(taskGroupId, taskId);
                 InsertOverwriteUtil.addTempPartitions(olapTable, pendingPartitionNames, tempPartitionNames);
                 InsertOverwriteUtil.replacePartition(olapTable, pendingPartitionNames, tempPartitionNames);
-                // now temp partitions are bumped up and use new names. we get their ids and
-                // record them.
+                // now temp partitions are bumped up and use new names. we get their ids and record them.
                 List<Long> newPartitionIds = new ArrayList<Long>();
                 for (String newPartName : pendingPartitionNames) {
                     newPartitionIds.add(olapTable.getPartition(newPartName).getId());

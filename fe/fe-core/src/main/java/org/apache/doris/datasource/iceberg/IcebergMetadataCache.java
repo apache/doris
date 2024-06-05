@@ -72,6 +72,9 @@ public class IcebergMetadataCache {
 
     public List<Snapshot> getSnapshotList(TIcebergMetadataParams params) throws UserException {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(params.getCatalog());
+        if (catalog == null) {
+            throw new UserException("The specified catalog does not exist:" + params.getCatalog());
+        }
         IcebergMetadataCacheKey key =
                 IcebergMetadataCacheKey.of(catalog, params.getDatabase(), params.getTable());
         return snapshotListCache.get(key);

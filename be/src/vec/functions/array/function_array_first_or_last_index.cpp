@@ -73,15 +73,15 @@ public:
         const ColumnArray* array_column = nullptr;
         const UInt8* array_null_map = nullptr;
         if (src_column->is_nullable()) {
-            auto nullable_array = assert_cast<const ColumnNullable*>(src_column.get());
+            const auto* nullable_array = assert_cast<const ColumnNullable*>(src_column.get());
             array_column = assert_cast<const ColumnArray*>(&nullable_array->get_nested_column());
             array_null_map = nullable_array->get_null_map_column().get_data().data();
         } else {
             array_column = assert_cast<const ColumnArray*>(src_column.get());
         }
 
-        auto& src_nested_data = array_column->get_data();
-        auto& src_offset = array_column->get_offsets();
+        const auto& src_nested_data = array_column->get_data();
+        const auto& src_offset = array_column->get_offsets();
 
         auto result_data_col = ColumnInt64::create(input_rows_count, 0);
         auto& result_data = result_data_col->get_data();

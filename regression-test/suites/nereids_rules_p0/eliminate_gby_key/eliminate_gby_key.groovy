@@ -25,9 +25,9 @@ suite("eliminate_gby_key") {
 
     sql """
     CREATE TABLE `t1` (
-      `c1` int(20) DEFAULT NULL,
-      `c2` int(20) DEFAULT NULL,
-      `c3` int(20) DEFAULT NULL
+      `c1` int(20) NOT NULL,
+      `c2` int(20) NOT NULL,
+      `c3` int(20) NOT NULL
     )
     DUPLICATE KEY (`c1`)
     DISTRIBUTED BY HASH(`c1`) BUCKETS 3 PROPERTIES("replication_num"="1");
@@ -35,9 +35,9 @@ suite("eliminate_gby_key") {
 
     sql """
     CREATE TABLE `t2` (
-      `c1` int(20)      DEFAULT NULL,
-      `c2` varchar(20)  DEFAULT NULL,
-      `c3` int(20)      DEFAULT NULL
+      `c1` int(20)      NOT NULL,
+      `c2` varchar(20)  NOT NULL,
+      `c3` int(20)      NOT NULL
     )
     DUPLICATE KEY (`c1`)
     DISTRIBUTED BY HASH(`c1`) BUCKETS 3 PROPERTIES("replication_num"="1");
@@ -84,7 +84,7 @@ suite("eliminate_gby_key") {
         select t2_c2
         from   temp;
     	""")
-	contains("groupByExpr=[c1#13, c3#18, t2_c2#19], outputExpr=[c1#13, c3#18, t2_c2#19]")
+	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
     }
 
     explain {
@@ -144,7 +144,7 @@ suite("eliminate_gby_key") {
         select t2_c2, t2_c1
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18, t2_c2#19], outputExpr=[c1#13, c3#18, t2_c2#19]")
+	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
     }
 
     explain {
@@ -184,7 +184,7 @@ suite("eliminate_gby_key") {
         select c3, t2_c2
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18, t2_c2#19], outputExpr=[c1#13, c3#18, t2_c2#19]")
+	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
     }	
 
     explain {
@@ -264,7 +264,7 @@ suite("eliminate_gby_key") {
         select t2_c2, c3, t2_c1
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18, t2_c2#19], outputExpr=[c1#13, c3#18, t2_c2#19]")
+	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
     }
 
     explain {
@@ -284,6 +284,6 @@ suite("eliminate_gby_key") {
         select t2_c2, c3, t2_c1, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18, t2_c2#19], outputExpr=[c1#13, c3#18, t2_c2#19, count(*) AS `cnt`#20]")
+	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18, count(*) AS `cnt`#20]")
     }
 }

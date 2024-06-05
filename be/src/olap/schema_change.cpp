@@ -731,6 +731,9 @@ SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
     if (_base_tablet && _new_tablet) {
         _base_tablet_schema = std::make_shared<TabletSchema>();
         _base_tablet_schema->update_tablet_columns(*_base_tablet->tablet_schema(), request.columns);
+        // The request only include column info, do not include bitmap or bloomfilter index info,
+        // So we also need to copy index info from the real base tablet
+        _base_tablet_schema->update_index_info_from(*_base_tablet->tablet_schema());
         // During a schema change, the extracted columns of a variant should not be included in the tablet schema.
         // This is because the schema change for a variant needs to ignore the extracted columns.
         // Otherwise, the schema types in different rowsets might be inconsistent. When performing a schema change,
@@ -1112,7 +1115,12 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet_schema;
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-        context.fs = rs_reader->rowset()->rowset_meta()->fs();
+
+        if (!rs_reader->rowset()->is_local()) {
+            context.storage_resource =
+                    *DORIS_TRY(rs_reader->rowset()->rowset_meta()->remote_storage_resource());
+        }
+
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         auto result = _new_tablet->create_rowset_writer(context, false);
         if (!result.has_value()) {

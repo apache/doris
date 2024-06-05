@@ -30,6 +30,7 @@
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
@@ -171,7 +172,7 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
                     MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
         }
     }
-    std::string process_mem_usage_str = MemTrackerLimiter::process_mem_log_str();
+    std::string process_mem_usage_str = GlobalMemoryArbitrator::process_mem_log_str();
     auto cancel_top_overcommit_str = [cancel_str, process_mem_usage_str](int64_t mem_consumption,
                                                                          const std::string& label) {
         return fmt::format(

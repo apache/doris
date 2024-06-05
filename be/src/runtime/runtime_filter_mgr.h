@@ -129,7 +129,6 @@ private:
     // RuntimeFilterMgr is owned by RuntimeState, so we only
     // use filter_id as key
     // key: "filter-id"
-    /// TODO: should it need protected by a mutex?
     std::map<int32_t, std::vector<ConsumerFilterHolder>> _consumer_map;
     std::map<int32_t, IRuntimeFilter*> _producer_map;
     std::map<int32_t, LocalMergeFilters> _local_merge_producer_map;
@@ -159,8 +158,8 @@ public:
                 const TQueryOptions& query_options);
 
     // handle merge rpc
-    Status merge(const PMergeFilterRequest* request, butil::IOBufAsZeroCopyInputStream* attach_data,
-                 bool opt_remote_rf);
+    Status merge(const PMergeFilterRequest* request,
+                 butil::IOBufAsZeroCopyInputStream* attach_data);
 
     Status send_filter_size(const PSendFilterSizeRequest* request);
 

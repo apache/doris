@@ -1266,11 +1266,13 @@ suite("test_join", "query,p0") {
                 DISTRIBUTED BY HASH(`ID`) BUCKETS 32 
                 PROPERTIES("replication_num"="1");"""
     }
+    sql "SET disable_join_reorder=true"
     def ret = sql"""desc SELECT B.FACTOR_FIN_VALUE, D.limit_id FROM T_DORIS_A A LEFT JOIN T_DORIS_B B ON B.PRJT_ID = A.ID 
             LEFT JOIN T_DORIS_C C ON A.apply_crcl = C.id JOIN T_DORIS_D D ON C.ID = D.CORE_ID order by 
             B.FACTOR_FIN_VALUE, D.limit_id desc;"""
     logger.info(ret.toString())
     assertTrue(ret.toString().contains("  |  join op: INNER JOIN(BROADCAST)"))
+    sql "SET disable_join_reorder=false"
 
     sql "drop table if exists `t0`"
     sql "drop table if exists `t1`"

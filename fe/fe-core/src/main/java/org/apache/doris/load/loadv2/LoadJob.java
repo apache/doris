@@ -700,6 +700,22 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         failMsg = loadJobFinalOperation.getFailMsg();
     }
 
+    public List<TUniqueId> getLoadTaskIds() {
+        readLock();
+        try {
+            List<TUniqueId> res = Lists.newArrayList();
+            for (LoadTask task : idToTasks.values()) {
+                if (task instanceof LoadLoadingTask) {
+                    LoadLoadingTask loadLoadingTask = (LoadLoadingTask) task;
+                    res.add(loadLoadingTask.getLoadId());
+                }
+            }
+            return res;
+        } finally {
+            readUnlock();
+        }
+    }
+
     public List<Comparable> getShowInfo() throws DdlException {
         readLock();
         try {

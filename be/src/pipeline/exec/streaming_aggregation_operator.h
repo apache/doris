@@ -63,7 +63,7 @@ private:
     Status _execute_with_serialized_key(vectorized::Block* block);
     Status _merge_with_serialized_key(vectorized::Block* block);
     void _update_memusage_with_serialized_key();
-    void _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
+    Status _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
     Status _get_without_key_result(RuntimeState* state, vectorized::Block* block, bool* eos);
     Status _serialize_without_key(RuntimeState* state, vectorized::Block* block, bool* eos);
     Status _get_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,

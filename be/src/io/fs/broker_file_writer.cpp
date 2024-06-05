@@ -62,23 +62,23 @@ inline const std::string& client_id(ExecEnv* env, const TNetworkAddress& addr) {
 #endif
 
 Status BrokerFileWriter::close(bool non_block) {
-    if (_close_state == FileWriterState::CLOSED) {
+    if (_state == State::CLOSED) {
         return Status::InternalError("BrokerFileWriter already closed, file path {}",
                                      _path.native());
     }
-    if (_close_state == FileWriterState::ASYNC_CLOSING) {
+    if (_state == State::ASYNC_CLOSING) {
         if (non_block) {
             return Status::InternalError("Don't submit async close multi times");
         }
         // Actucally the first time call to close(true) would return the value of _finalize, if it returned one
         // error status then the code would never call the second close(true)
-        _close_state = FileWriterState::CLOSED;
+        _state = State::CLOSED;
         return Status::OK();
     }
     if (non_block) {
-        _close_state = FileWriterState::ASYNC_CLOSING;
+        _state = State::ASYNC_CLOSING;
     } else {
-        _close_state = FileWriterState::CLOSED;
+        _state = State::CLOSED;
     }
     return _close_impl();
 }
@@ -135,7 +135,7 @@ Status BrokerFileWriter::_close_impl() {
 }
 
 Status BrokerFileWriter::appendv(const Slice* data, size_t data_cnt) {
-    if (_close_state != FileWriterState::OPEN) [[unlikely]] {
+    if (_state != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
 

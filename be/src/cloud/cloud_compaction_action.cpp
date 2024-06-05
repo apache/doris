@@ -64,7 +64,7 @@ CloudCompactionAction::CloudCompactionAction(CompactionActionType ctype, ExecEnv
                                              TPrivilegeType::type ptype)
         : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine), _type(ctype) {}
 
-/// check param and fetch tablet_id from req
+/// check param and fetch tablet_id & table_id from req
 static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id) {
     // req tablet id and table id, we have to set only one of them.
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
@@ -78,7 +78,7 @@ static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* tabl
             try {
                 *table_id = std::stoull(req_table_id);
             } catch (const std::exception& e) {
-                return Status::InternalError("convert tablet_id or table_id failed, {}", e.what());
+                return Status::InternalError("convert table_id failed, {}", e.what());
             }
             return Status::OK();
         }
@@ -87,7 +87,7 @@ static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* tabl
             try {
                 *tablet_id = std::stoull(req_tablet_id);
             } catch (const std::exception& e) {
-                return Status::InternalError("convert tablet_id or table_id failed, {}", e.what());
+                return Status::InternalError("convert tablet_id failed, {}", e.what());
             }
             return Status::OK();
         } else {
@@ -97,11 +97,30 @@ static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* tabl
     }
 }
 
+/// retrieve specific id from req
+static Status _check_param(HttpRequest* req, uint64_t* id_param, const std::string param_name) {
+    const auto& req_id_param = req->param(param_name);
+    if (!req_id_param.empty()) {
+        try {
+            *id_param = std::stoull(req_id_param);
+        } catch (const std::exception& e) {
+            return Status::InternalError("convert {} failed, {}", param_name, e.what());
+        }
+    }
+
+    return Status::OK();
+}
+
 // for viewing the compaction status
 Status CloudCompactionAction::_handle_show_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
-    uint64_t table_id = 0;
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY),
+                                   "check param failed");
+    if (tablet_id == 0) {
+        return Status::InternalError("check param failed: missing tablet_id");
+    }
+
+    LOG(INFO) << "begin to handle show compaction, tablet id: " << tablet_id;
 
     //TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     CloudTabletSPtr tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id));
@@ -110,6 +129,7 @@ Status CloudCompactionAction::_handle_show_compaction(HttpRequest* req, std::str
     }
 
     tablet->get_compaction_status(json_result);
+    LOG(INFO) << "finished to handle show compaction, tablet id: " << tablet_id;
     return Status::OK();
 }
 
@@ -119,6 +139,8 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
     uint64_t tablet_id = 0;
     uint64_t table_id = 0;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
+    LOG(INFO) << "begin to handle run compaction, tablet id: " << tablet_id
+              << " table id: " << table_id;
 
     // check compaction_type equals 'base' or 'cumulative'
     auto& compaction_type = req->param(PARAM_COMPACTION_TYPE);
@@ -133,6 +155,8 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
 
+    LOG(INFO) << "manual submit compaction task, tablet id: " << tablet_id
+              << " table id: " << table_id;
     // 3. submit compaction task
     RETURN_IF_ERROR(_engine.submit_compaction_task(
             tablet, compaction_type == PARAM_COMPACTION_BASE ? CompactionType::BASE_COMPACTION
@@ -140,7 +164,8 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
                             ? CompactionType::CUMULATIVE_COMPACTION
                             : CompactionType::FULL_COMPACTION));
 
-    LOG(INFO) << "Manual compaction task is successfully triggered";
+    LOG(INFO) << "Manual compaction task is successfully triggered, tablet id: " << tablet_id
+              << " table id: " << table_id;
     *json_result =
             "{\"status\": \"Success\", \"msg\": \"compaction task is successfully triggered. Table "
             "id: " +
@@ -151,15 +176,13 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
 Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
                                                             std::string* json_result) {
     uint64_t tablet_id = 0;
-    uint64_t table_id = 0;
-
-    // check req_tablet_id is not empty
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY),
+                                   "check param failed");
+    LOG(INFO) << "begin to handle run status compaction, tablet id: " << tablet_id;
 
     if (tablet_id == 0) {
         // overall compaction status
         RETURN_IF_ERROR(_engine.get_compaction_status_json(json_result));
-        return Status::OK();
     } else {
         std::string json_template = R"({
             "status" : "Success",
@@ -202,8 +225,9 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
         // not running any compaction
         *json_result =
                 strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
-        return Status::OK();
     }
+    LOG(INFO) << "finished to handle run status compaction, tablet id: " << tablet_id;
+    return Status::OK();
 }
 
 void CloudCompactionAction::handle(HttpRequest* req) {

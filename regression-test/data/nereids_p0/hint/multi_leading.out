@@ -254,7 +254,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 t1 ) leading(t2 t1 ) leading(t2 t1 ) leading(t3 alias1 cte )
+Used: leading(t2 t1 ) leading(t2 t1 ) leading(t3 alias1 cte )
 UnUsed:
 SyntaxError:
 

@@ -157,11 +157,7 @@ EngineCloneTask::EngineCloneTask(StorageEngine& engine, const TCloneReq& clone_r
 
 Status EngineCloneTask::execute() {
     // register the tablet to avoid it is deleted by gc thread during clone process
-    if (!_engine.tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
-        return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
-    }
     Status st = _do_clone();
-    _engine.tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
     _engine.tablet_manager()->update_partitions_visible_version(
             {{_clone_req.partition_id, _clone_req.version}});
     return st;
@@ -175,6 +171,12 @@ Status EngineCloneTask::_do_clone() {
     Status status = Status::OK();
     string src_file_path;
     TBackend src_host;
+    RETURN_IF_ERROR(
+            _engine.tablet_manager()->register_transition_tablet(_clone_req.tablet_id, "clone"));
+    Defer defer {[&]() {
+        _engine.tablet_manager()->unregister_transition_tablet(_clone_req.tablet_id, "clone");
+    }};
+
     // Check local tablet exist or not
     TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(_clone_req.tablet_id);
 
@@ -184,13 +186,8 @@ Status EngineCloneTask::_do_clone() {
     if (tablet && tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(WARNING) << "tablet state is not ready when clone, need to drop old tablet, tablet_id="
                      << tablet->tablet_id();
-        // can not drop tablet when under clone. so unregister clone tablet firstly.
-        _engine.tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
         RETURN_IF_ERROR(_engine.tablet_manager()->drop_tablet(tablet->tablet_id(),
                                                               tablet->replica_id(), false));
-        if (!_engine.tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
-            return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
-        }
         tablet.reset();
     }
     bool is_new_tablet = tablet == nullptr;
@@ -272,7 +269,20 @@ Status EngineCloneTask::_do_clone() {
                       << ". signature: " << _signature;
             WARN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_dir),
                           "failed to delete useless clone dir ");
+            WARN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(tablet_dir),
+                          "failed to delete parent dir");
         }};
+
+        bool exists = true;
+        Status exists_st = io::global_local_filesystem()->exists(tablet_dir, &exists);
+        if (!exists_st) {
+            LOG(WARNING) << "cant get path=" << tablet_dir << " state, st=" << exists_st;
+            return exists_st;
+        }
+        if (exists) {
+            LOG(WARNING) << "before clone dest path=" << tablet_dir << " exist, remote it first";
+            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_dir));
+        }
 
         bool allow_incremental_clone = false;
         RETURN_IF_ERROR_(status,

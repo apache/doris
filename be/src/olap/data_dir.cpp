@@ -19,6 +19,7 @@
 
 #include <fmt/core.h>
 #include <fmt/format.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 
@@ -639,7 +640,7 @@ Status DataDir::load() {
 }
 
 // gc unused local tablet dir
-void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path) {
+void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path, int16_t shard_id) {
     if (_stop_bg_worker) {
         return;
     }
@@ -657,12 +658,11 @@ void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path) {
     if (!tablet || tablet->data_dir() != this) {
         if (tablet) {
             LOG(INFO) << "The tablet in path " << tablet_schema_hash_path
-                      << " is not same with the running one: " << tablet->data_dir()->_path << "/"
-                      << tablet->tablet_path()
+                      << " is not same with the running one: " << tablet->tablet_path()
                       << ", might be the old tablet after migration, try to move it to trash";
         }
         _engine.tablet_manager()->try_delete_unused_tablet_path(this, tablet_id, schema_hash,
-                                                                tablet_schema_hash_path);
+                                                                tablet_schema_hash_path, shard_id);
         return;
     }
 
@@ -831,7 +831,14 @@ void DataDir::perform_path_gc() {
                     std::this_thread::sleep_for(
                             std::chrono::milliseconds(config::path_gc_check_step_interval_ms));
                 }
-                _perform_tablet_gc(tablet_id_path + '/' + schema_hash.file_name);
+                int16_t shard_id = -1;
+                try {
+                    shard_id = std::stoi(shard.file_name);
+                } catch (const std::exception&) {
+                    LOG(WARNING) << "failed to stoi shard_id, shard name=" << shard.file_name;
+                    continue;
+                }
+                _perform_tablet_gc(tablet_id_path + '/' + schema_hash.file_name, shard_id);
             }
         }
     }
@@ -933,8 +940,16 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     }
 
     // 5. check parent dir of source file, delete it when empty
+    RETURN_IF_ERROR(delete_tablet_parent_path_if_empty(tablet_path));
+
+    return Status::OK();
+}
+
+Status DataDir::delete_tablet_parent_path_if_empty(const std::string& tablet_path) {
+    auto fs_tablet_path = io::Path(tablet_path);
     std::string source_parent_dir = fs_tablet_path.parent_path(); // tablet_id level
     std::vector<io::FileInfo> sub_files;
+    bool exists = true;
     RETURN_IF_ERROR(
             io::global_local_filesystem()->list(source_parent_dir, false, &sub_files, &exists));
     if (sub_files.empty()) {
@@ -942,7 +957,6 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
         // no need to exam return status
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(source_parent_dir));
     }
-
     return Status::OK();
 }
 
@@ -964,17 +978,21 @@ void DataDir::perform_remote_rowset_gc() {
             deleted_keys.push_back(std::move(key));
             continue;
         }
-        auto fs = get_filesystem(gc_pb.resource_id());
-        if (!fs) {
+
+        auto storage_resource = get_storage_resource(gc_pb.resource_id());
+        if (!storage_resource) {
             LOG(WARNING) << "Cannot get file system: " << gc_pb.resource_id();
             continue;
         }
-        DCHECK(fs->type() != io::FileSystemType::LOCAL);
+
         std::vector<io::Path> seg_paths;
         seg_paths.reserve(gc_pb.num_segments());
         for (int i = 0; i < gc_pb.num_segments(); ++i) {
-            seg_paths.push_back(BetaRowset::remote_segment_path(gc_pb.tablet_id(), rowset_id, i));
+            seg_paths.emplace_back(
+                    storage_resource->first.remote_segment_path(gc_pb.tablet_id(), rowset_id, i));
         }
+
+        auto& fs = storage_resource->first.fs;
         LOG(INFO) << "delete remote rowset. root_path=" << fs->root_path()
                   << ", rowset_id=" << rowset_id;
         auto st = fs->batch_delete(seg_paths);

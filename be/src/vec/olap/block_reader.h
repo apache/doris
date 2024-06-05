@@ -72,7 +72,7 @@ private:
 
     Status _init_collect_iter(const ReaderParams& read_params);
 
-    void _init_agg_state(const ReaderParams& read_params);
+    Status _init_agg_state(const ReaderParams& read_params);
 
     Status _insert_data_normal(MutableColumns& columns);
 

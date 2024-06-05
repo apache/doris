@@ -43,6 +43,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
+import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
@@ -642,6 +643,8 @@ public abstract class ExternalCatalog
                 return new MaxComputeExternalDatabase(this, dbId, dbName);
             //case HUDI:
                 //return new HudiExternalDatabase(this, dbId, dbName);
+            case LAKESOUL:
+                return new LakeSoulExternalDatabase(this, dbId, dbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, dbName);
             case PAIMON:
@@ -726,14 +729,14 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void createTable(CreateTableStmt stmt) throws UserException {
+    public boolean createTable(CreateTableStmt stmt) throws UserException {
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("createTable not implemented");
-            return;
+            return false;
         }
         try {
-            metadataOps.createTable(stmt);
+            return metadataOps.createTable(stmt);
         } catch (Exception e) {
             LOG.warn("Failed to create a table.", e);
             throw e;

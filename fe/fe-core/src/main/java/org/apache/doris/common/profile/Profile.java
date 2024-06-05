@@ -19,6 +19,8 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
 
 import com.google.common.collect.Lists;
@@ -96,11 +98,28 @@ public class Profile {
             if (this.isFinished) {
                 return;
             }
+            if (planner instanceof NereidsPlanner) {
+                NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
+                StringBuilder builder = new StringBuilder();
+                builder.append("\n");
+                builder.append(nereidsPlanner.getPhysicalPlan()
+                        .treeString());
+                builder.append("\n");
+                for (PhysicalRelation relation : nereidsPlanner.getPhysicalRelations()) {
+                    if (relation.getStats() != null) {
+                        builder.append(relation).append("\n")
+                                .append(relation.getStats().printColumnStats());
+                    }
+                }
+                summaryInfo.put(SummaryProfile.PHYSICAL_PLAN,
+                        builder.toString().replace("\n", "\n     "));
+            }
             summaryProfile.update(summaryInfo);
             for (ExecutionProfile executionProfile : executionProfiles) {
                 // Tell execution profile the start time
                 executionProfile.update(startTime, isFinished);
             }
+
             // Nerids native insert not set planner, so it is null
             if (planner != null) {
                 this.planNodeMap = planner.getExplainStringMap();
@@ -134,6 +153,7 @@ public class Profile {
             }
         }
         try {
+            // For load task, they will have multiple execution_profiles.
             for (ExecutionProfile executionProfile : executionProfiles) {
                 builder.append("\n");
                 executionProfile.getRoot().prettyPrint(builder, "");

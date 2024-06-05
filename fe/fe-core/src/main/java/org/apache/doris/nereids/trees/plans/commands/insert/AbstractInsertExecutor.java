@@ -132,6 +132,7 @@ public abstract class AbstractInsertExecutor {
         executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
         QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
+        executor.updateProfile(false);
         coordinator.exec();
         int execTimeout = ctx.getExecTimeout();
         if (LOG.isDebugEnabled()) {

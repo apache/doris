@@ -162,6 +162,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 partitionValues.writeLock().unlock();
             }
         } catch (Exception e) {
+            LOG.warn("Failed to get hudi partitions", e);
             throw new CacheException("Failed to get hudi partitions", e);
         }
     }

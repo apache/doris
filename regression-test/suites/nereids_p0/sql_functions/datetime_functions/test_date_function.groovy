@@ -428,6 +428,7 @@ suite("test_date_function") {
     sql """ insert into ${tableName} values('1999-01-02 10:11:12.767891') """
 
     qt_sql """ select microsecond(k1) from ${tableName}; """
+    qt_sql_ms_use_date "select microsecond(cast(k1 as date)) from ${tableName};"
 
     // qt_sql """ select count(*) from (select * from numbers("number" = "200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
 
@@ -599,9 +600,9 @@ suite("test_date_function") {
     qt_sql """ select seconds_sub(test_time2,1) result from ${tableName}; """
 
     // test last_day for vec
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """ DROP TABLE IF EXISTS test_time_add_sub_function; """
     sql """
-            CREATE TABLE IF NOT EXISTS ${tableName} (
+            CREATE TABLE IF NOT EXISTS test_time_add_sub_function (
                 birth date,
                 birth1 datev2,
                 birth2 datetime,
@@ -611,7 +612,7 @@ suite("test_date_function") {
             PROPERTIES( "replication_allocation" = "tag.location.default: 1");
         """
     sql """
-        insert into ${tableName} values
+        insert into test_time_add_sub_function values
         ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'),
         ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'),
         ('2022-02-27', '2022-02-27', '2022-02-27 00:00:00', '2022-02-27 00:00:00'),
@@ -619,11 +620,10 @@ suite("test_date_function") {
     qt_sql """
         select last_day(birth), last_day(birth1),
                 last_day(birth2), last_day(birth3)
-                from ${tableName};
+                from test_time_add_sub_function;
     """
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
 
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """ DROP TABLE IF EXISTS test_time_add_sub_function; """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 birth date,

@@ -48,6 +48,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -151,24 +152,16 @@ public class PublishVersionDaemon extends MasterDaemon {
     private void tryFinishTxn(List<TransactionState> readyTransactionStates,
                                      SystemInfoService infoService, GlobalTransactionMgrIface globalTransactionMgr,
                                      Map<Long, Long> partitionVisibleVersions, Map<Long, Set<Long>> backendPartitions) {
-        Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
+        Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows = Maps.newHashMap();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
             AtomicBoolean hasBackendAliveAndUnfinishedTask = new AtomicBoolean(false);
             Set<Long> notFinishTaskBe = Sets.newHashSet();
-            transactionState.getPublishVersionTasks().entrySet().forEach(entry -> {
-                long beId = entry.getKey();
-                List<PublishVersionTask> tasks = entry.getValue();
+            transactionState.getPublishVersionTasks().forEach((key, tasks) -> {
+                long beId = key;
                 for (PublishVersionTask task : tasks) {
                     if (task.isFinished()) {
-                        if (CollectionUtils.isEmpty(task.getErrorTablets())) {
-                            Map<Long, Long> tableIdToDeltaNumRows = task.getTableIdToDeltaNumRows();
-                            tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
-                                tableIdToTotalDeltaNumRows
-                                        .computeIfPresent(tableId, (id, orgNumRows) -> orgNumRows + numRows);
-                                tableIdToTotalDeltaNumRows.putIfAbsent(tableId, numRows);
-                            });
-                        }
+                        calculateTaskUpdateRows(tableIdToTabletDeltaRows, task);
                     } else {
                         if (infoService.checkBackendAlive(task.getBackendId())) {
                             hasBackendAliveAndUnfinishedTask.set(true);
@@ -178,7 +171,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                 }
             });
 
-            transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
+            transactionState.setTableIdToTabletDeltaRows(tableIdToTabletDeltaRows);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("notFinishTaskBe {}, trans {}", notFinishTaskBe, transactionState);
             }
@@ -236,6 +229,24 @@ public class PublishVersionDaemon extends MasterDaemon {
         } // end for readyTransactionStates
     }
 
+    // Merge task tablets update rows to tableToTabletsDelta.
+    private void calculateTaskUpdateRows(Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows, PublishVersionTask task) {
+        if (CollectionUtils.isEmpty(task.getErrorTablets())) {
+            for (Entry<Long, Map<Long, Long>> tableEntry : task.getTableIdToTabletDeltaRows().entrySet()) {
+                if (tableIdToTabletDeltaRows.containsKey(tableEntry.getKey())) {
+                    Map<Long, Long> tabletsDelta = tableIdToTabletDeltaRows.get(tableEntry.getKey());
+                    for (Entry<Long, Long> tabletEntry : tableEntry.getValue().entrySet()) {
+                        tabletsDelta.computeIfPresent(tabletEntry.getKey(),
+                                (tabletId, origRows) -> origRows + tabletEntry.getValue());
+                        tabletsDelta.putIfAbsent(tabletEntry.getKey(), tabletEntry.getValue());
+                    }
+                } else {
+                    tableIdToTabletDeltaRows.put(tableEntry.getKey(), tableEntry.getValue());
+                }
+            }
+        }
+    }
+
     private Map<Long, Set<Long>> getBaseTabletIdsForEachBe(TransactionState transactionState,
             TableCommitInfo tableCommitInfo) throws MetaNotFoundException {
 
@@ -252,7 +263,9 @@ public class PublishVersionDaemon extends MasterDaemon {
                 .getIdToPartitionCommitInfo()
                 .values().stream()
                 .map(PartitionCommitInfo::getPartitionId)
-                .map(table::getPartition)
+                .map(partitionId -> Optional.ofNullable(table.getPartition(partitionId)))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
                 .map(Partition::getBaseIndex)
                 .map(MaterializedIndex::getTablets)
                 .flatMap(Collection::stream)
@@ -292,7 +305,14 @@ public class PublishVersionDaemon extends MasterDaemon {
     private List<TPartitionVersionInfo> generatePartitionVersionInfos(TableCommitInfo tableCommitInfo,
             TransactionState transactionState, Map<Long, Set<Long>> beIdToBaseTabletIds) {
         try {
-            beIdToBaseTabletIds.putAll(getBaseTabletIdsForEachBe(transactionState, tableCommitInfo));
+            Map<Long, Set<Long>> map = getBaseTabletIdsForEachBe(transactionState, tableCommitInfo);
+            map.forEach((beId, newSet) -> {
+                beIdToBaseTabletIds.computeIfPresent(beId, (id, orgSet) -> {
+                    orgSet.addAll(newSet);
+                    return orgSet;
+                });
+                beIdToBaseTabletIds.putIfAbsent(beId, newSet);
+            });
         } catch (MetaNotFoundException e) {
             LOG.warn("exception occur when trying to get rollup tablets info", e);
         }

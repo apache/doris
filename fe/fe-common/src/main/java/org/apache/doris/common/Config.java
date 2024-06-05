@@ -127,6 +127,13 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(description = {"是否使用文件记录日志。当使用 --console 启动 FE 时，全部日志同时写入到标准输出和文件。"
+            + "如果关闭这个选项，不再使用文件记录日志。",
+            "Whether to use file to record log. When starting FE with --console, "
+                    + "all logs will be written to both standard output and file. "
+                    + "Close this option will no longer use file to record log."})
+    public static boolean enable_file_logger = true;
+
     @ConfField(mutable = false, masterOnly = false,
             description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
@@ -393,6 +400,16 @@ public class Config extends ConfigBase {
     @ConfField(description = {"thrift client 的连接超时时间，单位是毫秒。0 表示不设置超时时间。",
             "The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
     public static int thrift_client_timeout_ms = 0;
+
+    // The default value is inherited from org.apache.thrift.TConfiguration
+    @ConfField(description = {"thrift server 接收请求大小的上限",
+            "The maximum size of a (received) message of the thrift server, in bytes"})
+    public static int thrift_max_message_size = 100 * 1024 * 1024;
+
+    // The default value is inherited from org.apache.thrift.TConfiguration
+    @ConfField(description = {"thrift server transport 接收的每帧数据大小的上限",
+            "The limits of the size of one frame of thrift server transport"})
+    public static int thrift_max_frame_size = 16384000;
 
     @ConfField(description = {"thrift server 的 backlog 数量。"
             + "如果调大这个值，则需同时调整 /proc/sys/net/core/somaxconn 的值",
@@ -1153,7 +1170,7 @@ public class Config extends ConfigBase {
      * the max concurrent routine load task num of a single routine load job
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_task_concurrent_num = 5;
+    public static int max_routine_load_task_concurrent_num = 256;
 
     /**
      * the max concurrent routine load task num per BE.
@@ -1162,7 +1179,7 @@ public class Config extends ConfigBase {
      * which is the routine load task thread pool max size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_task_num_per_be = 5;
+    public static int max_routine_load_task_num_per_be = 1024;
 
     /**
      * The max number of files store in SmallFileMgr
@@ -1302,13 +1319,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static boolean cache_enable_sql_mode = true;
-
-    /**
-     * If set to true, fe will get data from be cache,
-     * This option is suitable for real-time updating of partial partitions.
-     */
-    @ConfField(mutable = true, masterOnly = false)
-    public static boolean cache_enable_partition_mode = true;
 
     /**
      *  Minimum interval between last version when caching results,
@@ -1711,7 +1721,7 @@ public class Config extends ConfigBase {
      * if we have a lot of async tasks, we need more threads to consume them. Sure, it's depends on the cpu cores.
      */
     @ConfField
-    public static int async_task_consumer_thread_num = 5;
+    public static int async_task_consumer_thread_num = 64;
 
     /**
      * When job is finished, it will be saved in job manager for a while.
@@ -2617,6 +2627,21 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean checkpoint_after_check_compatibility = false;
 
+    // Advance the next id before transferring to the master.
+    @ConfField(description = {
+            "是否在成为 Master 后推进 ID 分配器，保证即使回滚元数据时，它也不会回滚",
+            "Whether to advance the ID generator after becoming Master to ensure that the id "
+                    + "generator will not be rolled back even when metadata is rolled back."
+    })
+    public static boolean enable_advance_next_id = false;
+
+    // The count threshold to do manual GC when doing checkpoint but not enough memory.
+    // Set zero to disable it.
+    @ConfField(description = {
+            "如果 checkpoint 连续多次因内存不足而无法进行时，先尝试手动触发 GC",
+            "The threshold to do manual GC when doing checkpoint but not enough memory"})
+    public static int checkpoint_manual_gc_threshold = 0;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
@@ -2660,6 +2685,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int meta_service_rpc_retry_times = 200;
 
+    public static int metaServiceRpcRetryTimes() {
+        if (isCloudMode() && enable_check_compatibility_mode) {
+            return 1;
+        }
+        return meta_service_rpc_retry_times;
+    }
+
     // A connection will expire after a random time during [base, 2*base), so that the FE
     // has a chance to connect to a new RS. Set zero to disable it.
     //
@@ -2675,9 +2707,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static int drop_rpc_retry_num = 200;
-
-    @ConfField
-    public static int cloud_meta_service_rpc_failed_retry_times = 200;
 
     @ConfField
     public static int default_get_version_from_ms_timeout_second = 3;
@@ -2836,6 +2865,11 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_cloud_running_txn_check = true;
+
+    @ConfField(description = {"存算分离模式下streamload导入使用的转发策略, 可选值为public-private或者空",
+            "streamload route policy in cloud mode, availale options are public-private and empty string"})
+    public static String streamload_redirect_policy = "";
+
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

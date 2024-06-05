@@ -634,12 +634,11 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
                                    const size_t num_rows) const override {
         if constexpr (ShowNull::value) {
             for (size_t i = 0; i != num_rows; ++i) {
-                this->data(places[i] + offset)
-                        .deserialize_and_merge(*assert_cast<const IColumn*>(column), i);
+                this->data(places[i] + offset).deserialize_and_merge(*column, i);
             }
         } else {
             return BaseHelper::deserialize_and_merge_vec(places, offset, rhs, column, arena,
@@ -674,13 +673,12 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
         if constexpr (ShowNull::value) {
             for (size_t i = 0; i != num_rows; ++i) {
                 if (places[i]) {
-                    this->data(places[i] + offset)
-                            .deserialize_and_merge(*assert_cast<const IColumn*>(column), i);
+                    this->data(places[i] + offset).deserialize_and_merge(*column, i);
                 }
             }
         } else {

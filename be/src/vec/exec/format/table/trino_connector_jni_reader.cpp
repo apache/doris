@@ -36,13 +36,12 @@ class Block;
 
 namespace doris::vectorized {
 
-const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_OPTION_PREFIX =
-        "trino_connector_option_prefix.";
+const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_OPTION_PREFIX = "trino.";
 
 TrinoConnectorJniReader::TrinoConnectorJniReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
         RuntimeProfile* profile, const TFileRangeDesc& range)
-        : _file_slot_descs(file_slot_descs), _state(state), _profile(profile) {
+        : JniReader(file_slot_descs, state, profile) {
     std::vector<std::string> column_names;
     for (const auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();

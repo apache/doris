@@ -19,6 +19,7 @@
 
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
+#include "vec/runtime/partitioner.h"
 
 namespace doris::pipeline {
 
@@ -39,23 +40,34 @@ Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, 
     return Status::OK();
 }
 
+void ShuffleExchanger::close(LocalExchangeSourceLocalState& local_state) {
+    PartitionedBlock partitioned_block;
+    while (_data_queue[local_state._channel_id].try_dequeue(partitioned_block)) {
+        auto block_wrapper = partitioned_block.first;
+        local_state._shared_state->sub_mem_usage(
+                local_state._channel_id, block_wrapper->data_block.allocated_bytes(), false);
+        block_wrapper->unref(local_state._shared_state);
+    }
+}
+
 Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                                    LocalExchangeSourceLocalState& local_state) {
     PartitionedBlock partitioned_block;
     vectorized::MutableBlock mutable_block;
 
-    auto get_data = [&](vectorized::Block* result_block) {
+    auto get_data = [&](vectorized::Block* result_block) -> Status {
         do {
             const auto* offset_start = partitioned_block.second.row_idxs->data() +
                                        partitioned_block.second.offset_start;
             auto block_wrapper = partitioned_block.first;
             local_state._shared_state->sub_mem_usage(
                     local_state._channel_id, block_wrapper->data_block.allocated_bytes(), false);
-            mutable_block.add_rows(&block_wrapper->data_block, offset_start,
-                                   offset_start + partitioned_block.second.length);
+            RETURN_IF_ERROR(mutable_block.add_rows(&block_wrapper->data_block, offset_start,
+                                                   offset_start + partitioned_block.second.length));
             block_wrapper->unref(local_state._shared_state);
         } while (mutable_block.rows() < state->batch_size() &&
                  _data_queue[local_state._channel_id].try_dequeue(partitioned_block));
+        return Status::OK();
     };
 
     if (_running_sink_operators == 0) {
@@ -63,7 +75,7 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
             SCOPED_TIMER(local_state._copy_data_timer);
             mutable_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
                     block, partitioned_block.first->data_block);
-            get_data(block);
+            RETURN_IF_ERROR(get_data(block));
         } else {
             *eos = true;
         }
@@ -71,7 +83,7 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
         SCOPED_TIMER(local_state._copy_data_timer);
         mutable_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
                 block, partitioned_block.first->data_block);
-        get_data(block);
+        RETURN_IF_ERROR(get_data(block));
     } else {
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
         local_state._dependency->block();
@@ -181,6 +193,14 @@ Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_blo
     return Status::OK();
 }
 
+void PassthroughExchanger::close(LocalExchangeSourceLocalState& local_state) {
+    vectorized::Block next_block;
+    while (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
+        local_state._shared_state->sub_mem_usage(local_state._channel_id,
+                                                 next_block.allocated_bytes());
+    }
+}
+
 Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                                        LocalExchangeSourceLocalState& local_state) {
     vectorized::Block next_block;
@@ -246,12 +266,19 @@ Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block
                                 LocalExchangeSinkLocalState& local_state) {
     for (size_t i = 0; i < _num_partitions; i++) {
         auto mutable_block = vectorized::MutableBlock::create_unique(in_block->clone_empty());
-        mutable_block->add_rows(in_block, 0, in_block->rows());
+        RETURN_IF_ERROR(mutable_block->add_rows(in_block, 0, in_block->rows()));
         _data_queue[i].enqueue(mutable_block->to_block());
         local_state._shared_state->set_ready_to_read(i);
     }
 
     return Status::OK();
+}
+
+void BroadcastExchanger::close(LocalExchangeSourceLocalState& local_state) {
+    vectorized::Block next_block;
+    while (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
+        // do nothing
+    }
 }
 
 Status BroadcastExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
@@ -336,7 +363,7 @@ Status AdaptivePassthroughExchanger::_split_rows(RuntimeState* state,
         if (size > 0) {
             std::unique_ptr<vectorized::MutableBlock> mutable_block =
                     vectorized::MutableBlock::create_unique(block->clone_empty());
-            mutable_block->add_rows(block, start, size);
+            RETURN_IF_ERROR(mutable_block->add_rows(block, start, size));
             auto new_block = mutable_block->to_block();
             local_state._shared_state->add_mem_usage(i, new_block.allocated_bytes());
             data_queue[i].enqueue(std::move(new_block));

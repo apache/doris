@@ -129,7 +129,7 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
 void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int start,
                                                      int end, const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<ColumnVector<Int64>&>(column).get_data();
+    auto& col_data = static_cast<ColumnDateTimeV2&>(column).get_data();
     int64_t divisor = 1;
     if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
         auto concrete_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);
@@ -178,10 +178,8 @@ Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
                                                        int row_idx, bool col_const) const {
     auto& data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
-    char buf[64];
     DateV2Value<DateTimeV2ValueType> date_val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(data[col_index]);
-    char* pos = date_val.to_string(buf, scale);
     // _nesting_level >= 2 means this datetimev2 is in complex type
     // and we should add double quotes
     if (_nesting_level >= 2) {
@@ -189,7 +187,7 @@ Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
             return Status::InternalError("pack mysql buffer failed.");
         }
     }
-    if (UNLIKELY(0 != result.push_string(buf, pos - buf - 1))) {
+    if (UNLIKELY(0 != result.push_vec_datetime(date_val, scale))) {
         return Status::InternalError("pack mysql buffer failed.");
     }
     if (_nesting_level >= 2) {

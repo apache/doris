@@ -24,6 +24,25 @@ suite("test_limit_op_mtmv") {
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
+    def timeout = 60000
+    def delta_time = 1000
+    def alter_res = "null"
+    def useTime = 0
+    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = alter_res.toString()
+            if(alter_res.contains("FINISHED")) {
+                sleep(5000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
+
     sql """
         CREATE TABLE `${tableName}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
@@ -231,7 +250,7 @@ suite("test_limit_op_mtmv") {
         log.info(e.getMessage())
         Assert.fail();
     }
-
+    wait_for_latest_op_on_table_finish(mvName, timeout)
     // allow drop index
     try {
         sql """
@@ -242,6 +261,24 @@ suite("test_limit_op_mtmv") {
         Assert.fail();
     }
 
+    // not allow dynamic_partition
+    test {
+        sql """ALTER TABLE ${mvName} set ("dynamic_partition.enable" = "true")"""
+        exception "dynamic"
+        }
+    sql """drop materialized view if exists ${mvName};"""
+    test {
+          sql """
+              CREATE MATERIALIZED VIEW ${mvName}
+              BUILD DEFERRED REFRESH AUTO ON MANUAL
+              partition by(`k3`)
+              DISTRIBUTED BY RANDOM BUCKETS 2
+              PROPERTIES ('replication_num' = '1','dynamic_partition.enable'='true')
+              AS
+              SELECT * FROM ${tableName};
+          """
+          exception "dynamic"
+      }
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 }

@@ -100,7 +100,11 @@ public class ExportMgr {
         try {
             if (dbTolabelToExportJobId.containsKey(job.getDbId())
                     && dbTolabelToExportJobId.get(job.getDbId()).containsKey(job.getLabel())) {
-                throw new LabelAlreadyUsedException(job.getLabel());
+                Long oldJobId = dbTolabelToExportJobId.get(job.getDbId()).get(job.getLabel());
+                ExportJob oldJob = exportIdToJob.get(oldJobId);
+                if (oldJob != null && oldJob.getState() != ExportJobState.CANCELLED) {
+                    throw new LabelAlreadyUsedException(job.getLabel());
+                }
             }
             unprotectAddJob(job);
             job.getTaskExecutors().forEach(executor -> {
@@ -384,6 +388,7 @@ public class ExportMgr {
         infoMap.put("tablet_num", job.getTabletsNum());
         infoMap.put("max_file_size", job.getMaxFileSize());
         infoMap.put("delete_existing_files", job.getDeleteExistingFiles());
+        infoMap.put("parallelism", job.getParallelism());
         infoMap.put("data_consistency", job.getDataConsistency());
         jobInfo.add(new Gson().toJson(infoMap));
         // path

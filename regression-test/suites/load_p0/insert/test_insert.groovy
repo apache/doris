@@ -49,7 +49,7 @@ suite("test_insert") {
 
     qt_sql1 "select * from ${insert_tbl} order by 1, 2, 3, 4"
 
-    def insert_tbl_dft = "test_insert_dft_tbl"
+    def insert_tbl_dft = "test_insert_dft2_tbl"
     sql """ DROP TABLE IF EXISTS ${insert_tbl_dft}"""
     
     // `k7` should be float type, and bug exists now, https://github.com/apache/doris/pull/20867

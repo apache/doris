@@ -201,6 +201,13 @@ Status EngineStorageMigrationTask::_migrate() {
     LOG(INFO) << "begin to process tablet migrate. "
               << "tablet_id=" << tablet_id << ", dest_store=" << _dest_store->path();
 
+    RETURN_IF_ERROR(_engine.tablet_manager()->register_transition_tablet(_tablet->tablet_id(),
+                                                                         "disk migrate"));
+    Defer defer {[&]() {
+        _engine.tablet_manager()->unregister_transition_tablet(_tablet->tablet_id(),
+                                                               "disk migrate");
+    }};
+
     DorisMetrics::instance()->storage_migrate_requests_total->increment(1);
     int32_t start_version = 0;
     int32_t end_version = 0;
@@ -315,6 +322,7 @@ Status EngineStorageMigrationTask::_migrate() {
     if (!res.ok()) {
         // we should remove the dir directly for avoid disk full of junk data, and it's safe to remove
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(full_path));
+        RETURN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(full_path));
     }
     return res;
 }

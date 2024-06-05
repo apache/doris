@@ -257,7 +257,9 @@ constexpr bool is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_BOOL;
+           field_type == FieldType::OLAP_FIELD_TYPE_BOOL ||
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV4 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV6;
 }
 
 // Util used to get string name of thrift enum item
@@ -296,9 +298,9 @@ struct RowLocation {
 };
 
 struct GlobalRowLoacation {
-    GlobalRowLoacation(uint32_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)
+    GlobalRowLoacation(int64_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)
             : tablet_id(tid), row_location(rsid, sid, rid) {}
-    uint32_t tablet_id;
+    int64_t tablet_id;
     RowLocation row_location;
 
     bool operator==(const GlobalRowLoacation& rhs) const {

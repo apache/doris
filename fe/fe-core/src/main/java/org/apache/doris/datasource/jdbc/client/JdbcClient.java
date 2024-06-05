@@ -75,7 +75,8 @@ public abstract class JdbcClient {
             case JdbcResource.MYSQL:
                 return new JdbcMySQLClient(jdbcClientConfig);
             case JdbcResource.OCEANBASE:
-                return new JdbcOceanBaseClient(jdbcClientConfig);
+                JdbcOceanBaseClient jdbcOceanBaseClient = new JdbcOceanBaseClient(jdbcClientConfig);
+                return jdbcOceanBaseClient.createClient(jdbcClientConfig);
             case JdbcResource.POSTGRESQL:
                 return new JdbcPostgreSQLClient(jdbcClientConfig);
             case JdbcResource.ORACLE:

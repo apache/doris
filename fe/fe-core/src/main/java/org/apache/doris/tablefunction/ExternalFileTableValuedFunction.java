@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
@@ -174,9 +175,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     //The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
+        Map<String, String> mergedProperties = Maps.newHashMap();
+        if (properties.containsKey("resource")) {
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(properties.get("resource"));
+            if (resource == null) {
+                throw new AnalysisException("Can not find resource: " + properties.get("resource"));
+            }
+            mergedProperties = resource.getCopiedProperties();
+        }
+        mergedProperties.putAll(properties);
         // Copy the properties, because we will remove the key from properties.
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        copiedProps.putAll(properties);
+        copiedProps.putAll(mergedProperties);
 
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         String defaultColumnSeparator = FileFormatConstants.DEFAULT_COLUMN_SEPARATOR;
@@ -484,7 +494,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            if (fileStatus.isIsDir() || fileStatus.size == 0) {
+            if (isFileContentEmpty(fileStatus)) {
                 continue;
             }
             firstFile = fileStatus;
@@ -515,6 +525,44 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRange.setParams(fileScanRangeParams);
         return InternalService.PFetchTableSchemaRequest.newBuilder()
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
+    }
+
+    private boolean isFileContentEmpty(TBrokerFileStatus fileStatus) {
+        if (fileStatus.isIsDir() || fileStatus.size == 0) {
+            return true;
+        }
+        if (Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON) {
+            int magicNumberBytes = 0;
+            switch (compressionType) {
+                case GZ:
+                    magicNumberBytes = 20;
+                    break;
+                case LZO:
+                case LZOP:
+                    magicNumberBytes = 42;
+                    break;
+                case DEFLATE:
+                    magicNumberBytes = 8;
+                    break;
+                case SNAPPYBLOCK:
+                case LZ4BLOCK:
+                case LZ4FRAME:
+                    magicNumberBytes = 4;
+                    break;
+                case BZ2:
+                    magicNumberBytes = 14;
+                    break;
+                case UNKNOWN:
+                case PLAIN:
+                default:
+                    break;
+            }
+            // fileStatus.size may be -1 in http_stream
+            if (fileStatus.size >= 0 && fileStatus.size <= magicNumberBytes) {
+                return true;
+            }
+        }
+        return false;
     }
 }
 

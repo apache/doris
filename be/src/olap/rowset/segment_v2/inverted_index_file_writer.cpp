@@ -17,6 +17,8 @@
 
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 
+#include <filesystem>
+
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -29,10 +31,8 @@
 
 namespace doris::segment_v2 {
 
-std::string InvertedIndexFileWriter::get_index_file_path(const TabletIndex* index_meta) const {
-    return InvertedIndexDescriptor::get_index_file_name(_index_file_dir / _segment_file_name,
-                                                        index_meta->index_id(),
-                                                        index_meta->get_index_suffix());
+std::string InvertedIndexFileWriter::get_index_file_path() const {
+    return InvertedIndexDescriptor::get_index_path_v2(_index_path_prefix);
 }
 
 Status InvertedIndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_dirs) {
@@ -41,33 +41,35 @@ Status InvertedIndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_di
 }
 
 Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index_meta) {
-    auto index_id = index_meta->index_id();
-    auto index_suffix = index_meta->get_index_suffix();
     auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
-    _lfs = io::global_local_filesystem();
-    auto lfs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
-            tmp_file_dir / _segment_file_name, index_meta->index_id(),
+    const auto& local_fs = io::global_local_filesystem();
+    auto local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
+            tmp_file_dir.native(), _rowset_id, _seg_id, index_meta->index_id(),
             index_meta->get_index_suffix());
-    auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
-            (_index_file_dir / _segment_file_name).native(), index_id, index_suffix);
+    auto index_path = InvertedIndexDescriptor::get_index_path_v1(
+            _index_path_prefix, index_meta->index_id(), index_meta->get_index_suffix());
+    // FIXME(plat1ko): hardcode
+    index_path =
+            index_path.substr(0, index_path.size() - InvertedIndexDescriptor::index_suffix.size());
 
     bool exists = false;
-    auto st = _fs->exists(lfs_index_path.c_str(), &exists);
+    auto st = local_fs->exists(local_fs_index_path, &exists);
     if (!st.ok()) {
-        LOG(ERROR) << "index_path:" << lfs_index_path << " exists error:" << st;
+        LOG(ERROR) << "index_path:" << local_fs_index_path << " exists error:" << st;
         return ResultError(st);
     }
+
     if (exists) {
-        LOG(ERROR) << "try to init a directory:" << lfs_index_path << " already exists";
+        LOG(ERROR) << "try to init a directory:" << local_fs_index_path << " already exists";
         return ResultError(Status::InternalError("init_fulltext_index directory already exists"));
     }
 
     bool can_use_ram_dir = true;
     bool use_compound_file_writer = false;
-    auto* dir = DorisFSDirectoryFactory::getDirectory(_lfs, lfs_index_path.c_str(),
+    auto* dir = DorisFSDirectoryFactory::getDirectory(local_fs, local_fs_index_path.c_str(),
                                                       use_compound_file_writer, can_use_ram_dir,
                                                       nullptr, _fs, index_path.c_str());
-    _indices_dirs.emplace(std::make_pair(index_id, index_suffix),
+    _indices_dirs.emplace(std::make_pair(index_meta->index_id(), index_meta->get_index_suffix()),
                           std::unique_ptr<DorisFSDirectory>(dir));
     return dir;
 }
@@ -78,7 +80,7 @@ Status InvertedIndexFileWriter::delete_index(const TabletIndex* index_meta) {
     }
 
     auto index_id = index_meta->index_id();
-    auto index_suffix = index_meta->get_index_suffix();
+    const auto& index_suffix = index_meta->get_index_suffix();
 
     // Check if the specified index exists
     auto index_it = _indices_dirs.find(std::make_pair(index_id, index_suffix));
@@ -150,19 +152,21 @@ Status InvertedIndexFileWriter::close() {
     } catch (CLuceneError& err) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError occur when close idx file {}, error msg: {}",
-                InvertedIndexDescriptor::get_index_file_name(_index_file_dir / _segment_file_name),
-                err.what());
+                InvertedIndexDescriptor::get_index_path_v2(_index_path_prefix), err.what());
     }
     return Status::OK();
 }
+
 size_t InvertedIndexFileWriter::write() {
     // Create the output stream to write the compound file
     int64_t current_offset = headerLength();
-    std::string idx_name = InvertedIndexDescriptor::get_index_file_name(_segment_file_name);
-    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, _index_file_dir.c_str());
 
-    auto compound_file_output =
-            std::unique_ptr<lucene::store::IndexOutput>(out_dir->createOutput(idx_name.c_str()));
+    io::Path index_path {InvertedIndexDescriptor::get_index_path_v2(_index_path_prefix)};
+
+    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, index_path.parent_path().c_str());
+
+    auto compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
+            out_dir->createOutput(index_path.filename().c_str()));
 
     // Write the version number
     compound_file_output->writeInt(InvertedIndexStorageFormatPB::V2);

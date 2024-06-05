@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -81,6 +82,9 @@ class OrExpansionTest extends TestWithFeService implements MemoPatternMatchSuppo
         Assertions.assertTrue(plan instanceof LogicalCTEAnchor);
         Assertions.assertTrue(plan.child(1) instanceof LogicalCTEAnchor);
         Assertions.assertTrue(plan.child(1).child(1) instanceof LogicalCTEAnchor);
+        Assertions.assertTrue(plan.child(1).child(1).anyMatch(x -> x instanceof LogicalCTEConsumer));
         Assertions.assertTrue(plan.child(1).child(1).child(1) instanceof LogicalCTEAnchor);
+        Assertions.assertTrue(plan.child(1).child(1).child(1)
+                .anyMatch(x -> x instanceof LogicalCTEConsumer));
     }
 }

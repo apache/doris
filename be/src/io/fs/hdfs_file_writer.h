@@ -48,7 +48,7 @@ public:
     Status appendv(const Slice* data, size_t data_cnt) override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _bytes_appended; }
-    FileWriterState closed() const override { return _close_state; }
+    State state() const override { return _state; }
 
     Status close(bool non_block = false) override;
 
@@ -95,7 +95,7 @@ private:
     // We should make sure that close_impl's return value is consistent
     // So we need add one field to restore the value first time return by calling close_impl
     Status _st;
-    FileWriterState _close_state {FileWriterState::OPEN};
+    State _state {State::OPENED};
 };
 
 } // namespace io
