@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_array_functions_array_intersect_sort", "p0") {
+    sql " set experimental_enable_nereids_planner=true;"
+    sql " set enable_fallback_to_original_planner=false; "
     // ========= array_intersect ===========
     // with sort
     qt_nereid_sql "SELECT 'array_intersect-array-sort';"
