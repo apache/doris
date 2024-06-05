@@ -37,10 +37,24 @@ suite("test_colocate_with_mtmv","mtmv") {
             "colocate_with" = "${groupName}"
         );
         """
+    test {
+          sql """
+              CREATE MATERIALIZED VIEW ${mvName}
+              BUILD DEFERRED REFRESH AUTO ON MANUAL
+              DISTRIBUTED BY HASH(k2) BUCKETS 3
+              PROPERTIES (
+              'replication_num' = '1',
+              "colocate_with" = "${groupName}"
+              )
+              AS
+              SELECT * from ${tableName};
+          """
+          exception "same bucket"
+        }
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
-        DISTRIBUTED BY HASH(k2) BUCKETS 3
+        DISTRIBUTED BY HASH(k2) BUCKETS 2
         PROPERTIES (
         'replication_num' = '1',
         "colocate_with" = "${groupName}"
