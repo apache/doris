@@ -363,7 +363,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
              */
             RuleType.FOUR_PHASE_AGGREGATE_WITH_DISTINCT_WITH_FULL_DISTRIBUTE.build(
                 basePattern
-                    .when(agg -> agg.everyDistinctArgumentsIsOne() && !agg.getGroupByExpressions().isEmpty())
+                    .when(agg -> agg.everyDistinctArgumentNumIsOne() && !agg.getGroupByExpressions().isEmpty())
                     .when(agg ->
                         ImmutableSet.builder()
                             .addAll(agg.getGroupByExpressions())
@@ -1870,7 +1870,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                 AggregateFunction nonDistinct = aggregateFunction
                                         .withDistinctAndChildren(false, ImmutableList.copyOf(aggChild));
                                 AggregateExpression nonDistinctAggExpr = new AggregateExpression(nonDistinct,
-                                        distinctLocalParam, aggregateFunction.child(0));
+                                        distinctLocalParam, aggregateFunction);
                                 return nonDistinctAggExpr;
                             } else {
                                 needUpdateSlot.add(aggregateFunction);

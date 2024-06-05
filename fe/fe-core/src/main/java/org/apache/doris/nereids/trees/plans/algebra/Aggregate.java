@@ -70,8 +70,8 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
         return distinctArguments.build();
     }
 
-    /** everyDistinctAggregateFunctionIsOne */
-    default boolean everyDistinctArgumentsIsOne() {
+    /** everyDistinctArgumentNumIsOne */
+    default boolean everyDistinctArgumentNumIsOne() {
         AtomicBoolean hasDistinctArguments = new AtomicBoolean(false);
         for (NamedExpression outputExpression : getOutputExpressions()) {
             boolean distinctArgumentSizeNotOne = outputExpression.anyMatch(expr -> {
