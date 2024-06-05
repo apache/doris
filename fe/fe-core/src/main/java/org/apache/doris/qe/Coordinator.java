@@ -2264,10 +2264,6 @@ public class Coordinator implements CoordInterface {
 
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
-        // Do not move this code, it will affect load process, we should throw exception to avoid load data error
-        if (!enablePipelineXEngine) {
-            throw new UserException("Not pipeline engine, it is not supported any more");
-        }
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
         if (ctx == null || !ctx.updatePipelineStatus(params)) {
             return;
