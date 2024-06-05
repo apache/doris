@@ -59,7 +59,7 @@ suite("test_block_rule_mtmv","mtmv") {
 
     test {
           sql """
-               SELECT k2 FROM ${mvName};
+               select k2 from ${mvName};
           """
           exception "block rule"
       }
