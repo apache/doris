@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
@@ -329,6 +330,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
         if (!isReplay && !(tableRefList.get(0).getTable() instanceof OlapTable)) {
             throw new AnalysisException("The materialized view only support olap table.");
+        }
+        if (!isReplay && !(tableRefList.get(0).getTable() instanceof MTMV)) {
+            throw new AnalysisException("Not allowed to perform current operation on async materialized view.");
         }
         OlapTable olapTable = (OlapTable) tableRefList.get(0).getTable();
         mvKeysType = olapTable.getKeysType();
