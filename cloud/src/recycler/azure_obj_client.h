@@ -21,16 +21,16 @@
 
 #include "recycler/obj_store_accessor.h"
 
-namespace Aws::S3 {
-class S3Client;
-} // namespace Aws::S3
+namespace Azure::Storage::Blobs {
+class BlobContainerClient;
+} // namespace Azure::Storage::Blobs
 
 namespace doris::cloud {
-
-class S3ObjClient : public ObjStorageClient {
+class AzureObjClient : public ObjStorageClient {
 public:
-    S3ObjClient(std::shared_ptr<Aws::S3::S3Client> client) : s3_client_(std::move(client)) {}
-    ~S3ObjClient() override = default;
+    AzureObjClient(std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client)
+            : _client(std::move(client)) {}
+    ~AzureObjClient() override = default;
 
     ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
                                      std::string_view stream) override;
@@ -48,10 +48,9 @@ public:
 
     ObjectStorageResponse check_versioning(const ObjectStoragePathOptions& opts) override;
 
-    const std::shared_ptr<Aws::S3::S3Client>& s3_client() override { return s3_client_; }
+    const std::shared_ptr<Aws::S3::S3Client>& s3_client() override;
 
 private:
-    std::shared_ptr<Aws::S3::S3Client> s3_client_;
+    std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> _client;
 };
-
 } // namespace doris::cloud
