@@ -29,6 +29,7 @@ suite("query64") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql 'set runtime_filter_type=8'
     sql 'set dump_nereids_memo=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
