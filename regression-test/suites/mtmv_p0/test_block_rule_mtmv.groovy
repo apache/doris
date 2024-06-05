@@ -51,13 +51,18 @@ suite("test_block_rule_mtmv","mtmv") {
     sql"""
         CREATE SQL_BLOCK_RULE ${ruleName}
         PROPERTIES(
-          "sql"="select \\\* from ${mvName}",
+          "sql"="select k2 from ${mvName}",
           "global"="true",
           "enable"="true"
         );
         """
 
-    sql "SELECT * FROM ${mvName}"
+    test {
+          sql """
+               SELECT k2 FROM ${mvName};
+          """
+          exception "block rule"
+      }
 
     sql """drop SQL_BLOCK_RULE if exists `${ruleName}`"""
     sql """drop table if exists `${tableName}`"""
