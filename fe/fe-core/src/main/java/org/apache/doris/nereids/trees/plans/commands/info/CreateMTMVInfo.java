@@ -34,6 +34,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.DynamicPartitionUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -334,6 +335,18 @@ public class CreateMTMVInfo {
                     Optional.empty(),
                     CollectionUtils.isEmpty(simpleColumnDefinitions) ? null
                             : simpleColumnDefinitions.get(i).getComment()));
+        }
+        // add a hidden column as row store
+        if (properties != null) {
+            try {
+                boolean storeRowColumn =
+                        PropertyAnalyzer.analyzeStoreRowColumn(Maps.newHashMap(properties));
+                if (storeRowColumn) {
+                    columns.add(ColumnDefinition.newRowStoreColumnDefinition(null));
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
         }
     }
 
