@@ -43,6 +43,9 @@ suite ("case_ignore") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql "analyze table case_ignore with sync;"
+    sql """set enable_stats=false;"""
+
     qt_select_star "select * from case_ignore order by k1;"
 
     explain {

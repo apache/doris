@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * nullable aggregate function
@@ -72,5 +73,38 @@ public abstract class NullableAggregateFunction extends AggregateFunction implem
     }
 
     public abstract NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable);
+
+    /**
+     * equalsIgnoreNullable
+     */
+    public boolean equalsIgnoreNullable(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        return super.equals(o);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        NullableAggregateFunction that = (NullableAggregateFunction) o;
+        return alwaysNullable == that.alwaysNullable;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), alwaysNullable);
+    }
 
 }

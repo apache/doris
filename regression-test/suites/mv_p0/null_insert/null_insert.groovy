@@ -64,6 +64,9 @@ suite ("null_insert") {
         time 10000 // limit inflight 10s
     }
 
+    sql "analyze table test with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
                 FROM test

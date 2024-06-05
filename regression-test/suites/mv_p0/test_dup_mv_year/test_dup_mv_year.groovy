@@ -38,6 +38,9 @@ suite ("test_dup_mv_year") {
 
     createMV "create materialized view k12y as select k1,year(k2) from d_table;"
 
+    sql """analyze table d_table with sync;"""
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select k1,year(k2) from d_table order by k1;")
         contains "(k12y)"

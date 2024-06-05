@@ -43,6 +43,9 @@ suite ("mv_percentile") {
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table(k4,k2) values('d',4);"
 
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
+
     qt_select_star "select * from d_table order by k1;"
 
     explain {

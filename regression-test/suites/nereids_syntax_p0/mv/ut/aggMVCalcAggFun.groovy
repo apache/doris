@@ -45,6 +45,9 @@ suite ("aggMVCalcAggFun") {
 
     sql """insert into aggMVCalcAggFun values("2020-01-01",1,"a",1,1,1);"""
 
+    sql "analyze table aggMVCalcAggFun with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from aggMVCalcAggFun order by empid;")
         contains "(aggMVCalcAggFun)"

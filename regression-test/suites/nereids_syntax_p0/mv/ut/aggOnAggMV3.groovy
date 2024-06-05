@@ -44,6 +44,9 @@ suite ("aggOnAggMV3") {
 
     sleep(3000)
 
+    sql "analyze table aggOnAggMV3 with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from aggOnAggMV3 order by empid;")
         contains "(aggOnAggMV3)"

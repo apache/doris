@@ -58,6 +58,9 @@ suite ("unique") {
 
     createMV("create materialized view k31l42 as select k3,length(k1),k2 from u_table;")
     sql "insert into u_table select 300,-3,null,'c';"
+
+    sql """analyze table u_table with sync;"""
+    sql """set enable_stats=false;"""
     explain {
         sql("select k3,length(k1),k2 from u_table order by 1,2,3;")
         contains "(k31l42)"

@@ -81,6 +81,10 @@ suite("agg_date", "rollup") {
     qt_sql "DESC ${tbName} ALL;"
     sql "insert into ${tbName} values('2022-08-22', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111', '2022-08-22', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111');"
     sql "insert into ${tbName} values('2022-08-23', '2022-08-23 11:11:11.111111', '2022-08-23 11:11:11.111111', '2022-08-23 11:11:11.111111', '2022-08-23', '2022-08-23 11:11:11.111111', '2022-08-23 11:11:11.111111', '2022-08-23 11:11:11.111111', '2022-08-23 11:11:11.111111');"
+
+    sql "analyze table ${tbName} with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("SELECT datek1,datetimek1,datetimek2,datetimek3,max(datev1),max(datetimev1),max(datetimev2),max(datetimev3) FROM ${tbName} GROUP BY datek1,datetimek1,datetimek2,datetimek3")
         contains("(rollup_date)")

@@ -52,6 +52,9 @@ suite ("test_o2") {
 
     sql """insert into o2_order_events values ("2023-08-16 22:27:00 ","ax",1,"asd",2,1,1,1,1,1,1,1);"""
 
+    sql """analyze table o2_order_events with sync;"""
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select ts,metric_name,platform,sum(count_value) from o2_order_events group by ts,metric_name,platform;")
         contains "(o2_order_events_mv)"

@@ -45,6 +45,8 @@ suite ("aggOnAggMV2") {
 
     sleep(3000)
  
+    sql "analyze table aggOnAggMV2 with sync;"
+    sql """set enable_stats=false;"""
 
     explain {
         sql("select * from aggOnAggMV2 order by empid;")

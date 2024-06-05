@@ -37,6 +37,9 @@ suite ("testNDVToHll") {
 
     sql """insert into user_tags values("2020-01-01",1,"a",2);"""
 
+    sql "analyze table user_tags with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from user_tags order by time_col;")
         contains "(user_tags)"

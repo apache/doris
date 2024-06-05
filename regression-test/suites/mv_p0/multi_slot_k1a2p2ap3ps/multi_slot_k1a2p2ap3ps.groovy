@@ -49,6 +49,9 @@ suite ("multi_slot_k1a2p2ap3ps") {
 
     sql "insert into d_table select -4,-4,-4,'d';"
 
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
+
     qt_select_star "select * from d_table order by k1;"
 
     explain {

@@ -40,6 +40,9 @@ suite ("mv_with_view") {
 
     sql """insert into d_table select 3,-3,null,'c';"""
 
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from d_table order by k1;")
         contains "(d_table)"

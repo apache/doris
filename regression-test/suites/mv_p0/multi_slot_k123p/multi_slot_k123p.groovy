@@ -51,6 +51,8 @@ suite ("multi_slot_k123p") {
         time 10000
     }
     sql """sync"""
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
     qt_select_star "select * from d_table order by k1,k4;"
 
     explain {

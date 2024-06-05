@@ -42,7 +42,8 @@ suite ("testAggQueryOnAggMV2") {
 
     createMV("create materialized view emps_mv as select deptno, sum(salary) from emps group by deptno ;")
 
- 
+    sql "analyze table emps with sync;"
+    sql """set enable_stats=false;"""
 
     explain {
         sql("select * from emps order by empid;")

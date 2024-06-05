@@ -102,6 +102,9 @@ suite ("mv_ssb_q_3_1") {
 
     qt_select_star "select * from lineorder_flat order by 1,2,P_MFGR;"
 
+    sql """analyze table lineorder_flat with sync;"""
+    sql """set enable_stats=false;"""
+
     explain {
         sql("""SELECT
                 C_NATION,

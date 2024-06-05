@@ -41,6 +41,9 @@ suite ("test_nvl") {
 
     sql """insert into dwd(id) values(2);"""
 
+    sql """analyze table dwd with sync;"""
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select nvl(id,0) from dwd order by 1;")
         contains "(dwd_mv)"

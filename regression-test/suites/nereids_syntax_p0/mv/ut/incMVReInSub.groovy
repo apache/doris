@@ -40,6 +40,9 @@ suite ("incMVReInSub") {
 
     sql """insert into incMVReInSub values("2020-01-01",1,"a",2);"""
 
+    sql "analyze table incMVReInSub with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from incMVReInSub order by time_col;")
         contains "(incMVReInSub)"

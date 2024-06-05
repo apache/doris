@@ -48,6 +48,9 @@ suite ("test_substr") {
 
     sql """insert into dwd(id) values(2);"""
 
+    sql """analyze table dwd with sync;"""
+    sql """set enable_stats=false;"""
+
     explain {
         sql("SELECT substr(created_at,1,10) as statistic_date, max(dt) as dt FROM dwd  group by substr(created_at,1,10);")
         contains "(dwd_mv)"

@@ -39,6 +39,9 @@ suite ("MVWithAs") {
 
     sql """insert into MVWithAs values("2020-01-01",1,"a",1);"""
 
+    sql "analyze table MVWithAs with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from MVWithAs order by time_col;")
         contains "(MVWithAs)"

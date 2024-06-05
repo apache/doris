@@ -31,6 +31,9 @@ suite ("aggCDInBitmap") {
     sql """insert into aggCDInBitmap values(2,to_bitmap(2));"""
     sql """insert into aggCDInBitmap values(3,to_bitmap(3));"""
 
+    sql "analyze table aggCDInBitmap with sync;"
+    sql """set enable_stats=false;"""
+
 
     order_qt_select_star "select * from aggCDInBitmap order by 1;"
 

@@ -51,6 +51,9 @@ suite ("agg_have_dup_base") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql "analyze table agg_have_dup_base with sync;"
+    sql """set enable_stats=false;"""
+
 
     order_qt_select_star "select * from agg_have_dup_base order by k1;"
 

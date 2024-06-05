@@ -29,6 +29,9 @@ suite ("testAggTableCountDistinctInBitmapType") {
     sql """insert into test_tb values(3,to_bitmap(3));"""
 
 
+    sql "analyze table test_tb with sync;"
+    sql """set enable_stats=false;"""
+
     qt_select_star "select * from test_tb order by 1;"
 
 

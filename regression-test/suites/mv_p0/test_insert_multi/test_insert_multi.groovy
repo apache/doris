@@ -31,6 +31,9 @@ suite ("test_insert_multi") {
 
     qt_select_star "select * from sales_records order by 1,2;"
 
+    sql """analyze table sales_records with sync;"""
+    sql """set enable_stats=false;"""
+
     explain {
         sql(" SELECT store_id, sum(sale_amt) FROM sales_records GROUP BY store_id order by 1;")
         contains "(store_amt)"

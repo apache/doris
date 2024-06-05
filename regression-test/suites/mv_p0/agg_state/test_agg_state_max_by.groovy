@@ -101,6 +101,10 @@ suite ("test_agg_state_max_by") {
 
     qt_select_star "select * from d_table order by 1,2;"
 
+    sql """set enable_stats=true;"""
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select k1,max_by(k2+k3,abs(k3)) from d_table group by k1 order by 1,2;")
         contains "(k1mbcp1)"

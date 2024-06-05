@@ -44,6 +44,9 @@ suite ("mv_with_view") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql "analyze table mv_with_view with sync;"
+    sql """set enable_stats=false;"""
+
 
     explain {
         sql("select * from mv_with_view order by k1;")

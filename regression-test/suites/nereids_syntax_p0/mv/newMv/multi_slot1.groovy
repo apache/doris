@@ -43,6 +43,9 @@ suite ("multi_slot1") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql "analyze table multi_slot1 with sync;"
+    sql """set enable_stats=false;"""
+
     order_qt_select_star "select * from multi_slot1 order by k1;"
 
     explain {

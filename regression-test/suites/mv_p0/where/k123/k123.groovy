@@ -44,6 +44,9 @@ suite ("k123p") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
+
     qt_select_star "select * from d_table order by k1;"
 
     explain {

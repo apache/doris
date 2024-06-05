@@ -39,6 +39,9 @@ suite ("bitmapUnionIn") {
 
     sql """insert into bitmapUnionIn values("2020-01-01",1,"a",2);"""
 
+    sql "analyze table bitmapUnionIn with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from bitmapUnionIn order by time_col;")
         contains "(bitmapUnionIn)"

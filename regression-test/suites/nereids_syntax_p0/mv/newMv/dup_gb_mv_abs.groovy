@@ -44,6 +44,9 @@ suite ("dup_gb_mv_abs") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql "analyze table dup_gb_mv_abs with sync;"
+    sql """set enable_stats=false;"""
+
 
     order_qt_select_star "select * from dup_gb_mv_abs order by k1;"
 

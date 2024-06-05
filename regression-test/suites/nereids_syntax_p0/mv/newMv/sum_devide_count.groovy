@@ -44,6 +44,9 @@ suite ("sum_devide_count") {
     sql "insert into sum_devide_count select -4,-4,-4,'d';"
     sql "insert into sum_devide_count select 3,2,null,'c';"
 
+    sql "analyze table sum_devide_count with sync;"
+    sql """set enable_stats=false;"""
+
     qt_select_star "select * from sum_devide_count order by k1,k2,k3,k4;"
 
     explain {

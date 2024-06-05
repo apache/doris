@@ -42,6 +42,9 @@ suite ("projectMV2") {
 
     sql """insert into projectMV2 values("2020-01-01",1,"a",1,1,1);"""
 
+    sql "analyze table projectMV2 with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from projectMV2 order by empid;")
         contains "(projectMV2)"
