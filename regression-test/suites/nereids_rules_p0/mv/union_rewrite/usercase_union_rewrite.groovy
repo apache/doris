@@ -18,9 +18,6 @@
 suite ("usercase_union_rewrite") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
 
     sql """
     drop table if exists orders_user
