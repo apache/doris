@@ -119,7 +119,7 @@ protected:
 
     vectorized::Block _preagg_block = vectorized::Block();
 
-    vectorized::AggregatedDataVariants* _agg_data = nullptr;
+    AggregatedDataVariants* _agg_data = nullptr;
     vectorized::Arena* _agg_arena_pool = nullptr;
 
     std::unique_ptr<ExecutorBase> _executor = nullptr;
@@ -156,7 +156,7 @@ public:
     bool require_data_distribution() const override { return _is_colocate; }
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
-    vectorized::AggregatedDataVariants* get_agg_data(RuntimeState* state) {
+    AggregatedDataVariants* get_agg_data(RuntimeState* state) {
         auto& local_state = get_local_state(state);
         return local_state._agg_data;
     }

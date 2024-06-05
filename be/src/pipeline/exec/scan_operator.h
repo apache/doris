@@ -23,10 +23,15 @@
 #include <string>
 
 #include "common/status.h"
+#include "exprs/function_filter.h"
 #include "operator.h"
+#include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
 #include "vec/exec/scan/vscan_node.h"
+#include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vin_predicate.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 class ScannerDelegate;
@@ -55,12 +60,12 @@ struct FilterPredicates {
     std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
 };
 
-class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
+class ScanLocalStateBase : public PipelineXLocalState<>, public RuntimeFilterConsumer {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<>(state, parent),
-              vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
-                                                parent->row_descriptor(), _conjuncts) {}
+              RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
+                                    parent->row_descriptor(), _conjuncts) {}
     ~ScanLocalStateBase() override = default;
 
     virtual bool ready_to_read() = 0;

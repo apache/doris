@@ -817,14 +817,6 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
             return;
         }
     }
-    if (query_ctx->enable_pipeline_x_exec()) {
-        query_ctx->cancel_all_pipeline_context(reason);
-    } else {
-        for (auto it : all_instance_ids) {
-            cancel_instance(it, reason);
-        }
-    }
-
     query_ctx->cancel(reason);
     {
         std::lock_guard<std::mutex> state_lock(_lock);
@@ -862,7 +854,6 @@ void FragmentMgr::cancel_instance(const TUniqueId instance_id, const Status reas
 void FragmentMgr::cancel_worker() {
     LOG(INFO) << "FragmentMgr cancel worker start working.";
     do {
-        std::vector<TUniqueId> to_cancel;
         std::vector<TUniqueId> queries_lost_coordinator;
         std::vector<TUniqueId> queries_timeout;
 
@@ -935,17 +926,6 @@ void FragmentMgr::cancel_worker() {
                     queries_lost_coordinator.push_back(it.first);
                 }
             }
-        }
-
-        // TODO(zhiqiang): It seems that timeout_canceled_fragment_count is
-        // designed to count canceled fragment of non-pipeline query.
-        timeout_canceled_fragment_count->increment(to_cancel.size());
-        for (auto& id : to_cancel) {
-            cancel_instance(id,
-                            Status::Error<ErrorCode::TIMEOUT>(
-                                    "FragmentMgr cancel worker going to cancel timeout instance "));
-            LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout instance "
-                      << print_id(id);
         }
 
         if (!queries_lost_coordinator.empty()) {

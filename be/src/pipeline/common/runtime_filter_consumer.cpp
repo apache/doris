@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/runtime_filter_consumer.h"
+#include "pipeline/common/runtime_filter_consumer.h"
 
 #include "pipeline/pipeline_task.h"
 
-namespace doris::vectorized {
+namespace doris::pipeline {
 
 RuntimeFilterConsumer::RuntimeFilterConsumer(const int32_t filter_id,
                                              const std::vector<TRuntimeFilterDesc>& runtime_filters,
                                              const RowDescriptor& row_descriptor,
-                                             VExprContextSPtrs& conjuncts)
+                                             vectorized::VExprContextSPtrs& conjuncts)
         : _filter_id(filter_id),
           _runtime_filter_descs(runtime_filters),
           _row_descriptor_ref(row_descriptor),
@@ -148,7 +148,7 @@ Status RuntimeFilterConsumer::_append_rf_into_conjuncts(
     }
 
     for (const auto& expr : vexprs) {
-        VExprContextSPtr conjunct = VExprContext::create_shared(expr);
+        vectorized::VExprContextSPtr conjunct = vectorized::VExprContext::create_shared(expr);
         RETURN_IF_ERROR(conjunct->prepare(_state, _row_descriptor_ref));
         RETURN_IF_ERROR(conjunct->open(_state));
         _rf_vexpr_set.insert(expr);
@@ -202,4 +202,4 @@ void RuntimeFilterConsumer::_prepare_rf_timer(RuntimeProfile* profile) {
     _acquire_runtime_filter_timer = ADD_TIMER(profile, "AcquireRuntimeFilterTime");
 }
 
-} // namespace doris::vectorized
+} // namespace doris::pipeline
