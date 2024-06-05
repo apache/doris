@@ -1263,6 +1263,8 @@ public class Coordinator implements CoordInterface {
 
     private void cancelRemoteFragmentsAsync(Status cancelReason) {
         for (PipelineExecContexts ctx : beToPipelineExecCtxs.values()) {
+            LOG.debug("Cancel query {} on BE {}. Reason: {}", DebugUtil.printId(queryId), ctx.brpcAddr,
+                    cancelReason.toString());
             ctx.cancelQuery(cancelReason);
         }
     }
