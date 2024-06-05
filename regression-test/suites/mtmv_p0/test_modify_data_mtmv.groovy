@@ -52,6 +52,12 @@ suite("test_modify_data_mtmv","mtmv") {
         exception "Not allowed"
     }
 
+    // delete from mtmv
+    test {
+        sql """delete from ${mvName} where k2=1"""
+        exception "Not allowed"
+    }
+
     // truncate table
     test {
         sql """truncate table ${mvName}"""
