@@ -293,7 +293,7 @@ Status IcebergTableReader::_shrink_block_if_need(Block* block) {
 }
 
 Status IcebergTableReader::_position_delete_base(
-        std::string data_file_path,
+        const std::string data_file_path,
         const std::vector<TIcebergDeleteFileDesc>& delete_files) {
 
     std::vector<DeleteRows*> delete_rows_array;
