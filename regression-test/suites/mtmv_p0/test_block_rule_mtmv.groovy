@@ -51,7 +51,7 @@ suite("test_block_rule_mtmv","mtmv") {
     sql"""
         CREATE SQL_BLOCK_RULE ${ruleName}
         PROPERTIES(
-          "sql"="select \\* from ${mvName}",
+          "sql"="select \\\* from ${mvName}",
           "global"="true",
           "enable"="true"
         );
