@@ -1046,6 +1046,7 @@ public class Env {
         if (!Config.enable_check_compatibility_mode) {
             getClusterIdAndRole();
         } else {
+            isElectable = true;
             role = FrontendNodeType.FOLLOWER;
             nodeName = genFeNodeName(selfNode.getHost(),
                     selfNode.getPort(), false /* new style */);
