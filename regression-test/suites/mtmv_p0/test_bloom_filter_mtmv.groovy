@@ -66,12 +66,19 @@ suite("test_bloom_filter_mtmv","mtmv") {
     sql """
         ALTER TABLE ${mvName} SET ("bloom_filter_columns" = "k3");
         """
+    assertEquals("FINISHED", getAlterColumnFinalState("${mvName}"))
+    showCreateTableResult = sql """show create table ${mvName}"""
+    logger.info("showCreateTableResult: " + showCreateTableResult.toString())
+    assertTrue(showCreateTableResult.toString().contains('bloom_filter_columns" = "k3"'))
 
+    // delete index
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName} complete
+        ALTER TABLE ${mvName} SET ("bloom_filter_columns" = "");
         """
-    waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_refresh_mv2 "SELECT * FROM ${mvName}"
+    assertEquals("FINISHED", getAlterColumnFinalState("${mvName}"))
+    showCreateTableResult = sql """show create table ${mvName}"""
+    logger.info("showCreateTableResult: " + showCreateTableResult.toString())
+    assertFalse(showCreateTableResult.toString().contains('bloom_filter_columns" = "k3"'))
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
