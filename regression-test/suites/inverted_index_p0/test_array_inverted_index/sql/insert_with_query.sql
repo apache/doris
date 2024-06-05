@@ -32,7 +32,7 @@ WHERE  ( Array_contains(table1 .
     'r') ) order by 1,2,3,4;
 
 -- set session variables for inverted index
-SELECT/*+SET_VAR(enable_common_expr_pushdown=true,enable_common_expr_pushdown_for_inverted_index=true)*/ col_int_undef_signed_not_null, col_date_undef_signed_not_null, col_bigint_undef_signed_not_null_index_inverted, col_bigint_undef_signed_not_null, Month (Ifnull(table1 . `col_date_undef_signed_not_null_index_inverted`,
+SELECT/*+SET_VAR(enable_common_expr_pushdown=true)*/ col_int_undef_signed_not_null, col_date_undef_signed_not_null, col_bigint_undef_signed_not_null_index_inverted, col_bigint_undef_signed_not_null, Month (Ifnull(table1 . `col_date_undef_signed_not_null_index_inverted`,
     table1 .
     col_date_undef_signed)) AS field1,
     table1 . col_date_undef_signed_not_null      AS field2,
