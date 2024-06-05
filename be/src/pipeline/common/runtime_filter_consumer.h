@@ -20,13 +20,14 @@
 #include "exprs/runtime_filter.h"
 #include "pipeline/dependency.h"
 
-namespace doris::vectorized {
+namespace doris::pipeline {
 
 class RuntimeFilterConsumer {
 public:
     RuntimeFilterConsumer(const int32_t filter_id,
                           const std::vector<TRuntimeFilterDesc>& runtime_filters,
-                          const RowDescriptor& row_descriptor, VExprContextSPtrs& conjuncts);
+                          const RowDescriptor& row_descriptor,
+                          vectorized::VExprContextSPtrs& conjuncts);
     ~RuntimeFilterConsumer() = default;
 
     Status init(RuntimeState* state, bool need_local_merge = false);
@@ -65,7 +66,7 @@ protected:
     // Set to true if the runtime filter is ready.
     std::vector<bool> _runtime_filter_ready_flag;
     std::mutex _rf_locks;
-    phmap::flat_hash_set<VExprSPtr> _rf_vexpr_set;
+    phmap::flat_hash_set<vectorized::VExprSPtr> _rf_vexpr_set;
     RuntimeState* _state = nullptr;
 
 private:
@@ -85,4 +86,4 @@ private:
     RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
 };
 
-} // namespace doris::vectorized
+} // namespace doris::pipeline

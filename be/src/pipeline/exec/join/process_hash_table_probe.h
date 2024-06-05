@@ -25,38 +25,40 @@
 #include "vec/common/arena.h"
 
 namespace doris {
-namespace pipeline {
-class HashJoinProbeLocalState;
-}
 namespace vectorized {
-
 class Block;
 class MutableBlock;
 struct HashJoinProbeContext;
+} // namespace vectorized
+namespace pipeline {
 
-using MutableColumnPtr = IColumn::MutablePtr;
-using MutableColumns = std::vector<MutableColumnPtr>;
+class HashJoinProbeLocalState;
 
-using NullMap = ColumnUInt8::Container;
-using ConstNullMapPtr = const NullMap*;
+using MutableColumnPtr = vectorized::IColumn::MutablePtr;
+using MutableColumns = std::vector<vectorized::MutableColumnPtr>;
+
+using NullMap = vectorized::ColumnUInt8::Container;
+using ConstNullMapPtr = const vectorized::NullMap*;
 
 template <int JoinOpType>
 struct ProcessHashTableProbe {
-    ProcessHashTableProbe(pipeline::HashJoinProbeLocalState* parent, int batch_size);
+    ProcessHashTableProbe(HashJoinProbeLocalState* parent, int batch_size);
     ~ProcessHashTableProbe() = default;
 
     // output build side result column
-    void build_side_output_column(MutableColumns& mcol, const std::vector<bool>& output_slot_flags,
-                                  int size, bool have_other_join_conjunct, bool is_mark_join);
+    void build_side_output_column(vectorized::MutableColumns& mcol,
+                                  const std::vector<bool>& output_slot_flags, int size,
+                                  bool have_other_join_conjunct, bool is_mark_join);
 
-    void probe_side_output_column(MutableColumns& mcol, const std::vector<bool>& output_slot_flags,
-                                  int size, int last_probe_index, bool all_match_one,
+    void probe_side_output_column(vectorized::MutableColumns& mcol,
+                                  const std::vector<bool>& output_slot_flags, int size,
+                                  int last_probe_index, bool all_match_one,
                                   bool have_other_join_conjunct);
 
     template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
     Status process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
-                   MutableBlock& mutable_block, Block* output_block, size_t probe_rows,
-                   bool is_mark_join, bool have_other_join_conjunct);
+                   vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
+                   size_t probe_rows, bool is_mark_join, bool have_other_join_conjunct);
 
     // Only process the join with no other join conjunct, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
@@ -65,16 +67,17 @@ struct ProcessHashTableProbe {
     template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType,
               bool with_other_conjuncts, bool is_mark_join>
     Status do_process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
-                      MutableBlock& mutable_block, Block* output_block, size_t probe_rows);
+                      vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
+                      size_t probe_rows);
     // In the presence of other join conjunct, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
     // The output result is determined by the other join conjunct result and same_to_prev struct
-    Status do_other_join_conjuncts(Block* output_block, std::vector<uint8_t>& visited,
+    Status do_other_join_conjuncts(vectorized::Block* output_block, std::vector<uint8_t>& visited,
                                    bool has_null_in_build_side);
 
     template <bool with_other_conjuncts>
-    Status do_mark_join_conjuncts(Block* output_block, size_t hash_table_bucket_size);
+    Status do_mark_join_conjuncts(vectorized::Block* output_block, size_t hash_table_bucket_size);
 
     template <typename HashTableType>
     typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
@@ -84,8 +87,9 @@ struct ProcessHashTableProbe {
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
     template <typename HashTableType>
-    Status process_data_in_hashtable(HashTableType& hash_table_ctx, MutableBlock& mutable_block,
-                                     Block* output_block, bool* eos, bool is_mark_join);
+    Status process_data_in_hashtable(HashTableType& hash_table_ctx,
+                                     vectorized::MutableBlock& mutable_block,
+                                     vectorized::Block* output_block, bool* eos, bool is_mark_join);
 
     /// For null aware join with other conjuncts, if the probe key of one row on left side is null,
     /// we should make this row match with all rows in build side.
@@ -93,8 +97,8 @@ struct ProcessHashTableProbe {
 
     pipeline::HashJoinProbeLocalState* _parent = nullptr;
     const int _batch_size;
-    const std::shared_ptr<Block>& _build_block;
-    std::unique_ptr<Arena> _arena;
+    const std::shared_ptr<vectorized::Block>& _build_block;
+    std::unique_ptr<vectorized::Arena> _arena;
     std::vector<StringRef> _probe_keys;
 
     std::vector<uint32_t> _probe_indexs;
@@ -110,13 +114,13 @@ struct ProcessHashTableProbe {
 
     std::vector<int> _build_blocks_locs;
     // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
-    ColumnUInt8::Container* _tuple_is_null_left_flags = nullptr;
+    vectorized::ColumnUInt8::Container* _tuple_is_null_left_flags = nullptr;
     // only need set the tuple is null in LEFT_OUTER_JOIN and FULL_OUTER_JOIN
-    ColumnUInt8::Container* _tuple_is_null_right_flags = nullptr;
+    vectorized::ColumnUInt8::Container* _tuple_is_null_right_flags = nullptr;
 
     size_t _serialized_key_buffer_size {0};
     uint8_t* _serialized_key_buffer = nullptr;
-    std::unique_ptr<Arena> _serialize_key_arena;
+    std::unique_ptr<vectorized::Arena> _serialize_key_arena;
     std::vector<char> _probe_side_find_result;
 
     bool _have_other_join_conjunct;
@@ -139,5 +143,5 @@ struct ProcessHashTableProbe {
     int _right_col_len;
 };
 
-} // namespace vectorized
+} // namespace pipeline
 } // namespace doris

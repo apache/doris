@@ -19,8 +19,8 @@
 
 #include "process_hash_table_probe_impl.h"
 
-namespace doris::vectorized {
+namespace doris::pipeline {
 
-INSTANTIATION_FOR(TJoinOp::RIGHT_OUTER_JOIN);
+INSTANTIATION_FOR(TJoinOp::RIGHT_SEMI_JOIN);
 
 }
