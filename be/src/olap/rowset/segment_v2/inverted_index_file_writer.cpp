@@ -100,7 +100,7 @@ size_t InvertedIndexFileWriter::headerLength() {
             sizeof(int) * 2; // Account for the size of the version number and number of indices
     for (const auto& entry : _indices_dirs) {
         auto suffix = entry.first.second;
-        header_size += sizeof(int);     // index id
+        header_size += sizeof(int64_t); // index id
         header_size += 4;               // index suffix name size
         header_size += suffix.length(); // index suffix name
         header_size += sizeof(int);     // index file count
@@ -199,7 +199,7 @@ size_t InvertedIndexFileWriter::write() {
         int32_t file_count = sorted_files.size();
 
         // Write the index ID and the number of files
-        compound_file_output->writeInt(index_id);
+        compound_file_output->writeLong(index_id);
         const auto* index_suffix_str = reinterpret_cast<const uint8_t*>(index_suffix.c_str());
         compound_file_output->writeInt(index_suffix.length());
         compound_file_output->writeBytes(index_suffix_str, index_suffix.length());
