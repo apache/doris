@@ -1706,7 +1706,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE, needForward = true,
             description = {"是否开启基于结构信息的物化视图透明改写",
                     "Whether to enable materialized view rewriting based on struct info"})
-    public boolean enableMaterializedViewRewrite = false;
+    public boolean enableMaterializedViewRewrite = true;
 
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE, needForward = true,
             description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
