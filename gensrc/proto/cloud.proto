@@ -201,6 +201,13 @@ message StorageVaultPB {
     optional string name = 2;
     optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
     optional ObjectStoreInfoPB obj_info = 4;
+
+    message PathFormat {
+        optional int64 path_version = 1;
+        optional int64 shard_num = 2;
+    }
+
+    optional PathFormat path_format = 5;
 }
 
 message HdfsBuildConf {
