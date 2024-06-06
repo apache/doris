@@ -36,6 +36,7 @@ bool is_scalar_type(FieldType field_type) {
     case FieldType::OLAP_FIELD_TYPE_ARRAY:
     case FieldType::OLAP_FIELD_TYPE_MAP:
     case FieldType::OLAP_FIELD_TYPE_VARIANT:
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
         return false;
     default:
         return true;
@@ -50,7 +51,6 @@ bool is_olap_string_type(FieldType field_type) {
     case FieldType::OLAP_FIELD_TYPE_OBJECT:
     case FieldType::OLAP_FIELD_TYPE_STRING:
     case FieldType::OLAP_FIELD_TYPE_JSONB:
-    case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
         return true;
     default:
         return false;
