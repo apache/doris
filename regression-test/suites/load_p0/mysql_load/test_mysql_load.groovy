@@ -121,6 +121,42 @@ suite("test_mysql_load", "p0") {
     rowCount = sql "select count(1) from ${tableName}"
     assertEquals(3, rowCount[0][0])
 
+    // test_line_delimiter for \r\n
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+          `id` int(11) NULL,
+          `value` varchar(64) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    def test_mysql_load_line_delimiter_file = getLoalFilePath "test_mysql_load_line_delimiter.csv"
+    def mysql_load_file = new File(test_mysql_load_line_delimiter_file).text
+    def new_mysql_load_file = mysql_load_file.replace("\\r\\n", "\r\n")
+    new File(test_mysql_load_line_delimiter_file).withWriter { writer -> writer << new_mysql_load_file }
+    sql """
+        LOAD DATA 
+        LOCAL
+        INFILE '${test_line_delimiter_file}'
+        INTO TABLE ${tableName}
+        COLUMNS TERMINATED BY '|'
+        LINES TERMINATED BY '\r\n'
+        (id, value);
+    """
+
+    sql "sync"
+    rowCount = sql "select count(1) from ${tableName}"
+    assertEquals(3, rowCount[0][0])
+
 
     // test load_nullable_to_not_nullable
     def tableName2 = "load_nullable_to_not_nullable"
