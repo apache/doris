@@ -191,6 +191,10 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
             _rpc_channel_is_idle[ins_id] = false;
             _busy_channels++;
         }
+        if (request.block_holder->get_block()) {
+            RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(
+                    request.block_holder->get_block()->be_exec_version()));
+        }
         _instance_to_broadcast_package_queue[ins_id].emplace(request);
     }
     if (send_now) {
