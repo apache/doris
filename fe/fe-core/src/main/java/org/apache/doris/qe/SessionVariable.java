@@ -55,6 +55,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.security.InvalidParameterException;
 import java.security.SecureRandom;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -128,6 +129,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PROFILE_LEVEL = "profile_level";
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
+    public static final String INSERT_MAX_FILTER_RATIO = "insert_max_filter_ratio";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
 
@@ -808,7 +810,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean haveQueryCache = false;
 
     // 4096 minus 16 + 16 bytes padding that in padding pod array
-    @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true)
+    @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
     public int batchSize = 4064;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
@@ -863,6 +865,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
+
+    @VariableMgr.VarAttr(name = INSERT_MAX_FILTER_RATIO, needForward = true)
+    public double insertMaxFilterRatio = 1.0;
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
@@ -933,7 +938,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
     public boolean enableStrictConsistencyDml = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
+    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, varType = VariableAnnotation.REMOVED)
     public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, needForward = true,
@@ -2555,6 +2560,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableInsertStrict = enableInsertStrict;
     }
 
+    public double getInsertMaxFilterRatio() {
+        return insertMaxFilterRatio;
+    }
+
+    public void setInsertMaxFilterRatio(double maxFilterRatio) {
+        this.insertMaxFilterRatio = maxFilterRatio;
+    }
+
     public boolean isEnableSqlCache() {
         return enableSqlCache;
     }
@@ -3845,6 +3858,13 @@ public class SessionVariable implements Serializable, Writable {
                 .noneMatch(dialect -> dialect.getDialectName().equalsIgnoreCase(sqlDialect))) {
             LOG.warn("sqlDialect value is invalid, the invalid value is {}", sqlDialect);
             throw new UnsupportedOperationException("sqlDialect value is invalid, the invalid value is " + sqlDialect);
+        }
+    }
+
+    public void checkBatchSize(String batchSize) {
+        Long batchSizeValue = Long.valueOf(batchSize);
+        if (batchSizeValue < 1 || batchSizeValue > 65535) {
+            throw new InvalidParameterException("batch_size should be between 1 and 65535)");
         }
     }
 

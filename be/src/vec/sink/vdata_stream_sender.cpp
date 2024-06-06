@@ -66,9 +66,12 @@ Status Channel<Parent>::init_stub(RuntimeState* state) {
         _is_local &= state->query_options().enable_local_exchange;
     }
     if (_is_local) {
-        WARN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                              _fragment_instance_id, _dest_node_id, &_local_recvr),
-                      "");
+        auto st = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
+                _fragment_instance_id, _dest_node_id, &_local_recvr);
+        if (!st.ok()) {
+            // Recvr not found. Maybe downstream task is finished already.
+            LOG(INFO) << "Recvr is not found : " << st.to_string();
+        }
         return Status::OK();
     }
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {

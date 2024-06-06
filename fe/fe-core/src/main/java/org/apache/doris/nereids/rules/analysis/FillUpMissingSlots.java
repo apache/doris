@@ -39,6 +39,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 
 import java.util.List;
@@ -75,6 +76,22 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                         return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()),
                                 sort.withChildren(new LogicalProject<>(projects, project.child())));
                     })
+            ),
+            RuleType.FILL_UP_SORT_AGGREGATE_HAVING_AGGREGATE.build(
+                logicalSort(
+                    aggregate(logicalHaving(aggregate()))
+                        .when(a -> a.getOutputExpressions().stream().allMatch(SlotReference.class::isInstance))
+                ).when(this::checkSort)
+                    .then(sort -> processDistinctProjectWithAggregate(sort, sort.child(), sort.child().child().child()))
+            ),
+            // ATTN: process aggregate with distinct project, must run this rule before FILL_UP_SORT_AGGREGATE
+            //   because this pattern will always fail in FILL_UP_SORT_AGGREGATE
+            RuleType.FILL_UP_SORT_AGGREGATE_AGGREGATE.build(
+                logicalSort(
+                    aggregate(aggregate())
+                        .when(a -> a.getOutputExpressions().stream().allMatch(SlotReference.class::isInstance))
+                ).when(this::checkSort)
+                    .then(sort -> processDistinctProjectWithAggregate(sort, sort.child(), sort.child().child()))
             ),
             RuleType.FILL_UP_SORT_AGGREGATE.build(
                 logicalSort(aggregate())
@@ -334,7 +351,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
     }
 
     interface PlanGenerator {
-        Plan apply(Resolver resolver, Aggregate aggregate);
+        Plan apply(Resolver resolver, Aggregate<?> aggregate);
     }
 
     private Plan createPlan(Resolver resolver, Aggregate<? extends Plan> aggregate, PlanGenerator planGenerator) {
@@ -370,5 +387,50 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             }
         }
         return false;
+    }
+
+    /**
+     * for sql like SELECT DISTINCT a FROM t GROUP BY a HAVING b > 0 ORDER BY a.
+     * there order by need to bind with bottom aggregate's output and bottom aggregate's child's output.
+     * this function used to fill up missing slot for these situations correctly.
+     *
+     * @param sort top sort
+     * @param upperAggregate upper aggregate used to check slot in order by should be in select list
+     * @param bottomAggregate bottom aggregate used to bind with its and its child's output
+     *
+     * @return filled up plan
+     */
+    private Plan processDistinctProjectWithAggregate(LogicalSort<?> sort,
+            Aggregate<?> upperAggregate, Aggregate<Plan> bottomAggregate) {
+        Resolver resolver = new Resolver(bottomAggregate);
+        sort.getExpressions().forEach(resolver::resolve);
+        return createPlan(resolver, bottomAggregate, (r, a) -> {
+            List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
+                    .map(ok -> new OrderKey(
+                            ExpressionUtils.replace(ok.getExpr(), r.getSubstitution()),
+                            ok.isAsc(),
+                            ok.isNullFirst()))
+                    .collect(ImmutableList.toImmutableList());
+            boolean sortNotChanged = newOrderKeys.equals(sort.getOrderKeys());
+            boolean aggNotChanged = a.equals(bottomAggregate);
+            if (sortNotChanged && aggNotChanged) {
+                return null;
+            }
+            if (aggNotChanged) {
+                // since sort expr must in select list, we should not change agg at all.
+                return new LogicalSort<>(newOrderKeys, sort.child());
+            } else {
+                Set<NamedExpression> upperAggOutputs = Sets.newHashSet(upperAggregate.getOutputExpressions());
+                for (int i = 0; i < newOrderKeys.size(); i++) {
+                    OrderKey orderKey = newOrderKeys.get(i);
+                    Expression expression = orderKey.getExpr();
+                    if (!upperAggOutputs.containsAll(expression.getInputSlots())) {
+                        throw new AnalysisException(sort.getOrderKeys().get(i).getExpr().toSql()
+                                + " of ORDER BY clause is not in SELECT list");
+                    }
+                }
+                throw new AnalysisException("Expression of ORDER BY clause is not in SELECT list");
+            }
+        });
     }
 }

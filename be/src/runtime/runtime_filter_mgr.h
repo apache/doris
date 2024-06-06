@@ -282,7 +282,6 @@ struct RuntimeFilterParamsContext {
 
     bool runtime_filter_wait_infinitely;
     int32_t runtime_filter_wait_time_ms;
-    bool enable_pipeline_exec;
     int32_t execution_timeout;
     RuntimeFilterMgr* runtime_filter_mgr;
     ExecEnv* exec_env;
