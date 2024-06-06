@@ -133,7 +133,7 @@ In terms of optimizers, Doris uses a combination of CBO and RBO. RBO supports co
 
 **Apache Doris has graduated from Apache incubator successfully and become a Top-Level Project in June 2022**. 
 
-Currently, the Apache Doris community has gathered more than 600 contributors from over 200 companies in different industries, and the number of monthly active contributors  exceeds 100.
+Currently, the Apache Doris community has gathered more than 600 contributors from over 200 companies in different industries, and the number of monthly active contributors exceeds 100.
 
 
 [![Monthly Active Contributors](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorMonthlyActivity&repo=apache/doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorMonthlyActivity&repo=apache/doris)
