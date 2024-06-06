@@ -51,7 +51,7 @@ suite("test_n_gram_mtmv","mtmv") {
     sql """
         ALTER TABLE ${mvName} add index idx_ngrambf(k3) using NGRAM_BF PROPERTIES("gram_size"="2", "bf_size"="512");
         """
-
+    assertEquals("FINISHED", getAlterColumnFinalState("${mvName}"))
     def showIndexResult = sql """show index from ${mvName};"""
     logger.info("showIndexResult: " + showIndexResult.toString())
 
