@@ -237,9 +237,6 @@ public class IndexDef {
             }
 
             if (indexType == IndexType.INVERTED) {
-                if (!Config.enable_create_inverted_index_for_array && colType.isArrayType()) {
-                    throw new AnalysisException("inverted index does not support array type column:" + indexColName);
-                }
                 InvertedIndexUtil.checkInvertedIndexParser(indexColName, colType, properties);
             } else if (indexType == IndexType.NGRAM_BF) {
                 if (colType != PrimitiveType.CHAR && colType != PrimitiveType.VARCHAR

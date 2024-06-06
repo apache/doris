@@ -2386,6 +2386,4 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_create_bitmap_index_as_inverted_index = true;
 
-    @ConfField(mutable = true)
-    public static boolean enable_create_inverted_index_for_array = false;
 }

@@ -18,7 +18,6 @@
 suite("test_array_contains_with_inverted_index"){
     // prepare test table
     def indexTblName = "tai"
-    sql """ ADMIN SET FRONTEND CONFIG ("enable_create_inverted_index_for_array" = "true"); """
 
     // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
     sql """ set enable_common_expr_pushdown = true; """
