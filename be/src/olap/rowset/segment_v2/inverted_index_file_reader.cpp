@@ -73,7 +73,7 @@ Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
             ReaderFileEntry* entry = nullptr;
 
             for (int32_t i = 0; i < numIndices; ++i) {
-                int64_t indexId = _stream->readInt();       // Read index ID
+                int64_t indexId = _stream->readLong();      // Read index ID
                 int32_t suffix_length = _stream->readInt(); // Read suffix length
                 std::vector<uint8_t> suffix_data(suffix_length);
                 _stream->readBytes(suffix_data.data(), suffix_length);
