@@ -28,10 +28,9 @@ namespace doris::pipeline {
 MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(RuntimeState* state,
                                                                          OperatorXBase* parent)
         : Base(state, parent),
-          vectorized::RuntimeFilterConsumer(static_cast<Parent*>(parent)->dest_id_from_sink(),
-                                            parent->runtime_filter_descs(),
-                                            static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {
-}
+          RuntimeFilterConsumer(static_cast<Parent*>(parent)->dest_id_from_sink(),
+                                parent->runtime_filter_descs(),
+                                static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {}
 
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -87,7 +86,8 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
     if (!local_state._output_expr_contexts.empty()) {
         output_block = &tmp_block;
     }
-    local_state._shared_state->multi_cast_data_streamer->pull(_consumer_id, output_block, eos);
+    RETURN_IF_ERROR(local_state._shared_state->multi_cast_data_streamer->pull(_consumer_id,
+                                                                              output_block, eos));
 
     if (!local_state._conjuncts.empty()) {
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,

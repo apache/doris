@@ -158,6 +158,10 @@ public class Config extends ConfigBase {
                     + "The default is * to allow all, if set to empty, also means to allow all"})
     public static String jdbc_driver_secure_path = "*";
 
+    @ConfField(description = {"MySQL Jdbc Catalog mysql 不支持下推的函数",
+            "MySQL Jdbc Catalog mysql does not support pushdown functions"})
+    public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
+
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 8;
@@ -2616,7 +2620,7 @@ public class Config extends ConfigBase {
             "倒排索引默认存储格式",
             "Default storage format of inverted index, the default value is V1."
     })
-    public static String inverted_index_storage_format = "V1";
+    public static String inverted_index_storage_format = "V2";
 
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",

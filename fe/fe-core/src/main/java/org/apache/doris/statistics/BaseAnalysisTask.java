@@ -360,7 +360,8 @@ public abstract class BaseAnalysisTask {
         Set<String> partitionNames = tbl.getPartitionNames();
         List<String> sqls = Lists.newArrayList();
         int count = 0;
-        TableStatsMeta tableStatsStatus = Env.getServingEnv().getAnalysisManager().findTableStatsStatus(tbl.getId());
+        AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
+        TableStatsMeta tableStatsStatus = analysisManager.findTableStatsStatus(tbl.getId());
         for (String part : partitionNames) {
             Partition partition = tbl.getPartition(part);
             params.put("partId", partition == null ? "-1" : String.valueOf(partition.getId()));
@@ -372,9 +373,17 @@ public abstract class BaseAnalysisTask {
                 ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(idxName, col.getName());
                 if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
                     ConcurrentMap<Long, Long> columnUpdateRows = columnStatsMeta.partitionUpdateRows;
+
+                    // findJobInfo will return null when doing sync analyzing.
+                    AnalysisInfo jobInfo = analysisManager.findJobInfo(job.getJobInfo().jobId);
+                    jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
+                    // For cluster upgrade compatible (older version metadata doesn't have partition update rows map)
+                    // and insert before first analyze, set partition update rows to 0.
+                    jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
+
                     long id = partition.getId();
-                    if (Objects.equals(tableUpdateRows.get(id), columnUpdateRows.get(id))) {
-                        LOG.info("Partition {} doesn't change after last analyze for column {}, skip it.",
+                    if (Objects.equals(tableUpdateRows.getOrDefault(id, 0L), columnUpdateRows.get(id))) {
+                        LOG.debug("Partition {} doesn't change after last analyze for column {}, skip it.",
                                 part, col.getName());
                         continue;
                     }

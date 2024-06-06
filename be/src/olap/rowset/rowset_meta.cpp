@@ -40,7 +40,7 @@ RowsetMeta::~RowsetMeta() {
     }
 }
 
-bool RowsetMeta::init(const std::string& pb_rowset_meta) {
+bool RowsetMeta::init(std::string_view pb_rowset_meta) {
     bool ret = _deserialize_from_pb(pb_rowset_meta);
     if (!ret) {
         return false;
@@ -167,16 +167,15 @@ void RowsetMeta::set_tablet_schema(const TabletSchemaPB& tablet_schema) {
     _schema = pair.second;
 }
 
-bool RowsetMeta::_deserialize_from_pb(const std::string& value) {
-    RowsetMetaPB rowset_meta_pb;
-    if (!rowset_meta_pb.ParseFromString(value)) {
+bool RowsetMeta::_deserialize_from_pb(std::string_view value) {
+    if (!_rowset_meta_pb.ParseFromArray(value.data(), value.size())) {
+        _rowset_meta_pb.Clear();
         return false;
     }
-    if (rowset_meta_pb.has_tablet_schema()) {
-        set_tablet_schema(rowset_meta_pb.tablet_schema());
-        rowset_meta_pb.clear_tablet_schema();
+    if (_rowset_meta_pb.has_tablet_schema()) {
+        set_tablet_schema(_rowset_meta_pb.tablet_schema());
+        _rowset_meta_pb.set_allocated_tablet_schema(nullptr);
     }
-    _rowset_meta_pb = rowset_meta_pb;
     return true;
 }
 

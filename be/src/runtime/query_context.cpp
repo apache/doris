@@ -213,6 +213,10 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
     }
 
     set_ready_to_execute(new_status);
+    cancel_all_pipeline_context(new_status, fragment_id);
+}
+
+void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
     {
         std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
@@ -220,23 +224,6 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
             if (fragment_id == f_id) {
                 continue;
             }
-            ctx_to_cancel.push_back(f_context);
-        }
-    }
-    // Must not add lock here. There maybe dead lock because it will call fragment
-    // ctx cancel and fragment ctx will call query ctx cancel.
-    for (auto& f_context : ctx_to_cancel) {
-        if (auto pipeline_ctx = f_context.lock()) {
-            pipeline_ctx->cancel(new_status);
-        }
-    }
-}
-
-void QueryContext::cancel_all_pipeline_context(const Status& reason) {
-    std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
-    {
-        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-        for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
             ctx_to_cancel.push_back(f_context);
         }
     }
@@ -406,10 +393,6 @@ std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
 QueryContext::_collect_realtime_query_profile() const {
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> res;
 
-    if (!enable_pipeline_x_exec()) {
-        return res;
-    }
-
     for (auto& [fragment_id, fragment_ctx_wptr] : _fragment_id_to_pipeline_ctx) {
         if (auto fragment_ctx = fragment_ctx_wptr.lock()) {
             if (fragment_ctx == nullptr) {
@@ -442,24 +425,18 @@ QueryContext::_collect_realtime_query_profile() const {
 TReportExecStatusParams QueryContext::get_realtime_exec_status() const {
     TReportExecStatusParams exec_status;
 
-    if (enable_pipeline_x_exec()) {
-        auto realtime_query_profile = _collect_realtime_query_profile();
-        std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profiles;
+    auto realtime_query_profile = _collect_realtime_query_profile();
+    std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profiles;
 
-        for (auto load_channel_profile : _load_channel_profile_map) {
-            if (load_channel_profile.second != nullptr) {
-                load_channel_profiles.push_back(load_channel_profile.second);
-            }
+    for (auto load_channel_profile : _load_channel_profile_map) {
+        if (load_channel_profile.second != nullptr) {
+            load_channel_profiles.push_back(load_channel_profile.second);
         }
-
-        exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params(
-                this->_query_id, std::move(realtime_query_profile),
-                std::move(load_channel_profiles), /*is_done=*/false);
-    } else {
-        auto msg = fmt::format("Query {} is not pipelineX query", print_id(_query_id));
-        LOG_ERROR(msg);
-        DCHECK(false) << msg;
     }
+
+    exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params(
+            this->_query_id, std::move(realtime_query_profile), std::move(load_channel_profiles),
+            /*is_done=*/false);
 
     return exec_status;
 }

@@ -18,6 +18,7 @@
 #pragma once
 #include "aggregation_sink_operator.h"
 #include "pipeline/exec/operator.h"
+#include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/spill/spill_stream_manager.h"
 

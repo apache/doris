@@ -172,6 +172,9 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
         init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i), tablet_schema);
     }
+
+    meta->set_result_is_nullable(column.get_result_is_nullable());
+    meta->set_function_name(column.get_aggregation_name());
 }
 
 Status SegmentWriter::init() {
