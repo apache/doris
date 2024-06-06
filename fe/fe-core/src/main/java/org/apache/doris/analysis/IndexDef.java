@@ -216,6 +216,9 @@ public class IndexDef {
             String indexColName = column.getName();
             caseSensitivityColumns.add(indexColName);
             PrimitiveType colType = column.getDataType();
+	    if (indexType == IndexType.INVERTED && colType.isArrayType()) {
+                colType = ((ArrayType) column.getType()).getItemType().getPrimitiveType();
+            }
             if (!(colType.isDateType() || colType.isDecimalV2Type() || colType.isDecimalV3Type()
                     || colType.isFixedPointType() || colType.isStringType() || colType == PrimitiveType.BOOLEAN)) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
