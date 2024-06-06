@@ -46,6 +46,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -219,7 +220,9 @@ public class PublishVersionDaemon extends MasterDaemon {
                 .getIdToPartitionCommitInfo()
                 .values().stream()
                 .map(PartitionCommitInfo::getPartitionId)
-                .map(table::getPartition)
+                .map(partitionId -> Optional.ofNullable(table.getPartition(partitionId)))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
                 .map(Partition::getBaseIndex)
                 .map(MaterializedIndex::getTablets)
                 .flatMap(Collection::stream)
