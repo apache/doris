@@ -623,7 +623,7 @@ class Suite implements GroovyInterceptable {
     void expectException(Closure userFunction, String errorMessage = null) {
         try {
             userFunction()
-        } catch (Exception e) {
+        } catch (Exception | Error e) {
             if (e.getMessage()!= errorMessage) {
                 throw e
             }
