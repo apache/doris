@@ -34,6 +34,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -179,6 +180,9 @@ public class CreateMTMVInfo {
     }
 
     private void analyzeProperties() {
+        if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+            throw new AnalysisException("Not support dynamic partition properties on async materialized view");
+        }
         for (String key : MTMVPropertyUtil.mvPropertyKeys) {
             if (properties.containsKey(key)) {
                 MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
