@@ -593,16 +593,9 @@ public class StmtExecutor {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
-                    // FIXME: Force fallback for group commit because nereids does not support it
-                    boolean isInsertCommand = parsedStmt != null
-                            && parsedStmt instanceof LogicalPlanAdapter
-                            && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand;
-                    boolean isGroupCommit = (Config.wait_internal_group_commit_finish
-                            || context.sessionVariable.isEnableInsertGroupCommit()) && isInsertCommand;
                     if (e instanceof NereidsException
                             && !(((NereidsException) e).getException() instanceof MustFallbackException)
-                            && !context.getSessionVariable().enableFallbackToOriginalPlanner
-                            && !isGroupCommit) {
+                            && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         context.getState().setError(e.getMessage());
                         return;
@@ -3396,7 +3389,7 @@ public class StmtExecutor {
                 if (!Config.wait_internal_group_commit_finish && insert.getLabelName().isPresent()) {
                     throw new AnalysisException("label and group_commit can't be set at the same time");
                 }
-                context.setGroupCommitStreamLoadSql(true);
+                context.setGroupCommit(true);
             }
             OlapInsertExecutor insertExecutor = (OlapInsertExecutor) insert.initPlan(context, this);
             httpStreamParams.setTxnId(insertExecutor.getTxnId());
