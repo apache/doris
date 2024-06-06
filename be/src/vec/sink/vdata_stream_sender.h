@@ -308,6 +308,7 @@ public:
 
         bool serialized = false;
         _pblock = std::make_unique<PBlock>();
+        _pblock->set_be_exec_version(_state->be_exec_version());
         RETURN_IF_ERROR(
                 Channel<pipeline::ExchangeSinkLocalState>::_serializer.next_serialized_block(
                         block, _pblock.get(), 1, &serialized, eos, &rows));

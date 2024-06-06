@@ -74,7 +74,10 @@ class BroadcastPBlockHolder {
     ENABLE_FACTORY_CREATOR(BroadcastPBlockHolder);
 
 public:
-    BroadcastPBlockHolder() { _pblock = std::make_unique<PBlock>(); }
+    BroadcastPBlockHolder() {
+        _pblock = std::make_unique<PBlock>();
+        _pblock->set_be_exec_version(BeExecVersionManager::get_newest_version());
+    }
     ~BroadcastPBlockHolder();
 
     PBlock* get_block() { return _pblock.get(); }
