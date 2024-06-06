@@ -114,7 +114,8 @@ enum TStorageBackendType {
     HDFS,
     JFS,
     LOCAL,
-    OFS
+    OFS,
+    AZURE
 }
 
 struct TScalarType {

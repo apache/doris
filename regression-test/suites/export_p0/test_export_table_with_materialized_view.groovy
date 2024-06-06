@@ -107,7 +107,8 @@ suite("test_export_table_with_materialized_view", "p0") {
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
                 "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                "s3.access_key" = "${ak}",
+                "provider" = "${getS3Provider()}"
             );
         """
         def outfile_url = waiting_export.call(label)
@@ -117,6 +118,7 @@ suite("test_export_table_with_materialized_view", "p0") {
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "parquet",
+                "provider" = "${getS3Provider()}",
                 "region" = "${region}"
             ) ORDER BY k1;
             """

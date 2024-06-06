@@ -292,7 +292,8 @@ suite("test_broker_load_p2", "p2") {
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing"
+                "AWS_REGION" = "ap-beijing",
+                "provider" = "${getS3Provider()}"
             )
             properties(
                 "use_new_load_scan_node" = "true"
@@ -397,7 +398,8 @@ suite("test_broker_load_p2", "p2") {
                     "AWS_ACCESS_KEY" = "$ak",
                     "AWS_SECRET_KEY" = "$sk",
                     "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                    "AWS_REGION" = "ap-beijing"
+                    "AWS_REGION" = "ap-beijing",
+                    "provider" = "${getS3Provider()}"
                 );
             """
 

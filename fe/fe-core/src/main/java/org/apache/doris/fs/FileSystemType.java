@@ -23,5 +23,6 @@ public enum FileSystemType {
     OFS,
     JFS,
     BROKER,
-    FILE
+    FILE,
+    AZURE
 }
