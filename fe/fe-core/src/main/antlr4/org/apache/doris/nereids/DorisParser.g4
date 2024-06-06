@@ -383,7 +383,7 @@ columnAliases
     ;
 
 selectClause
-    : SELECT selectHint? DISTINCT? selectColumnClause
+    : SELECT selectHint? (DISTINCT|ALL)? selectColumnClause
     ;
 
 selectColumnClause
