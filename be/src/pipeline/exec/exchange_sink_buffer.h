@@ -74,13 +74,18 @@ class BroadcastPBlockHolder {
     ENABLE_FACTORY_CREATOR(BroadcastPBlockHolder);
 
 public:
-    BroadcastPBlockHolder() {
+    BroadcastPBlockHolder(int32_t be_exec_version) : _be_exec_version(be_exec_version) {
         _pblock = std::make_unique<PBlock>();
-        _pblock->set_be_exec_version(BeExecVersionManager::get_newest_version());
+        _pblock->set_be_exec_version(_be_exec_version);
     }
     ~BroadcastPBlockHolder();
 
     PBlock* get_block() { return _pblock.get(); }
+
+    void reset_block() {
+        _pblock->Clear();
+        _pblock->set_be_exec_version(_be_exec_version);
+    }
 
 private:
     friend class BroadcastPBlockHolderMemLimiter;
@@ -89,6 +94,7 @@ private:
     void set_parent_creator(std::shared_ptr<BroadcastPBlockHolderMemLimiter> parent_creator) {
         _parent_creator = parent_creator;
     }
+    int32_t _be_exec_version;
 };
 
 class BroadcastPBlockHolderMemLimiter

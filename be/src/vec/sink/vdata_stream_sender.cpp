@@ -241,7 +241,7 @@ Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_s
     if (!exec_status.ok()) {
         exec_status.to_protobuf(_brpc_request->mutable_exec_status());
     }
-    if (block != nullptr) {
+    if (block != nullptr && !block->column_metas().empty()) {
         _brpc_request->set_allocated_block(block);
     }
     _brpc_request->set_packet_seq(_packet_seq++);

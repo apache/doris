@@ -224,7 +224,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
-        if (request.block) {
+        if (request.block && !request.block->column_metas().empty()) {
             brpc_request->set_allocated_block(request.block.get());
         }
         if (!request.exec_status.ok()) {
@@ -303,7 +303,8 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
-        if (request.block_holder->get_block()) {
+        if (request.block_holder->get_block() &&
+            !request.block_holder->get_block()->column_metas().empty()) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
         }
         auto send_callback = request.channel->get_send_callback(id, request.eos);

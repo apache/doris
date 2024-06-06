@@ -371,7 +371,8 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 }
             }
         } else {
-            auto block_holder = vectorized::BroadcastPBlockHolder::create_shared();
+            auto block_holder =
+                    vectorized::BroadcastPBlockHolder::create_shared(state->be_exec_version());
             {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 bool serialized = false;
@@ -381,11 +382,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 if (serialized) {
                     auto cur_block = local_state._serializer.get_block()->to_block();
                     if (!cur_block.empty()) {
-                        static_cast<void>(local_state._serializer.serialize_block(
+                        RETURN_IF_ERROR(local_state._serializer.serialize_block(
                                 &cur_block, block_holder->get_block(),
                                 local_state.channels.size()));
                     } else {
-                        block_holder->get_block()->Clear();
+                        block_holder->reset_block();
                     }
 
                     local_state._broadcast_pb_mem_limiter->acquire(*block_holder);
