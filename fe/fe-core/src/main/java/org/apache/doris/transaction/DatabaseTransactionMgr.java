@@ -2745,7 +2745,7 @@ public class DatabaseTransactionMgr {
                     .get(partitionId).getVersion();
             LOG.debug("txn_id={}, partition={}, min_version={}, max_version={}", transactionState.getTransactionId(),
                     partitionId, minVersion, maxVersion);
-            boolean alterReplicaLoadedTxn = isAlterReplicaLoadedTxn(transactionState.getTransactionId(), table);
+            boolean alterReplicaLoadedTxn = isAlterReplicaLoadedTxn(minVersion, table);
             // check success replica number for each tablet.
             // a success replica means:
             //  1. Not in errorReplicaIds: succeed in both commit and publish phase
