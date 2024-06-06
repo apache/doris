@@ -21,6 +21,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -48,6 +49,28 @@ static bool iequals(const std::string& a, const std::string& b) {
     return true;
 }
 
+void custom_prefix(std::ostream& s, const google::LogMessageInfo& l, void*) {
+    // Add prefix "RuntimeLogger ".
+    s << "RuntimeLogger ";
+    // Same as in fe.log
+    // The following is same as default log format. eg:
+    // I20240605 15:25:15.677153 1763151 wal_manager.cpp:481] msg...
+    s << l.severity[0];
+    s << std::setw(4) << 1900 + l.time.year();
+    s << std::setw(2) << 1 + l.time.month();
+    s << std::setw(2) << l.time.day();
+    s << ' ';
+    s << std::setw(2) << l.time.hour() << ':';
+    s << std::setw(2) << l.time.min() << ':';
+    s << std::setw(2) << l.time.sec() << ".";
+    s << std::setw(6) << l.time.usec();
+    s << ' ';
+    s << std::setfill(' ') << std::setw(5);
+    s << l.thread_id << std::setfill('0');
+    s << ' ';
+    s << l.filename << ':' << l.line_number << "]";
+}
+
 bool init_glog(const char* basename) {
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
 
@@ -55,8 +78,13 @@ bool init_glog(const char* basename) {
         return true;
     }
 
-    if (getenv("DORIS_LOG_TO_STDERR") != nullptr) {
-        FLAGS_alsologtostderr = true;
+    bool log_to_console = (getenv("DORIS_LOG_TO_STDERR") != nullptr);
+    if (log_to_console) {
+        if (config::enable_file_logger) {
+            FLAGS_alsologtostderr = true;
+        } else {
+            FLAGS_logtostderr = true;
+        }
     }
 
     // don't log to stderr except fatal level
@@ -144,7 +172,12 @@ bool init_glog(const char* basename) {
         }
     }
 
-    google::InitGoogleLogging(basename);
+    if (log_to_console) {
+        // Only add prefix if log output to stderr
+        google::InitGoogleLogging(basename, &custom_prefix);
+    } else {
+        google::InitGoogleLogging(basename);
+    }
 
     logging_initialized = true;
 
