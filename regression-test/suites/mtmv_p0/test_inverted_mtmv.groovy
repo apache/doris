@@ -41,7 +41,8 @@ suite("test_inverted_mtmv","mtmv") {
         BUILD DEFERRED REFRESH AUTO ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
-        'replication_num' = '1'
+        'replication_num' = '1',
+        'inverted_index_storage_format'='V2'
         )
         AS
         SELECT * from ${tableName};
