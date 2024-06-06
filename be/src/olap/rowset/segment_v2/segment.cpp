@@ -636,7 +636,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         LOG(WARNING) << "different type between schema and column reader,"
                      << " column schema name: " << tablet_column.name()
                      << " column schema type: " << int(tablet_column.type())
-                     << " column reader meta type"
+                     << " column reader meta type: "
                      << int(_column_readers.at(tablet_column.unique_id())->get_meta_type());
         return Status::InternalError("different type between schema and column reader");
     }
