@@ -37,6 +37,7 @@ suite ("aggOnAggMV3") {
     sql """insert into aggOnAggMV3 values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into aggOnAggMV3 values("2020-01-03",3,"c",3,3,10);"""
     sql """insert into aggOnAggMV3 values("2020-01-04",4,"d",21,4,4);"""
+    sql """insert into aggOnAggMV3 values("2020-01-04",4,"d",21,4,4);"""
 
 
 

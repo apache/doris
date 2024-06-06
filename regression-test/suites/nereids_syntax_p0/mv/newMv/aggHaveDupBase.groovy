@@ -40,6 +40,7 @@ suite ("agg_have_dup_base") {
     sql "insert into agg_have_dup_base select 1,1,1,'a';"
     sql "insert into agg_have_dup_base select 2,2,2,'b';"
     sql "insert into agg_have_dup_base select 3,-3,null,'c';"
+    sql "insert into agg_have_dup_base select 3,-3,null,'c';"
 
     createMV( "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;")
 

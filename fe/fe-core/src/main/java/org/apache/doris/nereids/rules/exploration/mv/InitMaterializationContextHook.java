@@ -89,10 +89,14 @@ public class InitMaterializationContextHook implements PlannerHook {
             return;
         }
 
-        for (TableIf tableIf : collectedTables) {
-            if (tableIf instanceof OlapTable) {
-                for (SyncMaterializationContext context : createSyncMvContexts((OlapTable) tableIf, cascadesContext)) {
-                    cascadesContext.addMaterializationContext(context);
+        if (cascadesContext.getConnectContext().getSessionVariable()
+                .isEnableSyncMvCostBasedRewrite()) {
+            for (TableIf tableIf : collectedTables) {
+                if (tableIf instanceof OlapTable) {
+                    for (SyncMaterializationContext context : createSyncMvContexts(
+                            (OlapTable) tableIf, cascadesContext)) {
+                        cascadesContext.addMaterializationContext(context);
+                    }
                 }
             }
         }
@@ -213,8 +217,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                     }
                     default: {
                         // mv agg columns mustn't be NONE, REPLACE, REPLACE_IF_NOT_NULL agg type
-                        LOG.warn(String.format("mv agg column %s mustn't be %s type"),
-                                col.getName(), aggregateType);
+                        LOG.warn(String.format("mv agg column %s mustn't be %s type", col.getName(), aggregateType));
                         return null;
                     }
                 }

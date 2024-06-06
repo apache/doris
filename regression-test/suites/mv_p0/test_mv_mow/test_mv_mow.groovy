@@ -32,6 +32,7 @@ suite ("test_mv_mow") {
                 "enable_unique_key_merge_on_write" = "true"
             );
         """
+    sql """analyze table u_table with sync;"""
     sql "insert into u_table select 1,1,1,1;"
     sql "insert into u_table select 1,2,1,1;"
     createMV("create materialized view k123p as select k1,k2+k3 from u_table;")
@@ -39,7 +40,7 @@ suite ("test_mv_mow") {
     sql "insert into u_table select 1,1,1,2;"
     sql "insert into u_table select 1,2,1,2;"
 
-    sql """analyze table u_table with sync;"""
+    
     sql """set enable_stats=false;"""
 
     explain {

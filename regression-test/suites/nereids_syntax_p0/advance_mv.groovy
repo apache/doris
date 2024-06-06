@@ -88,6 +88,11 @@ suite("advance_mv") {
     sql """insert into ${tbName2} values (5,5,5,'e');"""
     sql """insert into ${tbName2} values (6,6,6,'f');"""
 
+    sql "analyze table ${tbName1} with sync;"
+    sql "analyze table ${tbName2} with sync;"
+    sql "analyze table ${tbName3} with sync;"
+    sql """set enable_stats=false;"""
+
     createMV("CREATE materialized VIEW mv1 AS SELECT k1, sum(v2) FROM ${tbName1} GROUP BY k1;")
 
     explain {

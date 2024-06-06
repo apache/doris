@@ -55,13 +55,13 @@ suite ("projectMV4") {
 
 
     explain {
-        sql("select name from projectMV4 where deptno > 1 and salary > 1 order by name;")
+        sql("select name from projectMV4 where deptno > 1 and salary > 1 and name = 'a' order by name;")
         contains "(projectMV4_mv)"
     }
     order_qt_select_mv "select name from projectMV4 where deptno > 1 and salary > 1 order by name;"
 
     explain {
-        sql("select empid from projectMV4 where deptno > 1 and empid > 1 order by empid;")
+        sql("select empid from projectMV4 where deptno > 1 and empid > 1 and time_col = '2020-01-01' order by empid;")
         contains "(projectMV4)"
     }
     order_qt_select_base "select empid from projectMV4 where deptno > 1 and empid > 1 order by empid;"

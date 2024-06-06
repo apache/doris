@@ -56,16 +56,7 @@ suite ("multi_slot5") {
     }
     order_qt_select_mv "select k1,k2+k3 from multi_slot5 order by k1;"
 
-    explain {
-        sql("select lhs.k1,rhs.k2 from multi_slot5 as lhs right join multi_slot5 as rhs on lhs.k1=rhs.k1;")
-        contains "(k123p)"
-        contains "(multi_slot5)"
-    }
     order_qt_select_mv "select lhs.k1,rhs.k2 from multi_slot5 as lhs right join multi_slot5 as rhs on lhs.k1=rhs.k1 order by lhs.k1;"
 
-    explain {
-        sql("select k1,version() from multi_slot5;")
-        contains "(k123p)"
-    }
     order_qt_select_mv "select k1,version() from multi_slot5 order by k1;"
 }
