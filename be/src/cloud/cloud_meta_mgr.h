@@ -43,7 +43,8 @@ class TabletJobInfoPB;
 class TabletStatsPB;
 class TabletIndexPB;
 
-using StorageVaultInfos = std::vector<std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo>>>;
+using StorageVaultInfos = std::vector<
+        std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo>, StorageVaultPB_PathFormat>>;
 
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency);
 
