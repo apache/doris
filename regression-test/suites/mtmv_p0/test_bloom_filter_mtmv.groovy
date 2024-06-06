@@ -43,7 +43,8 @@ suite("test_bloom_filter_mtmv","mtmv") {
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
         'replication_num' = '1',
-        'bloom_filter_columns'='k2'
+        'bloom_filter_columns'='k2',
+        'bloom_filter_fpp'='0.04'
         )
         AS
         SELECT * from ${tableName};
