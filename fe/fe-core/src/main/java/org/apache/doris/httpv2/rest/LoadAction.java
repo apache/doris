@@ -33,6 +33,7 @@ import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
@@ -107,7 +108,7 @@ public class LoadAction extends RestBaseController {
             groupCommit = true;
             try {
                 if (isGroupCommitBlock(db, table)) {
-                    String msg = "insert table " + table + " is blocked on schema change";
+                    String msg = "insert table " + table + GroupCommitPlanner.SCHEMA_CHANGE;
                     return new RestBaseResult(msg);
                 }
             } catch (Exception e) {
@@ -147,7 +148,7 @@ public class LoadAction extends RestBaseController {
             try {
                 String[] pair = parseDbAndTb(sql);
                 if (isGroupCommitBlock(pair[0], pair[1])) {
-                    String msg = "insert table " + pair[1] + " is blocked on schema change";
+                    String msg = "insert table " + pair[1] + GroupCommitPlanner.SCHEMA_CHANGE;
                     return new RestBaseResult(msg);
                 }
             } catch (Exception e) {
