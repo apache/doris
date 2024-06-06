@@ -190,6 +190,8 @@ void RuntimeQueryStatiticsMgr::get_metric_map(
     metric_map.emplace(WorkloadMetricType::QUERY_TIME, std::to_string(query_time_ms));
     metric_map.emplace(WorkloadMetricType::SCAN_ROWS, std::to_string(ret_qs.get_scan_rows()));
     metric_map.emplace(WorkloadMetricType::SCAN_BYTES, std::to_string(ret_qs.get_scan_bytes()));
+    metric_map.emplace(WorkloadMetricType::QUERY_MEMORY_BYTES,
+                       std::to_string(ret_qs.get_current_used_memory_bytes()));
 }
 
 void RuntimeQueryStatiticsMgr::set_workload_group_id(std::string query_id, int64_t wg_id) {
