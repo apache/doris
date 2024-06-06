@@ -311,7 +311,6 @@ Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
         child_block_suppliers.push_back(block_supplier);
     }
     RETURN_IF_ERROR(_merger->prepare(child_block_suppliers));
-    _merger->set_pipeline_engine_enabled(true);
     return Status::OK();
 }
 

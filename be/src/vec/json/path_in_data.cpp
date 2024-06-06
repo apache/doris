@@ -163,7 +163,7 @@ void PathInData::to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_
 
 size_t PathInData::Hash::operator()(const PathInData& value) const {
     auto hash = get_parts_hash(value.parts);
-    return hash.low ^ hash.high;
+    return hash.low() ^ hash.high();
 }
 
 PathInData PathInData::copy_pop_front() const {
