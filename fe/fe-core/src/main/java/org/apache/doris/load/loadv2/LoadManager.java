@@ -452,7 +452,7 @@ public class LoadManager implements Writable {
         }
     }
 
-    protected void jobRemovedTrigger(LoadJob job) {
+    private void jobRemovedTrigger(LoadJob job) {
         Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
         List<LoadJob> list = map.get(job.getLabel());
         list.remove(job);
