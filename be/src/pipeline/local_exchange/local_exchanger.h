@@ -94,7 +94,7 @@ struct BlockQueue {
 
     inline bool enqueue(BlockType&& item) {
         if (!eos) {
-            data_queue.enqueue(item);
+            data_queue.enqueue(std::move(item));
             return true;
         }
         return false;
