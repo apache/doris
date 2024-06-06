@@ -90,7 +90,11 @@ JvmMetrics::JvmMetrics(MetricRegistry* registry, JNIEnv* env) {
             break;
         }
         try {
-            _jvm_stats.init(env);
+            Status st = _jvm_stats.init(env);
+            if (!st.ok()) {
+                LOG(WARNING) << st;
+                break;
+            }
         } catch (...) {
             LOG(WARNING) << "JVM STATS INIT FAIL";
             break;
@@ -182,13 +186,12 @@ void JvmMetrics::update() {
     }
 }
 
-void JvmStats::init(JNIEnv* ENV) {
+Status JvmStats::init(JNIEnv* ENV) {
     env = ENV;
     _managementFactoryClass = env->FindClass("java/lang/management/ManagementFactory");
     if (_managementFactoryClass == nullptr) {
-        LOG(WARNING)
-                << "Class java/lang/management/ManagementFactory Not Find.JVM monitoring fails.";
-        return;
+        return Status::InternalError(
+                "Class java/lang/management/ManagementFactory Not Find.JVM monitoring fails.");
     }
 
     _getMemoryMXBeanMethod = env->GetStaticMethodID(_managementFactoryClass, "getMemoryMXBean",
@@ -196,8 +199,8 @@ void JvmStats::init(JNIEnv* ENV) {
 
     _memoryUsageClass = env->FindClass("java/lang/management/MemoryUsage");
     if (_memoryUsageClass == nullptr) {
-        LOG(WARNING) << "Class java/lang/management/MemoryUsage Not Find.JVM monitoring fails.";
-        return;
+        return Status::InternalError(
+                "Class java/lang/management/MemoryUsage Not Find.JVM monitoring fails.");
     }
     _getMemoryUsageUsedMethod = env->GetMethodID(_memoryUsageClass, "getUsed", "()J");
     _getMemoryUsageCommittedMethod = env->GetMethodID(_memoryUsageClass, "getCommitted", "()J");
@@ -205,8 +208,8 @@ void JvmStats::init(JNIEnv* ENV) {
 
     _memoryMXBeanClass = env->FindClass("java/lang/management/MemoryMXBean");
     if (_memoryMXBeanClass == nullptr) {
-        LOG(WARNING) << "Class java/lang/management/MemoryMXBean Not Find.JVM monitoring fails.";
-        return;
+        return Status::InternalError(
+                "Class java/lang/management/MemoryMXBean Not Find.JVM monitoring fails.");
     }
     _getHeapMemoryUsageMethod = env->GetMethodID(_memoryMXBeanClass, "getHeapMemoryUsage",
                                                  "()Ljava/lang/management/MemoryUsage;");
@@ -218,17 +221,15 @@ void JvmStats::init(JNIEnv* ENV) {
 
     _listClass = env->FindClass("java/util/List");
     if (_listClass == nullptr) {
-        LOG(WARNING) << "Class java/util/List Not Find.JVM monitoring fails.";
-        return;
+        return Status::InternalError("Class java/util/List Not Find.JVM monitoring fails.");
     }
     _getListSizeMethod = env->GetMethodID(_listClass, "size", "()I");
     _getListUseIndexMethod = env->GetMethodID(_listClass, "get", "(I)Ljava/lang/Object;");
 
     _memoryPoolMXBeanClass = env->FindClass("java/lang/management/MemoryPoolMXBean");
     if (_memoryPoolMXBeanClass == nullptr) {
-        LOG(WARNING)
-                << "Class java/lang/management/MemoryPoolMXBean Not Find.JVM monitoring fails.";
-        return;
+        return Status::InternalError(
+                "Class java/lang/management/MemoryPoolMXBean Not Find.JVM monitoring fails.");
     }
     _getMemoryPoolMXBeanUsageMethod = env->GetMethodID(_memoryPoolMXBeanClass, "getUsage",
                                                        "()Ljava/lang/management/MemoryUsage;");
@@ -245,9 +246,8 @@ void JvmStats::init(JNIEnv* ENV) {
 
     _garbageCollectorMXBeanClass = env->FindClass("java/lang/management/GarbageCollectorMXBean");
     if (_garbageCollectorMXBeanClass == nullptr) {
-        LOG(WARNING) << "Class java/lang/management/GarbageCollectorMXBean Not Find.JVM monitoring "
-                        "fails.";
-        return;
+        return Status::InternalError(
+                "Class java/lang/management/GarbageCollectorMXBean Not Find.JVM monitoring fails.");
     }
     _getGCNameMethod =
             env->GetMethodID(_garbageCollectorMXBeanClass, "getName", "()Ljava/lang/String;");
@@ -258,8 +258,8 @@ void JvmStats::init(JNIEnv* ENV) {
 
     _threadMXBeanClass = env->FindClass("java/lang/management/ThreadMXBean");
     if (_threadMXBeanClass == nullptr) {
-        LOG(WARNING) << "Class java/lang/management/ThreadMXBean Not Find.JVM monitoring fails.";
-        return;
+        return Status::InternalError(
+                "Class java/lang/management/ThreadMXBean Not Find.JVM monitoring fails.");
     }
     _getAllThreadIdsMethod = env->GetMethodID(_threadMXBeanClass, "getAllThreadIds", "()[J");
     _getThreadInfoMethod = env->GetMethodID(_threadMXBeanClass, "getThreadInfo",
@@ -268,8 +268,8 @@ void JvmStats::init(JNIEnv* ENV) {
 
     _threadInfoClass = env->FindClass("java/lang/management/ThreadInfo");
     if (_threadInfoClass == nullptr) {
-        LOG(WARNING) << "Class java/lang/management/ThreadInfo Not Find.JVM monitoring fails.";
-        return;
+        return Status::InternalError(
+                "Class java/lang/management/ThreadInfo Not Find.JVM monitoring fails.");
     }
 
     _getThreadStateMethod =
@@ -277,8 +277,7 @@ void JvmStats::init(JNIEnv* ENV) {
 
     _threadStateClass = env->FindClass("java/lang/Thread$State");
     if (_threadStateClass == nullptr) {
-        LOG(WARNING) << "Class java/lang/Thread$State Not Find.JVM monitoring fails.";
-        return;
+        return Status::InternalError("Class java/lang/Thread$State Not Find.JVM monitoring fails.");
     }
 
     jfieldID newThreadFieldID =
@@ -294,19 +293,39 @@ void JvmStats::init(JNIEnv* ENV) {
     jfieldID terminatedThreadFieldID =
             env->GetStaticFieldID(_threadStateClass, "TERMINATED", "Ljava/lang/Thread$State;");
 
-    _newThreadStateObj = env->GetStaticObjectField(_threadStateClass, newThreadFieldID);
-    _runnableThreadStateObj = env->GetStaticObjectField(_threadStateClass, runnableThreadFieldID);
-    _blockedThreadStateObj = env->GetStaticObjectField(_threadStateClass, blockedThreadFieldID);
-    _waitingThreadStateObj = env->GetStaticObjectField(_threadStateClass, waitingThreadFieldID);
-    _timedWaitingThreadStateObj =
+    jobject newThreadStateObj = env->GetStaticObjectField(_threadStateClass, newThreadFieldID);
+    jobject runnableThreadStateObj =
+            env->GetStaticObjectField(_threadStateClass, runnableThreadFieldID);
+    jobject blockedThreadStateObj =
+            env->GetStaticObjectField(_threadStateClass, blockedThreadFieldID);
+    jobject waitingThreadStateObj =
+            env->GetStaticObjectField(_threadStateClass, waitingThreadFieldID);
+    jobject timedWaitingThreadStateObj =
             env->GetStaticObjectField(_threadStateClass, timedWaitingThreadFieldID);
-    _terminatedThreadStateObj =
+    jobject terminatedThreadStateObj =
             env->GetStaticObjectField(_threadStateClass, terminatedThreadFieldID);
+
+    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, newThreadStateObj, &_newThreadStateObj));
+    RETURN_IF_ERROR(
+            JniUtil::LocalToGlobalRef(env, runnableThreadStateObj, &_runnableThreadStateObj));
+    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, blockedThreadStateObj, &_blockedThreadStateObj));
+    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, waitingThreadStateObj, &_waitingThreadStateObj));
+    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, timedWaitingThreadStateObj,
+                                              &_timedWaitingThreadStateObj));
+    RETURN_IF_ERROR(
+            JniUtil::LocalToGlobalRef(env, terminatedThreadStateObj, &_terminatedThreadStateObj));
+
+    env->DeleteLocalRef(newThreadStateObj);
+    env->DeleteLocalRef(runnableThreadStateObj);
+    env->DeleteLocalRef(blockedThreadStateObj);
+    env->DeleteLocalRef(waitingThreadStateObj);
+    env->DeleteLocalRef(timedWaitingThreadStateObj);
+    env->DeleteLocalRef(terminatedThreadStateObj);
 
     LOG(INFO) << "Start JVM monitoring.";
 
     _init_complete = true;
-    return;
+    return Status::OK();
 }
 
 void JvmStats::refresh(JvmMetrics* jvm_metrics) {
@@ -479,15 +498,15 @@ JvmStats::~JvmStats() {
         return;
     }
     try {
-        env->DeleteLocalRef(_newThreadStateObj);
-        env->DeleteLocalRef(_runnableThreadStateObj);
-        env->DeleteLocalRef(_blockedThreadStateObj);
-        env->DeleteLocalRef(_waitingThreadStateObj);
-        env->DeleteLocalRef(_timedWaitingThreadStateObj);
-        env->DeleteLocalRef(_terminatedThreadStateObj);
+        env->DeleteGlobalRef(_newThreadStateObj);
+        env->DeleteGlobalRef(_runnableThreadStateObj);
+        env->DeleteGlobalRef(_blockedThreadStateObj);
+        env->DeleteGlobalRef(_waitingThreadStateObj);
+        env->DeleteGlobalRef(_timedWaitingThreadStateObj);
+        env->DeleteGlobalRef(_terminatedThreadStateObj);
 
     } catch (...) {
-        // When be is killed, DeleteLocalRef may fail.
+        // When be is killed, DeleteGlobalRef may fail.
         // In order to exit more gracefully, we catch the exception here.
     }
 }
