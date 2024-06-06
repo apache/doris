@@ -204,7 +204,7 @@ done
 # add custome_libs to CLASSPATH
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     for f in "${DORIS_HOME}/custom_lib"/*.jar; do
-        CLASSPATH="${f}:${CLASSPATH}"
+        CLASSPATH="${CLASSPATH}:${f}"
     done
 fi
 
