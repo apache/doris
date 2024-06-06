@@ -213,7 +213,12 @@ public class BeLoadRebalancer extends Rebalancer {
                     continue;
                 }
 
-                Replica replica = invertedIndex.getReplica(tabletId, beStat.getBeId());
+                Replica replica = null;
+                try {
+                    replica = invertedIndex.getReplica(tabletId, beStat.getBeId());
+                } catch (IllegalStateException e) {
+                    continue;
+                }
                 if (replica == null) {
                     continue;
                 }
