@@ -547,6 +547,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                         Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
         Column modColumn = alterClause.getColumn();
         boolean lightSchemaChange = false;
+
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (modColumn.isKey() && null != modColumn.getAggregationType()) {
                 throw new DdlException("Can not assign aggregation method on key column: " + modColumn.getName());
@@ -1021,6 +1022,10 @@ public class SchemaChangeHandler extends AlterHandler {
                     throw new DdlException("Can not add column which already exists in base table: " + newColName);
                 }
             }
+        }
+
+        if (newColumn.getGeneratedColumnInfo() != null) {
+            throw  new DdlException("Temporarily not supporting alter table add generated columns.");
         }
 
         /*

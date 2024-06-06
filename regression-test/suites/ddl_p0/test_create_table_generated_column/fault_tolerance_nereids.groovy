@@ -156,4 +156,16 @@ suite("test_generated_column_fault_tolerance_nereids") {
         PROPERTIES("replication_num" = "1");"""
         exception "Expression of generated column 'c' contains a disallowed function"
     }
+
+    sql "drop table if exists gen_col_test_modify"
+    sql """ create table gen_col_test_modify(pk int, a int, b int, c int as (a+b)) distributed by hash(pk) buckets 10
+             properties('replication_num' = '1'); """
+    test {
+        sql """ALTER TABLE gen_col_test_modify modify COLUMN c int AS (a+b+1)"""
+        exception "Temporarily not supporting alter table modify generated columns."
+    }
+    test {
+        sql """ALTER TABLE gen_col_test_modify ADD COLUMN d int AS (a+b);"""
+        exception "Temporarily not supporting alter table add generated columns."
+    }
 }

@@ -146,10 +146,10 @@ public class Column implements Writable, GsonPostProcessable {
     @SerializedName(value = "onUpdateDefaultValueExprDef")
     private DefaultValueExprDef onUpdateDefaultValueExprDef;
 
-    @SerializedName(value = "generatedColumnInfo")
+    @SerializedName(value = "gci")
     private GeneratedColumnInfo generatedColumnInfo;
 
-    @SerializedName(value = "generatedColumnsThatReferToThis")
+    @SerializedName(value = "gctt")
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
 
     public Column() {
@@ -864,6 +864,10 @@ public class Column implements Writable, GsonPostProcessable {
             return;
         }
         // TODO check cluster key
+
+        if (generatedColumnInfo != null || other.getGeneratedColumnInfo() != null) {
+            throw new DdlException("Temporarily not supporting alter table modify generated columns.");
+        }
     }
 
     public boolean nameEquals(String otherColName, boolean ignorePrefix) {
