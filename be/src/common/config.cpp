@@ -1292,6 +1292,8 @@ DEFINE_Bool(enable_jvm_monitor, "false");
 // Skip loading stale rowset meta when initializing `TabletMeta` from protobuf
 DEFINE_mBool(skip_loading_stale_rowset_meta, "false");
 
+DEFINE_Bool(enable_file_logger, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
