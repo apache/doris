@@ -732,7 +732,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, getBrokerList(),
                     getTopic(), getConvertedCustomProperties(), Lists.newArrayList(partitionIdToOffset.keySet()));
             for (Pair<Integer, Long> pair : tmp) {
-                cachedPartitionWithLatestOffsets.put(pair.first, pair.second);
+                if (pair.second >= cachedPartitionWithLatestOffsets.getOrDefault(pair.first, Long.MIN_VALUE)) {
+                    cachedPartitionWithLatestOffsets.put(pair.first, pair.second);
+                } else {
+                    LOG.warn("Kafka offset fallback. partition: {}, cache offset: {}"
+                                + " get latest offset: {}, task {}, job {}",
+                                pair.first, cachedPartitionWithLatestOffsets.getOrDefault(pair.first, Long.MIN_VALUE),
+                                pair.second, taskId, id);
+                }
             }
         } catch (Exception e) {
             LOG.warn("failed to get latest partition offset. {}", e.getMessage(), e);
