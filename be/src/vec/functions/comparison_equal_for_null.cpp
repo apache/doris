@@ -87,7 +87,8 @@ public:
                 const ColumnNullable* nullable_right_col = nullptr;
                 if (right_const) {
                     nullable_right_col = assert_cast<const ColumnNullable*>(
-                            &(assert_cast<const ColumnConst*>(col_right.column.get())->get_data_column()));
+                            &(assert_cast<const ColumnConst*>(col_right.column.get())
+                                      ->get_data_column()));
                 } else {
                     nullable_right_col = assert_cast<const ColumnNullable*>(col_right.column.get());
                 }
@@ -106,7 +107,8 @@ public:
                 const ColumnNullable* nullable_left_col = nullptr;
                 if (left_const) {
                     nullable_left_col = assert_cast<const ColumnNullable*>(
-                            &(assert_cast<const ColumnConst*>(col_left.column.get())->get_data_column()));
+                            &(assert_cast<const ColumnConst*>(col_left.column.get())
+                                      ->get_data_column()));
                 } else {
                     nullable_left_col = assert_cast<const ColumnNullable*>(col_left.column.get());
                 }

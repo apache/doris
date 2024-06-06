@@ -44,11 +44,13 @@ TEST(EqForNullFunctionTest, both_only_null) {
     auto null_map_for_all_null = ColumnUInt8::create(1, 1);
 
     ColumnWithTypeAndName left {
-            ColumnNullable::create(left_i32->clone_resized(1), null_map_for_all_null->clone_resized(1)),
+            ColumnNullable::create(left_i32->clone_resized(1),
+                                   null_map_for_all_null->clone_resized(1)),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
 
     ColumnWithTypeAndName right {
-            ColumnNullable::create(right_i32->clone_resized(1), null_map_for_all_null->clone_resized(1)),
+            ColumnNullable::create(right_i32->clone_resized(1),
+                                   null_map_for_all_null->clone_resized(1)),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
 
     auto return_type = std::make_shared<DataTypeUInt8>();
@@ -78,13 +80,15 @@ TEST(EqForNullFunctionTest, both_only_null_const) {
     auto null_map_for_all_null = ColumnUInt8::create(1, 1);
 
     ColumnWithTypeAndName left {
-        ColumnConst::create(
-            ColumnNullable::create(left_i32->clone_resized(1), null_map_for_all_null->clone_resized(1)), input_rows_count),
+            ColumnConst::create(ColumnNullable::create(left_i32->clone_resized(1),
+                                                       null_map_for_all_null->clone_resized(1)),
+                                input_rows_count),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
 
     ColumnWithTypeAndName right {
-        ColumnConst::create(
-            ColumnNullable::create(right_i32->clone_resized(1), null_map_for_all_null->clone_resized(1)), input_rows_count),
+            ColumnConst::create(ColumnNullable::create(right_i32->clone_resized(1),
+                                                       null_map_for_all_null->clone_resized(1)),
+                                input_rows_count),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
 
     auto return_type = std::make_shared<DataTypeUInt8>();
@@ -100,7 +104,7 @@ TEST(EqForNullFunctionTest, both_only_null_const) {
 
     auto col_holder = temporary_block.get_by_position(2).column->convert_to_full_column_if_const();
     auto result_column = assert_cast<const ColumnUInt8*>(col_holder.get());
-     
+
     std::cout << "Output rows count " << result_column->size() << std::endl;
     for (size_t i = 0; i < input_rows_count; ++i) {
         ASSERT_EQ(result_column->get_data()[i], 1);
@@ -115,7 +119,8 @@ TEST(EqForNullFunctionTest, left_only_null_right_const) {
     auto null_map_for_all_null = ColumnUInt8::create(1, 1);
 
     ColumnWithTypeAndName left {
-            ColumnNullable::create(left_i32->clone_resized(1), null_map_for_all_null->clone_resized(1)),
+            ColumnNullable::create(left_i32->clone_resized(1),
+                                   null_map_for_all_null->clone_resized(1)),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
 
     ColumnWithTypeAndName right {
@@ -141,7 +146,8 @@ TEST(EqForNullFunctionTest, left_only_null_right_const) {
     std::cout << "Output rows count " << result_column->size() << std::endl;
 
     for (size_t i = 0; i < input_rows_count; ++i) {
-        ASSERT_EQ(result_column->get_data()[i], 0) << fmt::format("Data {}, i {}", result_column->get_data()[i], i);
+        ASSERT_EQ(result_column->get_data()[i], 0)
+                << fmt::format("Data {}, i {}", result_column->get_data()[i], i);
     }
 }
 
@@ -153,14 +159,15 @@ TEST(EqForNullFunctionTest, left_const_right_only_null) {
     auto null_map_for_all_null = ColumnUInt8::create(1, 1);
 
     ColumnWithTypeAndName left {
-        ColumnConst::create(
+            ColumnConst::create(
                     ColumnNullable::create(left_i32->clone_resized(1), ColumnUInt8::create(1, 0)),
                     input_rows_count),
-            
+
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
 
     ColumnWithTypeAndName right {
-            ColumnNullable::create(right_i32->clone_resized(1), null_map_for_all_null->clone_resized(1)),
+            ColumnNullable::create(right_i32->clone_resized(1),
+                                   null_map_for_all_null->clone_resized(1)),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
 
     auto return_type = std::make_shared<DataTypeUInt8>();
@@ -177,195 +184,193 @@ TEST(EqForNullFunctionTest, left_const_right_only_null) {
 
     auto result_column =
             assert_cast<const ColumnUInt8*>(temporary_block.get_by_position(2).column.get());
-        
+
     std::cout << "Output rows count " << result_column->size() << std::endl;
 
     for (size_t i = 0; i < input_rows_count; ++i) {
-        ASSERT_EQ(result_column->get_data()[i], 0) << fmt::format("Data {}, i {}", result_column->get_data()[i], i);
+        ASSERT_EQ(result_column->get_data()[i], 0)
+                << fmt::format("Data {}, i {}", result_column->get_data()[i], i);
     }
 }
 
 TEST(EqForNullFunctionTest, left_only_null_right_nullable) {
-        const size_t input_rows_count = 100;
-        
-        auto left_i32 = ColumnInt32::create(1, 1);
-        auto right_i32 = ColumnInt32::create(1, 1);
-        auto null_map_for_all_null = ColumnUInt8::create(1, 1);
-        auto common_null_map = ColumnUInt8::create();
-        for (size_t i = 0; i < input_rows_count; ++i) {
-                if (i % 2 == 0) {
-                        common_null_map->insert(0);
-                } else {
-                        common_null_map->insert(1);
-                }
+    const size_t input_rows_count = 100;
+
+    auto left_i32 = ColumnInt32::create(1, 1);
+    auto right_i32 = ColumnInt32::create(1, 1);
+    auto null_map_for_all_null = ColumnUInt8::create(1, 1);
+    auto common_null_map = ColumnUInt8::create();
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        if (i % 2 == 0) {
+            common_null_map->insert(0);
+        } else {
+            common_null_map->insert(1);
         }
-        
-        ColumnWithTypeAndName left {
-                ColumnNullable::create(left_i32->clone_resized(1), null_map_for_all_null->clone()),
-                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
-        
-        ColumnWithTypeAndName right {
-                ColumnNullable::create(std::move(right_i32), std::move(common_null_map)),
-                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
-        
-        auto return_type = std::make_shared<DataTypeUInt8>();
-        auto func_eq_for_null = SimpleFunctionFactory::instance().get_function(
-                "eq_for_null", ColumnsWithTypeAndName {left, right}, return_type);
-        
-        Block temporary_block(ColumnsWithTypeAndName {left, right});
-        temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
-        FunctionContext* context = nullptr;
-        auto status = func_eq_for_null->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
-        
-        ASSERT_TRUE(status.ok());
-        
-        auto result_column =
-                assert_cast<const ColumnUInt8*>(temporary_block.get_by_position(2).column.get());
-        
-        for (size_t i = 0; i < input_rows_count; ++i) {
-                if (i % 2 ==0) {
-                        ASSERT_EQ(result_column->get_data()[i], 0);
-                } else {
-                        ASSERT_EQ(result_column->get_data()[i], 1);
-                }
-                
+    }
+
+    ColumnWithTypeAndName left {
+            ColumnNullable::create(left_i32->clone_resized(1), null_map_for_all_null->clone()),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
+
+    ColumnWithTypeAndName right {
+            ColumnNullable::create(std::move(right_i32), std::move(common_null_map)),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
+
+    auto return_type = std::make_shared<DataTypeUInt8>();
+    auto func_eq_for_null = SimpleFunctionFactory::instance().get_function(
+            "eq_for_null", ColumnsWithTypeAndName {left, right}, return_type);
+
+    Block temporary_block(ColumnsWithTypeAndName {left, right});
+    temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
+    FunctionContext* context = nullptr;
+    auto status = func_eq_for_null->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
+
+    ASSERT_TRUE(status.ok());
+
+    auto result_column =
+            assert_cast<const ColumnUInt8*>(temporary_block.get_by_position(2).column.get());
+
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        if (i % 2 == 0) {
+            ASSERT_EQ(result_column->get_data()[i], 0);
+        } else {
+            ASSERT_EQ(result_column->get_data()[i], 1);
         }
+    }
 }
 
 TEST(EqForNullFunctionTest, left_nullable_right_only_null) {
-        const size_t input_rows_count = 100;
-        // LEFT: [1, NULL, 1, NULL] & RIGHT: [NULL, NULL, NULL, NULL]
-        auto left_i32 = ColumnInt32::create(input_rows_count, 1);
-        auto right_i32 = ColumnInt32::create(input_rows_count, 1);
-        auto null_map_for_all_null = ColumnUInt8::create(input_rows_count, 1);
-        auto common_null_map = ColumnUInt8::create();
-        for (size_t i = 0; i < input_rows_count; ++i) {
-                if (i % 2 == 0) {
-                        common_null_map->insert(0);
-                } else {
-                        common_null_map->insert(1);
-                }
+    const size_t input_rows_count = 100;
+    // LEFT: [1, NULL, 1, NULL] & RIGHT: [NULL, NULL, NULL, NULL]
+    auto left_i32 = ColumnInt32::create(input_rows_count, 1);
+    auto right_i32 = ColumnInt32::create(input_rows_count, 1);
+    auto null_map_for_all_null = ColumnUInt8::create(input_rows_count, 1);
+    auto common_null_map = ColumnUInt8::create();
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        if (i % 2 == 0) {
+            common_null_map->insert(0);
+        } else {
+            common_null_map->insert(1);
         }
-        
-        ColumnWithTypeAndName left {
-                ColumnNullable::create(std::move(left_i32), std::move(common_null_map)),
-                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
-        
-        ColumnWithTypeAndName right {
-                ColumnNullable::create(right_i32->clone_resized(1), null_map_for_all_null->clone_resized(1)),
-                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
-        
-        auto return_type = std::make_shared<DataTypeUInt8>();
-        auto func_eq_for_null = SimpleFunctionFactory::instance().get_function(
-                "eq_for_null", ColumnsWithTypeAndName {left, right}, return_type);
-        
-        Block temporary_block(ColumnsWithTypeAndName {left, right});
-        temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
-        FunctionContext* context = nullptr;
-        auto status = func_eq_for_null->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
-        
-        ASSERT_TRUE(status.ok());
-        
-        auto result_column =
-                assert_cast<const ColumnUInt8*>(temporary_block.get_by_position(2).column.get());
-        
-        for (size_t i = 0; i < input_rows_count; ++i) {
-                if (i % 2 ==0) {
-                        ASSERT_EQ(result_column->get_data()[i], 0);
-                } else {
-                        ASSERT_EQ(result_column->get_data()[i], 1);
-                }       
+    }
+
+    ColumnWithTypeAndName left {
+            ColumnNullable::create(std::move(left_i32), std::move(common_null_map)),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
+
+    ColumnWithTypeAndName right {
+            ColumnNullable::create(right_i32->clone_resized(1),
+                                   null_map_for_all_null->clone_resized(1)),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
+
+    auto return_type = std::make_shared<DataTypeUInt8>();
+    auto func_eq_for_null = SimpleFunctionFactory::instance().get_function(
+            "eq_for_null", ColumnsWithTypeAndName {left, right}, return_type);
+
+    Block temporary_block(ColumnsWithTypeAndName {left, right});
+    temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
+    FunctionContext* context = nullptr;
+    auto status = func_eq_for_null->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
+
+    ASSERT_TRUE(status.ok());
+
+    auto result_column =
+            assert_cast<const ColumnUInt8*>(temporary_block.get_by_position(2).column.get());
+
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        if (i % 2 == 0) {
+            ASSERT_EQ(result_column->get_data()[i], 0);
+        } else {
+            ASSERT_EQ(result_column->get_data()[i], 1);
         }
+    }
 }
 
 TEST(EqForNullFunctionTest, left_nullable_right_nullable) {
-        const size_t input_rows_count = 100;
-        // input: [NULL, 1, NULL, 1] & [NULL, 1, NULL, 1]
-        auto left_i32 = ColumnInt32::create(input_rows_count, 1);
-        auto right_i32 = ColumnInt32::create(input_rows_count, 1);
-        auto common_null_map = ColumnUInt8::create();
+    const size_t input_rows_count = 100;
+    // input: [NULL, 1, NULL, 1] & [NULL, 1, NULL, 1]
+    auto left_i32 = ColumnInt32::create(input_rows_count, 1);
+    auto right_i32 = ColumnInt32::create(input_rows_count, 1);
+    auto common_null_map = ColumnUInt8::create();
 
-        for (size_t i = 0; i < input_rows_count; ++i) {
-                if (i % 2 == 0) {
-                        common_null_map->insert(0);
-                } else {
-                        common_null_map->insert(1);
-                }
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        if (i % 2 == 0) {
+            common_null_map->insert(0);
+        } else {
+            common_null_map->insert(1);
         }
+    }
 
-        ColumnWithTypeAndName left {
-                ColumnNullable::create(std::move(left_i32), common_null_map->clone()),
-                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
-        
-        ColumnWithTypeAndName right {
-                ColumnNullable::create(std::move(right_i32), common_null_map->clone()),
-                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
-        
-        auto return_type = std::make_shared<DataTypeUInt8>();
-        auto func_eq_for_null = SimpleFunctionFactory::instance().get_function(
-                "eq_for_null", ColumnsWithTypeAndName {left, right}, return_type);
-        
-        Block temporary_block(ColumnsWithTypeAndName {left, right});
-        temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
-        FunctionContext* context = nullptr;
-        auto status = func_eq_for_null->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
-        
-        ASSERT_TRUE(status.ok());
-        
-        auto result_column =
-                assert_cast<const ColumnUInt8*>(temporary_block.get_by_position(2).column.get());
-        
-        for (size_t i = 0; i < input_rows_count; ++i) {
-                ASSERT_EQ(result_column->get_data()[i], 1);                        
-        }
+    ColumnWithTypeAndName left {
+            ColumnNullable::create(std::move(left_i32), common_null_map->clone()),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
+
+    ColumnWithTypeAndName right {
+            ColumnNullable::create(std::move(right_i32), common_null_map->clone()),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
+
+    auto return_type = std::make_shared<DataTypeUInt8>();
+    auto func_eq_for_null = SimpleFunctionFactory::instance().get_function(
+            "eq_for_null", ColumnsWithTypeAndName {left, right}, return_type);
+
+    Block temporary_block(ColumnsWithTypeAndName {left, right});
+    temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
+    FunctionContext* context = nullptr;
+    auto status = func_eq_for_null->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
+
+    ASSERT_TRUE(status.ok());
+
+    auto result_column =
+            assert_cast<const ColumnUInt8*>(temporary_block.get_by_position(2).column.get());
+
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        ASSERT_EQ(result_column->get_data()[i], 1);
+    }
 }
 
 TEST(EqForNullFunctionTest, left_nullable_right_not_nullable) {
-        const size_t input_rows_count = 100;
-        // input        [1, NULL, 1, NULL] & [1, 1, 1, 1]
-        // output       [1, 0, 1, 0]
-        auto left_i32 = ColumnInt32::create(input_rows_count, 1);
-        auto right_i32 = ColumnInt32::create(input_rows_count, 1);
-        auto common_null_map = ColumnUInt8::create();
+    const size_t input_rows_count = 100;
+    // input        [1, NULL, 1, NULL] & [1, 1, 1, 1]
+    // output       [1, 0, 1, 0]
+    auto left_i32 = ColumnInt32::create(input_rows_count, 1);
+    auto right_i32 = ColumnInt32::create(input_rows_count, 1);
+    auto common_null_map = ColumnUInt8::create();
 
-        for (size_t i = 0; i < input_rows_count; ++i) {
-                if (i % 2 == 0) {
-                        common_null_map->insert(0);
-                } else {
-                        common_null_map->insert(1);
-                }
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        if (i % 2 == 0) {
+            common_null_map->insert(0);
+        } else {
+            common_null_map->insert(1);
         }
+    }
 
-        ColumnWithTypeAndName left {
-                ColumnNullable::create(std::move(left_i32), std::move(common_null_map)),
-                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
-        
-        ColumnWithTypeAndName right {
-                std::move(right_i32),
-                std::make_shared<DataTypeInt32>(), "right"};
-        
-        auto return_type = std::make_shared<DataTypeUInt8>();
-        auto func_eq_for_null = SimpleFunctionFactory::instance().get_function(
-                "eq_for_null", ColumnsWithTypeAndName {left, right}, return_type);
-        
-        Block temporary_block(ColumnsWithTypeAndName {left, right});
-        temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
-        FunctionContext* context = nullptr;
-        auto status = func_eq_for_null->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
-        
-        ASSERT_TRUE(status.ok());
-        
-        auto result_column =
-                assert_cast<const ColumnUInt8*>(temporary_block.get_by_position(2).column.get());
-        
-        for (size_t i = 0; i < input_rows_count; ++i) {
-                if (i % 2 == 0) {
-                        ASSERT_EQ(result_column->get_data()[i], 1);
-                } else {
-                        ASSERT_EQ(result_column->get_data()[i], 0);
-                }
-                
+    ColumnWithTypeAndName left {
+            ColumnNullable::create(std::move(left_i32), std::move(common_null_map)),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
+
+    ColumnWithTypeAndName right {std::move(right_i32), std::make_shared<DataTypeInt32>(), "right"};
+
+    auto return_type = std::make_shared<DataTypeUInt8>();
+    auto func_eq_for_null = SimpleFunctionFactory::instance().get_function(
+            "eq_for_null", ColumnsWithTypeAndName {left, right}, return_type);
+
+    Block temporary_block(ColumnsWithTypeAndName {left, right});
+    temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
+    FunctionContext* context = nullptr;
+    auto status = func_eq_for_null->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
+
+    ASSERT_TRUE(status.ok());
+
+    auto result_column =
+            assert_cast<const ColumnUInt8*>(temporary_block.get_by_position(2).column.get());
+
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        if (i % 2 == 0) {
+            ASSERT_EQ(result_column->get_data()[i], 1);
+        } else {
+            ASSERT_EQ(result_column->get_data()[i], 0);
         }
+    }
 }
 
 } // namespace doris::vectorized
