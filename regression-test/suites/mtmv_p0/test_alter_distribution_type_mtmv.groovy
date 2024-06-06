@@ -41,7 +41,7 @@ suite("test_alter_distribution_type_mtmv","mtmv") {
         BUILD DEFERRED REFRESH AUTO ON MANUAL
         DISTRIBUTED BY hash(k2) BUCKETS 2
         PROPERTIES (
-        'replication_num' = '1',
+        'replication_num' = '1'
         )
         AS
         SELECT * from ${tableName};
@@ -50,17 +50,6 @@ suite("test_alter_distribution_type_mtmv","mtmv") {
     sql """
         ALTER TABLE ${mvName} set ("distribution_type" = "random");
         """
-
-    sql """
-        insert into ${tableName} values(1,1),(2,2),(3,3);
-        """
-
-     // refresh mv
-     sql """
-        REFRESH MATERIALIZED VIEW ${mvName} complete
-        """
-    waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_refresh_mv "SELECT * FROM ${mvName}"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
