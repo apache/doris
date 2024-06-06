@@ -833,13 +833,14 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
                                                         .sk = obj_store.sk()},
                                           .sse_enabled = obj_store.sse_enabled(),
                                           .provider = obj_store.provider(),
-                                  });
+                                  },
+                                  StorageVaultPB_PathFormat {});
     };
 
     std::ranges::for_each(resp.obj_info(), add_obj_store);
     std::ranges::for_each(resp.storage_vault(), [&](const auto& vault) {
         if (vault.has_hdfs_info()) {
-            vault_infos->emplace_back(vault.id(), vault.hdfs_info());
+            vault_infos->emplace_back(vault.id(), vault.hdfs_info(), vault.path_format());
         }
         if (vault.has_obj_info()) {
             add_obj_store(vault.obj_info());
