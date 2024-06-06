@@ -76,15 +76,11 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth") {
     sql """drop WORKLOAD GROUP if exists '${wg2}'"""
     sql """CREATE WORKLOAD GROUP "${wg1}"
         PROPERTIES (
-            "cpu_share"="10",
-            "memory_limit"="30%",
-            "enable_memory_overcommit"="true"
+            "cpu_share"="10"
         );"""
     sql """CREATE WORKLOAD GROUP "${wg2}"
         PROPERTIES (
-            "cpu_share"="10",
-            "memory_limit"="30%",
-            "enable_memory_overcommit"="true"
+            "cpu_share"="10"
         );"""
 
     sql """DROP RESOURCE if exists ${rg1}"""
@@ -117,8 +113,6 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth") {
             "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
             );
         """
-
-
 
     sql """ADMIN SET FRONTEND CONFIG ('experimental_enable_workload_group' = 'true');"""
     sql """set experimental_enable_pipeline_engine = true;"""

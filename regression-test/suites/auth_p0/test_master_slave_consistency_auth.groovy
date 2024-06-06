@@ -44,9 +44,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
         sql """drop WORKLOAD GROUP if exists '${wg}'"""
         sql """CREATE WORKLOAD GROUP "${wg}"
         PROPERTIES (
-            "cpu_share"="10",
-            "memory_limit"="30%",
-            "enable_memory_overcommit"="true"
+            "cpu_share"="10"
         );"""
         sql """DROP RESOURCE if exists ${rg}"""
         sql """
@@ -318,7 +316,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
 
         try_sql("DROP USER ${user}")
-
+        try_sql("drop workload group if exists ${wg};")
 
     }
 
