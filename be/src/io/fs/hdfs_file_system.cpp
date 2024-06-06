@@ -464,7 +464,7 @@ uint64 HdfsFileSystemCache::_hdfs_hash_code(const THdfsParams& hdfs_params,
     } else if (hdfs_params.__isset.fs_name) {
         hash_code ^= Fingerprint(hdfs_params.fs_name);
     }
-    
+
     if (hdfs_params.__isset.user) {
         hash_code ^= Fingerprint(hdfs_params.user);
     }
