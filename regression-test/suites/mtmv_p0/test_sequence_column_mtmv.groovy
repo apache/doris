@@ -43,7 +43,7 @@ suite("test_sequence_column_mtmv","mtmv") {
                   DISTRIBUTED BY RANDOM BUCKETS 2
                   PROPERTIES (
                   'replication_num' = '1',
-                  function_column.sequence_col'='k2'
+                  'function_column.sequence_col'='k2'
                   )
                   AS
                   SELECT * from ${tableName};
