@@ -83,6 +83,7 @@ import org.apache.doris.thrift.TTabletType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -188,17 +189,31 @@ public class Alter {
         if (currentAlterOps.checkTableStoragePolicy(alterClauses)) {
             String tableStoragePolicy = olapTable.getStoragePolicy();
             String currentStoragePolicy = currentAlterOps.getTableStoragePolicy(alterClauses);
-
-            // If the two policy has one same resource, then it's safe for the table to change policy
-            // There would only be the cooldown ttl or cooldown time would be affected
+            boolean enableUniqueKeyMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
             if (!Env.getCurrentEnv().getPolicyMgr()
                     .checkStoragePolicyIfSameResource(tableStoragePolicy, currentStoragePolicy)
-                    && !tableStoragePolicy.isEmpty()) {
-                for (Partition partition : olapTable.getAllPartitions()) {
-                    if (Partition.PARTITION_INIT_VERSION < partition.getVisibleVersion()) {
-                        throw new DdlException("Do not support alter table's storage policy , this table ["
+                    && !enableUniqueKeyMergeOnWrite) {
+                // If the two policy has one same resource, then it's safe for the table to change policy
+                // There would only be the cooldown ttl or cooldown time would be affected
+                if (!tableStoragePolicy.isEmpty()) {
+                    for (Partition partition : olapTable.getAllPartitions()) {
+                        if (Partition.PARTITION_INIT_VERSION < partition.getVisibleVersion()) {
+                            throw new DdlException("Do not support alter table's storage policy , this table ["
                                 + olapTable.getName() + "] has storage policy " + tableStoragePolicy
                                 + ", the table need to be empty.");
+                        }
+                    }
+                } else {
+                    // when table's policy is empty
+                    // if any partition's policy set before table's policy, table set policy ops is forbidden
+                    PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                    for (Partition partition : olapTable.getAllPartitions()) {
+                        String partitionStoragePolicy = partitionInfo.getStoragePolicy(partition.getId());
+                        if (!StringUtils.isEmpty(partitionStoragePolicy)) {
+                            throw new DdlException("Do not support alter table's storage policy , this table ["
+                                + olapTable.getName() + "] storage policy is empty, but partition ["
+                                + partition.getName() + "] already has storage policy ");
+                        }
                     }
                 }
             }
@@ -476,7 +491,7 @@ public class Alter {
                         + table.getType().toString() + " table[" + tableName + "]");
         }
 
-        // the following ops should done outside table lock. because it contain synchronized create operation
+        // the following ops should be done outside table lock. because it contains synchronized create operation
         if (needProcessOutsideTableLock) {
             Preconditions.checkState(alterClauses.size() == 1);
             AlterClause alterClause = alterClauses.get(0);
