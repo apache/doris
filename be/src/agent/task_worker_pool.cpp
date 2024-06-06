@@ -1117,7 +1117,7 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
         auto& resource = resource_list.emplace_back();
         int64_t id = -1;
         if (auto [_, ec] = std::from_chars(id_str.data(), id_str.data() + id_str.size(), id);
-            ec == std::errc {}) [[unlikely]] {
+            ec != std::errc {}) [[unlikely]] {
             LOG(ERROR) << "invalid resource id format: " << id_str;
         } else {
             resource.__set_id(id);
