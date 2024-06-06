@@ -1650,7 +1650,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long bucketNum = distributionInfo.getBucketNum();
         long replicaNum = singlePartitionDesc.getReplicaAlloc().getTotalReplicaNum();
         long totalReplicaNum = indexNum * bucketNum * replicaNum;
-        if (totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
+        if (Config.isNotCloudMode() && totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
             throw new DdlException("Database " + db.getFullName() + " table " + tableName + " add partition increasing "
                     + totalReplicaNum + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
         }
@@ -2778,7 +2778,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 long bucketNum = partitionDistributionInfo.getBucketNum();
                 long replicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
                 long totalReplicaNum = indexNum * bucketNum * replicaNum;
-                if (totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
+                if (Config.isNotCloudMode() && totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
                     throw new DdlException(
                             "Database " + db.getFullName() + " create unpartitioned table " + tableName + " increasing "
                                     + totalReplicaNum + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
@@ -2840,7 +2840,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     long replicaNum = partitionInfo.getReplicaAllocation(entry.getValue()).getTotalReplicaNum();
                     totalReplicaNum += indexNum * bucketNum * replicaNum;
                 }
-                if (totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
+                if (Config.isNotCloudMode() && totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
                     throw new DdlException(
                             "Database " + db.getFullName() + " create table " + tableName + " increasing "
                                     + totalReplicaNum + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
