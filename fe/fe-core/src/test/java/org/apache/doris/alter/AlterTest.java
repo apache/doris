@@ -370,7 +370,7 @@ public class AlterTest {
         // empty comment
         stmt = "alter table test.tbl5 modify comment ''";
         alterTable(stmt, false);
-        Assert.assertEquals("OLAP", tbl.getComment());
+        Assert.assertEquals("", tbl.getComment());
 
         // empty column comment
         stmt = "alter table test.tbl5 modify column k1 comment '', modify column v1 comment 'v111'";

@@ -540,7 +540,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             }
             return SqlUtils.escapeQuota(comment);
         }
-        return type.name();
+        return "";
     }
 
     public void setComment(String comment) {
