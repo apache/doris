@@ -36,7 +36,6 @@ suite("test_n_gram_mtmv","mtmv") {
             "replication_num" = "1"
         );
         """
-    // create mv with index
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD DEFERRED REFRESH AUTO ON MANUAL

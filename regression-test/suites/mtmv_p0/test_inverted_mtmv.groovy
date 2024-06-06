@@ -17,8 +17,8 @@
 
 import org.junit.Assert;
 
-suite("test_bitmap_mtmv","mtmv") {
-    String suiteName = "test_bitmap_mtmv"
+suite("test_inverted_mtmv","mtmv") {
+    String suiteName = "test_inverted_mtmv"
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
 
@@ -48,7 +48,7 @@ suite("test_bitmap_mtmv","mtmv") {
         """
     // add index
     sql """
-        CREATE INDEX idx1 ON ${mvName} (k3) USING BITMAP;
+        CREATE INDEX idx1 ON ${mvName} (k3) USING INVERTED;
         """
     assertEquals("FINISHED", getAlterColumnFinalState("${mvName}"))
     def showIndexResult = sql """show index from ${mvName};"""
