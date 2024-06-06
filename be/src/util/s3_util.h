@@ -33,16 +33,14 @@
 #include <unordered_map>
 
 #include "common/status.h"
-#include "gutil/hash/hash.h"
 #include "io/fs/obj_storage_client.h"
 #include "util/s3_rate_limiter.h"
 #include "vec/common/string_ref.h"
 
-namespace Aws {
-namespace S3 {
+namespace Aws::S3 {
 class S3Client;
-} // namespace S3
-} // namespace Aws
+} // namespace Aws::S3
+
 namespace bvar {
 template <typename T>
 class Adder;

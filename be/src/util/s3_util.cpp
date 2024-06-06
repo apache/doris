@@ -338,7 +338,7 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
             .sse_enabled = info.sse_enabled(),
     };
 
-    io::ObjStorageType type;
+    io::ObjStorageType type = io::ObjStorageType::UNKNOWN;
     switch (info.provider()) {
     case cloud::ObjectStoreInfoPB_Provider_OSS:
         type = io::ObjStorageType::OSS;
@@ -385,7 +385,7 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
                     // which needs enable use_virtual_addressing to true
                     .use_virtual_addressing = !param.use_path_style,
             }};
-    io::ObjStorageType type;
+    io::ObjStorageType type = io::ObjStorageType::UNKNOWN;
     switch (param.provider) {
     case TObjStorageType::UNKNOWN:
         LOG_FATAL("Unknown thrift obj storage type {}, detail conf is {}", param.provider,
