@@ -733,3 +733,22 @@ function check_if_need_gcore() {
         echo "ERROR: unknown exit_flag ${exit_flag}" && return 1
     fi
 }
+
+prepare_java_udf() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    # custom_lib相关的case需要在fe启动前把编译好的jar放到 $DORIS_HOME/fe/custom_lib/
+    if bash "${DORIS_HOME}"/../run-regression-test.sh --clean &&
+        bash "${DORIS_HOME}"/../run-regression-test.sh --compile; then
+        echo
+    else
+        echo "ERROR: failed to compile java udf"
+    fi
+
+    if ls "${DORIS_HOME}"/fe/custom_lib/*.jar &&
+        ls "${DORIS_HOME}"/be/custom_lib/*.jar; then
+        echo "INFO: java udf prepared."
+    else
+        echo "ERROR: failed to prepare java udf"
+        return 1
+    fi
+}
