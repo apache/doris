@@ -627,8 +627,14 @@ public class CreateTableInfo {
         }
     }
 
-    // if auto bucket auto bucket enable, rewrite distribution bucket num &&
-    // set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
+    /**
+     * if auto bucket auto bucket enable, rewrite distribution bucket num &&
+     * set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
+     *
+     * @param distributionDesc
+     * @param properties
+     * @return new properties
+     */
     public static Map<String, String> maybeRewriteByAutoBucket(
             DistributionDescriptor distributionDesc, Map<String, String> properties) {
         if (distributionDesc == null || !distributionDesc.isAutoBucket()) {
