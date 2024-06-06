@@ -315,7 +315,18 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     }
                 }
             }
+            List<Slot> rewrittenPlanOutput = rewrittenPlan.getOutput();
             rewrittenPlan = normalizeExpressions(rewrittenPlan, queryPlan);
+            if (rewrittenPlan == null) {
+                // maybe virtual slot reference added automatically
+                materializationContext.recordFailReason(queryStructInfo,
+                        "RewrittenPlan output logical properties is different with target group",
+                        () -> String.format("materialized view rule normalizeExpressions, output size between "
+                                        + "origin and rewritten plan is different, rewritten output is %s, "
+                                        + "origin output is %s",
+                                rewrittenPlanOutput, queryPlan.getOutput()));
+                continue;
+            }
             if (!isOutputValid(queryPlan, rewrittenPlan)) {
                 LogicalProperties logicalProperties = rewrittenPlan.getLogicalProperties();
                 materializationContext.recordFailReason(queryStructInfo,
@@ -352,6 +363,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
 
     // Normalize expression such as nullable property and output slot id
     protected Plan normalizeExpressions(Plan rewrittenPlan, Plan originPlan) {
+        if (rewrittenPlan.getOutput().size() != originPlan.getOutput().size()) {
+            return null;
+        }
         // normalize nullable
         List<NamedExpression> normalizeProjects = new ArrayList<>();
         for (int i = 0; i < originPlan.getOutput().size(); i++) {
@@ -505,7 +519,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
 
         List<Expression> rewrittenExpressions = new ArrayList<>();
         for (Expression expressionShuttledToRewrite : sourceShuttledExpressions) {
-            if (expressionShuttledToRewrite instanceof Literal || isEmptyVirtualSlot(expressionShuttledToRewrite)) {
+            if (expressionShuttledToRewrite instanceof Literal) {
                 rewrittenExpressions.add(expressionShuttledToRewrite);
                 continue;
             }
