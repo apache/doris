@@ -61,7 +61,7 @@ suite("test_compression_mtmv","mtmv") {
 
     def showCreateTableResult = sql """show create table ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
-    assertTrue(showCreateTableResult.toString().contains('zstd'))
+    assertTrue(showCreateTableResult.toString().contains('ZSTD'))
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
