@@ -97,7 +97,7 @@ suite("push_count_into_union_all") {
 
     qt_count_group_by_multi_col_shape """
         explain shape plan
-        select a,count(b) c1 from (select a,b,pk from mal_test_push_count where a>1 union all select a,b,pk from mal_test_push_count where a<100 
+        select a,count(b) c1 from (select a,b,pk from mal_test_push_count where a>1 union all select a,b,pk from mal_test_push_count where a<100
         union all select a,b,pk from mal_test_push_count where a=1 ) t group by a,pk order by 1,2;"""
 
     qt_test_upper_refer """
