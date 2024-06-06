@@ -44,6 +44,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.SplitGenerator;
 import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
@@ -84,7 +85,7 @@ import java.util.stream.IntStream;
 public abstract class ScanNode extends PlanNode implements SplitGenerator {
     private static final Logger LOG = LogManager.getLogger(ScanNode.class);
     protected static final int NUM_SPLITS_PER_PARTITION = 10;
-    protected static final int NUM_PARTITIONS_PER_LOOP = 100;
+    protected static final int NUM_SPLITTERS_ON_FLIGHT = Config.max_external_cache_loader_thread_pool_size;
     protected final TupleDescriptor desc;
     // for distribution prunner
     protected Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
@@ -95,6 +96,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
     protected List<SplitSource> splitSources = Lists.newArrayList();
     protected PartitionInfo partitionsInfo = null;
+    protected SplitAssignment splitAssignment = null;
 
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
