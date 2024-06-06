@@ -96,9 +96,9 @@ public class SyncMaterializationContext extends MaterializationContext {
     @Override
     Optional<Pair<Id, Statistics>> getPlanStatistics(CascadesContext cascadesContext) {
         RelationId relationId = null;
-        List<Object> scanObjs = this.getScanPlan().collectFirst(plan -> plan instanceof LogicalOlapScan);
-        if (scanObjs != null && !scanObjs.isEmpty()) {
-            relationId = ((LogicalOlapScan) scanObjs.get(0)).getRelationId();
+        Optional<LogicalOlapScan> scanObj = this.getScanPlan().collectFirst(LogicalOlapScan.class::isInstance);
+        if (scanObj.isPresent()) {
+            relationId = scanObj.get().getRelationId();
         }
         return Optional.of(Pair.of(relationId, normalizeStatisticsColumnExpression(statistics)));
     }
