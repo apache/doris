@@ -1930,7 +1930,8 @@ public class StmtExecutor {
             context.getTxnEntry()
                     .setTxnConf(new TTxnParams().setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
                             .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("")
-                            .setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0 : 1.0));
+                            .setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0
+                                    : context.getSessionVariable().getInsertMaxFilterRatio()));
             StringBuilder sb = new StringBuilder();
             sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
                     .append(TransactionStatus.PREPARE.name());
@@ -2248,6 +2249,15 @@ public class StmtExecutor {
                     if (filteredRows > 0) {
                         context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
                                 "Insert has filtered data in strict mode, tracking_url=" + coord.getTrackingUrl());
+                        return;
+                    }
+                } else {
+                    if (filteredRows > context.getSessionVariable().getInsertMaxFilterRatio()
+                            * (filteredRows + loadedRows)) {
+                        context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
+                                String.format("Insert has too many filtered data %d/%d insert_max_filter_ratio is %f",
+                                        filteredRows, filteredRows + loadedRows,
+                                        context.getSessionVariable().getInsertMaxFilterRatio()));
                         return;
                     }
                 }
