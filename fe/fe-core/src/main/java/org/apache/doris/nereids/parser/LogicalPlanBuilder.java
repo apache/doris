@@ -3147,10 +3147,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withProjection(LogicalPlan input, SelectColumnClauseContext selectCtx,
-                                       Optional<AggClauseContext> aggCtx, boolean isDistinct) {
+            Optional<AggClauseContext> aggCtx, boolean isDistinct) {
         return ParserUtils.withOrigin(selectCtx, () -> {
             if (aggCtx.isPresent()) {
-                return input;
+                if (isDistinct) {
+                    return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
+                            Collections.emptyList(), isDistinct, input);
+                } else {
+                    return input;
+                }
             } else {
                 if (selectCtx.EXCEPT() != null) {
                     List<NamedExpression> expressions = getNamedExpressions(selectCtx.namedExpressionSeq());
