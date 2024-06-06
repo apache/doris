@@ -58,7 +58,7 @@ suite("test_create_table_generated_column_legacy") {
         DISTRIBUTED BY HASH(a)
         PROPERTIES("replication_num" = "1");
         """
-        exception "No matching function with signature"
+        exception "In generated column 'c', no matching function with signature"
     }
 
     // gencol_has_sum
@@ -134,7 +134,7 @@ suite("test_create_table_generated_column_legacy") {
             DISTRIBUTED BY HASH(pk)
             PROPERTIES("replication_num" = "1");
         """
-        exception "can not cast from origin type"
+        exception "In generated column 'c', can not cast from origin type"
     }
 
     test {
@@ -198,12 +198,12 @@ suite("test_create_table_generated_column_legacy") {
 
     test {
         sql """
-       create table test_gen_col_aggregate(a int,b int,c int  generated always as (abs(a+1)) not null)
-        aggregate key(a,b,c)
+       create table test_gen_col_aggregate(a int,b int,c int sum generated always as (abs(a+1)) not null)
+        aggregate key(a,b)
         DISTRIBUTED BY HASH(a)
         PROPERTIES("replication_num" = "1");
         """
-        exception "Generated Column cannot be used in the aggregate table"
+        exception "Generated Columns in aggregate table must be keys."
     }
 
     // test drop dependency

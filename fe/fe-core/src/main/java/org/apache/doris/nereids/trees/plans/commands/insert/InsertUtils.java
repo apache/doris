@@ -75,9 +75,11 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
+import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -292,6 +294,7 @@ public class InsertUtils {
             }
         }
         Plan query = unboundLogicalSink.child();
+        checkGeneratedColumnForInsertIntoSelect(table, query, unboundLogicalSink);
         if (!(query instanceof LogicalInlineTable)) {
             return plan;
         }
@@ -362,31 +365,6 @@ public class InsertUtils {
                     StatementScopeIdGenerator.newRelationId(), constantExprs.build()));
         }
         List<LogicalPlan> oneRowRelations = oneRowRelationBuilder.build();
-
-        // if (plan instanceof UnboundTableSink) {
-        //     List<String> newColNames = new ArrayList<>();
-        //     if (unboundLogicalSink.getColNames().isEmpty()) {
-        //         for (Column column : table.getBaseSchema(false)) {
-        //             if (column.getGeneratedColumnInfo() != null) {
-        //                 continue;
-        //             }
-        //             newColNames.add(column.getName());
-        //         }
-        //     } else {
-        //         for (String name : unboundLogicalSink.getColNames()) {
-        //             Column column = table.getColumn(name);
-        //             if (column.getGeneratedColumnInfo() != null) {
-        //                 continue;
-        //             }
-        //             newColNames.add(name);
-        //         }
-        //     }
-        //     if (!unboundLogicalSink.getColNames().isEmpty() && newColNames.isEmpty()) {
-        //
-        //     }
-        //     plan = ((UnboundTableSink) plan).withColNames(newColNames);
-        // }
-
         if (oneRowRelations.size() == 1) {
             return plan.withChildren(oneRowRelations.get(0));
         } else {
@@ -427,6 +405,9 @@ public class InsertUtils {
     private static NamedExpression generateDefaultExpression(Column column) {
         try {
             GeneratedColumnInfo generatedColumnInfo = column.getGeneratedColumnInfo();
+            // Using NullLiteral as a placeholder.
+            // If return the expr in generatedColumnInfo, will lead to slot not found error in analyze.
+            // Instead, getting the generated column expr and analyze the expr in BindSink can avoid the error.
             if (generatedColumnInfo != null) {
                 return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
             }
@@ -463,5 +444,33 @@ public class InsertUtils {
             throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
         }
         return InsertUtils.normalizePlan(logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx));
+    }
+
+    private static void checkGeneratedColumnForInsertIntoSelect(TableIf table, Plan query,
+            UnboundLogicalSink<? extends Plan> unboundLogicalSink) {
+        if (table instanceof OlapTable && !(query instanceof LogicalInlineTable)) {
+            OlapTable olapTable = (OlapTable) table;
+            Set<String> insertNames = Sets.newHashSet();
+            if (unboundLogicalSink.getColNames() != null) {
+                insertNames.addAll(unboundLogicalSink.getColNames());
+            }
+            if (insertNames.isEmpty()) {
+                for (Column col : olapTable.getFullSchema()) {
+                    if (col.getGeneratedColumnInfo() != null) {
+                        throw new AnalysisException("The value specified for generated column '"
+                                + col.getName()
+                                + "' in table '" + table.getName() + "' is not allowed.");
+                    }
+                }
+            } else {
+                for (Column col : olapTable.getFullSchema()) {
+                    if (col.getGeneratedColumnInfo() != null && insertNames.contains(col.getName())) {
+                        throw new AnalysisException("The value specified for generated column '"
+                                + col.getName()
+                                + "' in table '" + table.getName() + "' is not allowed.");
+                    }
+                }
+            }
+        }
     }
 }

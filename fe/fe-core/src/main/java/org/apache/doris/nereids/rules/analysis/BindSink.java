@@ -372,6 +372,9 @@ public class BindSink implements AnalysisRuleFactory {
                 }
             }
         }
+        // the generated columns can use all ordinary columns,
+        // if processed in upper for loop, will lead to not found slot error
+        //It's the same reason for moving the processing of materialized columns down.
         for (Column column : generatedColumns) {
             GeneratedColumnInfo info = column.getGeneratedColumnInfo();
             Expression parsedExpression = new NereidsParser().parseExpression(info.getExpr().toSqlWithoutTbl());

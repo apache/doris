@@ -30,17 +30,6 @@ suite("test_generated_column") {
     qt_common_default_test_insert_default "INSERT INTO test_gen_col_common values(3,5,default);"
 
     qt_commont_default_select  "select * from test_gen_col_common order by 1,2,3;"
-    // qt_common_default_test_insert_null
-    test {
-        sql "INSERT INTO test_gen_col_common(a,b) values(1,null);"
-        exception "Insert has filtered data in strict mode."
-    }
-
-    // qt_common_default_test_insert_gencol
-    test {
-        sql "INSERT INTO test_gen_col_common values(1,2,3);"
-        exception "The value specified for generated column 'c' in table 'test_gen_col_common' is not allowed."
-    }
 
     sql "drop table if exists test_gen_col_without_generated_always"
     qt_common_without_generated_always """create table test_gen_col_without_generated_always(a int,b int,c double as (abs(a+b)) not null)
@@ -174,6 +163,18 @@ suite("test_generated_column") {
     qt_gen_col_unique_key_insert_is_key "INSERT INTO test_gen_col_unique_key2 values(6,default,7);"
     qt_gen_col_unique_key_insert_is_key "INSERT INTO test_gen_col_unique_key2 values(6,default,7);"
     qt_gen_col_unique_key_select_is_key "select * from test_gen_col_unique_key2"
+
+    // test aggregate table,generated column is key
+    sql "drop table if exists test_gen_col_aggregate"
+    sql """
+       create table test_gen_col_aggregate(a int,b int,c int  generated always as (abs(a+1)) not null)
+        aggregate key(a,b,c)
+        DISTRIBUTED BY HASH(a)
+        PROPERTIES("replication_num" = "1");
+        """
+    qt_gen_col_aggregate_insert "INSERT INTO test_gen_col_aggregate values(6,7,default);"
+    qt_gen_col_aggregate_insert "INSERT INTO test_gen_col_aggregate values(6,7,default);"
+    qt_gen_col_aggregate_select "select * from test_gen_col_aggregate"
 
     // test drop dependency
     sql "drop table if exists gencol_refer_gencol"

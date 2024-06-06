@@ -24,7 +24,7 @@ suite("test_generated_column_fault_tolerance_nereids") {
         DISTRIBUTED BY HASH(a)
         PROPERTIES("replication_num" = "1");
         """
-        exception "Can not found function 'abs' which has 2 arity."
+        exception "In generated column 'c', can not found function 'abs' which has 2 arity."
     }
 
     // gencol_has_sum
@@ -34,7 +34,7 @@ suite("test_generated_column_fault_tolerance_nereids") {
         DISTRIBUTED BY HASH(a)
         PROPERTIES("replication_num" = "1");
         """
-        exception "Expression of generated column 'c' contains a disallowed function"
+        exception "Expression of generated column 'c' contains a disallowed function:'sum'"
     }
 
     // gencol_has_column_not_define
@@ -100,17 +100,17 @@ suite("test_generated_column_fault_tolerance_nereids") {
             DISTRIBUTED BY HASH(pk)
             PROPERTIES("replication_num" = "1");
         """
-        exception "Cannot cast from ARRAY<INT> to numeric type"
+        exception "In generated column 'c', cannot cast from ARRAY<INT> to numeric type"
     }
 
     test {
         sql """
-       create table test_gen_col_aggregate(a int,b int,c int  generated always as (abs(a+1)) not null)
-        aggregate key(a,b,c)
+        create table test_gen_col_aggregate_value(a int,b int,c int sum generated always as (abs(a+1)) not null)
+        aggregate key(a,b)
         DISTRIBUTED BY HASH(a)
         PROPERTIES("replication_num" = "1");
         """
-        exception "Generated Column cannot be used in the aggregate table"
+        exception "Generated Columns in aggregate table must be keys."
     }
 
     test {
@@ -154,7 +154,7 @@ suite("test_generated_column_fault_tolerance_nereids") {
         create table test_grouping(a int default 10, b int default 100, c boolean as(grouping(a)))
         DISTRIBUTED BY HASH(a)
         PROPERTIES("replication_num" = "1");"""
-        exception "Expression of generated column 'c' contains a disallowed function"
+        exception "Expression of generated column 'c' contains a disallowed function:'Grouping'"
     }
 
     sql "drop table if exists gen_col_test_modify"
@@ -168,4 +168,35 @@ suite("test_generated_column_fault_tolerance_nereids") {
         sql """ALTER TABLE gen_col_test_modify ADD COLUMN d int AS (a+b);"""
         exception "Temporarily not supporting alter table add generated columns."
     }
+
+    sql "drop table if exists test_gen_col_common_ft"
+    sql """create table test_gen_col_common_ft(a int,b int,c double generated always as (abs(a+b)) not null)
+    DISTRIBUTED BY HASH(a)
+    PROPERTIES("replication_num" = "1");
+    ;"""
+    // qt_common_default_test_insert_null
+    test {
+        sql "INSERT INTO test_gen_col_common_ft(a,b) values(1,null);"
+        exception "Insert has filtered data in strict mode."
+    }
+
+    // qt_common_default_test_insert_gencol
+    test {
+        sql "INSERT INTO test_gen_col_common_ft values(1,2,3);"
+        exception "The value specified for generated column 'c' in table 'test_gen_col_common_ft' is not allowed."
+    }
+    test {
+        sql "INSERT INTO test_gen_col_common_ft(a,b,c) values(1,2,3);"
+        exception "The value specified for generated column 'c' in table 'test_gen_col_common_ft' is not allowed."
+    }
+    test {
+        sql "INSERT INTO test_gen_col_common_ft select 1,2,5"
+        exception "The value specified for generated column 'c' in table 'test_gen_col_common_ft' is not allowed."
+    }
+    test {
+        sql "INSERT INTO test_gen_col_common_ft(a,b,c) select * from test_gen_col_common_ft"
+        exception "The value specified for generated column 'c' in table 'test_gen_col_common_ft' is not allowed."
+    }
+
+
 }

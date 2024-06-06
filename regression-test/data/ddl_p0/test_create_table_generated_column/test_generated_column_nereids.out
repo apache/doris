@@ -166,9 +166,9 @@
 
 -- !describe --
 a	INT	Yes	true	\N	
-c	DOUBLE	No	false	\N	NONE,GENERATED
+c	DOUBLE	No	false	\N	NONE,STORED GENERATED
 b	INT	Yes	false	\N	NONE
-d	INT	Yes	false	\N	NONE,GENERATED
+d	INT	Yes	false	\N	NONE,STORED GENERATED
 
 -- !test_update --
 1
@@ -195,6 +195,15 @@ d	INT	Yes	false	\N	NONE,GENERATED
 1
 
 -- !gen_col_unique_key_select_is_key --
+6	7	7
+
+-- !gen_col_aggregate_insert --
+1
+
+-- !gen_col_aggregate_insert --
+1
+
+-- !gen_col_aggregate_select --
 6	7	7
 
 -- !gencol_refer_gencol --

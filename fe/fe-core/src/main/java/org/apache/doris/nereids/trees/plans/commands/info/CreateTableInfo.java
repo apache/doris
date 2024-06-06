@@ -839,24 +839,19 @@ public class CreateTableInfo {
         this.isExternal = isExternal;
     }
 
-    private void genreatedColumnCommonCheck() {
-        boolean hasGeneratedCol = false;
+    private void generatedColumnCommonCheck() {
         for (ColumnDefinition column : columns) {
-            if (column.getGeneratedColumnDesc().isPresent()) {
-                hasGeneratedCol = true;
-                break;
+            if (keysType == KeysType.AGG_KEYS && column.getGeneratedColumnDesc().isPresent() && !column.isKey()) {
+                throw new AnalysisException("Generated Columns in aggregate table must be keys.");
             }
-        }
-        if (hasGeneratedCol && !engineName.equalsIgnoreCase("olap")) {
-            throw new AnalysisException("Tables can only have generated columns if the olap engine is used");
-        }
-        if (hasGeneratedCol && keysType == KeysType.AGG_KEYS) {
-            throw new AnalysisException("Generated Column cannot be used in the aggregate table");
+            if (column.getGeneratedColumnDesc().isPresent() && !engineName.equalsIgnoreCase("olap")) {
+                throw new AnalysisException("Tables can only have generated columns if the olap engine is used");
+            }
         }
     }
 
     private void generatedColumnCheck(ConnectContext ctx) {
-        genreatedColumnCommonCheck();
+        generatedColumnCommonCheck();
         LogicalEmptyRelation plan = new LogicalEmptyRelation(
                 ConnectContext.get().getStatementContext().getNextRelationId(),
                 new ArrayList<>());
@@ -885,11 +880,17 @@ public class CreateTableInfo {
                 continue;
             }
             Expression parsedExpression = info.get().getExpression();
-            checkparsedExpressionInGeneratedColumn(parsedExpression);
+            checkParsedExpressionInGeneratedColumn(parsedExpression);
             Expression boundSlotExpression = SlotReplacer.INSTANCE.replace(parsedExpression, columnToSlotReference);
             Scope scope = new Scope(slots);
             ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
-            Expression expr = analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
+            Expression expr;
+            try {
+                expr = analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
+            } catch (AnalysisException e) {
+                throw new AnalysisException("In generated column '" + column.getName() + "', "
+                        + Utils.convertFirstChar(e.getMessage()));
+            }
             checkExpressionInGeneratedColumn(expr, column, nameToColumnDefinition);
             TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
             ExpressionToExpr translator = new ExpressionToExpr(i);
@@ -948,7 +949,7 @@ public class CreateTableInfo {
         }
     }
 
-    void checkparsedExpressionInGeneratedColumn(Expression expr) {
+    void checkParsedExpressionInGeneratedColumn(Expression expr) {
         expr.foreach(e -> {
             if (e instanceof SubqueryExpr) {
                 throw new AnalysisException("Generated column does not support subquery.");

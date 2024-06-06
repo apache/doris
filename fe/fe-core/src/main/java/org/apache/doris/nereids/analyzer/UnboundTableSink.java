@@ -173,11 +173,6 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
                 isPartialUpdate, dmlCommandType, groupExpression, logicalProperties, children.get(0));
     }
 
-    public Plan withColNames(List<String> colNames) {
-        return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions, autoDetectPartition,
-                isPartialUpdate, dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
-    }
-
     @Override
     public LogicalProperties computeLogicalProperties() {
         return UnboundLogicalProperties.INSTANCE;

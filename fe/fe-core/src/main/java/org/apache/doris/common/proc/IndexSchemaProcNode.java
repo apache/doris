@@ -66,7 +66,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                 extras.add("AUTO_INCREMENT");
             }
             if (column.getGeneratedColumnInfo() != null) {
-                extras.add("GENERATED");
+                extras.add("STORED GENERATED");
             }
             String extraStr = StringUtils.join(extras, ",");
 

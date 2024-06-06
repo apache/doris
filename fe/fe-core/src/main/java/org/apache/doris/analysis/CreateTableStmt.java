@@ -43,6 +43,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -722,7 +723,7 @@ public class CreateTableStmt extends DdlStmt {
     }
 
     private void generatedColumnCheck(Analyzer analyzer) throws AnalysisException {
-        genreatedColumnCommonCheck();
+        generatedColumnCommonCheck();
         Map<String, Pair<ColumnDef, Integer>> nameToColumnDef = Maps.newHashMap();
         for (int i = 0; i < columnDefs.size(); i++) {
             ColumnDef columnDef = columnDefs.get(i);
@@ -746,7 +747,12 @@ public class CreateTableStmt extends DdlStmt {
                     throw new AnalysisException("Generated column does not support subquery.");
                 }
             });
-            expr.analyze(analyzer);
+            try {
+                expr.analyze(analyzer);
+            } catch (AnalysisException e) {
+                throw new AnalysisException("In generated column '" + columnDef.getName() + "', "
+                        + Utils.convertFirstChar(e.getDetailMessage()));
+            }
             expr.foreach(e -> {
                 if (e instanceof VariableExpr) {
                     throw new AnalysisException("Generated column expression cannot contain variable.");
@@ -854,21 +860,17 @@ public class CreateTableStmt extends DdlStmt {
         }
     }
 
-    private void genreatedColumnCommonCheck() throws AnalysisException {
-        boolean hasGeneratedCol = false;
+    private void generatedColumnCommonCheck() {
         for (ColumnDef column : columnDefs) {
-            if (column.getGeneratedColumnInfo().isPresent()) {
-                hasGeneratedCol = true;
-                break;
+            if (keysDesc.getKeysType() == KeysType.AGG_KEYS && column.getGeneratedColumnInfo().isPresent()
+                    && !column.isKey()) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Generated Columns in aggregate table must be keys.");
             }
-        }
-        if (hasGeneratedCol && !engineName.equalsIgnoreCase("olap")) {
-            throw new AnalysisException(
-                    "Tables can only have generated columns if the olap engine is used");
-        }
-        if (hasGeneratedCol && keysDesc.getKeysType() == KeysType.AGG_KEYS) {
-            throw new AnalysisException(
-                    "Generated Column cannot be used in the aggregate table");
+            if (column.getGeneratedColumnInfo().isPresent() && !engineName.equalsIgnoreCase("olap")) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Tables can only have generated columns if the olap engine is used");
+            }
         }
     }
 }

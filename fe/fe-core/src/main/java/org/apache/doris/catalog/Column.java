@@ -953,12 +953,12 @@ public class Column implements Writable, GsonPostProcessable {
         } else {
             sb.append(typeStr);
         }
-        if (generatedColumnInfo != null) {
-            return generatedColumnToSql(sb);
-        }
         if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
                 && !isAggregationTypeImplicit) {
             sb.append(" ").append(aggregationType.toSql());
+        }
+        if (generatedColumnInfo != null) {
+            sb.append(" AS (").append(generatedColumnInfo.getExpr().toSql()).append(")");
         }
         if (isAllowNull) {
             sb.append(" NULL");
@@ -977,19 +977,6 @@ public class Column implements Writable, GsonPostProcessable {
         }
         if (hasOnUpdateDefaultValue) {
             sb.append(" ON UPDATE ").append(defaultValue).append("");
-        }
-        if (StringUtils.isNotBlank(comment)) {
-            sb.append(" COMMENT '").append(getComment(true)).append("'");
-        }
-        return sb.toString();
-    }
-
-    private String generatedColumnToSql(StringBuilder sb) {
-        sb.append(" AS (").append(generatedColumnInfo.getExpr().toSql()).append(")");
-        if (isAllowNull) {
-            sb.append(" NULL");
-        } else {
-            sb.append(" NOT NULL");
         }
         if (StringUtils.isNotBlank(comment)) {
             sb.append(" COMMENT '").append(getComment(true)).append("'");
