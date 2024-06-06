@@ -47,14 +47,16 @@ suite("test_n_gram_mtmv","mtmv") {
         AS
         SELECT * from ${tableName};
         """
-    // alter index
+    // add index
     sql """
         ALTER TABLE ${mvName} add index idx_ngrambf(k3) using NGRAM_BF PROPERTIES("gram_size"="2", "bf_size"="512");
         """
     assertEquals("FINISHED", getAlterColumnFinalState("${mvName}"))
     def showIndexResult = sql """show index from ${mvName};"""
     logger.info("showIndexResult: " + showIndexResult.toString())
+    assertTrue(showIndexResult.toString().contains('idx_ngrambf'))
 
+    // refresh mv
     sql """
         insert into ${tableName} values(1,1),(2,2),(3,3);
         """
@@ -63,6 +65,15 @@ suite("test_n_gram_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_mv "SELECT * FROM ${mvName}"
+
+    // drop index
+    sql """
+        ALTER TABLE ${mvName} drop index idx_ngrambf;
+        """
+    assertEquals("FINISHED", getAlterColumnFinalState("${mvName}"))
+    showIndexResult = sql """show index from ${mvName};"""
+    logger.info("showIndexResult: " + showIndexResult.toString())
+    assertFalse(showIndexResult.toString().contains('idx_ngrambf'))
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
