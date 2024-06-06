@@ -32,8 +32,8 @@
 #include <unordered_map>
 
 #include "common/status.h"
-#include "gutil/hash/hash.h"
 #include "util/s3_rate_limiter.h"
+#include "vec/common/string_ref.h"
 
 namespace Aws {
 namespace S3 {
@@ -102,15 +102,15 @@ struct S3ClientConf {
 
     uint64_t get_hash() const {
         uint64_t hash_code = 0;
-        hash_code ^= Fingerprint(ak);
-        hash_code ^= Fingerprint(sk);
-        hash_code ^= Fingerprint(token);
-        hash_code ^= Fingerprint(endpoint);
-        hash_code ^= Fingerprint(region);
-        hash_code ^= Fingerprint(max_connections);
-        hash_code ^= Fingerprint(request_timeout_ms);
-        hash_code ^= Fingerprint(connect_timeout_ms);
-        hash_code ^= Fingerprint(use_virtual_addressing);
+        hash_code ^= crc32_hash(ak);
+        hash_code ^= crc32_hash(sk);
+        hash_code ^= crc32_hash(token);
+        hash_code ^= crc32_hash(endpoint);
+        hash_code ^= crc32_hash(region);
+        hash_code ^= max_connections;
+        hash_code ^= request_timeout_ms;
+        hash_code ^= connect_timeout_ms;
+        hash_code ^= use_virtual_addressing;
         return hash_code;
     }
 
