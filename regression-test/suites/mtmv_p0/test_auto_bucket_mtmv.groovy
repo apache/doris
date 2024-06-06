@@ -31,12 +31,6 @@ suite("test_auto_bucket_mtmv","mtmv") {
             k2 INT,
             k3 varchar(32)
         )
-        PARTITION BY LIST(`k3`)
-        (
-            PARTITION `p1` VALUES IN ('1'),
-            PARTITION `p2` VALUES IN ('2'),
-            PARTITION `p3` VALUES IN ('3')
-        )
         DISTRIBUTED BY HASH(k2) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1"
@@ -45,7 +39,6 @@ suite("test_auto_bucket_mtmv","mtmv") {
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
-        partition by(`k3`)
         DISTRIBUTED BY RANDOM BUCKETS AUTO
         PROPERTIES (
         'replication_num' = '1',
