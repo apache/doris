@@ -1047,6 +1047,7 @@ nonReserved
     | BUILD
     | BUILTIN
     | BULK
+    | CACHE
     | CACHED
     | CALL
     | CATALOG
@@ -1059,18 +1060,21 @@ nonReserved
     | CLUSTERS
     | COLLATION
     | COLLECT
+    | COLOCATE
     | COLUMNS
     | COMMENT
     | COMMIT
     | COMMITTED
     | COMPACT
     | COMPLETE
+    | COMPRESS_TYPE
     | CONFIG
     | CONNECTION
     | CONNECTION_ID
     | CONSISTENT
     | CONSTRAINTS
     | CONVERT
+    | CONVERT_LSC
     | COPY
     | COUNT
     | CREATION
@@ -1144,6 +1148,7 @@ nonReserved
     | HISTOGRAM
     | HLL_UNION
     | HOSTNAME
+    | HOTSPOT
     | HOUR
     | HUB
     | IDENTIFIED
@@ -1233,6 +1238,7 @@ nonReserved
     | PLUGIN
     | PLUGINS
     | POLICY
+    | PRIVILEGES
     | PROC
     | PROCESS
     | PROCESSLIST
@@ -1244,6 +1250,7 @@ nonReserved
     | QUERY
     | QUOTA
     | RANDOM
+    | RECENT
     | RECOVER
     | RECYCLE
     | REFRESH
@@ -1278,6 +1285,8 @@ nonReserved
     | SNAPSHOT
     | SONAME
     | SPLIT
+    | SQL
+    | STAGES
     | START
     | STARTS
     | STATS
@@ -1308,6 +1317,7 @@ nonReserved
     | TYPES
     | UNCOMMITTED
     | UNLOCK
+    | UP
     | USER
     | VALUE
     | VARCHAR
@@ -1316,6 +1326,7 @@ nonReserved
     | VERBOSE
     | VERSION
     | VIEW
+    | WARM
     | WARNINGS
     | WEEK
     | WORK
