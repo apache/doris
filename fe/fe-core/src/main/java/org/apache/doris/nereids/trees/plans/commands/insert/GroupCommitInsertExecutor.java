@@ -57,7 +57,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -103,13 +102,13 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
 
     private static boolean literalExpr(NereidsPlanner planner) {
         Optional<PhysicalUnion> union = planner.getPhysicalPlan()
-                .<Set<PhysicalUnion>>collect(PhysicalUnion.class::isInstance).stream().findAny();
+                .<PhysicalUnion>collect(PhysicalUnion.class::isInstance).stream().findAny();
         List<List<NamedExpression>> constantExprsList = null;
         if (union.isPresent()) {
             constantExprsList = union.get().getConstantExprsList();
         }
         Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
-                .<Set<PhysicalOneRowRelation>>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
+                .<PhysicalOneRowRelation>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
         if (oneRowRelation.isPresent()) {
             constantExprsList = ImmutableList.of(oneRowRelation.get().getProjects());
         }
@@ -142,13 +141,13 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
         List<InternalService.PDataRow> rows = new ArrayList<>();
 
         Optional<PhysicalUnion> union = planner.getPhysicalPlan()
-                .<Set<PhysicalUnion>>collect(PhysicalUnion.class::isInstance).stream().findAny();
+                .<PhysicalUnion>collect(PhysicalUnion.class::isInstance).stream().findAny();
         List<List<NamedExpression>> constantExprsList = null;
         if (union.isPresent()) {
             constantExprsList = union.get().getConstantExprsList();
         }
         Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
-                .<Set<PhysicalOneRowRelation>>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
+                .<PhysicalOneRowRelation>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
         if (oneRowRelation.isPresent()) {
             constantExprsList = ImmutableList.of(oneRowRelation.get().getProjects());
         }
@@ -159,7 +158,7 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
         if (physicalOlapTableSink.getTargetTable().getFullSchema().size() != physicalOlapTableSink.getCols().size()) {
             targetSchema = fullSchema;
         } else {
-            targetSchema = physicalOlapTableSink.getCols().stream().collect(Collectors.toList());
+            targetSchema = new ArrayList<>(physicalOlapTableSink.getCols());
         }
         List<String> columnNames = targetSchema.stream()
                 .map(Column::getName)
@@ -226,7 +225,7 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
 
     protected final void execImpl() throws Exception {
         Optional<PhysicalOlapTableSink<?>> plan = (planner.getPhysicalPlan()
-                .<Set<PhysicalOlapTableSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
+                .<PhysicalOlapTableSink<?>>collect(PhysicalSink.class::isInstance)).stream()
                 .findAny();
         PhysicalOlapTableSink<?> olapSink = plan.get();
         DataSink sink = planner.getFragments().get(0).getSink();
