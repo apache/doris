@@ -255,7 +255,8 @@ public class TransactionEntry {
             try {
                 if (Env.getCurrentEnv().isMaster() || Config.isCloudMode()) {
                     beforeFinishTransaction();
-                    long commitTimeout = Math.min(60000L, Math.max(timeoutTimestamp - System.currentTimeMillis(), 0));
+                    // the report_tablet_interval_seconds is default 60, so set the timeout larger than it
+                    long commitTimeout = Math.min(120000L, Math.max(timeoutTimestamp - System.currentTimeMillis(), 0));
                     if (Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(database, transactionId,
                             transactionState.getSubTransactionStates(), commitTimeout)) {
                         return TransactionStatus.VISIBLE;

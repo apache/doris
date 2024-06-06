@@ -1031,6 +1031,15 @@ public class GlobalTransactionMgrTest {
             Assert.assertEquals(1, publishVersionTasks.size());
             PublishVersionTask publishVersionTask = publishVersionTasks.get(0);
             publishVersionTask.getErrorTablets().add(CatalogTestUtil.testTabletId1);
+            // backend3 publish failed
+            publishVersionTasks = transactionState.getPublishVersionTasks()
+                    .get(CatalogTestUtil.testBackendId3).stream()
+                    .filter(t -> t.getTransactionId() == subTransactionStates.get(0).getSubTransactionId())
+                    .collect(Collectors.toList());
+            Assert.assertEquals(1, publishVersionTasks.size());
+            PublishVersionTask publishVersionTask2 = publishVersionTasks.get(0);
+            publishVersionTask2.getErrorTablets().add(CatalogTestUtil.testTabletId1);
+            LOG.info("publish tasks: {}", transactionState.getPublishVersionTasks());
             // finish transaction
             Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
             Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
@@ -1051,6 +1060,7 @@ public class GlobalTransactionMgrTest {
             Map<Long, Long> backend2SuccTablets = Maps.newHashMap();
             backend2SuccTablets.put(CatalogTestUtil.testTabletId1, 0L);
             publishVersionTask.setSuccTablets(backend2SuccTablets);
+            publishVersionTask.getErrorTablets().clear();
             masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, partitionVisibleVersions,
                     backendPartitions);
             Assert.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
