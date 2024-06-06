@@ -45,9 +45,6 @@ ExecEnv::~ExecEnv() {
 
 // TODO(plat1ko): template <class Engine>
 #ifdef BE_TEST
-void ExecEnv::set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine) {
-    _storage_engine = std::move(engine);
-}
 void ExecEnv::set_write_cooldown_meta_executors() {
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
 }
