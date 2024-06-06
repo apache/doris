@@ -370,6 +370,16 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
     return spill_io_pool->submit_func(exception_catch_func);
 }
 
+std::string PartitionedHashJoinProbeOperatorX::debug_string(RuntimeState* state,
+                                                            int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}, in mem join probe: {}",
+                   JoinProbeOperatorX<PartitionedHashJoinProbeLocalState>::debug_string(
+                           state, indentation_level),
+                   _inner_probe_operator ? _inner_probe_operator->debug_string(state, 0) : "NULL");
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status PartitionedHashJoinProbeLocalState::recovery_probe_blocks_from_disk(RuntimeState* state,
                                                                            uint32_t partition_index,
                                                                            bool& has_data) {
