@@ -83,13 +83,14 @@ public class PushCountIntoUnionAll extends OneRewriteRuleFactory {
         Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(childSize);
         Builder<List<SlotReference>> childrenOutputs = ImmutableList.builderWithExpectedSize(childSize);
         // create the pushed down LogicalAggregate
+        List<List<SlotReference>> childSlots = logicalUnion.getRegularChildrenOutputs();
         for (int i = 0; i < childSize; i++) {
-            Plan child = logicalUnion.children().get(i);
-            List<Slot> childOutputs = child.getOutput();
+            List<SlotReference> childOutputs = childSlots.get(i);
             List<Expression> groupByExpressions = replaceExpressionByUnionAll(upperGroupByExpressions, replaceMap,
                     childOutputs);
             List<NamedExpression> outputExpressions = replaceExpressionByUnionAll(upperOutputExpressions, replaceMap,
                     childOutputs);
+            Plan child = logicalUnion.children().get(i);
             LogicalAggregate<Plan> logicalAggregate = new LogicalAggregate<>(groupByExpressions, outputExpressions,
                     child);
             newChildren.add(logicalAggregate);
@@ -129,7 +130,7 @@ public class PushCountIntoUnionAll extends OneRewriteRuleFactory {
     }
 
     private <E extends Expression> List<E> replaceExpressionByUnionAll(List<E> expressions,
-            Map<Slot, Integer> replaceMap, List<Slot> childOutputs) {
+            Map<Slot, Integer> replaceMap, List<? extends Slot> childOutputs) {
         // Traverse expressions. If a slot in replaceMap appears, replace it with childOutputs[replaceMap[slot]]
         return ExpressionUtils.rewriteDownShortCircuit(expressions, expr -> {
             if (expr instanceof Alias && ((Alias) expr).child() instanceof Count) {
