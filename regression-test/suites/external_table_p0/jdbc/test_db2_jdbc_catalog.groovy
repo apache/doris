@@ -202,7 +202,7 @@ suite("test_db2_jdbc_catalog", "p0,external,db2,external_docker,external_docker_
                 "type"="jdbc",
                 "user"="db2inst1",
                 "password"="123456",
-                "jdbc_url" = "jdbc:db2://${externalEnvIp}:${db2_port}/doris",
+                "jdbc_url" = "jdbc:db2://${externalEnvIp}:${db2_port}/doris:allowNextOnExhaustedResultSet=1;resultSetHoldability=1",
                 "driver_url" = "${driver_url}",
                 "driver_class" = "com.ibm.db2.jcc.DB2Driver"
             );"""
