@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -63,6 +64,13 @@ public class MaskFirstN extends ScalarFunction implements ExplicitlyCastableSign
             return new MaskFirstN(children.get(0));
         }
         return new MaskFirstN(children.get(0), children.get(1));
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        if (arity() == 2 && !child(1).isLiteral()) {
+            throw new AnalysisException("mask_first_n must accept literal for 2nd argument");
+        }
     }
 
     @Override
