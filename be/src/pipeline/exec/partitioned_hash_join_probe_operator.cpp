@@ -773,6 +773,16 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     const auto need_to_spill = local_state._shared_state->need_to_spill;
+#ifndef NDEBUG
+    Defer eos_check_defer([&] {
+        if (*eos) {
+            LOG(INFO) << "query: " << print_id(state->query_id())
+                      << ", hash probe node: " << node_id() << ", task: " << state->task_id()
+                      << ", eos with child eos: " << local_state._child_eos
+                      << ", need spill: " << need_to_spill;
+        }
+    });
+#endif
     if (need_more_input_data(state)) {
         if (need_to_spill && _should_revoke_memory(state)) {
             return _revoke_memory(state);
