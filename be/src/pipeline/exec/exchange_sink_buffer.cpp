@@ -157,6 +157,10 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
             _rpc_channel_is_idle[ins_id] = false;
             _busy_channels++;
         }
+        if (request.block) {
+            RETURN_IF_ERROR(
+                    BeExecVersionManager::check_be_exec_version(request.block->be_exec_version()));
+        }
         _instance_to_package_queue[ins_id].emplace(std::move(request));
         _total_queue_size++;
         if (_queue_dependency && _total_queue_size > _queue_capacity) {

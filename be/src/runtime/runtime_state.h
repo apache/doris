@@ -351,8 +351,8 @@ public:
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
 
     int be_exec_version() const {
-        CHECK(_query_options.__isset.be_exec_version &&
-              BeExecVersionManager::check_be_exec_version(_query_options.be_exec_version));
+        DCHECK(_query_options.__isset.be_exec_version &&
+               BeExecVersionManager::check_be_exec_version(_query_options.be_exec_version));
         return _query_options.be_exec_version;
     }
     bool enable_pipeline_x_exec() const {
