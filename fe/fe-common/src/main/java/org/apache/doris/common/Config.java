@@ -2620,7 +2620,7 @@ public class Config extends ConfigBase {
             "倒排索引默认存储格式",
             "Default storage format of inverted index, the default value is V1."
     })
-    public static String inverted_index_storage_format = "V1";
+    public static String inverted_index_storage_format = "V2";
 
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",
