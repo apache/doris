@@ -397,6 +397,7 @@ public class SchemaTable extends Table {
                             .column("DATA_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("CREATION_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.DATETIME))
+                            .column("SCHEMA_VERSION", ScalarType.createType(PrimitiveType.INT))
                             .build()))
             .put("parameters", new SchemaTable(SystemIdGenerator.getNextId(), "parameters", TableType.SCHEMA,
                     builder().column("SPECIFIC_CATALOG", ScalarType.createVarchar(64))
