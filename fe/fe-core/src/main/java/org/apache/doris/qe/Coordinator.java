@@ -662,6 +662,9 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void close() {
+        for (ScanNode scanNode : scanNodes) {
+            scanNode.stop();
+        }
         if (queryQueue != null && queueToken != null) {
             try {
                 queryQueue.returnToken(queueToken);
@@ -1471,6 +1474,9 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
+        for (ScanNode scanNode : scanNodes) {
+            scanNode.stop();
+        }
         lock();
         try {
             if (!queryStatus.ok()) {
