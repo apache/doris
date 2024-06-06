@@ -108,8 +108,6 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
-bvar::Adder<int64_t> g_pipeline_tasks_count("doris_pipeline_tasks_count");
-
 PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const int fragment_id, std::shared_ptr<QueryContext> query_ctx,
         ExecEnv* exec_env, const std::function<void(RuntimeState*, Status*)>& call_back,
@@ -128,6 +126,7 @@ PipelineFragmentContext::PipelineFragmentContext(
 PipelineFragmentContext::~PipelineFragmentContext() {
     // The memory released by the query end is recorded in the query mem tracker.
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    _close_fragment_instance();
     auto st = _query_ctx->exec_status();
     _query_ctx.reset();
     for (size_t i = 0; i < _tasks.size(); i++) {
@@ -164,13 +163,6 @@ void PipelineFragmentContext::cancel(const Status reason) {
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
             .tag("reason", reason.to_string());
-    {
-        std::lock_guard<std::mutex> l(_task_mutex);
-        if (_closed_tasks == _total_tasks) {
-            // All tasks in this PipelineXFragmentContext already closed.
-            return;
-        }
-    }
     // Timeout is a special error code, we need print current stack to debug timeout issue.
     if (reason.is<ErrorCode::TIMEOUT>()) {
         LOG(WARNING) << "PipelineFragmentContext is cancelled due to timeout : " << debug_string();
@@ -201,7 +193,6 @@ void PipelineFragmentContext::cancel(const Status reason) {
 }
 
 PipelinePtr PipelineFragmentContext::add_pipeline() {
-    // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
     auto pipeline = std::make_shared<Pipeline>(
             id, _num_instances,
@@ -211,7 +202,6 @@ PipelinePtr PipelineFragmentContext::add_pipeline() {
 }
 
 PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
-    // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
     auto pipeline = std::make_shared<Pipeline>(
             id, _num_instances,
@@ -354,7 +344,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
 Status PipelineFragmentContext::_build_pipeline_tasks(
         const doris::TPipelineFragmentParams& request) {
-    _total_tasks = 0;
     int target_size = request.local_params.size();
     _tasks.resize(target_size);
     auto pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
@@ -453,7 +442,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
                         _exec_env, _query_ctx.get()));
                 auto& task_runtime_state = _task_runtime_states.back();
                 init_runtime_state(task_runtime_state);
-                auto cur_task_id = _total_tasks++;
+                auto cur_task_id = _task_idx++;
                 task_runtime_state->set_task_id(cur_task_id);
                 task_runtime_state->set_task_num(pipeline->num_tasks());
                 auto task = std::make_unique<PipelineTask>(pipeline, cur_task_id,
@@ -1505,36 +1494,21 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(
 }
 
 Status PipelineFragmentContext::submit() {
-    if (_submitted) {
-        return Status::InternalError("submitted");
-    }
-    _submitted = true;
-
-    int submit_tasks = 0;
     Status st;
     auto* scheduler = _query_ctx->get_pipe_exec_scheduler();
     for (auto& task : _tasks) {
         for (auto& t : task) {
             st = scheduler->schedule_task(t.get());
             if (!st) {
-                cancel(Status::InternalError("submit context to executor fail"));
-                std::lock_guard<std::mutex> l(_task_mutex);
-                _total_tasks = submit_tasks;
-                break;
+                auto err_st =
+                        Status::InternalError("Submit pipeline failed. err = {}, BE: {}",
+                                              st.to_string(), BackendOptions::get_localhost());
+                cancel(err_st);
+                return err_st;
             }
-            submit_tasks++;
         }
     }
-    if (!st.ok()) {
-        std::lock_guard<std::mutex> l(_task_mutex);
-        if (_closed_tasks == _total_tasks) {
-            _close_fragment_instance();
-        }
-        return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
-                                     BackendOptions::get_localhost());
-    } else {
-        return st;
-    }
+    return Status::OK();
 }
 
 // If all pipeline tasks binded to the fragment instance are finished, then we could
@@ -1581,15 +1555,6 @@ void PipelineFragmentContext::_close_fragment_instance() {
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
-}
-
-void PipelineFragmentContext::close_a_pipeline() {
-    std::lock_guard<std::mutex> l(_task_mutex);
-    g_pipeline_tasks_count << -1;
-    ++_closed_tasks;
-    if (_closed_tasks == _total_tasks) {
-        _close_fragment_instance();
-    }
 }
 
 Status PipelineFragmentContext::send_report(bool done) {

@@ -102,8 +102,6 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
-    void close_a_pipeline();
-
     Status send_report(bool);
 
     void trigger_report_if_necessary();
@@ -197,15 +195,12 @@ private:
     ExecEnv* _exec_env = nullptr;
 
     std::atomic_bool _prepared = false;
-    bool _submitted = false;
 
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
-    std::mutex _task_mutex;
-    int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
-    int _total_tasks = 0;
+    int _task_idx = 0;
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
     bool _is_report_success = false;
