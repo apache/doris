@@ -697,6 +697,13 @@ public class DateTimeExtractAndTransform {
                 return new TinyIntLiteral((byte) localDateTime.get(WeekFields.ISO.weekOfYear()));
             }
             case 2: {
+                // https://dev.mysql.com/doc/refman/8.4/en/date-and-time-functions.html#function_week
+                // mode 2 is start with a Sunday day as first week in this year.
+                // and special case for 0000-01-01, as it's SATURDAY, calculate result of 52 is
+                // last year, so it's meaningless.
+                if (localDateTime.equals(LocalDateTime.of(0, 1, 1, 0, 0))) {
+                    return new TinyIntLiteral((byte) 1);
+                }
                 return new TinyIntLiteral(
                         (byte) localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 7).weekOfWeekBasedYear()));
             }
