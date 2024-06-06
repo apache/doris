@@ -42,7 +42,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/stringpiece.h"
 #include "gutil/strings/strip.h"
 #include "http/http_client.h"
 #include "io/fs/file_system.h"
@@ -512,8 +511,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     // Avoid of data is not complete, we copy the header file at last.
     // The header file's name is end of .hdr.
     for (int i = 0; i < file_name_list.size() - 1; ++i) {
-        StringPiece sp(file_name_list[i]);
-        if (sp.ends_with(".hdr")) {
+        if (file_name_list[i].ends_with(".hdr")) {
             std::swap(file_name_list[i], file_name_list[file_name_list.size() - 1]);
             break;
         }
