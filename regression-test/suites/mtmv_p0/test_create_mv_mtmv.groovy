@@ -24,6 +24,11 @@ suite("test_create_mv_mtmv","mtmv") {
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
+    def getJobState = { tableName ->
+        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
+        return jobStateResult[0][8]
+    }
+
     sql """
         CREATE TABLE ${tableName}
         (
@@ -49,6 +54,22 @@ suite("test_create_mv_mtmv","mtmv") {
     sql """
         CREATE MATERIALIZED VIEW mv_mtmv1  as select k2 from ${mvName};
         """
+
+    max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobState(tbName1)
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
+            sleep(3000)
+            break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED",res)
+            }
+        }
+    }
 
     sql """
         insert into ${tableName} values(1,1),(2,2),(3,3);
