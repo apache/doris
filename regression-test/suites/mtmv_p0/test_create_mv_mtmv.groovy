@@ -24,8 +24,8 @@ suite("test_create_mv_mtmv","mtmv") {
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
-    def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
+    def getJobState = { baseName ->
+        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${baseName}' ORDER BY CreateTime DESC LIMIT 1; """
         return jobStateResult[0][8]
     }
 
