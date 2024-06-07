@@ -57,7 +57,7 @@ suite("test_create_mv_mtmv","mtmv") {
 
     max_try_secs = 60
     while (max_try_secs--) {
-        String res = getJobState(tbName1)
+        String res = getJobState(${mvName})
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
