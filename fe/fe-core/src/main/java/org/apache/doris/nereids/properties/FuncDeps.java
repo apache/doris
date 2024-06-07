@@ -144,8 +144,21 @@ public class FuncDeps {
         return items.contains(new FuncDepsItem(dominate, dependency));
     }
 
-    public Set<Slot> calBinaryDependencies(Slot slot) {
-        return new HashSet<>();
+    /**
+     * find the cycle of dependencies
+     */
+    public Set<Set<Slot>> calBinaryDependencies(Set<Slot> slotSet) {
+        Set<Set<Slot>> binaryDeps = new HashSet<>();
+        Set<Set<Slot>> dependencies = edges.get(slotSet);
+        if (dependencies == null) {
+            return binaryDeps;
+        }
+        for (Set<Slot> other : dependencies) {
+            if (edges.get(other).contains(slotSet)) {
+                binaryDeps.add(other);
+            }
+        }
+        return binaryDeps;
     }
 
     @Override

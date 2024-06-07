@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class PushDownAggThroughJoinByFkTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -30,19 +30,22 @@ class PushDownAggThroughJoinByFkTest extends TestWithFeService implements MemoPa
         connectContext.setDatabase("default_cluster:test");
         createTables(
                 "CREATE TABLE IF NOT EXISTS pri (\n"
-                        + "    id1 int not null\n"
+                        + "    id1 int not null,\n"
+                        + "    name char\n"
                         + ")\n"
                         + "DUPLICATE KEY(id1)\n"
                         + "DISTRIBUTED BY HASH(id1) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n",
                 "CREATE TABLE IF NOT EXISTS foreign_not_null (\n"
-                        + "    id2 int not null\n"
+                        + "    id2 int not null,\n"
+                        + "    name char\n"
                         + ")\n"
                         + "DUPLICATE KEY(id2)\n"
                         + "DISTRIBUTED BY HASH(id2) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n",
                 "CREATE TABLE IF NOT EXISTS foreign_null (\n"
-                        + "    id3 int\n"
+                        + "    id3 int,\n"
+                        + "    name char\n"
                         + ")\n"
                         + "DUPLICATE KEY(id3)\n"
                         + "DISTRIBUTED BY HASH(id3) BUCKETS 10\n"
@@ -57,7 +60,49 @@ class PushDownAggThroughJoinByFkTest extends TestWithFeService implements MemoPa
     }
 
     @Test
-    void test1() {
-        Assertions.assertTrue(true);
+    void testGroupByFk() {
+        String sql = "select pri.id1 from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
+                + "group by foreign_not_null.id2, pri.id1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(any(), logicalAggregate()))
+                .printlnTree();
+    }
+
+    @Test
+    void testGroupByFkAndOther() {
+        String sql = "select pri.id1 from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
+                + "group by foreign_not_null.id2, pri.id1, foreign_not_null.name";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(any(), logicalProject(logicalAggregate())))
+                .printlnTree();
+        sql = "select pri.id1 from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
+                + "group by foreign_not_null.id2, pri.id1, pri.name";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(any(), logicalAggregate()))
+                .printlnTree();
+        sql = "select pri.id1 from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
+                + "group by foreign_not_null.id2, pri.id1, pri.name, foreign_not_null.name";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(any(), logicalProject(logicalAggregate())))
+                .printlnTree();
+    }
+
+    @Test
+    void testGroupByFkWithAggFunc() {
+        String sql = "select count(pri.id1) from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
+                + "group by foreign_not_null.id2, pri.id1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalAggregate(logicalProject(logicalJoin())))
+                .printlnTree();
     }
 }
