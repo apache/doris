@@ -174,7 +174,8 @@ public class RoleManager implements Writable, GsonPostProcessable {
                                 }
                             }, (s1, s2) -> s1 + " " + s2
                     ));
-            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE)
+            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE,
+                            PrivLevel.WORKLOAD_GROUP)
                     .forEach(level -> {
                         String infoItem = infoMap.get(level);
                         if (Strings.isNullOrEmpty(infoItem)) {

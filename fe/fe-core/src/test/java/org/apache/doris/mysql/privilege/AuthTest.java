@@ -54,6 +54,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -2438,5 +2439,46 @@ public class AuthTest {
         auth.setInitialRootPassword(new String(scrambled));
         Assert.assertTrue(
                 auth.checkPlainPasswordForTest("root", "192.168.0.1", "validRootPassword", null));
+    }
+
+    @Test
+    public void testShowRoles() {
+        String role = "test_wg_role";
+        CreateRoleStmt roleStmt = new CreateRoleStmt(role);
+        try {
+            roleStmt.analyze(analyzer);
+            auth.createRole(roleStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        AccessPrivilege accessPrivilege = AccessPrivilege.fromName("USAGE_PRIV");
+        AccessPrivilegeWithCols apwc = new AccessPrivilegeWithCols(accessPrivilege);
+        List<AccessPrivilegeWithCols> list = new ArrayList<>();
+        list.add(apwc);
+        WorkloadGroupPattern wgp = new WorkloadGroupPattern("test_wg");
+        GrantStmt grantStmt = new GrantStmt(null, role, wgp, list);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        List<List<String>> showInfo = auth.getRoleInfo();
+        boolean findWgPriv = false;
+        for (int i = 0; i < showInfo.size(); i++) {
+            List<String> row = showInfo.get(i);
+            String name = row.get(0);
+            if (role.equals(name)) {
+                findWgPriv = true;
+                String wgPriv = row.get(row.size() - 1);
+                Assert.assertTrue("test_wg: Usage_priv".equals(wgPriv));
+            }
+        }
+        Assert.assertTrue(findWgPriv);
+
     }
 }
