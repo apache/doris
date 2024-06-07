@@ -826,7 +826,8 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
     }
 
     auto add_obj_store = [&vault_infos](const auto& obj_store) {
-        vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store), StorageVaultPB_PathFormat {});
+        vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
+                                  StorageVaultPB_PathFormat {});
     };
 
     std::ranges::for_each(resp.obj_info(), add_obj_store);

@@ -188,7 +188,6 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
         const S3ClientConf& s3_conf) {
-    LOG_FATAL("currently not support");
     auto cred =
             std::make_shared<Azure::Storage::StorageSharedKeyCredential>(s3_conf.ak, s3_conf.sk);
 
@@ -361,6 +360,9 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     case cloud::ObjectStoreInfoPB_Provider_AZURE:
         type = io::ObjStorageType::AZURE;
         break;
+    default:
+        LOG_FATAL("unknown provider type {}, info {}", info.provider(), ret.to_string());
+        __builtin_unreachable();
     }
     ret.client_conf.provider = type;
     return ret;
@@ -388,9 +390,10 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
     io::ObjStorageType type = io::ObjStorageType::UNKNOWN;
     switch (param.provider) {
     case TObjStorageType::UNKNOWN:
-        LOG_FATAL("Unknown thrift obj storage type {}, detail conf is {}", param.provider,
-                  ret.to_string());
-        __builtin_unreachable();
+        LOG_INFO("Receive one legal storage resource, set provider type to aws, param detail {}",
+                 ret.to_string());
+        type = io::ObjStorageType::AWS;
+        break;
     case TObjStorageType::AWS:
         type = io::ObjStorageType::AWS;
         break;
@@ -412,6 +415,9 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
     case TObjStorageType::GCP:
         type = io::ObjStorageType::GCP;
         break;
+    default:
+        LOG_FATAL("unknown provider type {}, info {}", param.provider, ret.to_string());
+        __builtin_unreachable();
     }
     ret.client_conf.provider = type;
     return ret;
