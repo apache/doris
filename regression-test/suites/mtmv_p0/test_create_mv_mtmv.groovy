@@ -24,11 +24,6 @@ suite("test_create_mv_mtmv","mtmv") {
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
-    def getJobState = { baseName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${baseName}' ORDER BY CreateTime DESC LIMIT 1; """
-        return jobStateResult[0][8]
-    }
-
     sql """
         CREATE TABLE ${tableName}
         (
@@ -57,7 +52,8 @@ suite("test_create_mv_mtmv","mtmv") {
 
     max_try_secs = 60
     while (max_try_secs--) {
-        String res = getJobState(${mvName})
+        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${mvName}' ORDER BY CreateTime DESC LIMIT 1; """
+        String res = jobStateResult[0][8]
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
