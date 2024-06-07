@@ -372,14 +372,14 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 CollectNonWindowedAggFuncs.collect(aggregate.getOutputExpressions());
         ImmutableSet.Builder<Slot> aggUsedSlotBuilder = ImmutableSet.builder();
         for (AggregateFunction function : aggregateFunctions) {
-            aggUsedSlotBuilder.addAll(function.<Set<SlotReference>>collect(SlotReference.class::isInstance));
+            aggUsedSlotBuilder.addAll(function.<SlotReference>collect(SlotReference.class::isInstance));
         }
         ImmutableSet<Slot> aggUsedSlots = aggUsedSlotBuilder.build();
 
         ImmutableSet.Builder<Slot> groupingSetsUsedSlotBuilder = ImmutableSet.builder();
         for (List<Expression> groupingSet : repeat.getGroupingSets()) {
             for (Expression expr : groupingSet) {
-                groupingSetsUsedSlotBuilder.addAll(expr.<Set<SlotReference>>collect(SlotReference.class::isInstance));
+                groupingSetsUsedSlotBuilder.addAll(expr.<SlotReference>collect(SlotReference.class::isInstance));
             }
         }
         ImmutableSet<Slot> groupingSetsUsedSlot = groupingSetsUsedSlotBuilder.build();

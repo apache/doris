@@ -53,8 +53,8 @@ inline doris::StringRef ALWAYS_INLINE to_string_ref(const T& n) {
     return {reinterpret_cast<const char*>(&n), sizeof(T) - (__builtin_clzll(n) >> 3)};
 }
 inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey16& n) {
-    assert(n.high != 0);
-    return {reinterpret_cast<const char*>(&n), 16ul - (__builtin_clzll(n.high) >> 3)};
+    assert(n.items[1] != 0);
+    return {reinterpret_cast<const char*>(&n), 16UL - (__builtin_clzll(n.items[1]) >> 3)};
 }
 
 struct StringHashTableHash {
@@ -67,8 +67,8 @@ struct StringHashTableHash {
     }
     size_t ALWAYS_INLINE operator()(StringKey16 key) const {
         size_t res = -1ULL;
-        res = _mm_crc32_u64(res, key.low);
-        res = _mm_crc32_u64(res, key.high);
+        res = _mm_crc32_u64(res, key.low());
+        res = _mm_crc32_u64(res, key.high());
         return res;
     }
 #else

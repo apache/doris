@@ -371,7 +371,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     auto* tablet = static_cast<Tablet*>(_tablet.get());
     if (block->columns() <= _tablet_schema->num_key_columns() ||
         block->columns() >= _tablet_schema->num_columns()) {
-        return Status::InternalError(
+        return Status::InvalidArgument(
                 fmt::format("illegal partial update block columns: {}, num key columns: {}, total "
                             "schema columns: {}",
                             block->columns(), _tablet_schema->num_key_columns(),

@@ -1117,7 +1117,7 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
         auto& resource = resource_list.emplace_back();
         int64_t id = -1;
         if (auto [_, ec] = std::from_chars(id_str.data(), id_str.data() + id_str.size(), id);
-            ec == std::errc {}) [[unlikely]] {
+            ec != std::errc {}) [[unlikely]] {
             LOG(ERROR) << "invalid resource id format: " << id_str;
         } else {
             resource.__set_id(id);
@@ -1418,7 +1418,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         LOG_INFO("successfully update hdfs resource")
                 .tag("resource_id", param.id)
                 .tag("resource_name", param.name);
-        put_storage_resource(param.id, {std::move(fs), 0}, param.version);
+        put_storage_resource(param.id, {std::move(fs)}, param.version);
     }
 }
 
@@ -1452,7 +1452,7 @@ void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPt
                 .tag("resource_id", param.id)
                 .tag("resource_name", param.name)
                 .tag("root_path", fs->root_path().string());
-        put_storage_resource(param.id, {std::move(fs), 0}, param.version);
+        put_storage_resource(param.id, {std::move(fs)}, param.version);
     }
 }
 
