@@ -812,9 +812,9 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
             auto timeout_second = it.second->timeout_second();
             fmt::format_to(debug_string_buffer,
                            "No.{} (elapse_second={}s, query_timeout_second={}s, instance_id="
-                           "{}, is_timeout={}) : {}\n",
+                           "{}) : {}\n",
                            i, elapsed, timeout_second, print_id(it.first),
-                           it.second->is_timeout(now), it.second->debug_string());
+                           it.second->debug_string());
             i++;
         }
     }
