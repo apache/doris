@@ -149,7 +149,7 @@ suite("test_grouping_sets", "p0") {
     qt_select20 """SELECT k1 ,GROUPING(k1) FROM test_query_db.test GROUP BY CUBE (k1) ORDER BY k1"""
     test {
         sql "SELECT k1 ,GROUPING(k2) FROM test_query_db.test GROUP BY CUBE (k1) ORDER BY k1"
-        exception "Column in Grouping does not exist in GROUP BY clause"
+        exception "Column `k2` in GROUP_ID() does not exist in GROUP BY clause."
     }
 
     // test grouping sets id contain null data
