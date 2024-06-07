@@ -142,7 +142,7 @@ suite("test_mysql_load", "p0") {
     sql """
         LOAD DATA 
         LOCAL
-        INFILE '${test_line_delimiter_file}'
+        INFILE '${test_mysql_load_line_delimiter_file}'
         INTO TABLE ${tableName}
         COLUMNS TERMINATED BY '|'
         LINES TERMINATED BY '\r\n'
