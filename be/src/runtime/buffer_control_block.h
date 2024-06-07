@@ -132,6 +132,7 @@ protected:
     std::unique_ptr<QueryStatistics> _query_statistics;
     std::atomic_bool _batch_queue_empty = false;
     std::vector<std::shared_ptr<pipeline::Dependency>> _result_sink_dependencys;
+    size_t close_cnt = 0;
 };
 
 } // namespace doris

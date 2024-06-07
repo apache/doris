@@ -252,6 +252,11 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
 
 Status BufferControlBlock::close(Status exec_status) {
     std::unique_lock<std::mutex> l(_lock);
+    close_cnt++;
+    if (close_cnt != _result_sink_dependencys.size()) {
+        return Status::OK();
+    }
+
     _is_close = true;
     _status = exec_status;
 
