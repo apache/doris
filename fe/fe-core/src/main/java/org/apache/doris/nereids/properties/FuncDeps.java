@@ -144,6 +144,10 @@ public class FuncDeps {
         return items.contains(new FuncDepsItem(dominate, dependency));
     }
 
+    public Set<Slot> calBinaryDependencies(Slot slot) {
+        return new HashSet<>();
+    }
+
     @Override
     public String toString() {
         return items.toString();
