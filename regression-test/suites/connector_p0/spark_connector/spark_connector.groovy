@@ -28,7 +28,13 @@ suite("spark_connector", "connector") {
     logger.info("finish download spark doris demo ...")
     def run_cmd = "java -jar spark-doris-demo.jar $context.config.feHttpAddress $context.config.feHttpUser regression_test_connector_p0_spark_connector.$tableName"
     logger.info("run_cmd : $run_cmd")
-    def run_spark_jar = run_cmd.execute().getText()
-    logger.info("result: $run_spark_jar")
+    def proc = run_cmd.execute()
+    def sout = new StringBuilder()
+    def serr = new StringBuilder()
+    proc.consumeProcessOutput(sout, serr)
+    proc.waitForOrKill(1200_000)
+    if (proc.exitValue() != 0) {
+      logger.warn("failed to execute jar: code=${proc.exitValue()}, " + "output: ${sout.toString()}, error: ${serr.toString()}")
+    }
     qt_select """ select * from $tableName order by order_id"""
 }
