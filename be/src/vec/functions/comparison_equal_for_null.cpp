@@ -29,6 +29,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -73,6 +74,7 @@ public:
         bool left_only_null = col_left.column->only_null();
         bool right_only_null = col_right.column->only_null();
         if (left_only_null && right_only_null) {
+            // TODO: return ColumnConst after function.cpp::default_implementation_for_constant_arguments supports it.
             auto result_column = ColumnVector<UInt8>::create(input_rows_count, 1);
             block.get_by_position(result).column = std::move(result_column);
             return Status::OK();
@@ -89,12 +91,18 @@ public:
                     nullable_right_col = assert_cast<const ColumnNullable*>(
                             &(assert_cast<const ColumnConst*>(col_right.column.get())
                                       ->get_data_column()));
+                    // Actually, when we reach here, the result can only be all false (all not null).
+                    // Since if right column is const, and it is all null, we will be short-circuited
+                    // to (left_only_null && right_only_null) branch. So here the right column is all not null.
+                    block.get_by_position(result).column = ColumnUInt8::create(
+                            input_rows_count,
+                            nullable_right_col->get_null_map_column().get_data()[0]);
                 } else {
                     nullable_right_col = assert_cast<const ColumnNullable*>(col_right.column.get());
+                    // left column is all null, so result has same nullmap with right column.
+                    block.get_by_position(result).column =
+                            nullable_right_col->get_null_map_column().clone();
                 }
-                // left column is all null, so result has same nullmap with right column.
-                block.get_by_position(result).column =
-                        nullable_right_col->get_null_map_column().clone_resized(input_rows_count);
             }
             return Status::OK();
         } else if (right_only_null) {
@@ -109,12 +117,15 @@ public:
                     nullable_left_col = assert_cast<const ColumnNullable*>(
                             &(assert_cast<const ColumnConst*>(col_left.column.get())
                                       ->get_data_column()));
+                    block.get_by_position(result).column = ColumnUInt8::create(
+                            input_rows_count,
+                            nullable_left_col->get_null_map_column().get_data()[0]);
                 } else {
                     nullable_left_col = assert_cast<const ColumnNullable*>(col_left.column.get());
+                    // right column is all null, so result has same nullmap with left column.
+                    block.get_by_position(result).column =
+                            nullable_left_col->get_null_map_column().clone();
                 }
-                // right column is all null, so result has same nullmap with left column.
-                block.get_by_position(result).column =
-                        nullable_left_col->get_null_map_column().clone_resized(input_rows_count);
             }
             return Status::OK();
         }
