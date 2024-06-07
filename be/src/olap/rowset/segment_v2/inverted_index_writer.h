@@ -106,11 +106,9 @@ public:
 
     Status init() {
         for (auto& tmp_file_dir : _tmp_file_dirs) {
-            bool exists = true;
-            RETURN_IF_ERROR(io::global_local_filesystem()->exists(tmp_file_dir, &exists));
-            if (!exists) {
-                RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(tmp_file_dir));
-            }
+            // delete the tmp dir to avoid the tmp files left by last crash
+            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tmp_file_dir));
+            RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(tmp_file_dir));
         }
         return Status::OK();
     };

@@ -135,6 +135,8 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
+DEFINE_mBool(enable_stacktrace_in_allocator_check_failed, "false");
+
 DEFINE_mInt64(large_memory_check_bytes, "2147483648");
 
 DEFINE_mBool(enable_memory_orphan_check, "true");
@@ -1288,6 +1290,8 @@ DEFINE_Int64(s3_file_system_local_upload_buffer_size, "5242880");
 
 //JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues. The default setting is off.
 DEFINE_Bool(enable_jvm_monitor, "false");
+
+DEFINE_Int32(load_data_dirs_threads, "-1");
 
 // Skip loading stale rowset meta when initializing `TabletMeta` from protobuf
 DEFINE_mBool(skip_loading_stale_rowset_meta, "false");
