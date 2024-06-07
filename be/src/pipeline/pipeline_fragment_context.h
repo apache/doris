@@ -71,6 +71,8 @@ public:
 
     bool is_timeout(const VecDateTimeValue& now) const;
 
+    int timeout_second() const { return _timeout; }
+
     PipelinePtr add_pipeline();
 
     PipelinePtr add_pipeline(PipelinePtr parent, int idx = -1);
