@@ -3885,6 +3885,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableMaterializedViewRewrite;
     }
 
+    public void setEnableMaterializedViewRewrite(boolean enableMaterializedViewRewrite) {
+        this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
+    }
+
     public boolean isMaterializedViewRewriteEnableContainExternalTable() {
         return materializedViewRewriteEnableContainExternalTable;
     }
