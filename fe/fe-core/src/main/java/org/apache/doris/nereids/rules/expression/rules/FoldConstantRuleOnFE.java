@@ -80,6 +80,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
@@ -420,18 +421,36 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         // todo: process other null case
         if (child.isNullLiteral()) {
             return new NullLiteral(dataType);
-        } else if (child instanceof StringLikeLiteral && dataType instanceof DateLikeType) {
-            try {
-                return ((DateLikeType) dataType).fromString(((StringLikeLiteral) child).getStringValue());
-            } catch (AnalysisException t) {
-                if (cast.isExplicitType()) {
-                    return new NullLiteral(dataType);
-                } else {
-                    // If cast is from type coercion, we don't use NULL literal and will throw exception.
-                    throw t;
+        } else if (child instanceof StringLikeLiteral) {
+            if (dataType instanceof DateLikeType) {
+                try {
+                    return ((DateLikeType) dataType).fromString(((StringLikeLiteral) child).getStringValue());
+                } catch (AnalysisException t) {
+                    if (cast.isExplicitType()) {
+                        return new NullLiteral(dataType);
+                    } else {
+                        // If cast is from type coercion, we don't use NULL literal and will throw exception.
+                        throw t;
+                    }
+                }
+            } else if (dataType instanceof IntegralType) {
+                try {
+                    String num = parse(((StringLikeLiteral) child).getStringValue());
+                    if (num == null || num.isEmpty()) {
+                        return new NullLiteral(dataType);
+                    }
+                    return ((IntegralType) dataType).fromString(num);
+                } catch (AnalysisException t) {
+                    if (cast.isExplicitType()) {
+                        return new NullLiteral(dataType);
+                    } else {
+                        // If cast is from type coercion, we don't use NULL literal and will throw exception.
+                        throw t;
+                    }
                 }
             }
         }
+
         try {
             Expression castResult = child.checkedCastTo(dataType);
             if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
@@ -441,6 +460,25 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         } catch (Throwable t) {
             return cast;
         }
+    }
+
+    private String parse(String s) {
+        int i = 0;
+        String num = "";
+        // find consecutive digit
+        while (i < s.length()) {
+            char c = s.charAt(i);
+            if (Character.isDigit(c)) {
+                int j = i + 1;
+                while (j < s.length() && Character.isDigit(s.charAt(j))) {
+                    j += 1;
+                }
+                num = s.substring(i, j);
+                break;
+            }
+            i += 1;
+        }
+        return num;
     }
 
     @Override

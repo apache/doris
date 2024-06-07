@@ -17,8 +17,17 @@
 
 package org.apache.doris.nereids.types.coercion;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 
 /**
  * Abstract class for all integral data type in Nereids.
@@ -44,5 +53,22 @@ public class IntegralType extends NumericType {
 
     public boolean widerThan(IntegralType other) {
         return this.width() > other.width();
+    }
+
+    /**
+     * parse string to integer like literal.
+     */
+    public IntegerLikeLiteral fromString(String s) {
+        if (this instanceof TinyIntType) {
+            return new TinyIntLiteral(Byte.parseByte(s));
+        } else if (this instanceof SmallIntType) {
+            return new SmallIntLiteral(Short.parseShort(s));
+        } else if (this instanceof IntegerType) {
+            return new IntegerLiteral(Integer.parseInt(s));
+        } else if (this instanceof BigIntType) {
+            return new BigIntLiteral(Long.parseLong(s));
+        } else {
+            throw new AnalysisException("unknown integer like type");
+        }
     }
 }
