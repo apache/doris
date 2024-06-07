@@ -1726,6 +1726,8 @@ public class Env {
             getConsistencyChecker().start();
             // Backup handler
             getBackupHandler().start();
+            // collect partition version && isInMemory
+            partitionInfoCollector.start();
         }
         jobManager.start();
         // transient task manager
@@ -1753,7 +1755,6 @@ public class Env {
         // start daemon thread to update db used data quota for db txn manager periodically
         dbUsedDataQuotaInfoCollector.start();
         // start daemon thread to update global partition in memory information periodically
-        partitionInfoCollector.start();
         if (Config.enable_storage_policy) {
             cooldownConfHandler.start();
         }
