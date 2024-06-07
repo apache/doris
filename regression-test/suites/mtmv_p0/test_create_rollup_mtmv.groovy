@@ -38,7 +38,7 @@ suite("test_create_rollup_mtmv","mtmv") {
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
-        KEY(`k3`)
+        KEY(`k2`)
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
         'replication_num' = '1'
@@ -48,7 +48,7 @@ suite("test_create_rollup_mtmv","mtmv") {
         """
 
     sql """
-        alter table ${mvName} ADD ROLLUP rollup1(k2);
+        alter table ${mvName} ADD ROLLUP rollup1(k3);
         """
 
     max_try_secs = 60
@@ -76,15 +76,15 @@ suite("test_create_rollup_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_mv "SELECT * FROM ${mvName}"
-    order_qt_sync_mv "SELECT k2 FROM ${mvName}"
+    order_qt_sync_mv "SELECT k3 FROM ${mvName}"
 
-    def explainResult = sql """explain SELECT k2 FROM ${mvName}"""
+    def explainResult = sql """explain SELECT k3 FROM ${mvName}"""
     logger.info("explainResult: " + explainResult.toString())
-    assertTrue(explainResult.toString().contains('mv_mtmv1'))
+    assertTrue(explainResult.toString().contains('rollup1'))
 
     sql """alter table ${mvName} drop ROLLUP rollup1;"""
 
-    order_qt_async_mv "SELECT k2 FROM ${mvName}"
+    order_qt_async_mv "SELECT k3 FROM ${mvName}"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
