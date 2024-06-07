@@ -69,6 +69,14 @@ public class Index implements Writable {
         this.indexType = indexType;
         this.properties = properties;
         this.comment = comment;
+        if (indexType == IndexDef.IndexType.INVERTED) {
+            if (this.properties != null && !this.properties.isEmpty()) {
+                String key = InvertedIndexUtil.INVERTED_INDEX_PARSER_LOWERCASE_KEY;
+                if (!properties.containsKey(key)) {
+                    this.properties.put(key, "true");
+                }
+            }
+        }
     }
 
     public Index() {
