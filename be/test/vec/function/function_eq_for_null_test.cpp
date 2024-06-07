@@ -113,7 +113,7 @@ TEST(EqForNullFunctionTest, both_only_null_const) {
 
 TEST(EqForNullFunctionTest, left_only_null_right_const) {
     const size_t input_rows_count = 100;
-
+    // Input [NULL, NULL, NULL, NULL] & [NULL, NULL, NULL, NULL]
     auto left_i32 = ColumnInt32::create(1, 1);
     auto right_i32 = ColumnInt32::create(1, 1);
     auto null_map_for_all_null = ColumnUInt8::create(1, 1);
