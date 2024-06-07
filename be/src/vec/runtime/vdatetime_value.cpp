@@ -680,7 +680,6 @@ bool VecDateTimeValue::to_format_string_conservative(const char* format, int len
         return false;
     }
     char* const begin = to; // to check written bytes
-    constexpr int SAFE_MARGIN = 12;
     char buf[64];
     char* cursor = buf;
     char* pos = nullptr;
@@ -689,7 +688,7 @@ bool VecDateTimeValue::to_format_string_conservative(const char* format, int len
     char ch = '\0';
 
     while (ptr < end) {
-        if (to - begin + SAFE_MARGIN > max_valid_length) [[unlikely]] {
+        if (to - begin + SAFE_FORMAT_STRING_MARGIN > max_valid_length) [[unlikely]] {
             return false;
         }
         if (*ptr != '%' || (ptr + 1) == end) {
@@ -3447,7 +3446,6 @@ bool DateV2Value<T>::to_format_string_conservative(const char* format, int len, 
         return false;
     }
     char* const begin = to; // to check written bytes
-    constexpr int SAFE_MARGIN = 12;
     char buf[64];
     char* pos = nullptr;
     char* cursor = buf;
@@ -3456,7 +3454,7 @@ bool DateV2Value<T>::to_format_string_conservative(const char* format, int len, 
     char ch = '\0';
 
     while (ptr < end) {
-        if (to - begin + SAFE_MARGIN > max_valid_length) [[unlikely]] {
+        if (to - begin + SAFE_FORMAT_STRING_MARGIN > max_valid_length) [[unlikely]] {
             return false;
         }
         if (*ptr != '%' || (ptr + 1) == end) {

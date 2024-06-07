@@ -1238,8 +1238,9 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
                 binary_cast<CppType, DateV2Value<DateV2ValueType>>(tmp);
         std::string format = "%Y-%m-%d";
         std::string res;
-        res.resize(30);
-        value.to_format_string_conservative(format.c_str(), format.size(), res.data(), 30);
+        res.resize(12 + SAFE_FORMAT_STRING_MARGIN);
+        value.to_format_string_conservative(format.c_str(), format.size(), res.data(),
+                                            12 + SAFE_FORMAT_STRING_MARGIN);
         return res;
     }
 
@@ -1276,8 +1277,9 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
                 binary_cast<CppType, DateV2Value<DateTimeV2ValueType>>(tmp);
         string format = "%Y-%m-%d %H:%i:%s.%f";
         string res;
-        res.resize(45);
-        value.to_format_string_conservative(format.c_str(), format.size(), res.data(), 45);
+        res.resize(30 + SAFE_FORMAT_STRING_MARGIN);
+        value.to_format_string_conservative(format.c_str(), format.size(), res.data(),
+                                            30 + SAFE_FORMAT_STRING_MARGIN);
         return res;
     }
 

@@ -143,6 +143,8 @@ struct TimeInterval {
 
 enum TimeType { TIME_TIME = 1, TIME_DATE = 2, TIME_DATETIME = 3 };
 
+constexpr int SAFE_FORMAT_STRING_MARGIN = 12;
+
 // Used to compute week
 const int WEEK_MONDAY_FIRST = 1;
 const int WEEK_YEAR = 2;
@@ -394,6 +396,7 @@ public:
     // Convert this datetime value to string by the format string.
     // for performance of checking, may return false when just APPROACH BUT NOT REACH max_valid_length.
     // so need a little big buffer and its length as max_valid_length to make sure store valid data.
+    // to make sure of this. make the buffer size = <data_need_length> + SAFE_FORMAT_STRING_MARGIN. and pass this size as max_valid_length
     bool to_format_string_conservative(const char* format, int len, char* to,
                                        int max_valid_length) const;
 
@@ -821,8 +824,10 @@ public:
         return val;
     }
 
+    // Convert this datetime value to string by the format string.
     // for performance of checking, may return false when just APPROACH BUT NOT REACH max_valid_length.
     // so need a little big buffer and its length as max_valid_length to make sure store valid data.
+    // to make sure of this. make the buffer size = <data_need_length> + SAFE_FORMAT_STRING_MARGIN. and pass this size as max_valid_length
     bool to_format_string_conservative(const char* format, int len, char* to,
                                        int max_valid_length) const;
 

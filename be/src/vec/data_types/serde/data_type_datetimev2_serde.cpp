@@ -55,8 +55,9 @@ Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column
 
     if (options.date_olap_format) {
         std::string format = "%Y-%m-%d %H:%i:%s.%f";
-        char buf[45];
-        val.to_format_string_conservative(format.c_str(), format.size(), buf, 45);
+        char buf[30 + SAFE_FORMAT_STRING_MARGIN];
+        val.to_format_string_conservative(format.c_str(), format.size(), buf,
+                                          30 + SAFE_FORMAT_STRING_MARGIN);
         std::string s = std::string(buf);
         bw.write(s.c_str(), s.length());
     } else {
