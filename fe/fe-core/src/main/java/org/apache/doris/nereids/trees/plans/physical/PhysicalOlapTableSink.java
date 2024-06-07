@@ -199,14 +199,15 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
      */
     public PhysicalProperties getRequirePhysicalProperties() {
         if (targetTable.isPartitionDistributed()) {
-            final long partitionNums = targetTable.getPartitionInfo().getAllPartitions().size();
-            final long tabletNums = partitionNums * distributionInfo.getBucketNum();
             DistributionInfo distributionInfo = targetTable.getDefaultDistributionInfo();
             if (distributionInfo instanceof HashDistributionInfo) {
                 // Do not enable shuffle for duplicate key tables when its tablet num is less than threshold.
-                if (targetTable.getKeysType() == KeysType.DUP_KEYS
-                        && tabletNums < Config.min_tablets_for_dup_table_shuffle) {
-                    return PhysicalProperties.ANY;
+                if (targetTable.getKeysType() == KeysType.DUP_KEYS) {
+                    final long partitionNums = targetTable.getPartitionInfo().getAllPartitions().size();
+                    final long tabletNums = partitionNums * distributionInfo.getBucketNum();
+                    if (tabletNums < Config.min_tablets_for_dup_table_shuffle) {
+                        return PhysicalProperties.ANY;
+                    }
                 }
                 return PhysicalProperties.TABLET_ID_SHUFFLE;
             } else if (distributionInfo instanceof RandomDistributionInfo) {
