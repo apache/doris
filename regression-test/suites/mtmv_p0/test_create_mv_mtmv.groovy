@@ -45,12 +45,28 @@ suite("test_create_mv_mtmv","mtmv") {
         AS
         SELECT * from ${tableName};
         """
-    test {
-          sql """
-              CREATE MATERIALIZED VIEW mv_mtmv1   as select k2 from ${mvName};
-          """
-          exception "Not allowed"
-      }
+
+    sql """
+        CREATE MATERIALIZED VIEW mv_mtmv1  as select k2 from ${mvName};
+        """
+
+    sql """
+        insert into ${tableName} values(1,1),(2,2),(3,3);
+        """
+     sql """
+        REFRESH MATERIALIZED VIEW ${mvName} complete
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_refresh_mv "SELECT * FROM ${mvName}"
+    order_qt_sync_mv "SELECT k2 FROM ${mvName}"
+
+    def explainResult = sql """explain SELECT k2 FROM ${mvName}"""
+    logger.info("explainResult: " + explainResult.toString())
+    assertTrue(explainResult.toString().contains('mv_mtmv1'))
+
+    sql """DROP MATERIALIZED VIEW  mv_mtmv1 ON ${mvName};"""
+
+    order_qt_async_mv "SELECT k2 FROM ${mvName}"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
