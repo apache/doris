@@ -1161,8 +1161,7 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                           << tablet_in_not_shutdown->tablet_id()
                           << " mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
                           << " shutdown tablet path=" << tablet->tablet_path();
-                return tablet_in_not_shutdown->data_dir()->move_to_trash(
-                        tablet_in_not_shutdown->tablet_path());
+                return tablet->data_dir()->move_to_trash(tablet->tablet_path());
             } else {
                 LOG(INFO) << "tablet path eq shutdown tablet path, not move to trash, tablet_id="
                           << tablet_in_not_shutdown->tablet_id()
