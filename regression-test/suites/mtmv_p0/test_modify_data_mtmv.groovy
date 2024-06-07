@@ -46,6 +46,14 @@ suite("test_modify_data_mtmv","mtmv") {
         SELECT * from ${tableName};
         """
 
+    sql """
+        insert into ${tableName} values(1,1),(2,2),(3,3);
+        """
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+
     // insert into mtmv
     test {
         sql """insert into ${mvName} values(1,1)"""
