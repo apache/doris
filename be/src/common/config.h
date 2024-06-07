@@ -171,10 +171,13 @@ DECLARE_mString(process_full_gc_size);
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
-//waibibabu
+
 // gc will release cache, cancel task, and task will wait for gc to release memory,
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
+
+// Allocator check failed log stacktrace if not catch exception
+DECLARE_mBool(enable_stacktrace_in_allocator_check_failed);
 
 // malloc or new large memory larger than large_memory_check_bytes, default 2G,
 // will print a warning containing the stacktrace, but not prevent memory alloc.
