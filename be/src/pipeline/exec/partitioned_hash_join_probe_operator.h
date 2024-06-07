@@ -155,6 +155,8 @@ public:
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
                 bool* eos) const override;
 
+    std::string debug_string(RuntimeState* state, int indentation_level = 0) const override;
+
     bool need_more_input_data(RuntimeState* state) const override;
     DataDistribution required_data_distribution() const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
