@@ -34,6 +34,7 @@ suite ("mv_ignore_predicate") {
         """
 
     sql "insert into d_table select 1,1,1,'a';"
+    sql "insert into d_table select 1,1,1,'a';"
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 

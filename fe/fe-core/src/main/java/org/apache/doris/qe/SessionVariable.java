@@ -4004,6 +4004,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableSyncMvCostBasedRewrite;
     }
 
+    public void setEnableSyncMvCostBasedRewrite(boolean enableSyncMvCostBasedRewrite) {
+        this.enableSyncMvCostBasedRewrite = enableSyncMvCostBasedRewrite;
+    }
+
     public int getMaterializedViewRelationMappingMaxCount() {
         return materializedViewRelationMappingMaxCount;
     }
