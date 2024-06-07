@@ -754,8 +754,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         } catch (AnalysisException e) {
             if (!ifExists) {
                 throw new UserException(e);
+            } else {
+                // ignore it, as drop it if exist, so can't sure it must exist
+                return;
             }
-            // ignore it, as drop it if exist, so can't sure it must exist
         }
 
         dropFunctionImpl(function, ifExists);
