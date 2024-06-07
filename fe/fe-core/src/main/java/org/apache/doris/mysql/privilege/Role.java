@@ -649,11 +649,6 @@ public class Role implements Writable, GsonPostProcessable {
             return;
         }
 
-        if ("%".equals(resourcePattern.getResourceName())) {
-            LOG.info("ignore for compatible, resource name is %, current not exist GLOBAL level in resource");
-            return;
-        }
-
         ResourcePrivEntry entry;
         try {
             entry = ResourcePrivEntry.create(resourcePattern.getResourceName(), privs);
