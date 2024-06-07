@@ -1829,9 +1829,9 @@ public class Coordinator implements CoordInterface {
                                 leftMostNode.getNumInstances());
                         boolean forceToLocalShuffle = context != null
                                 && context.getSessionVariable().isForceToLocalShuffle();
-                        boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
-                                .allMatch(scanNode -> scanNode.ignoreStorageDataDistribution(context,
-                                        addressToBackendID.size())) && useNereids);
+                        boolean ignoreStorageDataDistribution = (forceToLocalShuffle || (scanNodes.stream().allMatch(
+                                scanNode -> scanNode.ignoreStorageDataDistribution(context, addressToBackendID.size()))
+                                && useNereids)) && !(fragment.getSink() instanceof ResultSink);
                         if (node.isPresent() && (!node.get().shouldDisableSharedScan(context)
                                 || ignoreStorageDataDistribution)) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
