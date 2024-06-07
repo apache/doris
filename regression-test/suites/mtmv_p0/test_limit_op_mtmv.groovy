@@ -222,6 +222,12 @@ suite("test_limit_op_mtmv") {
         Assert.fail();
     }
 
+    // not allow modify engine
+    test {
+        sql """ALTER TABLE ${mvName} MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");"""
+        exception "Not allowed"
+    }
+
     // not allow dynamic_partition
     test {
         sql """ALTER TABLE ${mvName} set ("dynamic_partition.enable" = "true")"""
