@@ -54,7 +54,8 @@ std::string InvertedIndexDescriptor::get_index_file_path_v2(std::string_view ind
 //   {storage_dir}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{seg_id}
 // remote path v0 prefix:
 //   data/{tablet_id}/{rowset_id}_{seg_id}
-std::string_view InvertedIndexDescriptor::get_index_file_path_prefix(std::string_view segment_path) {
+std::string_view InvertedIndexDescriptor::get_index_file_path_prefix(
+        std::string_view segment_path) {
     CHECK(segment_path.ends_with(segment_suffix));
     segment_path.remove_suffix(segment_suffix.size());
     return segment_path;
@@ -62,8 +63,8 @@ std::string_view InvertedIndexDescriptor::get_index_file_path_prefix(std::string
 
 // {prefix}_{index_id}@{suffix} for inverted index cache
 std::string InvertedIndexDescriptor::get_index_file_cache_key(std::string_view index_path_prefix,
-                                                            int64_t index_id,
-                                                            std::string_view index_path_suffix) {
+                                                              int64_t index_id,
+                                                              std::string_view index_path_suffix) {
     std::string suffix =
             index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
     return fmt::format("{}_{}{}", index_path_prefix, index_id, suffix);

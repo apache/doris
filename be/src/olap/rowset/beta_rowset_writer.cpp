@@ -456,8 +456,10 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     if (_context.tablet_schema->get_inverted_index_storage_format() >=
         InvertedIndexStorageFormatPB::V2) {
         if (_context.tablet_schema->has_inverted_index()) {
-            auto src_idx_path = InvertedIndexDescriptor::get_index_file_path_v2(src_index_path_prefix);
-            auto dst_idx_path = InvertedIndexDescriptor::get_index_file_path_v2(dst_index_path_prefix);
+            auto src_idx_path =
+                    InvertedIndexDescriptor::get_index_file_path_v2(src_index_path_prefix);
+            auto dst_idx_path =
+                    InvertedIndexDescriptor::get_index_file_path_v2(dst_index_path_prefix);
 
             ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
             if (ret) {

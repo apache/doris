@@ -283,8 +283,9 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
             if (tablet_schema->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
                 for (auto index_meta : indices_ids) {
-                    std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v1(
-                            index_path_prefix, index_meta.first, index_meta.second);
+                    std::string inverted_index_file =
+                            InvertedIndexDescriptor::get_index_file_path_v1(
+                                    index_path_prefix, index_meta.first, index_meta.second);
                     int64_t size = std::filesystem::file_size(inverted_index_file);
                     PTabletWriteSlaveRequest::IndexSize index_size;
                     index_size.set_indexid(index_meta.first);

@@ -158,7 +158,8 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
                 }
                 // Erase the origin index file cache
                 auto idx_file_cache_key = InvertedIndexDescriptor::get_index_file_cache_key(
-                        InvertedIndexDescriptor::get_index_file_path_prefix(seg_path), index_id, index_info->get_index_suffix());
+                        InvertedIndexDescriptor::get_index_file_path_prefix(seg_path), index_id,
+                        index_info->get_index_suffix());
                 RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(idx_file_cache_key));
             }
         }

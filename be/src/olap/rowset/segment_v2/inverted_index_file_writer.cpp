@@ -139,8 +139,8 @@ Status InvertedIndexFileWriter::close() {
                 auto index_suffix = entry.first.second;
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "CLuceneError occur when close idx file {}, error msg: {}",
-                        InvertedIndexDescriptor::get_index_file_path_v1(
-                                _index_path_prefix, index_id, index_suffix),
+                        InvertedIndexDescriptor::get_index_file_path_v1(_index_path_prefix,
+                                                                        index_id, index_suffix),
                         err.what());
             }
         }
