@@ -823,6 +823,9 @@ public class SchemaChangeHandler extends AlterHandler {
             if (oneCol == null) {
                 throw new DdlException("Column[" + colName + "] not exists");
             }
+            if (oneCol.getGeneratedColumnInfo() != null) {
+                throw new DdlException("Temporarily does not support changing the position of generated columns.");
+            }
             newSchema.add(oneCol);
             if (colNameSet.contains(colName)) {
                 throw new DdlException("Reduplicative column[" + colName + "]");
