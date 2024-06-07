@@ -47,14 +47,14 @@ suite("test_from_millisecond_microsecond") {
     qt_select1 """
         select 
         from_millisecond(t) as t1 , 
-        microseconds_add(cast(from_unixtime(t/1000) as datetime(3)), cast((t % 1000) * 1000 as int)) as t2 
+        microseconds_add(cast(from_unixtime(cast(t/1000 as BigInt)) as datetime(3)), cast((t % 1000) * 1000 as int)) as t2 
         from millimicro order by id;
     """
 
     qt_select2 """
         select 
         from_microsecond(t) as t1 , 
-        microseconds_add(cast(from_unixtime(t/1000000) as datetime(6)), cast((t % 1000000) as int)) as t2 
+        microseconds_add(cast(from_unixtime(cast(t/1000000 as BigInt)) as datetime(6)), cast((t % 1000000) as int)) as t2 
         from millimicro order by id;
     """ 
     // 32536771199 is max valid timestamp for from_unixtime
@@ -162,14 +162,14 @@ suite("test_from_millisecond_microsecond") {
     qt_select1 """
         select 
         from_millisecond(t) as t1 , 
-        microseconds_add(cast(from_unixtime(t/1000) as datetime(3)), cast((t % 1000) * 1000 as int)) as t2 
+        microseconds_add(cast(from_unixtime(cast(t/1000 as BigInt)) as datetime(3)), cast((t % 1000) * 1000 as int)) as t2 
         from millimicro order by id;
     """
 
     qt_select2 """
         select 
         from_microsecond(t) as t1 , 
-        microseconds_add(cast(from_unixtime(t/1000000) as datetime(6)), cast((t % 1000000) as int)) as t2 
+        microseconds_add(cast(from_unixtime(cast(t/1000000 as BigInt)) as datetime(6)), cast((t % 1000000) as int)) as t2 
         from millimicro order by id;
     """ 
     // 32536771199 is max valid timestamp for from_unixtime

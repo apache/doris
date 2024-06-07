@@ -43,33 +43,49 @@ enum class ArgumentNumber { One, Two };
 
 template <typename T, ArgumentNumber argument_num>
 struct FromDecimal {
-    static void apply(const ColumnDecimal<T>* col_dec, Int64 scale, StringRef formatter,
+    static void apply(const ColumnDecimal<T>* col_dec, Int32 source_decimal_scale, StringRef formatter,
                       const cctz::time_zone& time_zone, ColumnString::MutablePtr& col_res,
                       ColumnUInt8::MutablePtr& col_null_map) {
         const size_t input_rows_count = col_dec->size();
+        DateV2Value<DateTimeV2ValueType> max_datetime(0);
+        // explain the magic number:
+        // https://dev.mysql.com/doc/refman/8.0/en/date-and-time-functions.html#function_from-unixtime
+        max_datetime.from_unixtime(32536771199, 999999000, time_zone, 6);
+
         for (size_t i = 0; i < input_rows_count; ++i) {
             // For from_unixtime(x.10) we will get 10
-            Int64 fraction = col_dec->get_fractional_part(i);
+            Int128 fraction = col_dec->get_fractional_part(i);
             if (fraction < 0) {
                 col_res->insert_default();
                 col_null_map->insert_value(1);
                 continue;
             }
 
-            DateV2Value<DateTimeV2ValueType> datetime(0);
-
-            if (scale > 9) {
-                fraction /= common::exp10_i32(scale - 9);
+            // normalize the fraction to 9 digits to represent nanoseconds
+            if (source_decimal_scale > 9) {
+                fraction /= common::exp10_i32(source_decimal_scale - 9);
             } else {
-                fraction *= common::exp10_i32(9 - scale);
+                fraction *= common::exp10_i32(9 - source_decimal_scale);
             }
-            datetime.from_unixtime(col_dec->get_whole_part(i), fraction, time_zone,
-                                   scale > 6 ? 6 : scale);
+
+            source_decimal_scale = std::min(source_decimal_scale, 6);
+
+            DateV2Value<DateTimeV2ValueType> datetime(0);
+            datetime.from_unixtime(col_dec->get_whole_part(i), fraction, time_zone, source_decimal_scale);
+
+            // The boundary check must be in the format as Datetime, we can not do the check by Decimal directly, because
+            // of the time zone.
+            if (datetime > max_datetime) {
+                col_res->insert_default();
+                col_null_map->insert_value(1);
+                continue;
+            }
 
             char buf[128];
 
             if constexpr (argument_num == ArgumentNumber::One) {
-                if (datetime.to_string(buf, scale) != buf) {
+                // For decimal input, result str should have the same scale as the input
+                if (datetime.to_string(buf, source_decimal_scale) != buf) {
                     col_res->insert_data(buf, strlen(buf));
                     col_null_map->insert_value(0);
                 } else {
@@ -93,7 +109,7 @@ struct FromInt64 {
     // https://dev.mysql.com/doc/refman/8.0/en/date-and-time-functions.html#function_from-unixtime
     // Keep consistent with MySQL
     static const int64_t TIMESTAMP_VALID_MAX = 32536771199;
-    static void apply(const ColumnInt64* col_int64, Int64 scale, StringRef formatter,
+    static void apply(const ColumnInt64* col_int64, Int32 scale, StringRef formatter,
                       const cctz::time_zone& time_zone, ColumnString::MutablePtr& col_res,
                       ColumnUInt8::MutablePtr& col_null_map) {
         const size_t input_rows_count = col_int64->size();
@@ -123,9 +139,8 @@ struct FromInt64 {
 
 template <typename from_type, ArgumentNumber argument_num>
 class FunctionFromUnixTime : public IFunction {
-    static_assert(std::is_same_v<from_type, Int64> || std::is_same_v<from_type, Float64> ||
-                          IsDecimalNumber<from_type>,
-                  "from_unixtime only support using Int64, Decimal or Float64 as first arugment.");
+    static_assert(std::is_same_v<from_type, Int64> || IsDecimalNumber<from_type>,
+                  "from_unixtime only support using Int64, Decimal as first arugment.");
 
 public:
     static constexpr auto name = "from_unixtime";
@@ -164,13 +179,8 @@ public:
             } else {
                 return {std::make_shared<vectorized::DataTypeInt64>()};
             }
-        } else if constexpr (std::is_same_v<from_type, Float64>) {
-            if constexpr (argument_num == ArgumentNumber::Two) {
-                return {std::make_shared<vectorized::DataTypeFloat64>(),
-                        std::make_shared<vectorized::DataTypeString>()};
-            } else {
-                return {std::make_shared<vectorized::DataTypeFloat64>()};
-            }
+        } else {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Illegal column type");
         }
     }
 
@@ -220,14 +230,12 @@ public:
         ColumnString::MutablePtr col_res = ColumnString::create();
         ColumnUInt8::MutablePtr col_null_map = ColumnUInt8::create();
 
-        Int64 scale = 0;
+        Int32 scale = 0;
         if constexpr (IsDecimalNumber<from_type>) {
             // The scale of the decimal column is used to determine the scale of the Datetime
             // If scale is larger than 6, it will be truncated to 6 in DateV2Value::from_unixtime
             // see https://github.com/apache/doris/blob/0939ab1271424449b508717daa77906ce6e71e01/be/src/vec/runtime/vdatetime_value.cpp#L3361
             scale = block.get_by_position(arguments[0]).type->get_scale();
-        } else if constexpr (std::is_same_v<from_type, Float64>) {
-            scale = 6;
         }
 
         // For integer input, do not print the microsecond part
