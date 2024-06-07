@@ -174,31 +174,49 @@ StorageEngine::~StorageEngine() {
     stop();
 }
 
-// Note: Only the previously existing root path can be reloaded here, that is, the root path registered when re load starts is allowed,
-// but the brand new path of re load is not allowed because the ce scheduler information has not been thoroughly updated here
 static Status load_data_dirs(const std::vector<DataDir*>& data_dirs) {
-    std::vector<std::thread> threads;
-    std::vector<Status> results(data_dirs.size());
-    for (size_t i = 0; i < data_dirs.size(); ++i) {
-        threads.emplace_back(
-                [&results, data_dir = data_dirs[i]](size_t index) {
-                    results[index] = data_dir->load();
-                    if (!results[index].ok()) {
-                        LOG(WARNING) << "io error when init load tables. res=" << results[index]
-                                     << ", data dir=" << data_dir->path();
-                    }
-                },
-                i);
+    std::unique_ptr<ThreadPool> pool;
+
+    int num_threads = config::load_data_dirs_threads;
+    if (num_threads <= 0) {
+        num_threads = data_dirs.size();
     }
-    for (auto& thread : threads) {
-        thread.join();
-    }
-    for (const auto& result : results) {
-        if (!result.ok()) {
-            return result;
+
+    auto st = ThreadPoolBuilder("load_data_dir")
+                      .set_min_threads(num_threads)
+                      .set_max_threads(num_threads)
+                      .build(&pool);
+    CHECK(st.ok()) << st;
+
+    std::mutex result_mtx;
+    Status result;
+
+    for (auto* data_dir : data_dirs) {
+        st = pool->submit_func([&, data_dir] {
+            {
+                std::lock_guard lock(result_mtx);
+                if (!result.ok()) { // Some data dir has failed
+                    return;
+                }
+            }
+
+            auto st = data_dir->load();
+            if (!st.ok()) {
+                LOG(WARNING) << "error occured when init load tables. res=" << st
+                             << ", data dir=" << data_dir->path();
+                std::lock_guard lock(result_mtx);
+                result = std::move(st);
+            }
+        });
+
+        if (!st.ok()) {
+            return st;
         }
     }
-    return Status::OK();
+
+    pool->wait();
+
+    return result;
 }
 
 Status StorageEngine::_open() {

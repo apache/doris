@@ -1367,6 +1367,9 @@ DECLARE_Int64(s3_file_system_local_upload_buffer_size);
 //JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues.
 DECLARE_Bool(enable_jvm_monitor);
 
+// Num threads to load data dirs, default value -1 indicates the same number of threads as the number of data dirs
+DECLARE_Int32(load_data_dirs_threads);
+
 // Skip loading stale rowset meta when initializing `TabletMeta` from protobuf
 DECLARE_mBool(skip_loading_stale_rowset_meta);
 // Whether to use file to record log. When starting BE with --console,
