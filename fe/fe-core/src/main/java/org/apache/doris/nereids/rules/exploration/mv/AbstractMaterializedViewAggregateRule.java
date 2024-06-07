@@ -270,16 +270,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                             viewAggregate.treeString()));
             return false;
         }
-        boolean queryHasGroupSets = queryAggregate.getSourceRepeat()
-                .map(repeat -> repeat.getGroupingSets().size()).orElse(0) > 0;
         boolean viewHasGroupSets = viewAggregate.getSourceRepeat()
                 .map(repeat -> repeat.getGroupingSets().size()).orElse(0) > 0;
-        // if both query and view has no group sets, maybe rewrite
-        if (!queryHasGroupSets && !viewHasGroupSets) {
-            return true;
-        }
         // if both query and view has group sets, or query doesn't hava, mv have, not supported
-        if ((queryHasGroupSets && viewHasGroupSets) || (!queryHasGroupSets && viewHasGroupSets)) {
+        if (viewHasGroupSets) {
             materializationContext.recordFailReason(queryStructInfo,
                     "both query and view have group sets, or query doesn't have but view have, not supported",
                     () -> String.format("query aggregate = %s,\n view aggregate = %s,\n",
