@@ -25,7 +25,7 @@ class PartitionerBase;
 
 namespace doris::pipeline {
 
-class Exchanger;
+class ExchangerBase;
 class ShuffleExchanger;
 class PassthroughExchanger;
 class BroadcastExchanger;
@@ -63,7 +63,7 @@ private:
     friend class LocalMergeSortExchanger;
     friend class AdaptivePassthroughExchanger;
 
-    Exchanger* _exchanger = nullptr;
+    ExchangerBase* _exchanger = nullptr;
 
     // Used by shuffle exchanger
     RuntimeProfile::Counter* _compute_hash_value_timer = nullptr;
