@@ -18,7 +18,7 @@
 import org.junit.Assert;
 
 suite("test_bloom_filter_mtmv","mtmv") {
-    String suiteName = "test_create_view_mtmv"
+    String suiteName = "test_bloom_filter_mtmv"
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
 
