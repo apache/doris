@@ -94,6 +94,7 @@ public:
     const std::shared_ptr<vectorized::Block>& build_block() const {
         return _shared_state->build_block;
     }
+    std::string debug_string(int indentation_level) const override;
 
 private:
     void _prepare_probe_block();
