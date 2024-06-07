@@ -66,8 +66,7 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
 
             // 1. handle bottom projects
             Set<Alias> existedAlias = ExpressionUtils.collect(outputs, Alias.class::isInstance);
-            Set<Expression> toBePushedDown = collectExpressionsToBePushedDown(outputs.stream()
-                    .filter(expr -> !expr.isConstant()).collect(Collectors.toList()));
+            Set<Expression> toBePushedDown = collectExpressionsToBePushedDown(outputs);
             NormalizeToSlotContext context = NormalizeToSlotContext.buildContext(existedAlias, toBePushedDown);
             // set toBePushedDown exprs as NamedExpression, e.g. (a+1) -> Alias(a+1)
             Set<NamedExpression> bottomProjects = context.pushDownToNamedExpression(toBePushedDown);
