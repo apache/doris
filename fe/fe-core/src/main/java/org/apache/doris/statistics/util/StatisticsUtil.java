@@ -863,6 +863,16 @@ public class StatisticsUtil {
         return StatisticConstants.HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES;
     }
 
+    public static long getHugePartitionLowerBoundRows() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_PARTITION_LOWER_BOUND_ROWS)
+                .hugePartitionLowerBoundRows;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of huge_partition_lower_bound_rows, return default", e);
+        }
+        return StatisticConstants.HUGE_PARTITION_LOWER_BOUND_ROWS;
+    }
+
     public static long getHugeTableAutoAnalyzeIntervalInMillis() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS)
