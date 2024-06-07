@@ -228,6 +228,12 @@ suite("test_limit_op_mtmv") {
         exception "Not allowed"
     }
 
+    // not allow enable batch delete
+    test {
+        sql """ALTER TABLE ${mvName} ENABLE FEATURE "BATCH_DELETE";"""
+        exception "only supported in unique tables"
+    }
+
     // not allow dynamic_partition
     test {
         sql """ALTER TABLE ${mvName} set ("dynamic_partition.enable" = "true")"""
