@@ -58,4 +58,6 @@ suite("agg_4_phase") {
     qt_4phase (test_sql)
 
     sql """select GROUP_CONCAT(distinct name, " ") from agg_4_phase_tbl;"""
+
+    sql """select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,THREE_PHASE_AGGREGATE_WITH_DISTINCT,FOUR_PHASE_AGGREGATE_WITH_DISTINCT')*/ GROUP_CONCAT(distinct name, " ") from agg_4_phase_tbl group by gender;"""
 }
