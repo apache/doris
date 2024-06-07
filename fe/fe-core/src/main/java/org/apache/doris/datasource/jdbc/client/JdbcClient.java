@@ -166,15 +166,20 @@ public abstract class JdbcClient {
     }
 
     public void closeClient() {
-        dataSource.close();
-        if (classLoader instanceof URLClassLoader) {
-            try {
-                ((URLClassLoader) classLoader).close();
-            } catch (IOException e) {
-                LOG.error("Failed to close class loader", e);
+        if (dataSource != null) {
+            dataSource.close();
+        }
+        if (classLoader != null) {
+            if (classLoader instanceof URLClassLoader) {
+                try {
+                    ((URLClassLoader) classLoader).close();
+                } catch (IOException e) {
+                    LOG.warn("Failed to close class loader", e);
+                } finally {
+                    classLoader = null;
+                }
             }
         }
-        classLoader = null;
     }
 
     public Connection getConnection() throws JdbcClientException {
