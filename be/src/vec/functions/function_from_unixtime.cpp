@@ -221,15 +221,12 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
         const DataTypePtr data_type = block.get_by_position(arguments[0]).type;
         const cctz::time_zone& time_zone = context->state()->timezone_obj();
 
-        const auto* nullable_column = check_and_get_column<ColumnNullable>(source_col.get());
         ColumnString::MutablePtr col_res = ColumnString::create();
         ColumnUInt8::MutablePtr col_null_map = ColumnUInt8::create();
 
@@ -253,23 +250,20 @@ public:
 
         if constexpr (IsDecimalNumber<from_type>) {
             if (data_type->get_type_id() == TypeIndex::Decimal32) {
-                const auto* decimal_sources = assert_cast<const ColumnDecimal<Decimal32>*>(
-                        nullable_column ? nullable_column->get_nested_column_ptr().get()
-                                        : source_col.get());
+                const auto* decimal_sources =
+                        assert_cast<const ColumnDecimal<Decimal32>*>(source_col.get());
                 FromDecimal<Decimal32, argument_num>::apply(
                         decimal_sources, scale, StringRef(formatter.c_str(), formatter.size()),
                         time_zone, col_res, col_null_map);
             } else if (data_type->get_type_id() == TypeIndex::Decimal64) {
-                const auto* decimal_sources = assert_cast<const ColumnDecimal<Decimal64>*>(
-                        nullable_column ? nullable_column->get_nested_column_ptr().get()
-                                        : source_col.get());
+                const auto* decimal_sources =
+                        assert_cast<const ColumnDecimal<Decimal64>*>(source_col.get());
                 FromDecimal<Decimal64, argument_num>::apply(
                         decimal_sources, scale, StringRef(formatter.c_str(), formatter.size()),
                         time_zone, col_res, col_null_map);
             } else if (data_type->get_type_id() == TypeIndex::Decimal128V3) {
-                const auto* decimal_sources = assert_cast<const ColumnDecimal<Decimal128V3>*>(
-                        nullable_column ? nullable_column->get_nested_column_ptr().get()
-                                        : source_col.get());
+                const auto* decimal_sources =
+                        assert_cast<const ColumnDecimal<Decimal128V3>*>(source_col.get());
                 FromDecimal<Decimal128V3, argument_num>::apply(
                         decimal_sources, scale, StringRef(formatter.c_str(), formatter.size()),
                         time_zone, col_res, col_null_map);
@@ -286,13 +280,6 @@ public:
             return Status::InternalError("Illegal column {} of first argument of function {}",
                                          block.get_by_position(arguments[0]).column->get_name(),
                                          name);
-        }
-
-        if (nullable_column) {
-            const auto& origin_null_map = nullable_column->get_null_map_column().get_data();
-            for (int i = 0; i < origin_null_map.size(); ++i) {
-                col_null_map->get_data()[i] |= origin_null_map[i];
-            }
         }
 
         block.get_by_position(result).column =

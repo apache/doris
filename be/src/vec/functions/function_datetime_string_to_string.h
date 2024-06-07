@@ -76,19 +76,22 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
-        const auto* sources =
-                check_and_get_column<ColumnVector<typename Transform::FromType>>(source_col.get());
+
+        const auto* nullable_column = check_and_get_column<ColumnNullable>(source_col.get());
+        const auto* sources = check_and_get_column<ColumnVector<typename Transform::FromType>>(
+                nullable_column ? nullable_column->get_nested_column_ptr().get()
+                                : source_col.get());
 
         if (sources) {
             auto col_res = ColumnString::create();
-            ColumnUInt8::MutablePtr col_res_null_map;
-            col_res_null_map = ColumnUInt8::create();
-            auto& vec_null_map_to = col_res_null_map->get_data();
+            ColumnUInt8::MutablePtr col_null_map_to;
+            col_null_map_to = ColumnUInt8::create();
+            auto& vec_null_map_to = col_null_map_to->get_data();
 
             if (arguments.size() == 2) {
-                const IColumn& format_col = *block.get_by_position(arguments[1]).column;
+                const IColumn& source_col1 = *block.get_by_position(arguments[1]).column;
                 StringRef formatter =
-                        format_col.get_data_at(0); // for both ColumnString or ColumnConst.
+                        source_col1.get_data_at(0); // for both ColumnString or ColumnConst.
                 TransformerToStringTwoArgument<Transform>::vector_constant(
                         context, sources->get_data(), formatter, col_res->get_chars(),
                         col_res->get_offsets(), vec_null_map_to);
@@ -98,8 +101,14 @@ public:
                         col_res->get_chars(), col_res->get_offsets(), vec_null_map_to);
             }
 
+            if (nullable_column) {
+                const auto& origin_null_map = nullable_column->get_null_map_column().get_data();
+                for (int i = 0; i < origin_null_map.size(); ++i) {
+                    vec_null_map_to[i] |= origin_null_map[i];
+                }
+            }
             block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(col_res), std::move(col_res_null_map));
+                    ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
         } else {
             return Status::InternalError("Illegal column {} of first argument of function {}",
                                          block.get_by_position(arguments[0]).column->get_name(),
