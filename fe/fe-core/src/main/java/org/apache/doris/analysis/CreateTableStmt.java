@@ -862,8 +862,8 @@ public class CreateTableStmt extends DdlStmt {
 
     private void generatedColumnCommonCheck() {
         for (ColumnDef column : columnDefs) {
-            if (keysDesc.getKeysType() == KeysType.AGG_KEYS && column.getGeneratedColumnInfo().isPresent()
-                    && !column.isKey()) {
+            if (keysDesc != null && keysDesc.getKeysType() == KeysType.AGG_KEYS
+                    && column.getGeneratedColumnInfo().isPresent() && !column.isKey()) {
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(
                         "Generated Columns in aggregate table must be keys.");
             }
