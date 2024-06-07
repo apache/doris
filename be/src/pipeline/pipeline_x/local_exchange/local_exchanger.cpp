@@ -15,11 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "pipeline/local_exchange/local_exchanger.h"
+#include "pipeline/pipeline_x/local_exchange/local_exchanger.h"
 
 #include "common/status.h"
-#include "pipeline/exec/sort_sink_operator.h"
-#include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/pipeline_x/local_exchange/local_exchange_source_operator.h"
 #include "vec/runtime/partitioner.h"
