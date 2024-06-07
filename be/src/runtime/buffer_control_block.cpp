@@ -138,7 +138,7 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
             }
             _buffer_rows += num_rows;
         } else {
-            auto ctx = _waiting_rpc.front();
+            auto* ctx = _waiting_rpc.front();
             _waiting_rpc.pop_front();
             ctx->on_data(result, _packet_num);
             _packet_num++;
@@ -286,16 +286,18 @@ void BufferControlBlock::cancel() {
 
 void BufferControlBlock::set_dependency(
         std::shared_ptr<pipeline::Dependency> result_sink_dependency) {
-    _result_sink_dependency = result_sink_dependency;
+    _result_sink_dependencys.push_back(result_sink_dependency);
 }
 
 void BufferControlBlock::_update_dependency() {
-    if (_result_sink_dependency &&
-        (_batch_queue_empty || _buffer_rows < _buffer_limit || _is_cancelled)) {
-        _result_sink_dependency->set_ready();
-    } else if (_result_sink_dependency &&
-               (!_batch_queue_empty && _buffer_rows < _buffer_limit && !_is_cancelled)) {
-        _result_sink_dependency->block();
+    if (_batch_queue_empty || _buffer_rows < _buffer_limit || _is_cancelled) {
+        for (auto dependency : _result_sink_dependencys) {
+            dependency->set_ready();
+        }
+    } else if (!_batch_queue_empty && _buffer_rows < _buffer_limit && !_is_cancelled) {
+        for (auto dependency : _result_sink_dependencys) {
+            dependency->block();
+        }
     }
 }
 

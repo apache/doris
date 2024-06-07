@@ -194,6 +194,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SYNC_RUNTIME_FILTER_SIZE = "enable_sync_runtime_filter_size";
 
+    public static final String ENABLE_PARALLEL_RESULT_SINK = "enable_parallel_result_sink";
+
     public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
 
     // max ms to wait transaction publish finish when exec insert stmt.
@@ -1051,6 +1053,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true)
     private boolean enableSyncRuntimeFilterSize = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true)
+    private boolean enableParallelResultSink = true;
 
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
@@ -3422,6 +3427,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
 
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);
+        tResult.setEnableParallelResultSink(enableParallelResultSink);
         return tResult;
     }
 
@@ -3763,6 +3769,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnablePipelineXEngine() {
         return enablePipelineXEngine || enablePipelineEngine;
+    }
+
+    public boolean enableParallelResultSink() {
+        return enableParallelResultSink;
     }
 
     public boolean enableSyncRuntimeFilterSize() {

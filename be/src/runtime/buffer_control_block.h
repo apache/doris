@@ -131,7 +131,7 @@ protected:
     // only used for FE using return rows to check limit
     std::unique_ptr<QueryStatistics> _query_statistics;
     std::atomic_bool _batch_queue_empty = false;
-    std::shared_ptr<pipeline::Dependency> _result_sink_dependency;
+    std::vector<std::shared_ptr<pipeline::Dependency>> _result_sink_dependencys;
 };
 
 } // namespace doris

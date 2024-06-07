@@ -301,6 +301,8 @@ struct TQueryOptions {
   112: optional i32 max_column_reader_num = 0
 
   113: optional bool enable_local_merge_sort = false;
+
+  114: optional bool enable_parallel_result_sink = false;
   
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
