@@ -281,6 +281,7 @@ done < <(find "${CMAKE_BUILD_DIR}" -name "*gcda")
 setup_java_env() {
     local java_version
 
+    echo "JAVA_HOME: ${JAVA_HOME}"
     if [[ -z "${JAVA_HOME}" ]]; then
         return 1
     fi
@@ -301,6 +302,10 @@ setup_java_env() {
         # JAVA_HOME is jre
     else
         export LD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
+    fi
+
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        export DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${DYLD_LIBRARY_PATH}"
     fi
 }
 
