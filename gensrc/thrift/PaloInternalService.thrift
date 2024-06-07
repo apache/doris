@@ -288,6 +288,7 @@ struct TQueryOptions {
 
   // max rows of each sub-queue in DataQueue.
   106: optional i64 data_queue_max_blocks = 0;
+  108: optional i64 local_exchange_free_blocks_limit;
   
   110: optional bool enable_parquet_filter_by_min_max = true
   111: optional bool enable_orc_filter_by_min_max = true
