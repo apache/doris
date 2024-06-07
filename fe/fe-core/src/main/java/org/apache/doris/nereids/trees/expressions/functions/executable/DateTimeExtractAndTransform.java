@@ -687,6 +687,9 @@ public class DateTimeExtractAndTransform {
         return week(date.toJavaDateType(), mode.getIntValue());
     }
 
+    /**
+     * the impl of function week(date/datetime, mode)
+     */
     public static Expression week(LocalDateTime localDateTime, int mode) {
         switch (mode) {
             case 0: {

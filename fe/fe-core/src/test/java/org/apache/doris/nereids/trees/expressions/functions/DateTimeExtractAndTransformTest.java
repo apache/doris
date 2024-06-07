@@ -20,10 +20,10 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 
-import java.time.LocalDateTime;
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.time.LocalDateTime;
 
 class DateTimeExtractAndTransformTest {
     @Test
