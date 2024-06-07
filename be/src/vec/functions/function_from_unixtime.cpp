@@ -43,9 +43,9 @@ enum class ArgumentNumber { One, Two };
 
 template <typename T, ArgumentNumber argument_num>
 struct FromDecimal {
-    static void apply(const ColumnDecimal<T>* col_dec, Int32 source_decimal_scale, StringRef formatter,
-                      const cctz::time_zone& time_zone, ColumnString::MutablePtr& col_res,
-                      ColumnUInt8::MutablePtr& col_null_map) {
+    static void apply(const ColumnDecimal<T>* col_dec, Int32 source_decimal_scale,
+                      StringRef formatter, const cctz::time_zone& time_zone,
+                      ColumnString::MutablePtr& col_res, ColumnUInt8::MutablePtr& col_null_map) {
         const size_t input_rows_count = col_dec->size();
         DateV2Value<DateTimeV2ValueType> max_datetime(0);
         // explain the magic number:
@@ -71,7 +71,8 @@ struct FromDecimal {
             source_decimal_scale = std::min(source_decimal_scale, 6);
 
             DateV2Value<DateTimeV2ValueType> datetime(0);
-            datetime.from_unixtime(col_dec->get_whole_part(i), fraction, time_zone, source_decimal_scale);
+            datetime.from_unixtime(col_dec->get_whole_part(i), fraction, time_zone,
+                                   source_decimal_scale);
 
             // The boundary check must be in the format as Datetime, we can not do the check by Decimal directly, because
             // of the time zone.
@@ -219,6 +220,8 @@ public:
 
         return make_nullable(std::make_shared<DataTypeString>());
     }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
