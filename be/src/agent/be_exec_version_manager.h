@@ -81,7 +81,7 @@ private:
  *    c. change FunctionIsIPAddressInRange from AlwaysNotNullable to DependOnArguments
  */
 constexpr inline int BeExecVersionManager::max_be_exec_version = 5;
-constexpr inline int BeExecVersionManager::min_be_exec_version = 3;
+constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
 
 /// functional
 constexpr inline int BITMAP_SERDE = 3;

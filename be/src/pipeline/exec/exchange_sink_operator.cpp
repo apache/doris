@@ -371,8 +371,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 }
             }
         } else {
-            auto block_holder =
-                    vectorized::BroadcastPBlockHolder::create_shared(state->be_exec_version());
+            auto block_holder = vectorized::BroadcastPBlockHolder::create_shared();
             {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 bool serialized = false;
