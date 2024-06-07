@@ -56,8 +56,8 @@ public:
         s3_conf.region = config::test_s3_region;
         s3_conf.bucket = config::test_s3_bucket;
         s3_conf.prefix = "s3_file_writer_test";
-        static_cast<void>(
-                io::S3FileSystem::create(std::move(s3_conf), "s3_file_writer_test", &s3_fs));
+        static_cast<void>(io::S3FileSystem::create(std::move(s3_conf), "s3_file_writer_test",
+                                                   nullptr, &s3_fs));
         std::cout << "s3 conf: " << s3_conf.to_string() << std::endl;
         ASSERT_EQ(Status::OK(), s3_fs->connect());
 
