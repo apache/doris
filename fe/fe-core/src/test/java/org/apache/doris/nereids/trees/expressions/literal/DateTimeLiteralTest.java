@@ -416,32 +416,32 @@ class DateTimeLiteralTest {
     void testDateTimeV2Scale() {
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(3), "2016-07-02 00:00:00.123"),
-                new DateTimeV2Literal("2016-07-02 00:00:00.123"));
+                new DateTimeV2Literal(DateTimeV2Type.of(3), "2016-07-02 00:00:00.123"));
 
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(3), "2016-07-02 00:00:00.123456"),
-                new DateTimeV2Literal("2016-07-02 00:00:00.123"));
+                new DateTimeV2Literal(DateTimeV2Type.of(3), "2016-07-02 00:00:00.123"));
 
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(4), "2016-07-02 00:00:00.12345"),
-                new DateTimeV2Literal("2016-07-02 00:00:00.12345"));
+                new DateTimeV2Literal(DateTimeV2Type.of(4), "2016-07-02 00:00:00.1235"));
 
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(0), "2016-07-02 00:00:00.12345"),
-                new DateTimeV2Literal("2016-07-02 00:00:00.0"));
+                new DateTimeV2Literal(DateTimeV2Type.of(0), "2016-07-02 00:00:00"));
 
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(0), "2016-07-02 00:00:00.5123"),
-                new DateTimeV2Literal("2016-07-02 00:00:01.0"));
+                new DateTimeV2Literal(DateTimeV2Type.of(0), "2016-07-02 00:00:01"));
 
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(5), "2016-07-02 00:00:00.999999"),
-                new DateTimeV2Literal("2016-07-02 00:00:01.0"));
+                new DateTimeV2Literal(DateTimeV2Type.of(5), "2016-07-02 00:00:01.00000"));
 
         // test overflow
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(5), "2016-12-31 23:59:59.999999"),
-                new DateTimeV2Literal("2017-01-01 00:00:00.0"));
+                new DateTimeV2Literal(DateTimeV2Type.of(5), "2017-01-01 00:00:00.00000"));
     }
 
     @Test
