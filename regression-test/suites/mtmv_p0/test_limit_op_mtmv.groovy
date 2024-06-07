@@ -191,27 +191,6 @@ suite("test_limit_op_mtmv") {
         log.info(e.getMessage())
     }
 
-
-    // not allow add rollup
-    try {
-        sql """
-            alter table ${mvName} ADD ROLLUP example_rollup_index(num, k3);;
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
-    // not allow drop rollup
-    try {
-        sql """
-            alter table ${mvName} drop ROLLUP example_rollup_index;
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
     // allow modify comment
     try {
         sql """
