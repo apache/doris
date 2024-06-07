@@ -305,6 +305,7 @@ struct TIcebergFileDesc {
     4: optional Types.TTupleId delete_table_tuple_id;
     // Deprecated
     5: optional Exprs.TExpr file_select_conjunct;
+    6: optional string original_file_path;
 }
 
 struct TPaimonDeletionFileDesc {
