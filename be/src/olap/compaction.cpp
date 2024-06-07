@@ -663,8 +663,7 @@ Status Compaction::do_inverted_index_compaction() {
         }
     }
 
-    // we choose the first destination segment name as the temporary index writer path
-    // Used to distinguish between different index compaction
+    // use tmp file dir to store index files
     auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
     auto index_tmp_path = tmp_file_dir / dest_rowset_id.to_string();
     LOG(INFO) << "start index compaction"
