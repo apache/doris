@@ -313,7 +313,7 @@ public class DiskRebalancer extends Rebalancer {
         try {
             replica = invertedIndex.getReplica(tabletCtx.getTabletId(), tabletCtx.getTempSrcBackendId());
         } catch (IllegalStateException e) {
-            continue;
+            replica = null;
         }
         // check src replica still there
         if (replica == null || replica.getPathHash() != tabletCtx.getTempSrcPathHash()) {
