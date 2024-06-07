@@ -34,6 +34,7 @@ import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -166,6 +167,14 @@ public abstract class JdbcClient {
 
     public void closeClient() {
         dataSource.close();
+        if (classLoader instanceof URLClassLoader) {
+            try {
+                ((URLClassLoader) classLoader).close();
+            } catch (IOException e) {
+                LOG.error("Failed to close class loader", e);
+            }
+        }
+        classLoader = null;
     }
 
     public Connection getConnection() throws JdbcClientException {
