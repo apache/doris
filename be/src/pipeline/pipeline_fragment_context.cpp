@@ -337,13 +337,13 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     for (PipelinePtr& pipeline : _pipelines) {
         SCOPED_TIMER(_prepare_all_pipelines_timer);
         pipeline->children().clear();
-        RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(pipeline->prepare(_runtime_state.get()));
     }
 
     {
         SCOPED_TIMER(_build_tasks_timer);
         // 5. Build pipeline tasks and initialize local state.
-        RETURN_IF_ERROR(_build_pipeline_tasks(request));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_pipeline_tasks(request));
     }
 
     _init_next_report_time();

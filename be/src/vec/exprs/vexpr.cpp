@@ -343,7 +343,7 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
     // create root expr
     int root_children = nodes[*node_idx].num_children;
     VExprSPtr root;
-    RETURN_IF_ERROR(create_expr(nodes[*node_idx], root));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(create_expr(nodes[*node_idx], root));
     DCHECK(root != nullptr);
     root_expr = root;
     ctx = std::make_shared<VExprContext>(root);
@@ -367,7 +367,7 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
             return Status::InternalError("Failed to reconstruct expression tree from thrift.");
         }
         VExprSPtr expr;
-        RETURN_IF_ERROR(create_expr(nodes[*node_idx], expr));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(create_expr(nodes[*node_idx], expr));
         DCHECK(expr != nullptr);
         parent.first->add_child(expr);
         int num_children = nodes[*node_idx].num_children;
