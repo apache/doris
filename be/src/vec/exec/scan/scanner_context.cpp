@@ -149,18 +149,19 @@ std::string ScannerContext::parent_name() {
     return _local_state->get_name();
 }
 
-vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
-    vectorized::BlockUPtr block = nullptr;
+Status ScannerContext::get_free_block(bool force, vectorized::BlockUPtr& block) {
+    block = nullptr;
     if (_free_blocks.try_dequeue(block)) {
         DCHECK(block->mem_reuse());
         _free_blocks_memory_usage -= block->allocated_bytes();
         _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
     } else if (_free_blocks_memory_usage < _max_bytes_in_queue || force) {
         _newly_create_free_blocks_num->update(1);
-        block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
-                                                 true /*ignore invalid slots*/);
+        RETURN_IF_CATCH_EXCEPTION(block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
+                                                true /*ignore invalid slots*/));
     }
-    return block;
+
+    return Status::OK();
 }
 
 void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
