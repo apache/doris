@@ -157,8 +157,9 @@ Status ScannerContext::get_free_block(bool force, vectorized::BlockUPtr& block) 
         _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
     } else if (_free_blocks_memory_usage < _max_bytes_in_queue || force) {
         _newly_create_free_blocks_num->update(1);
-        RETURN_IF_CATCH_EXCEPTION(block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
-                                                true /*ignore invalid slots*/));
+        RETURN_IF_CATCH_EXCEPTION(
+                block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
+                                                         true /*ignore invalid slots*/));
     }
 
     return Status::OK();
