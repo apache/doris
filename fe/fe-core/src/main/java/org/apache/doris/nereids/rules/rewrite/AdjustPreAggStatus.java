@@ -383,7 +383,7 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                 project.map(Project::getAliasToProducer);
         return agg.getOutputExpressions().stream()
                 // extract aggregate functions.
-                .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance)
+                .flatMap(e -> e.<AggregateFunction>collect(AggregateFunction.class::isInstance)
                         .stream())
                 // replace aggregate function's input slot by its producing expression.
                 .map(expr -> slotToProducerOpt

@@ -96,7 +96,7 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
                         topJoin.getHashJoinConjuncts().stream(),
                         topJoin.getOtherJoinConjuncts().stream())
                 .allMatch(expr -> {
-                    Set<ExprId> usedExprIdSet = expr.<Set<SlotReference>>collect(SlotReference.class::isInstance)
+                    Set<ExprId> usedExprIdSet = expr.<SlotReference>collect(SlotReference.class::isInstance)
                             .stream()
                             .map(SlotReference::getExprId)
                             .collect(Collectors.toSet());

@@ -232,14 +232,14 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     /**
      * Collect the nodes that satisfied the predicate.
      */
-    default <T> T collect(Predicate<TreeNode<NODE_TYPE>> predicate) {
+    default <T> Set<T> collect(Predicate<TreeNode<NODE_TYPE>> predicate) {
         ImmutableSet.Builder<TreeNode<NODE_TYPE>> result = ImmutableSet.builder();
         foreach(node -> {
             if (predicate.test(node)) {
                 result.add(node);
             }
         });
-        return (T) result.build();
+        return (Set<T>) result.build();
     }
 
     /**

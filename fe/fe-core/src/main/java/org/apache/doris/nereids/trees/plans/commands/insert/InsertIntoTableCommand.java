@@ -54,7 +54,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * insert into select command implementation
@@ -152,7 +151,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 ctx.getMysqlChannel().reset();
             }
             Optional<PhysicalSink<?>> plan = (planner.getPhysicalPlan()
-                    .<Set<PhysicalSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
+                    .<PhysicalSink<?>>collect(PhysicalSink.class::isInstance)).stream()
                     .findAny();
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain target table");
             PhysicalSink physicalSink = plan.get();

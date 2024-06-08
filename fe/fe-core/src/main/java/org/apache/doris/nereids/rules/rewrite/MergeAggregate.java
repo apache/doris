@@ -150,7 +150,7 @@ public class MergeAggregate implements RewriteRuleFactory {
         });
     }
 
-    boolean commonCheck(LogicalAggregate<? extends Plan> outerAgg, LogicalAggregate<Plan> innerAgg,
+    private boolean commonCheck(LogicalAggregate<? extends Plan> outerAgg, LogicalAggregate<Plan> innerAgg,
             boolean sameGroupBy, Optional<LogicalProject> projectOptional) {
         innerAggExprIdToAggFunc = innerAgg.getOutputExpressions().stream()
                 .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
