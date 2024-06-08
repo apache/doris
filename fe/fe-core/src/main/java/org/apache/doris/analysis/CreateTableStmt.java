@@ -189,6 +189,7 @@ public class CreateTableStmt extends DdlStmt {
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
         this.properties = properties;
+        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
         this.extProperties = extProperties;
         this.columnDefs = Lists.newArrayList();
         this.comment = Strings.nullToEmpty(comment);
