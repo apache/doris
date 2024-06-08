@@ -155,7 +155,7 @@ suite("test_single_compaction_with_variant_inverted", "p2") {
             DUPLICATE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "2", "enable_single_replica_compaction" = "true");
+            PROPERTIES ( "replication_num" = "2", "enable_single_replica_compaction" = "true", "inverted_index_storage_format" = "V1");
         """
 
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """

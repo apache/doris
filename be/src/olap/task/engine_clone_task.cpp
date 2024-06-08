@@ -17,6 +17,7 @@
 
 #include "olap/task/engine_clone_task.h"
 
+#include <curl/curl.h>
 #include <fcntl.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
@@ -27,7 +28,6 @@
 #include <gen_cpp/Types_constants.h>
 #include <sys/stat.h>
 
-#include <boost/algorithm/string/replace.hpp>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -522,8 +522,8 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     uint64_t total_file_size = 0;
     MonotonicStopWatch watch;
     watch.start();
+    CURL* curl = curl_easy_init();
     for (auto& file_name : file_name_list) {
-        auto remote_file_url = remote_url_prefix + file_name;
         // The file name of the variant column with the inverted index contains %
         // such as: 020000000000003f624c4c322c568271060f9b5b274a4a95_0_10133@properties%2Emessage.idx
         //  {rowset_id}_{seg_num}_{index_id}_{variant_column_name}{%2E}{extracted_column_name}.idx
@@ -531,9 +531,14 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
         // Because the percent ("%") character serves as the indicator for percent-encoded octets,
         // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
         // https://datatracker.ietf.org/doc/html/rfc3986
-        if (file_name.find('%') != std::string::npos) {
-            boost::replace_all(remote_file_url, "%", "%25");
+        char* output = curl_easy_escape(curl, file_name.c_str(), file_name.length());
+        if (!output) {
+            return Status::InternalError("escape file name failed, file name={}", file_name);
         }
+        std::string encoded_filename(output);
+        curl_free(output);
+        auto remote_file_url = remote_url_prefix + encoded_filename;
+
         // get file length
         uint64_t file_size = 0;
         auto get_file_size_cb = [&remote_file_url, &file_size](HttpClient* client) {
@@ -543,9 +548,6 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
             RETURN_IF_ERROR(client->get_content_length(&file_size));
             return Status::OK();
         };
-
-        VLOG_NOTICE << "engine clone task get file size, remote file url is: " << remote_file_url;
-
         RETURN_IF_ERROR(
                 HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, get_file_size_cb));
         // check disk capacity
@@ -593,6 +595,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
         };
         RETURN_IF_ERROR(HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, download_cb));
     } // Clone files from remote backend
+    curl_easy_cleanup(curl);
 
     uint64_t total_time_ms = watch.elapsed_time() / 1000 / 1000;
     total_time_ms = total_time_ms > 0 ? total_time_ms : 0;
