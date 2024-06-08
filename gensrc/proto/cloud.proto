@@ -918,6 +918,7 @@ message CreateRowsetRequest {
     optional string cloud_unique_id = 1; // For auth
     optional doris.RowsetMetaCloudPB rowset_meta = 2;
     optional bool temporary = 3;
+    optional int64 txn_id = 4;
 }
 
 message CreateRowsetResponse {
