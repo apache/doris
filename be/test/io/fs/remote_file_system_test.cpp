@@ -420,7 +420,7 @@ TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
     CHECK_STATUS_OK(s3_uri.parse());
     CHECK_STATUS_OK(S3ClientFactory::convert_properties_to_s3_conf(s3_prop, s3_uri, &s3_conf));
     std::shared_ptr<io::S3FileSystem> fs;
-    CHECK_STATUS_OK(io::S3FileSystem::create(std::move(s3_conf), "", &fs));
+    CHECK_STATUS_OK(io::S3FileSystem::create(std::move(s3_conf), "", nullptr, &fs));
 
     // delete directory
     io::Path delete_path = s3_location + "/tmp1";
