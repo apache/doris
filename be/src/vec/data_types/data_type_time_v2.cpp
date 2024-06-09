@@ -60,6 +60,14 @@ std::string DataTypeDateV2::to_string(const IColumn& column, size_t row_num) con
     return std::string {buf};
 }
 
+std::string DataTypeDateV2::to_string(UInt32 int_val) const {
+    DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
+
+    char buf[64];
+    val.to_string(buf); // DateTime to_string the end is /0
+    return std::string {buf};
+}
+
 void DataTypeDateV2::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
@@ -127,6 +135,15 @@ std::string DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num)
     row_num = result.second;
 
     UInt64 int_val = assert_cast<const ColumnUInt64&>(*ptr).get_element(row_num);
+    DateV2Value<DateTimeV2ValueType> val =
+            binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
+
+    char buf[64];
+    val.to_string(buf, _scale);
+    return buf; // DateTime to_string the end is /0
+}
+
+std::string DataTypeDateTimeV2::to_string(UInt64 int_val) const {
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
 
