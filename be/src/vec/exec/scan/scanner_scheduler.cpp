@@ -252,7 +252,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             break;
         }
         BlockUPtr free_block = nullptr;
-        status = ctx->get_free_block(first_read, free_block));
+        status = ctx->get_free_block(first_read, free_block);
         if (free_block == nullptr || !status.ok()) {
             break;
         }
