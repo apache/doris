@@ -683,6 +683,7 @@ message GetTxnRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
     optional int64 txn_id = 3;
+    optional string label = 4;
 }
 
 message GetTxnResponse {
