@@ -398,7 +398,11 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
     uint64_t total_file_size = 0;
     MonotonicStopWatch watch;
     watch.start();
-    CURL* curl = curl_easy_init();
+    auto curl = std::unique_ptr<CURL, decltype(&curl_easy_cleanup)>(curl_easy_init(),
+                                                                    &curl_easy_cleanup);
+    if (!curl) {
+        return Status::InternalError("single compaction init curl failed");
+    }
     for (auto& file_name : file_name_list) {
         // The file name of the variant column with the inverted index contains %
         // such as: 020000000000003f624c4c322c568271060f9b5b274a4a95_0_10133@properties%2Emessage.idx
@@ -407,12 +411,12 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
         // Because the percent ("%") character serves as the indicator for percent-encoded octets,
         // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
         // https://datatracker.ietf.org/doc/html/rfc3986
-        char* output = curl_easy_escape(curl, file_name.c_str(), file_name.length());
+        auto output = std::unique_ptr<char, decltype(&curl_free)>(
+                curl_easy_escape(curl.get(), file_name.c_str(), file_name.length()), &curl_free);
         if (!output) {
             return Status::InternalError("escape file name failed, file name={}", file_name);
         }
-        std::string encoded_filename(output);
-        curl_free(output);
+        std::string encoded_filename(output.get());
         auto remote_file_url = remote_url_prefix + encoded_filename;
 
         // get file length
@@ -465,7 +469,6 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
         };
         RETURN_IF_ERROR(HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, download_cb));
     } // Clone files from remote backend
-    curl_easy_cleanup(curl);
 
     uint64_t total_time_ms = watch.elapsed_time() / 1000 / 1000;
     total_time_ms = total_time_ms > 0 ? total_time_ms : 0;
