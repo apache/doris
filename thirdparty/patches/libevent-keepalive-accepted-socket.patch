@@ -1,5 +1,5 @@
 diff --git a/http.c b/http.c
-index 53951cb..85d4d67 100644
+index 1ad60f8..267fa1f 100644
 --- a/http.c
 +++ b/http.c
 @@ -4265,6 +4265,12 @@ evhttp_get_request_connection(
@@ -8,7 +8,7 @@ index 53951cb..85d4d67 100644
  
 +	if (sa->sa_family != AF_UNIX) {
 +		if (evutil_set_tcp_keepalive(fd, 1, 300) < 0) {
-+			return (NULL)
++			return (NULL);
 +		}
 +	}
 +
