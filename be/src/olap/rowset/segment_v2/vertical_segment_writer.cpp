@@ -670,8 +670,9 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                             mutable_full_columns[missing_cids[i]].get());
                     nullable_column->insert_null_elements(1);
                 } else if (_tablet_schema->auto_increment_column() == tablet_column.name()) {
-                    DCHECK(_opts.rowset_ctx->tablet_schema->column(tablet_column.name()).type() ==
-                           FieldType::OLAP_FIELD_TYPE_BIGINT);
+                    const auto& column = *DORIS_TRY(
+                            _opts.rowset_ctx->tablet_schema->column(tablet_column.name()));
+                    DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
                     auto auto_inc_column = assert_cast<vectorized::ColumnInt64*>(
                             mutable_full_columns[missing_cids[i]].get());
                     auto_inc_column->insert(

@@ -1127,9 +1127,9 @@ TabletSchemaSPtr TabletSchema::copy_without_extracted_columns() {
 bool TabletSchema::is_dropped_column(const TabletColumn& col) const {
     CHECK(_field_id_to_index.find(col.unique_id()) != _field_id_to_index.end())
             << "could not find col with unique id = " << col.unique_id()
-            << " and name = " << col.name();
-    return _field_name_to_index.find(StringRef(col.name())) == _field_name_to_index.end() ||
-           column(col.name()).unique_id() != col.unique_id();
+            << " and name = " << col.name() << " table_id=" << _table_id;
+    auto it = _field_name_to_index.find(StringRef{col.name()});
+    return it == _field_name_to_index.end() || _cols[it->second]->unique_id() != col.unique_id();
 }
 
 void TabletSchema::copy_extracted_columns(const TabletSchema& src_schema) {
@@ -1269,11 +1269,16 @@ Status TabletSchema::have_column(const std::string& field_name) const {
     return Status::OK();
 }
 
-const TabletColumn& TabletSchema::column(const std::string& field_name) const {
-    DCHECK(_field_name_to_index.contains(StringRef(field_name)) != 0)
-            << ", field_name=" << field_name << ", field_name_to_index=" << get_all_field_names();
-    const auto& found = _field_name_to_index.find(StringRef(field_name));
-    return *_cols[found->second];
+Result<const TabletColumn*> TabletSchema::column(const std::string& field_name) const {
+    auto it = _field_name_to_index.find(StringRef{field_name});
+    if (it == _field_name_to_index.end()) {
+        DCHECK(false) << "field_name=" << field_name << ", table_id=" << _table_id
+                      << ", field_name_to_index=" << get_all_field_names();
+        return ResultError(
+                Status::InternalError("column not found, name={}, table_id={}, schema_version={}",
+                                      field_name, _table_id, _schema_version));
+    }
+    return _cols[it->second].get();
 }
 
 std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(

@@ -27,6 +27,7 @@ import org.apache.doris.thrift.TAlterMaterializedViewParam;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TAlterTabletType;
 import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Lists;
