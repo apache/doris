@@ -118,7 +118,7 @@ suite("test_refresh_range_mtmv","mtmv") {
         PROPERTIES ('replication_num' = '1') ;
         """
     sql """
-        insert into ${tableNameNum} values(1,"2017-01-15",1),(1,"2017-02-15",2),(1,"2017-03-15",3);
+        insert into ${tableName} values(1,"2017-01-15",1),(1,"2017-02-15",2),(1,"2017-03-15",3);
         """
 
     sql """
