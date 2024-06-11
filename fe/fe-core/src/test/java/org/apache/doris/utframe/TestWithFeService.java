@@ -155,7 +155,6 @@ public abstract class TestWithFeService {
         FeConstants.enableInternalSchemaDb = false;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
-        connectContext.getSessionVariable().setEnableSyncMvCostBasedRewrite(false);
         beforeCluster();
         createDorisCluster();
         runBeforeAll();
