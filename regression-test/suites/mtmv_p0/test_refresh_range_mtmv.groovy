@@ -150,7 +150,7 @@ suite("test_refresh_range_mtmv","mtmv") {
     sql """drop materialized view if exists ${mvName};"""
 
 
-    // test list staring partition
+    // test list string partition
      sql """
         CREATE TABLE `${tableName}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
