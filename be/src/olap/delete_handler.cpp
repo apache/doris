@@ -144,14 +144,15 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
     return Status::OK();
 }
 
-void DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred,
-                                           TabletSchemaSPtr schema) {
+Status DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred,
+                                             TabletSchemaSPtr schema) {
     if (!delete_pred->sub_predicates().empty() && delete_pred->sub_predicates_v2().empty()) {
         for (const auto& condition_str : delete_pred->sub_predicates()) {
             auto* sub_pred = delete_pred->add_sub_predicates_v2();
             TCondition condition;
             static_cast<void>(parse_condition(condition_str, &condition));
-            sub_pred->set_column_unique_id(schema->column(condition.column_name).unique_id());
+            const auto& column = *DORIS_TRY(schema->column(condition.column_name));
+            sub_pred->set_column_unique_id(column.unique_id());
             sub_pred->set_column_name(condition.column_name);
             sub_pred->set_op(condition.condition_op);
             sub_pred->set_cond_value(condition.condition_values[0]);
@@ -160,8 +161,10 @@ void DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred,
 
     auto* in_pred_list = delete_pred->mutable_in_predicates();
     for (auto& in_pred : *in_pred_list) {
-        in_pred.set_column_unique_id(schema->column(in_pred.column_name()).unique_id());
+        const auto& column = *DORIS_TRY(schema->column(in_pred.column_name()));
+        in_pred.set_column_unique_id(column.unique_id());
     }
+    return Status::OK();
 }
 
 bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
@@ -353,7 +356,9 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
         if constexpr (std::is_same_v<SubPredType, DeletePredicatePB>) {
             col_unique_id = sub_predicate.col_unique_id;
         } else {
-            col_unique_id = delete_pred_related_schema->column(condition.column_name).unique_id();
+            const auto& column =
+                    *DORIS_TRY(delete_pred_related_schema->column(condition.column_name));
+            col_unique_id = column.unique_id();
         }
         condition.__set_column_unique_id(col_unique_id);
         const auto& column = complete_schema->column_by_uid(col_unique_id);

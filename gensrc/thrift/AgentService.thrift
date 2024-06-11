@@ -273,6 +273,7 @@ struct TPushReq {
     15: optional Descriptors.TDescriptorTable desc_tbl
     16: optional list<Descriptors.TColumn> columns_desc
     17: optional string storage_vault_id
+    18: optional i32 schema_version
 }
 
 struct TCloneReq {
