@@ -79,12 +79,11 @@ ObjClientHolder::ObjClientHolder(S3ClientConf conf) : _conf(std::move(conf)) {}
 ObjClientHolder::~ObjClientHolder() = default;
 
 Status ObjClientHolder::init() {
-    auto client = S3ClientFactory::instance().create(_conf);
-    if (!client) {
+    _client = S3ClientFactory::instance().create(_conf);
+    if (!_client) {
         return Status::InternalError("failed to init s3 client with conf {}", _conf.to_string());
     }
 
-    _client = std::make_shared<S3ObjStorageClient>(std::move(client));
     return Status::OK();
 }
 
@@ -100,6 +99,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         reset_conf.ak = conf.ak;
         reset_conf.sk = conf.sk;
         reset_conf.token = conf.token;
+        reset_conf.bucket = conf.bucket;
         // Should check endpoint here?
     }
 
@@ -112,7 +112,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
 
     {
         std::lock_guard lock(_mtx);
-        _client = std::make_shared<S3ObjStorageClient>(std::move(client));
+        _client = std::move(client);
         _conf = std::move(reset_conf);
     }
 

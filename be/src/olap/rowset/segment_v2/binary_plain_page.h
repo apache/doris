@@ -69,7 +69,7 @@ public:
 
         // If the page is full, should stop adding more items.
         while (!is_page_full() && i < *count) {
-            auto src = reinterpret_cast<const Slice*>(vals);
+            const auto* src = reinterpret_cast<const Slice*>(vals);
             if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(src->data)));

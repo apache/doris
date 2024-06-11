@@ -263,7 +263,8 @@ static auto test_mock_callbacks = std::array {
                           pair->first = mock_client->head_object(req);
                       }},
         MockCallback {"s3_client_factory::create", [](auto&& outcome) {
-                          auto pair = try_any_cast_ret<std::shared_ptr<Aws::S3::S3Client>>(outcome);
+                          auto pair = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageClient>>(
+                                  outcome);
                           pair->second = true;
                       }}};
 

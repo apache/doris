@@ -264,20 +264,20 @@ Status OlapMeta::remove(const int column_family_index, const std::vector<std::st
     return Status::OK();
 }
 
-Status OlapMeta::iterate(const int column_family_index, const std::string& prefix,
-                         std::function<bool(const std::string&, const std::string&)> const& func) {
+Status OlapMeta::iterate(const int column_family_index, std::string_view prefix,
+                         std::function<bool(std::string_view, std::string_view)> const& func) {
     return iterate(column_family_index, prefix, prefix, func);
 }
 
-Status OlapMeta::iterate(const int column_family_index, const std::string& seek_key,
-                         const std::string& prefix,
-                         std::function<bool(const std::string&, const std::string&)> const& func) {
+Status OlapMeta::iterate(const int column_family_index, std::string_view seek_key,
+                         std::string_view prefix,
+                         std::function<bool(std::string_view, std::string_view)> const& func) {
     auto& handle = _handles[column_family_index];
     std::unique_ptr<Iterator> it(_db->NewIterator(ReadOptions(), handle.get()));
-    if (seek_key == "") {
+    if (seek_key.empty()) {
         it->SeekToFirst();
     } else {
-        it->Seek(seek_key);
+        it->Seek({seek_key.data(), seek_key.size()});
     }
     rocksdb::Status status = it->status();
     if (!status.ok()) {
@@ -286,14 +286,13 @@ Status OlapMeta::iterate(const int column_family_index, const std::string& seek_
     }
 
     for (; it->Valid(); it->Next()) {
-        if (prefix != "") {
-            if (!it->key().starts_with(prefix)) {
+        if (!prefix.empty()) {
+            if (!it->key().starts_with({prefix.data(), prefix.size()})) {
                 return Status::OK();
             }
         }
-        std::string key = it->key().ToString();
-        std::string value = it->value().ToString();
-        bool ret = func(key, value);
+        bool ret = func({it->key().data(), it->key().size()},
+                        {it->value().data(), it->value().size()});
         if (!ret) {
             break;
         }

@@ -25,11 +25,12 @@ class PartitionerBase;
 
 namespace doris::pipeline {
 
-class Exchanger;
+class ExchangerBase;
 class ShuffleExchanger;
 class PassthroughExchanger;
 class BroadcastExchanger;
 class PassToOneExchanger;
+class LocalMergeSortExchanger;
 class LocalExchangeSinkOperatorX;
 class LocalExchangeSinkLocalState final : public PipelineXSinkLocalState<LocalExchangeSharedState> {
 public:
@@ -44,6 +45,13 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     std::string debug_string(int indentation_level) const override;
+    std::vector<Dependency*> dependencies() const override {
+        auto deps = Base::dependencies();
+        if (auto local_state_sink_dep = _exchanger->get_local_state_dependency(_channel_id)) {
+            deps.push_back(local_state_sink_dep.get());
+        }
+        return deps;
+    }
 
 private:
     friend class LocalExchangeSinkOperatorX;
@@ -52,9 +60,10 @@ private:
     friend class PassthroughExchanger;
     friend class BroadcastExchanger;
     friend class PassToOneExchanger;
+    friend class LocalMergeSortExchanger;
     friend class AdaptivePassthroughExchanger;
 
-    Exchanger* _exchanger = nullptr;
+    ExchangerBase* _exchanger = nullptr;
 
     // Used by shuffle exchanger
     RuntimeProfile::Counter* _compute_hash_value_timer = nullptr;

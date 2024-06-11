@@ -710,10 +710,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
     SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
-    DCHECK((params.query_options.__isset.enable_pipeline_x_engine &&
-            params.query_options.enable_pipeline_x_engine) ||
-           (params.query_options.__isset.enable_pipeline_engine &&
-            params.query_options.enable_pipeline_engine));
     int64_t duration_ns = 0;
     std::shared_ptr<pipeline::PipelineFragmentContext> context =
             std::make_shared<pipeline::PipelineFragmentContext>(
@@ -817,14 +813,6 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
             return;
         }
     }
-    if (query_ctx->enable_pipeline_x_exec()) {
-        query_ctx->cancel_all_pipeline_context(reason);
-    } else {
-        for (auto it : all_instance_ids) {
-            cancel_instance(it, reason);
-        }
-    }
-
     query_ctx->cancel(reason);
     {
         std::lock_guard<std::mutex> state_lock(_lock);
@@ -862,7 +850,6 @@ void FragmentMgr::cancel_instance(const TUniqueId instance_id, const Status reas
 void FragmentMgr::cancel_worker() {
     LOG(INFO) << "FragmentMgr cancel worker start working.";
     do {
-        std::vector<TUniqueId> to_cancel;
         std::vector<TUniqueId> queries_lost_coordinator;
         std::vector<TUniqueId> queries_timeout;
 
@@ -875,20 +862,14 @@ void FragmentMgr::cancel_worker() {
             }
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
                 if (auto q_ctx = it->second.lock()) {
-                    if (q_ctx->is_timeout(now) && q_ctx->enable_pipeline_x_exec()) {
+                    if (q_ctx->is_timeout(now)) {
                         LOG_WARNING("Query {} is timeout", print_id(it->first));
                         queries_timeout.push_back(it->first);
                         ++it;
-                    } else if (q_ctx->is_timeout(now)) {
-                        LOG_WARNING("Query {} is timeout", print_id(it->first));
-                        it = _query_ctx_map.erase(it);
                     } else {
                         ++it;
                     }
                 } else {
-                    LOG_WARNING(
-                            "Query context for {} is released, just erase it from _query_ctx_map",
-                            print_id(it->first));
                     it = _query_ctx_map.erase(it);
                 }
             }
@@ -935,17 +916,6 @@ void FragmentMgr::cancel_worker() {
                     queries_lost_coordinator.push_back(it.first);
                 }
             }
-        }
-
-        // TODO(zhiqiang): It seems that timeout_canceled_fragment_count is
-        // designed to count canceled fragment of non-pipeline query.
-        timeout_canceled_fragment_count->increment(to_cancel.size());
-        for (auto& id : to_cancel) {
-            cancel_instance(id,
-                            Status::Error<ErrorCode::TIMEOUT>(
-                                    "FragmentMgr cancel worker going to cancel timeout instance "));
-            LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout instance "
-                      << print_id(id);
         }
 
         if (!queries_lost_coordinator.empty()) {
@@ -1055,6 +1025,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     query_options.execution_timeout = params.execution_timeout;
     query_options.mem_limit = params.mem_limit;
     query_options.query_type = TQueryType::EXTERNAL;
+    query_options.be_exec_version = BeExecVersionManager::get_newest_version();
     query_options.__set_enable_pipeline_x_engine(true);
     exec_fragment_params.__set_query_options(query_options);
     VLOG_ROW << "external exec_plan_fragment params is "
@@ -1231,8 +1202,6 @@ void FragmentMgr::get_runtime_query_info(std::vector<WorkloadQueryInfo>* query_i
                 query_info_list->push_back(workload_query_info);
                 iter++;
             } else {
-                LOG_WARNING("Query context for {} is released, just erase it from _query_ctx_map",
-                            print_id(iter->first));
                 iter = _query_ctx_map.erase(iter);
             }
         }
@@ -1260,9 +1229,7 @@ Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
         return Status::NotFound("Query {} not found", print_id(query_id));
     }
 
-    if (query_context->enable_pipeline_x_exec()) {
-        *exec_status = query_context->get_realtime_exec_status_x();
-    }
+    *exec_status = query_context->get_realtime_exec_status();
 
     return Status::OK();
 }

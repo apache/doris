@@ -73,9 +73,8 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
                 using JoinOpType = std::decay_t<decltype(join_op_variants)>;
-                _process_hashtable_ctx_variants
-                        ->emplace<vectorized::ProcessHashTableProbe<JoinOpType::value>>(
-                                this, state->batch_size());
+                _process_hashtable_ctx_variants->emplace<ProcessHashTableProbe<JoinOpType::value>>(
+                        this, state->batch_size());
             },
             _shared_state->join_op_variants,
             vectorized::make_bool_variant(p._have_other_join_conjunct));
@@ -362,6 +361,15 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     local_state._join_block.set_columns(local_state._join_block.clone_empty_columns());
     mutable_join_block.clear();
     return Status::OK();
+}
+
+std::string HashJoinProbeLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}, short_circuit_for_probe: {}",
+                   JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>::debug_string(
+                           indentation_level),
+                   _shared_state ? std::to_string(_shared_state->short_circuit_for_probe) : "NULL");
+    return fmt::to_string(debug_string_buffer);
 }
 
 Status HashJoinProbeLocalState::_extract_join_column(vectorized::Block& block,

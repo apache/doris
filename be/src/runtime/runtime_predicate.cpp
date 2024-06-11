@@ -217,15 +217,15 @@ Status RuntimePredicate::update(const Field& value) {
     if (!updated) {
         return Status::OK();
     }
-
     for (auto p : _contexts) {
         auto ctx = p.second;
         if (!ctx.tablet_schema) {
             continue;
         }
-        std::unique_ptr<ColumnPredicate> pred {_pred_constructor(
-                ctx.tablet_schema->column(ctx.col_name), ctx.predicate->column_id(),
-                _get_value_fn(_orderby_extrem), false, &_predicate_arena)};
+        const auto& column = *DORIS_TRY(ctx.tablet_schema->column(ctx.col_name));
+        std::unique_ptr<ColumnPredicate> pred {_pred_constructor(column, ctx.predicate->column_id(),
+                                                                 _get_value_fn(_orderby_extrem),
+                                                                 false, &_predicate_arena)};
 
         // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
         // since ORDER BY ASC/DESC should get NULL first but pred returns NULL

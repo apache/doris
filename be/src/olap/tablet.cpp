@@ -61,7 +61,6 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
-#include "gutil/strings/stringpiece.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -2566,13 +2565,13 @@ void Tablet::gc_binlogs(int64_t version) {
         }
     };
 
-    auto check_binlog_ttl = [&](const std::string& key, const std::string& value) mutable -> bool {
+    auto check_binlog_ttl = [&](std::string_view key, std::string_view value) mutable -> bool {
         if (key >= end_key) {
             return false;
         }
 
         BinlogMetaEntryPB binlog_meta_entry_pb;
-        if (!binlog_meta_entry_pb.ParseFromString(value)) {
+        if (!binlog_meta_entry_pb.ParseFromArray(value.data(), value.size())) {
             LOG(WARNING) << "failed to parse binlog meta entry, key:" << key;
             return true;
         }

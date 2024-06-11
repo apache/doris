@@ -63,7 +63,7 @@ under the License.
             <id>protoc_rosetta</id>
             <activation>
                 <os>
-                    <name>Mac OS X</name>
+                    <family>mac</family>
                     <arch>aarch64</arch>
                 </os>
             </activation>

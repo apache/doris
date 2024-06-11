@@ -104,9 +104,9 @@ public class AsyncMaterializationContext extends MaterializationContext {
             return Optional.empty();
         }
         RelationId relationId = null;
-        List<LogicalOlapScan> logicalOlapScan = this.getScanPlan().collectFirst(LogicalOlapScan.class::isInstance);
-        if (!logicalOlapScan.isEmpty()) {
-            relationId = logicalOlapScan.get(0).getRelationId();
+        Optional<LogicalOlapScan> logicalOlapScan = this.getScanPlan().collectFirst(LogicalOlapScan.class::isInstance);
+        if (logicalOlapScan.isPresent()) {
+            relationId = logicalOlapScan.get().getRelationId();
         }
         return Optional.of(Pair.of(relationId, normalizeStatisticsColumnExpression(mtmvCache.getStatistics())));
     }

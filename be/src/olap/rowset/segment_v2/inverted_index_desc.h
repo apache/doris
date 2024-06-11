@@ -32,9 +32,10 @@ public:
     static constexpr std::string_view index_suffix = ".idx";
     static std::string get_temporary_index_path(std::string_view tmp_dir_path,
                                                 std::string_view rowset_id, int64_t seg_id,
-                                                uint64_t uuid, std::string_view index_path_suffix);
+                                                int64_t index_id,
+                                                std::string_view index_path_suffix);
     // InvertedIndexStorageFormat V1
-    static std::string get_index_path_v1(std::string_view index_path_prefix, uint64_t uuid,
+    static std::string get_index_path_v1(std::string_view index_path_prefix, int64_t index_id,
                                          std::string_view index_path_suffix);
     // InvertedIndexStorageFormat V2
     static std::string get_index_path_v2(std::string_view index_path_prefix);
