@@ -144,10 +144,11 @@ public class LoadLoadingTask extends LoadTask {
     protected void executeOnce() throws Exception {
         final boolean enabelProfile = this.jobProfile != null;
         // New one query id,
-        Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
-                loadId, planner.getDescTable(),
-                planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
-                enabelProfile);
+        Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(
+            /*BrokerLoadJob id*/ callback.getCallbackId(),
+            /*LoadLoadingTask id*/ loadId,
+            planner.getDescTable(), planner.getFragments(), planner.getScanNodes(), planner.getTimezone(),
+            loadZeroTolerance, enabelProfile);
         if (enabelProfile) {
             this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
         }

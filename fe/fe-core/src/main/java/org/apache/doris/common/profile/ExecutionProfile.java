@@ -261,6 +261,7 @@ public class ExecutionProfile {
         int pipelineIdx = 0;
         List<RuntimeProfile> taskProfile = Lists.newArrayList();
         String suffix = " (host=" + backend.getHeartbeatAddress() + ")";
+        // Each datailed report params is a fragment level profile or a pipeline profile
         for (TDetailedReportParams param : params.detailed_report) {
             String name = param.isSetIsFragmentLevel() && param.is_fragment_level ? "Fragment Level Profile: "
                     + suffix : "Pipeline :" + pipelineIdx + " " + suffix;
