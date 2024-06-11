@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include "operator.h"
 #include "vec/sink/writer/vfile_result_writer.h"
 
@@ -39,7 +37,7 @@ public:
     using Base = AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
     ENABLE_FACTORY_CREATOR(ResultFileSinkLocalState);
     ResultFileSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
-    ~ResultFileSinkLocalState();
+    ~ResultFileSinkLocalState() override;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
@@ -115,6 +113,7 @@ private:
     std::string _header_type;
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    std::shared_ptr<BufferControlBlock> _sender = nullptr;
 };
 
 } // namespace doris::pipeline

@@ -74,6 +74,10 @@ Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
 
 Status ResultFileSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::prepare(state));
+    if (state->query_options().enable_parallel_result_sink) {
+        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+                state->query_id(), RESULT_SINK_BUFFER_SIZE, &_sender, state->execution_timeout()));
+    }
     return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
 }
 
@@ -124,12 +128,20 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         std::mt19937 g(rd());
         shuffle(_channels.begin(), _channels.end(), g);
 
-        for (int i = 0; i < _channels.size(); ++i) {
-            RETURN_IF_ERROR(_channels[i]->init_stub(state));
+        for (auto& _channel : _channels) {
+            RETURN_IF_ERROR(_channel->init_stub(state));
         }
     }
     _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
     _writer->set_header_info(p._header_type, p._header);
+
+    if (state->query_options().enable_parallel_result_sink) {
+        _sender = _parent->cast<ResultFileSinkOperatorX>()._sender;
+    } else {
+        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+                state->fragment_instance_id(), RESULT_SINK_BUFFER_SIZE, &_sender,
+                state->execution_timeout()));
+    }
     return Status::OK();
 }
 
@@ -139,9 +151,9 @@ Status ResultFileSinkLocalState::open(RuntimeState* state) {
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     if (!p._is_top_sink) {
         int local_size = 0;
-        for (int i = 0; i < _channels.size(); ++i) {
-            RETURN_IF_ERROR(_channels[i]->open(state));
-            if (_channels[i]->is_local()) {
+        for (auto& _channel : _channels) {
+            RETURN_IF_ERROR(_channel->open(state));
+            if (_channel->is_local()) {
                 local_size++;
             }
         }
