@@ -431,7 +431,7 @@ Status NewOlapScanner::_init_variant_columns() {
             }
         }
     }
-    schema_util::inherit_root_attributes(tablet_schema);
+    schema_util::inherit_column_attributes(tablet_schema);
     return Status::OK();
 }
 

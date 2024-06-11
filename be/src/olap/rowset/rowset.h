@@ -132,6 +132,8 @@ public:
 
     const RowsetMetaSharedPtr& rowset_meta() const { return _rowset_meta; }
 
+    void merge_rowset_meta(const RowsetMeta& other);
+
     bool is_pending() const { return _is_pending; }
 
     bool is_local() const { return _rowset_meta->is_local(); }

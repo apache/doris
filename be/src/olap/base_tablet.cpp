@@ -188,7 +188,7 @@ TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
                        [](const RowsetMetaSharedPtr& rs_meta) { return rs_meta->tablet_schema(); });
         static_cast<void>(
                 vectorized::schema_util::get_least_common_schema(schemas, nullptr, target_schema));
-        VLOG_DEBUG << "dump schema: " << target_schema->dump_structure();
+        VLOG_DEBUG << "dump schema: " << target_schema->dump_full_schema();
     }
     return target_schema;
 }
@@ -624,6 +624,13 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 rowset_schema->has_sequence_col() &&
                 (std::find(including_cids.cbegin(), including_cids.cend(),
                            rowset_schema->sequence_col_idx()) != including_cids.cend());
+    }
+    if (rowset_schema->num_variant_columns() > 0) {
+        // During partial updates, the extracted columns of a variant should not be included in the rowset schema.
+        // This is because the partial update for a variant needs to ignore the extracted columns.
+        // Otherwise, the schema types in different rowsets might be inconsistent. When performing a partial update,
+        // the complete variant is constructed by reading all the sub-columns of the variant.
+        rowset_schema = rowset_schema->copy_without_variant_extracted_columns();
     }
     // use for partial update
     PartialUpdateReadPlan read_plan_ori;
@@ -1233,7 +1240,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         RowsetSharedPtr transient_rowset;
         RETURN_IF_ERROR(transient_rs_writer->build(transient_rowset));
         auto old_segments = rowset->num_segments();
-        rowset->rowset_meta()->merge_rowset_meta(*transient_rowset->rowset_meta());
+        rowset->merge_rowset_meta(*transient_rowset->rowset_meta());
         auto new_segments = rowset->num_segments();
         ss << ", partial update flush rowset (old segment num: " << old_segments
            << ", new segment num: " << new_segments << ")"
@@ -1241,7 +1248,6 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
 
         // update the shared_ptr to new bitmap, which is consistent with current rowset.
         txn_info->delete_bitmap = delete_bitmap;
-
         // erase segment cache cause we will add a segment to rowset
         SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());
     }
