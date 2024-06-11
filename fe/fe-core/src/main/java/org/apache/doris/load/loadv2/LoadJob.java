@@ -858,7 +858,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         if (type == EtlJobType.BROKER) {
             job = EnvFactory.getInstance().createBrokerLoadJob();
         } else if (type == EtlJobType.SPARK) {
-            job = new SparkLoadJob();
+            job = new NewSparkLoadJob();
         } else if (type == EtlJobType.INSERT || type == EtlJobType.INSERT_JOB) {
             job = new InsertLoadJob();
         } else if (type == EtlJobType.MINI) {

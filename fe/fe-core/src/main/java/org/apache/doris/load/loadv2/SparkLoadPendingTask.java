@@ -77,6 +77,7 @@ import java.util.Set;
 
 // 1. create etl job config and write it into jobconfig.json file
 // 2. submit spark etl job
+@Deprecated
 public class SparkLoadPendingTask extends LoadTask {
     private static final Logger LOG = LogManager.getLogger(SparkLoadPendingTask.class);
 
