@@ -800,7 +800,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                 .substring(1, ctx.partitionRange().start.getText().length() - 1)),
                         LogicalPlanBuilderAssistant.escapeBackSlash(
                                 ctx.partitionRange().end.getText()
-                                        .substring(1, ctx.partitionRange().end.getText().length() - 1)));
+                                        .substring(1, ctx.partitionRange().end.getText().length() - 1))));
         return new RefreshMTMVCommand(new RefreshMTMVInfo(new TableNameInfo(nameParts),
                 partitions, ctx.COMPLETE() != null, range));
     }
