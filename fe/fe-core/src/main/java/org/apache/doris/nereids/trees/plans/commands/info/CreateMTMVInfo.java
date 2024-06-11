@@ -296,8 +296,8 @@ public class CreateMTMVInfo {
     }
 
     private void analyzeExpressions(Plan plan) {
-        List<TreeNode<Expression>> functionCollectResult = new ArrayList<>();
-        plan.accept(NondeterministicFunctionCollector.INSTANCE, functionCollectResult);
+        List<Expression> functionCollectResult = MaterializedViewUtils.extractNondeterministicFunction(
+                plan, NondeterministicFunctionCollector.WHITE_FUNCTION_LIST);
         if (!CollectionUtils.isEmpty(functionCollectResult)) {
             throw new AnalysisException("can not contain invalid expression");
         }

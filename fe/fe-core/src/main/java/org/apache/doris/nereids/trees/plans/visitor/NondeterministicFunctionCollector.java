@@ -17,31 +17,82 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.Any;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector.FunctionCollectContext;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableSet;
+
+import java.util.BitSet;
+import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Collect the nondeterministic expr in plan, these expressions will be put into context
  */
 public class NondeterministicFunctionCollector
-        extends DefaultPlanVisitor<Void, List<TreeNode<Expression>>> {
+        extends DefaultPlanVisitor<Void, FunctionCollectContext> {
 
-    public static final NondeterministicFunctionCollector INSTANCE
-            = new NondeterministicFunctionCollector();
+    public static final NondeterministicFunctionCollector INSTANCE = new NondeterministicFunctionCollector();
+    public static final ImmutableSet<Expression> WHITE_FUNCTION_LIST = ImmutableSet.of(
+            new Now(), new Now(Any.INSTANCE), new CurrentDate(), new UnixTimestamp(Any.INSTANCE, Any.INSTANCE),
+            new UnixTimestamp(Any.INSTANCE));
 
     @Override
-    public Void visit(Plan plan, List<TreeNode<Expression>> collectedExpressions) {
+    public Void visit(Plan plan, FunctionCollectContext collectContext) {
         List<? extends Expression> expressions = plan.getExpressions();
         if (expressions.isEmpty()) {
-            return super.visit(plan, collectedExpressions);
+            return super.visit(plan, collectContext);
         }
-        expressions.forEach(expression -> {
-            collectedExpressions.addAll(expression.collect(Nondeterministic.class::isInstance));
-        });
-        return super.visit(plan, collectedExpressions);
+        for (Expression shuttledExpression : expressions) {
+            Set<Nondeterministic> nondeterministicFunctions = shuttledExpression.collect(
+                    Nondeterministic.class::isInstance);
+            for (Nondeterministic function : nondeterministicFunctions) {
+                if (WHITE_FUNCTION_LIST.stream()
+                        .anyMatch(whiteFunction -> Any.equals(whiteFunction, (Expression) function))) {
+                    continue;
+                }
+                collectContext.addExpression((Expression) function);
+            }
+        }
+        return super.visit(plan, collectContext);
+    }
+
+    public static class FunctionCollectContext {
+        private final List<Expression> collectedExpressions = new LinkedList<>();
+        private final Set<Expression> whiteFunctionSet = new HashSet<>();
+
+        private FunctionCollectContext(Set<Expression> whiteFunctionSet) {
+            this.whiteFunctionSet.addAll(whiteFunctionSet);
+        }
+
+        public static FunctionCollectContext of(Set<Expression> whiteListFunctionSet) {
+            if (whiteListFunctionSet != null) {
+                return new FunctionCollectContext(whiteListFunctionSet);
+            }
+            return new FunctionCollectContext(ImmutableSet.of());
+        }
+
+        public Set<Expression> getWhiteFunctionSet() {
+            return whiteFunctionSet;
+        }
+
+        public void addExpression(Expression expression) {
+            if (expression != null) {
+                this.collectedExpressions.add(expression);
+            }
+        }
+
+        public List<Expression> getCollectedExpressions() {
+            return collectedExpressions;
+        }
     }
 }
