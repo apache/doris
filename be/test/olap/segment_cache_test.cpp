@@ -81,9 +81,8 @@ static void set_up() {
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    auto engine = std::make_unique<StorageEngine>(options);
-    engine_ref = engine.get();
-    Status s = engine->open();
+    engine_ref = new StorageEngine(options);
+    Status s = engine_ref->open();
     ASSERT_TRUE(s.ok()) << s;
     ASSERT_TRUE(s.ok()) << s;
 
@@ -95,6 +94,7 @@ static void set_up() {
 static void tear_down() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(nullptr);
+    delete engine_ref;
     engine_ref = nullptr;
     exec_env->set_storage_engine(nullptr);
     EXPECT_EQ(system("rm -rf ./segment_cache_test"), 0);
