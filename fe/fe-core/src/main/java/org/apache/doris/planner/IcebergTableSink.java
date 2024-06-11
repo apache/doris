@@ -121,7 +121,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         }
 
         // file info
-        tSink.setFileFormat(getTFileFormatType(IcebergUtils.getFileFormat(icebergTable)));
+        tSink.setFileFormat(getTFileFormatType(IcebergUtils.getFileFormat(icebergTable).name()));
         tSink.setCompressionType(getTFileCompressType(IcebergUtils.getFileCompress(icebergTable)));
 
         // hadoop config

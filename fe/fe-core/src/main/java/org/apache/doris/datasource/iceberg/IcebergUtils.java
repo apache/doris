@@ -43,6 +43,7 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -522,8 +524,8 @@ public class IcebergUtils {
             case MAP:
                 Types.MapType map = (Types.MapType) type;
                 return new MapType(
-                    icebergTypeToDorisType(map.keyType()),
-                    icebergTypeToDorisType(map.valueType())
+                        icebergTypeToDorisType(map.keyType()),
+                        icebergTypeToDorisType(map.valueType())
                 );
             case STRUCT:
                 Types.StructType struct = (Types.StructType) type;
@@ -535,6 +537,11 @@ public class IcebergUtils {
                 throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }
     }
+
+    public static org.apache.iceberg.Table getIcebergTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
+        return getIcebergTable(catalog, tableInfo.getDbName(), tableInfo.getTbName());
+    }
+
 
     public static org.apache.iceberg.Table getIcebergTable(ExternalCatalog catalog, String dbName, String tblName) {
         return Env.getCurrentEnv()
@@ -587,16 +594,21 @@ public class IcebergUtils {
         return -1;
     }
 
-    public static String getFileFormat(Table table) {
-        Map<String, String> properties = table.properties();
-        if (properties.containsKey(WRITE_FORMAT)) {
-            return properties.get(WRITE_FORMAT);
+
+    public static FileFormat getFileFormat(Table icebergTable) {
+        Map<String, String> properties = icebergTable.properties();
+        String fileFormatName = properties.getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, "parquet");
+        FileFormat fileFormat;
+        if (fileFormatName.toLowerCase().contains("orc")) {
+            fileFormat = FileFormat.ORC;
+        } else if (fileFormatName.toLowerCase().contains("parquet")) {
+            fileFormat = FileFormat.PARQUET;
+        } else {
+            throw new RuntimeException("Unsupported input format type: " + fileFormatName);
         }
-        if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
-            return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
-        }
-        return TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
+        return fileFormat;
     }
+
 
     public static String getFileCompress(Table table) {
         Map<String, String> properties = table.properties();
@@ -605,11 +617,11 @@ public class IcebergUtils {
         } else if (properties.containsKey(SPARK_SQL_COMPRESSION_CODEC)) {
             return properties.get(SPARK_SQL_COMPRESSION_CODEC);
         }
-        String fileFormat = getFileFormat(table);
-        if (fileFormat.equalsIgnoreCase("parquet")) {
+        FileFormat fileFormat = getFileFormat(table);
+        if (fileFormat == FileFormat.PARQUET) {
             return properties.getOrDefault(
                     TableProperties.PARQUET_COMPRESSION, TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0);
-        } else if (fileFormat.equalsIgnoreCase("orc")) {
+        } else if (fileFormat == FileFormat.ORC) {
             return properties.getOrDefault(
                     TableProperties.ORC_COMPRESSION, TableProperties.ORC_COMPRESSION_DEFAULT);
         }
@@ -620,9 +632,10 @@ public class IcebergUtils {
         Map<String, String> properties = table.properties();
         if (properties.containsKey(TableProperties.WRITE_LOCATION_PROVIDER_IMPL)) {
             throw new NotSupportedException(
-                "Table " + table.name() + " specifies " + properties.get(TableProperties.WRITE_LOCATION_PROVIDER_IMPL)
-                    + " as a location provider. "
-                    + "Writing to Iceberg tables with custom location provider is not supported.");
+                    "Table " + table.name() + " specifies " + properties
+                            .get(TableProperties.WRITE_LOCATION_PROVIDER_IMPL)
+                            + " as a location provider. "
+                            + "Writing to Iceberg tables with custom location provider is not supported.");
         }
         String dataLocation = properties.get(TableProperties.WRITE_DATA_LOCATION);
         if (dataLocation == null) {

@@ -64,6 +64,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return catalog;
     }
 
+    public IcebergExternalCatalog getExternalCatalog() {
+        return dorisCatalog;
+    }
+
     @Override
     public void close() {
     }
@@ -173,4 +177,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         catalog.dropTable(TableIdentifier.of(dbName, tableName));
         db.setUnInitialized(true);
     }
+
+
+
 }

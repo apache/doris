@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergCommitData;
 
@@ -50,6 +51,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergTransactionTest {
@@ -167,8 +169,9 @@ public class IcebergTransactionTest {
 
         IcebergTransaction txn = getTxn();
         txn.updateIcebergCommitData(ctdList);
-        txn.beginInsert(dbName, tbWithPartition);
-        txn.finishInsert();
+        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
+        txn.pendingCommit(tableInfo);
+        txn.preCommit(tableInfo, Optional.empty());
         txn.commit();
         Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithPartition));
         checkSnapshotProperties(table.currentSnapshot().summary(), "6", "2", "6");
@@ -270,8 +273,9 @@ public class IcebergTransactionTest {
 
         IcebergTransaction txn = getTxn();
         txn.updateIcebergCommitData(ctdList);
-        txn.beginInsert(dbName, tbWithoutPartition);
-        txn.finishInsert();
+        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
+        txn.pendingCommit(tableInfo);
+        txn.preCommit(tableInfo, Optional.empty());
         txn.commit();
 
         Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));

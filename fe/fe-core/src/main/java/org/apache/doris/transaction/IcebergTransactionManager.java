@@ -17,7 +17,7 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.catalog.Env;
+
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
@@ -28,15 +28,21 @@ import java.util.concurrent.ConcurrentHashMap;
 public class IcebergTransactionManager implements TransactionManager {
 
     private final Map<Long, IcebergTransaction> transactions = new ConcurrentHashMap<>();
+    private final TransactionIdGenerator idGenerator = new TransactionIdGenerator();
     private final IcebergMetadataOps ops;
 
     public IcebergTransactionManager(IcebergMetadataOps ops) {
         this.ops = ops;
     }
 
+    public Long getNextTransactionId() {
+        return idGenerator.getNextTransactionId();
+    }
+
+
     @Override
     public long begin() {
-        long id = Env.getCurrentEnv().getNextId();
+        long id = idGenerator.getNextTransactionId();
         IcebergTransaction icebergTransaction = new IcebergTransaction(ops);
         transactions.put(id, icebergTransaction);
         return id;
@@ -55,12 +61,12 @@ public class IcebergTransactionManager implements TransactionManager {
     }
 
     @Override
-    public Transaction getTransaction(long id) {
+    public IcebergTransaction getTransaction(long id) {
         return getTransactionWithException(id);
     }
 
-    public Transaction getTransactionWithException(long id) {
-        Transaction icebergTransaction = transactions.get(id);
+    public IcebergTransaction getTransactionWithException(long id) {
+        IcebergTransaction icebergTransaction = transactions.get(id);
         if (icebergTransaction == null) {
             throw new RuntimeException("Can't find transaction for " + id);
         }
