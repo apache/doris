@@ -3606,6 +3606,7 @@ public class SessionVariable implements Serializable, Writable {
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setInsertTimeout(insertTimeoutS);
         queryOptions.setAnalyzeTimeout(analyzeTimeoutS);
+        queryOptions.setBeExecVersion(Config.be_exec_version);
         return queryOptions;
     }
 
