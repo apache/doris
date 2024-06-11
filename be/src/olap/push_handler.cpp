@@ -34,11 +34,13 @@
 #include <new>
 #include <queue>
 #include <shared_mutex>
+#include <type_traits>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/hdfs_builder.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/pending_rowset_helper.h"
@@ -56,7 +58,10 @@
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/functions/simple_function_factory.h"
@@ -98,8 +103,8 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
             RETURN_IF_ERROR(_engine.tablet_manager()->report_tablet_info(&tablet_info));
             tablet_info_vec->push_back(tablet_info);
         }
-        LOG(INFO) << "process realtime push successfully. "
-                  << "tablet=" << tablet->tablet_id() << ", partition_id=" << request.partition_id
+        LOG(INFO) << "process realtime push successfully. " << "tablet=" << tablet->tablet_id()
+                  << ", partition_id=" << request.partition_id
                   << ", transaction_id=" << request.transaction_id;
     }
 
@@ -191,8 +196,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     res = _convert_v2(tablet, &rowset_to_add, tablet_schema, push_type);
     if (!res.ok()) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
-                     << ", failed to process realtime push."
-                     << ", tablet=" << tablet->tablet_id()
+                     << ", failed to process realtime push." << ", tablet=" << tablet->tablet_id()
                      << ", transaction_id=" << request.transaction_id;
 
         Status rollback_status = _engine.txn_manager()->rollback_txn(request.partition_id, *tablet,
@@ -284,16 +288,16 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             while (!reader->eof()) {
                 res = reader->next(&block);
                 if (!res.ok()) {
-                    LOG(WARNING) << "read next row failed."
-                                 << " res=" << res << " read_rows=" << num_rows;
+                    LOG(WARNING) << "read next row failed." << " res=" << res
+                                 << " read_rows=" << num_rows;
                     break;
                 } else {
                     if (reader->eof()) {
                         break;
                     }
                     if (!(res = rowset_writer->add_block(&block)).ok()) {
-                        LOG(WARNING) << "fail to attach block to rowset_writer. "
-                                     << "res=" << res << ", tablet=" << cur_tablet->tablet_id()
+                        LOG(WARNING) << "fail to attach block to rowset_writer. " << "res=" << res
+                                     << ", tablet=" << cur_tablet->tablet_id()
                                      << ", read_rows=" << num_rows;
                         break;
                     }
@@ -349,8 +353,9 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
     _file_params.expr_of_dest_slot = _params.expr_of_dest_slot;
     _file_params.dest_sid_to_src_sid_without_trans = _params.dest_sid_to_src_sid_without_trans;
     _file_params.strict_mode = _params.strict_mode;
-    _file_params.__isset.broker_addresses = true;
-    _file_params.broker_addresses = t_scan_range.broker_addresses;
+    // _file_params.__isset.broker_addresses = true;
+    // _file_params.broker_addresses = t_scan_range.broker_addresses;
+    _file_params.hdfs_params = parse_properties(_params.properties);
 
     for (const auto& range : _ranges) {
         TFileRangeDesc file_range;
@@ -479,17 +484,46 @@ Status PushBrokerReader::_cast_to_input_block() {
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
         // remove nullable here, let the get_function decide whether nullable
         auto return_type = slot_desc->get_data_type_ptr();
-        vectorized::ColumnsWithTypeAndName arguments {
-                arg,
-                {vectorized::DataTypeString().create_column_const(
-                         arg.column->size(), remove_nullable(return_type)->get_family_name()),
-                 std::make_shared<vectorized::DataTypeString>(), ""}};
-        auto func_cast = vectorized::SimpleFunctionFactory::instance().get_function(
-                "CAST", arguments, return_type);
         idx = _src_block_name_to_idx[slot_desc->col_name()];
-        RETURN_IF_ERROR(
-                func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
-        _src_block_ptr->get_by_position(idx).type = std::move(return_type);
+        // todo: bitmap convert
+        // if (slot_desc->type().is_bitmap_type()) {
+        if (slot_desc->col_name() == "uuid") {
+            LOG(INFO) << "is bitmap type";
+            LOG(INFO) << "arg type " << arg.type->get_name() << " column " << arg.column->get_name();
+            auto base64_return_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    vectorized::DataTypeString().get_type_as_type_descriptor(),
+                    slot_desc->is_nullable());
+            auto func_to_base64 = vectorized::SimpleFunctionFactory::instance().get_function(
+                    "to_base64", {arg}, return_type);
+            LOG(INFO) << "func_to_base64->execute";
+            RETURN_IF_ERROR(func_to_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
+                                                    arg.column->size()));
+            LOG(INFO) << "std::move(base64_return_type)";
+            _src_block_ptr->get_by_position(idx).type = std::move(return_type);
+            // LOG(INFO) << "arg1";
+            // auto& arg1 = _src_block_ptr->get_by_name(slot_desc->col_name());
+            // LOG(INFO) << "arg1 " << arg1.type->get_name();
+            // LOG(INFO) << "func_bitmap_from_base64";
+            // auto func_bitmap_from_base64 =
+            //         vectorized::SimpleFunctionFactory::instance().get_function("bitmap_from_base64",
+            //                                                                    {arg1}, return_type);
+            // LOG(INFO) << "func_bitmap_from_base64->execute";
+            // RETURN_IF_ERROR(func_bitmap_from_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
+            //                                                  arg1.column->size()));
+            // LOG(INFO) << "func_bitmap_from_base64->execute done";
+            // _src_block_ptr->get_by_position(idx).type = std::move(return_type);
+        } else {
+            vectorized::ColumnsWithTypeAndName arguments {
+                    arg,
+                    {vectorized::DataTypeString().create_column_const(
+                             arg.column->size(), remove_nullable(return_type)->get_family_name()),
+                     std::make_shared<vectorized::DataTypeString>(), ""}};
+            auto func_cast = vectorized::SimpleFunctionFactory::instance().get_function(
+                    "CAST", arguments, return_type);
+            RETURN_IF_ERROR(
+                    func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
+            _src_block_ptr->get_by_position(idx).type = std::move(return_type);
+        }
     }
     return Status::OK();
 }

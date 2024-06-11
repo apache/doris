@@ -26,13 +26,20 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.httpv2.rest.manager.HttpUtils;
+import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.StreamLoadHandler;
+import org.apache.doris.load.loadv2.LoadJob;
+import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.loadv2.NewSparkLoadJob;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.GroupCommitPlanner;
@@ -44,9 +51,14 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.transaction.BeginTransactionException;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpHeaderNames;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,10 +70,14 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
 import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import javax.servlet.http.HttpServletRequest;
@@ -689,4 +705,138 @@ public class LoadAction extends RestBaseController {
         }
         return backend;
     }
+
+    @RequestMapping(path = "/api/spark_load/{" + DB_KEY + "}/_create", method = RequestMethod.POST)
+    public Object createSparkLoad(HttpServletRequest request, HttpServletResponse response,
+                                  @PathVariable(value = DB_KEY) String db) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
+        executeCheckPassword(request, response);
+
+        String fullDbName = getFullDbName(db);
+
+        Map<String, Object> resultMap = new HashMap<>();
+
+        try {
+
+            String body = HttpUtils.getBody(request);
+            JsonMapper mapper = JsonMapper.builder().build();
+            JsonNode jsonNode = mapper.reader().readTree(body);
+
+            String label = jsonNode.get("label").asText();
+            Map<String, List<String>> tableToPartition = mapper.reader()
+                    .readValue(jsonNode.get("tableToPartition").traverse(),
+                            new TypeReference<Map<String, List<String>>>() {
+                            });
+            List<String> tableNames = new LinkedList<>(tableToPartition.keySet());
+            for (String tableName : tableNames) {
+                checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.LOAD);
+            }
+
+            Map<String, String> properties = new HashMap<>();
+            if (jsonNode.hasNonNull("properties")) {
+                properties = mapper.readValue(jsonNode.get("properties").traverse(),
+                        new TypeReference<HashMap<String, String>>() {
+                        });
+            }
+
+            executeCreateAndStartSparkLoad(fullDbName, label, tableNames, properties, tableToPartition, resultMap,
+                    ConnectContext.get().getCurrentUserIdentity());
+
+        } catch (Exception e) {
+            LOG.error("create spark load job failed, err: {}", e.getMessage());
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+
+        return ResponseEntityBuilder.ok(resultMap);
+
+    }
+
+    private void executeCreateAndStartSparkLoad(String dbName, String label, List<String> tableNames,
+                                                Map<String, String> properties,
+                                                Map<String, List<String>> tableToPartition,
+                                                Map<String, Object> resultMap, UserIdentity userInfo)
+            throws DdlException, BeginTransactionException, MetaNotFoundException, AnalysisException,
+            QuotaExceedException, LoadException {
+
+        long loadId = -1;
+        try {
+
+            LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
+            loadId = loadManager.createSparkLoadJob(dbName, label, tableNames, properties, userInfo);
+            NewSparkLoadJob loadJob = (NewSparkLoadJob) loadManager.getLoadJob(loadId);
+            resultMap.put("loadId", loadId);
+
+            long txnId = loadJob.beginTransaction();
+            resultMap.put("txnId", txnId);
+
+            Map<String, Object> loadMeta = loadJob.getLoadMeta(tableToPartition);
+            resultMap.put("dbId", loadMeta.get("dbId"));
+            resultMap.put("signature", loadMeta.get("signature"));
+            resultMap.put("tableMeta", loadMeta.get("tableMeta"));
+
+            loadJob.startEtlJob();
+
+        } catch (DdlException | BeginTransactionException | MetaNotFoundException | AnalysisException
+                 | QuotaExceedException | LoadException e) {
+            if (loadId != -1L) {
+                try {
+                    Env.getCurrentEnv().getLoadManager().getLoadJob(loadId).cancelJob(
+                            new FailMsg(FailMsg.CancelType.UNKNOWN, StringUtils.defaultIfBlank(e.getMessage(), "")));
+                } catch (DdlException ex) {
+                    LOG.error("cancel load failed, err: {}", e.getMessage());
+                }
+            }
+            throw e;
+        }
+
+    }
+
+    @RequestMapping(path = "/api/spark_load/{" + DB_KEY + "}/_update", method = RequestMethod.POST)
+    public Object updateSparkLoad(HttpServletRequest request, HttpServletResponse response,
+                                  @PathVariable(value = DB_KEY) String db) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
+        executeCheckPassword(request, response);
+
+        String fullDbName = getFullDbName(db);
+
+        try {
+
+            String body = HttpUtils.getBody(request);
+            JsonMapper mapper = JsonMapper.builder().build();
+            JsonNode jsonNode = mapper.readTree(body);
+            LoadJob loadJob = null;
+
+            if (jsonNode.hasNonNull("loadId")) {
+                long loadId = jsonNode.get("loadId").asLong();
+                loadJob = Env.getCurrentEnv().getLoadManager().getLoadJob(loadId);
+            }
+
+            if (loadJob == null) {
+                return ResponseEntityBuilder.okWithCommonError("load job not exists");
+            }
+
+            NewSparkLoadJob sparkLoadJob = (NewSparkLoadJob) loadJob;
+            Set<String> tableNames = sparkLoadJob.getTableNames();
+            for (String tableName : tableNames) {
+                checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.LOAD);
+            }
+            Map<String, String> statusInfo = mapper.readValue(jsonNode.get("statusInfo").traverse(),
+                    new TypeReference<HashMap<String, String>>() {
+                    });
+            sparkLoadJob.updateJobStatus(statusInfo);
+        } catch (IOException | MetaNotFoundException | UnauthorizedException e) {
+            return ResponseEntityBuilder.okWithCommonError(
+                    String.format("cancel spark load failed, err: %s", e.getMessage()));
+        }
+
+        return ResponseEntityBuilder.ok();
+
+    }
+
 }
