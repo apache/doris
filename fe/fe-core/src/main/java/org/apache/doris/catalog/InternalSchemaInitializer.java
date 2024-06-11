@@ -39,7 +39,6 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.plugin.audit.AuditLoaderPlugin;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
