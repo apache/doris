@@ -39,7 +39,6 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 public class MTMVTaskTest {
@@ -103,7 +102,7 @@ public class MTMVTaskTest {
 
     @Test
     public void testCalculateNeedRefreshPartitionsManualComplete() throws AnalysisException {
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, null, true, Optional.empty());
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, null, true, null);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
         Assert.assertEquals(allPartitionNames, result);
@@ -112,7 +111,7 @@ public class MTMVTaskTest {
     @Test
     public void testCalculateNeedRefreshPartitionsManualPartitions() throws AnalysisException {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName), false,
-                Optional.empty());
+                null);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
         Assert.assertEquals(Lists.newArrayList(poneName), result);
