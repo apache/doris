@@ -46,14 +46,6 @@ suite("test_refresh_range_mtmv","mtmv") {
         SELECT * from ${tableName};
         """
 
-    // test illegal date type
-    test {
-         sql """
-            REFRESH MATERIALIZED VIEW ${mvName} partition start '2' end '3';
-            """
-         exception "invalid"
-    }
-
     // test self manage
     test {
          sql """
@@ -62,7 +54,7 @@ suite("test_refresh_range_mtmv","mtmv") {
          exception "SELF_MANAGE"
     }
 
-    // test int range partition
+    // test invalid date
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
@@ -92,12 +84,20 @@ suite("test_refresh_range_mtmv","mtmv") {
         AS
         SELECT * from ${tableName};
         """
+
      sql """
         REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-02-01' end '2017-02-02';
         """
      waitingMTMVTaskFinishedByMvName(mvName)
      order_qt_int_error "select Status,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime DESC limit 1"
 
+    // test illegal date type
+    test {
+         sql """
+            REFRESH MATERIALIZED VIEW ${mvName} partition start '2' end '3';
+            """
+         exception "invalid"
+    }
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
