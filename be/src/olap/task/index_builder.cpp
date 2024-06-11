@@ -330,7 +330,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     continue;
                 }
                 auto column = output_rowset_schema->column(column_idx);
-                if (!InvertedIndexColumnWriter::check_column_valid(column)) {
+                if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
                     continue;
                 }
                 DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id, ""));
