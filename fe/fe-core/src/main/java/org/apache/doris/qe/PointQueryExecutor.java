@@ -72,7 +72,7 @@ public class PointQueryExecutor implements CoordInterface {
     private final int maxMsgSizeOfResultReceiver;
 
     // used for snapshot read in cloud mode
-    private List<Long> versions;
+    private List<Long> snapshotVisibleVersions;
 
     private final ShortCircuitQueryContext shortCircuitQueryContext;
 
@@ -83,31 +83,32 @@ public class PointQueryExecutor implements CoordInterface {
     }
 
     private void updateCloudPartitionVersions() throws RpcException {
-        OlapScanNode planRoot = shortCircuitQueryContext.scanNode;
+        OlapScanNode scanNode = shortCircuitQueryContext.scanNode;
         List<CloudPartition> partitions = new ArrayList<>();
         Set<Long> partitionSet = new HashSet<>();
-        OlapTable table = planRoot.getOlapTable();
-        for (Long id : planRoot.getSelectedPartitionIds()) {
+        OlapTable table = scanNode.getOlapTable();
+        for (Long id : scanNode.getSelectedPartitionIds()) {
             if (!partitionSet.contains(id)) {
                 partitionSet.add(id);
                 partitions.add((CloudPartition) table.getPartition(id));
             }
         }
-        versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+        snapshotVisibleVersions = CloudPartition.getSnapshotVisibleVersion(partitions);
         // Only support single partition at present
-        Preconditions.checkState(versions.size() == 1);
-        LOG.debug("set cloud version {}", versions.get(0));
+        Preconditions.checkState(snapshotVisibleVersions.size() == 1);
+        LOG.debug("set cloud version {}", snapshotVisibleVersions.get(0));
     }
 
     void setScanRangeLocations() throws Exception {
-        OlapScanNode planRoot = shortCircuitQueryContext.scanNode;
+        OlapScanNode scanNode = shortCircuitQueryContext.scanNode;
         // compute scan range
-        List<TScanRangeLocations> locations = planRoot.lazyEvaluateRangeLocations();
-        if (planRoot.getScanTabletIds().isEmpty()) {
+        List<TScanRangeLocations> locations = scanNode.lazyEvaluateRangeLocations();
+        Preconditions.checkNotNull(locations);
+        if (scanNode.getScanTabletIds().isEmpty()) {
             return;
         }
-        Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
-        this.tabletID = planRoot.getScanTabletIds().get(0);
+        Preconditions.checkState(scanNode.getScanTabletIds().size() == 1);
+        this.tabletID = scanNode.getScanTabletIds().get(0);
 
         // update partition version if cloud mode
         if (Config.isCloudMode()
@@ -116,9 +117,8 @@ public class PointQueryExecutor implements CoordInterface {
             updateCloudPartitionVersions();
         }
 
-        Preconditions.checkNotNull(locations);
         candidateBackends = new ArrayList<>();
-        for (Long backendID : planRoot.getScanBackendIds()) {
+        for (Long backendID : scanNode.getScanBackendIds()) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendID);
             if (SimpleScheduler.isAvailable(backend)) {
                 candidateBackends.add(backend);
@@ -160,8 +160,10 @@ public class PointQueryExecutor implements CoordInterface {
             BinaryPredicate binaryPredicate = (BinaryPredicate) scanNode.getConjuncts().get(i);
             if (binaryPredicate.getChild(0) instanceof LiteralExpr) {
                 binaryPredicate.setChild(0, conjunctVals.get(i));
-            } else {
+            } else if (binaryPredicate.getChild(1) instanceof LiteralExpr) {
                 binaryPredicate.setChild(1, conjunctVals.get(i));
+            } else {
+                Preconditions.checkState(false, "Should conatains literal in " + binaryPredicate.toSqlImpl());
             }
         }
     }
@@ -197,31 +199,28 @@ public class PointQueryExecutor implements CoordInterface {
         Iterator<Backend> backendIter = candidateBackends.iterator();
         RowBatch rowBatch = null;
         int tryCount = 0;
-        int maxTry = Math.min(Config.max_point_query_retry_time, candidateBackends.size());
+        int maxTry = Math.min(Config.max_point_query_retry_count, candidateBackends.size());
         Status status = new Status();
         do {
             Backend backend = backendIter.next();
             rowBatch = getNextInternal(status, backend);
-            ++tryCount;
             if (rowBatch != null) {
                 break;
             }
-            if (tryCount >= maxTry) {
+            if (++tryCount >= maxTry) {
                 break;
             }
-            status.updateStatus(TStatusCode.OK, "");
         } while (true);
         // handle status code
         if (!status.ok()) {
             if (Strings.isNullOrEmpty(status.getErrorMsg())) {
                 status.rewriteErrorMsg();
             }
+            String errMsg = status.getErrorMsg();
+            LOG.warn("query failed: {}", errMsg);
             if (status.isRpcError()) {
-                throw new RpcException(null, status.getErrorMsg());
+                throw new RpcException(null, errMsg);
             } else {
-                String errMsg = status.getErrorMsg();
-                LOG.warn("query failed: {}", errMsg);
-
                 // hide host info
                 int hostIndex = errMsg.indexOf("host");
                 if (hostIndex != -1) {
@@ -235,7 +234,8 @@ public class PointQueryExecutor implements CoordInterface {
 
     @Override
     public void exec() throws Exception {
-        // Do nothing
+        // Point queries don't need to do anthing in execution phase.
+        // only handles in getNext()
     }
 
     private RowBatch getNextInternal(Status status, Backend backend) throws TException {
@@ -252,8 +252,8 @@ public class PointQueryExecutor implements CoordInterface {
                     .setOutputExpr(shortCircuitQueryContext.serializedOutputExpr)
                     .setQueryOptions(shortCircuitQueryContext.serializedQueryOptions)
                     .setIsBinaryRow(ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE);
-            if (versions != null && !versions.isEmpty()) {
-                requestBuilder.setVersion(versions.get(0));
+            if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
+                requestBuilder.setVersion(snapshotVisibleVersions.get(0));
             }
             if (shortCircuitQueryContext.cacheID != null) {
                 InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
@@ -263,39 +263,37 @@ public class PointQueryExecutor implements CoordInterface {
             }
             addKeyTuples(requestBuilder);
 
-            while (pResult == null) {
-                InternalService.PTabletKeyLookupRequest request = requestBuilder.build();
-                Future<InternalService.PTabletKeyLookupResponse> futureResponse =
-                        BackendServiceProxy.getInstance().fetchTabletDataAsync(backend.getBrpcAddress(), request);
-                long currentTs = System.currentTimeMillis();
-                if (currentTs >= timeoutTs) {
-                    LOG.warn("fetch result timeout {}", backend.getBrpcAddress());
-                    status.updateStatus(TStatusCode.INTERNAL_ERROR, "query timeout");
+            InternalService.PTabletKeyLookupRequest request = requestBuilder.build();
+            Future<InternalService.PTabletKeyLookupResponse> futureResponse =
+                    BackendServiceProxy.getInstance().fetchTabletDataAsync(backend.getBrpcAddress(), request);
+            long currentTs = System.currentTimeMillis();
+            if (currentTs >= timeoutTs) {
+                LOG.warn("fetch result timeout {}", backend.getBrpcAddress());
+                status.updateStatus(TStatusCode.INTERNAL_ERROR, "query request timeout");
+                return null;
+            }
+            try {
+                pResult = futureResponse.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                // continue to get result
+                LOG.warn("future get interrupted Exception");
+                if (isCancel) {
+                    status.updateStatus(TStatusCode.CANCELLED, "cancelled");
                     return null;
                 }
-                try {
-                    pResult = futureResponse.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
-                } catch (InterruptedException e) {
-                    // continue to get result
-                    LOG.info("future get interrupted Exception");
-                    if (isCancel) {
-                        status.updateStatus(TStatusCode.CANCELLED, "cancelled");
-                        return null;
-                    }
-                } catch (TimeoutException e) {
-                    futureResponse.cancel(true);
-                    LOG.warn("fetch result timeout {}, addr {}", timeoutTs - currentTs, backend.getBrpcAddress());
-                    status.updateStatus(TStatusCode.INTERNAL_ERROR, "query timeout");
-                    return null;
-                }
+            } catch (TimeoutException e) {
+                futureResponse.cancel(true);
+                LOG.warn("fetch result timeout {}, addr {}", timeoutTs - currentTs, backend.getBrpcAddress());
+                status.updateStatus(TStatusCode.INTERNAL_ERROR, "query fetch result timeout");
+                return null;
             }
         } catch (RpcException e) {
-            LOG.warn("fetch result rpc exception {}, e {}", backend.getBrpcAddress(), e);
+            LOG.warn("query fetch rpc exception {}, e {}", backend.getBrpcAddress(), e);
             status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
             SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
             return null;
         } catch (ExecutionException e) {
-            LOG.warn("fetch result execution exception {}, addr {}", e, backend.getBrpcAddress());
+            LOG.warn("query fetch execution exception {}, addr {}", e, backend.getBrpcAddress());
             if (e.getMessage().contains("time out")) {
                 // if timeout, we set error code to TIMEOUT, and it will not retry querying.
                 status.updateStatus(TStatusCode.TIMEOUT, e.getMessage());
@@ -312,8 +310,9 @@ public class PointQueryExecutor implements CoordInterface {
         }
 
         if (pResult.hasEmptyBatch() && pResult.getEmptyBatch()) {
-            LOG.info("get empty rowbatch");
+            LOG.debug("get empty rowbatch");
             rowBatch.setEos(true);
+            status.updateStatus(TStatusCode.OK, "");
             return rowBatch;
         } else if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0) {
             byte[] serialResult = pResult.getRowBatch().toByteArray();
@@ -331,7 +330,10 @@ public class PointQueryExecutor implements CoordInterface {
             }
             rowBatch.setBatch(resultBatch);
             rowBatch.setEos(true);
+            status.updateStatus(TStatusCode.OK, "");
             return rowBatch;
+        } else {
+            Preconditions.checkState(false, "No row batch or empty batch found");
         }
 
         if (isCancel) {
