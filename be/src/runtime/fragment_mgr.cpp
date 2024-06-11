@@ -718,7 +718,21 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                       this, std::placeholders::_1, std::placeholders::_2));
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        auto prepare_st = context->prepare(params);
+        Status prepare_st = Status::OK();
+        try {
+            doris::enable_thread_catch_bad_alloc++;
+            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
+            prepare_st = context->prepare(params);
+        } catch (const Exception& e) {
+            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
+                prepare_st = Status::MemoryLimitExceeded(fmt::format(
+                        "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}",
+                        e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
+            } else {
+                prepare_st = e.to_status();
+            }
+        }
+
         if (!prepare_st.ok()) {
             query_ctx->cancel(prepare_st, params.fragment_id);
             query_ctx->set_execution_dependency_ready();

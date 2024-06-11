@@ -343,7 +343,7 @@ Status PipelineTask::execute(bool* eos) {
         } else {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_root->get_block_after_projects(_state, block, eos));
+            RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
         }
 
         if (_block->rows() != 0 || *eos) {
@@ -353,7 +353,7 @@ Status PipelineTask::execute(bool* eos) {
             // return error status with EOF, it is special, could not return directly.
             auto sink_function = [&]() -> Status {
                 Status internal_st;
-                RETURN_IF_CATCH_EXCEPTION(internal_st = _sink->sink(_state, block, *eos));
+                internal_st = _sink->sink(_state, block, *eos);
                 return internal_st;
             };
             status = sink_function();

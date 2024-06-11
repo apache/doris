@@ -128,6 +128,8 @@ void TaskScheduler::_do_work(size_t index) {
         auto status = Status::OK();
 
         try {
+            doris::enable_thread_catch_bad_alloc++;
+            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
             //TODO: use a better enclose to abstracting these
             if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
                 TUniqueId query_id = task->query_context()->query_id();
@@ -150,7 +152,13 @@ void TaskScheduler::_do_work(size_t index) {
                 status = task->execute(&eos);
             }
         } catch (const Exception& e) {
-            status = e.to_status();
+            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
+                status = Status::MemoryLimitExceeded(fmt::format(
+                        "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}",
+                        e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
+            } else {
+                status = e.to_status();
+            }
         }
 
         task->set_previous_core_id(index);
