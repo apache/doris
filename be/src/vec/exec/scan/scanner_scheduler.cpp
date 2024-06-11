@@ -151,41 +151,33 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
         scanner_delegate->_scanner->start_wait_worker_timer();
         TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
-        bool ret = false;
-        if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-            if (auto* scan_sched = ctx->get_simple_scan_scheduler()) {
+        auto sumbit_task = [&]() {
+            bool is_local = type == TabletStorageType::STORAGE_TYPE_LOCAL;
+            auto* scan_sched =
+                    is_local ? ctx->get_simple_scan_scheduler() : ctx->get_remote_scan_scheduler();
+            auto& thread_pool = is_local ? _local_scan_thread_pool : _remote_scan_thread_pool;
+            if (scan_sched) {
                 auto work_func = [this, scanner_ref = scan_task, ctx]() {
                     this->_scanner_scan(ctx, scanner_ref);
                 };
                 SimplifiedScanTask simple_scan_task = {work_func, ctx};
-                ret = scan_sched->submit_scan_task(simple_scan_task);
-            } else {
-                PriorityThreadPool::Task task;
-                task.work_function = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
-                };
-                task.priority = nice;
-                ret = _local_scan_thread_pool->offer(task);
+                return scan_sched->submit_scan_task(simple_scan_task);
             }
-        } else {
-            if (auto* remote_scan_sched = ctx->get_remote_scan_scheduler()) {
-                auto work_func = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
-                };
-                SimplifiedScanTask simple_scan_task = {work_func, ctx};
-                ret = remote_scan_sched->submit_scan_task(simple_scan_task);
-            } else {
-                PriorityThreadPool::Task task;
-                task.work_function = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
-                };
-                task.priority = nice;
-                ret = _remote_scan_thread_pool->offer(task);
-            }
-        }
-        if (!ret) {
-            scan_task->set_status(
-                    Status::InternalError("Failed to submit scanner to scanner pool"));
+
+            PriorityThreadPool::Task task;
+            task.work_function = [this, scanner_ref = scan_task, ctx]() {
+                this->_scanner_scan(ctx, scanner_ref);
+            };
+            task.priority = nice;
+            return thread_pool->offer(task)
+                           ? Status::OK()
+                           : Status::InternalError("Scan thread pool had shutdown");
+        };
+
+        if (auto ret = sumbit_task(); !ret) {
+            scan_task->set_status(Status::InternalError(
+                    "Failed to submit scanner to scanner pool reason:" + std::string(ret.msg()) +
+                    "|type:" + std::to_string(type)));
             ctx->append_block_to_queue(scan_task);
             return;
         }
@@ -269,24 +261,26 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
             break;
         }
-        raw_bytes_read += free_block->allocated_bytes();
+        auto free_block_bytes = free_block->allocated_bytes();
+        raw_bytes_read += free_block_bytes;
         if (!scan_task->cached_blocks.empty() &&
-            scan_task->cached_blocks.back()->rows() + free_block->rows() <= ctx->batch_size()) {
-            size_t block_size = scan_task->cached_blocks.back()->allocated_bytes();
-            vectorized::MutableBlock mutable_block(scan_task->cached_blocks.back().get());
+            scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
+                    ctx->batch_size()) {
+            size_t block_size = scan_task->cached_blocks.back().first->allocated_bytes();
+            vectorized::MutableBlock mutable_block(scan_task->cached_blocks.back().first.get());
             status = mutable_block.merge(*free_block);
             if (!status.ok()) {
                 LOG(WARNING) << "Block merge failed: " << status.to_string();
                 break;
             }
-            scan_task->cached_blocks.back().get()->set_columns(
+            scan_task->cached_blocks.back().first.get()->set_columns(
                     std::move(mutable_block.mutable_columns()));
             ctx->return_free_block(std::move(free_block));
-            ctx->inc_free_block_usage(scan_task->cached_blocks.back()->allocated_bytes() -
+            ctx->inc_free_block_usage(scan_task->cached_blocks.back().first->allocated_bytes() -
                                       block_size);
         } else {
             ctx->inc_free_block_usage(free_block->allocated_bytes());
-            scan_task->cached_blocks.push_back(std::move(free_block));
+            scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
         }
     } // end for while
 

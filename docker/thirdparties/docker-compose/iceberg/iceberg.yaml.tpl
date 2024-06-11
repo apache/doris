@@ -30,10 +30,16 @@ services:
       - ./data/output/spark-warehouse:/home/iceberg/warehouse
       - ./data/output/spark-notebooks:/home/iceberg/notebooks/notebooks
       - ./data:/mnt/data
+      - ./spark-init.sql:/mnt/spark-init.sql
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
+    entrypoint:  >
+      /bin/sh -c "
+          spark-sql -f /mnt/spark-init.sql 2>&1;
+          tail -f /dev/null
+      "
     networks:
       - doris--iceberg
 

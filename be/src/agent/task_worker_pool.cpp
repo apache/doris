@@ -197,9 +197,10 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                     .tag("new_tablet_id", new_tablet_id)
                     .tag("mem_limit",
                          engine.memory_limitation_bytes_per_thread_for_schema_change());
-            DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
             SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2,
-                                std::to_string(agent_task_req.alter_tablet_req_v2.job_id));
+                                std::to_string(agent_task_req.alter_tablet_req_v2.__isset.job_id
+                                                       ? agent_task_req.alter_tablet_req_v2.job_id
+                                                       : 0));
             status = job.process_alter_tablet(agent_task_req.alter_tablet_req_v2);
         } catch (const Exception& e) {
             status = e.to_status();
@@ -1116,7 +1117,7 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
         auto& resource = resource_list.emplace_back();
         int64_t id = -1;
         if (auto [_, ec] = std::from_chars(id_str.data(), id_str.data() + id_str.size(), id);
-            ec == std::errc {}) [[unlikely]] {
+            ec != std::errc {}) [[unlikely]] {
             LOG(ERROR) << "invalid resource id format: " << id_str;
         } else {
             resource.__set_id(id);
@@ -1417,7 +1418,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         LOG_INFO("successfully update hdfs resource")
                 .tag("resource_id", param.id)
                 .tag("resource_name", param.name);
-        put_storage_resource(param.id, {std::move(fs), param.version});
+        put_storage_resource(param.id, {std::move(fs)}, param.version);
     }
 }
 
@@ -1451,7 +1452,7 @@ void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPt
                 .tag("resource_id", param.id)
                 .tag("resource_name", param.name)
                 .tag("root_path", fs->root_path().string());
-        put_storage_resource(param.id, {std::move(fs), param.version});
+        put_storage_resource(param.id, {std::move(fs)}, param.version);
     }
 }
 
@@ -1461,16 +1462,20 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
     const auto& push_storage_policy_req = req.push_storage_policy_req;
     // refresh resource
     for (auto&& param : push_storage_policy_req.resource) {
-        auto existed_resource = get_storage_resource(param.id);
-        if (existed_resource.version >= param.version) {
-            // Stale request, ignore
-            continue;
+        io::RemoteFileSystemSPtr fs;
+        if (auto existed_resource = get_storage_resource(param.id); existed_resource) {
+            if (existed_resource->second >= param.version) {
+                // Stale request, ignore
+                continue;
+            }
+
+            fs = std::move(existed_resource->first.fs);
         }
 
         if (param.__isset.s3_storage_param) {
-            update_s3_resource(param, std::move(existed_resource.fs));
+            update_s3_resource(param, std::move(fs));
         } else if (param.__isset.hdfs_storage_param) {
-            update_hdfs_resource(param, std::move(existed_resource.fs));
+            update_hdfs_resource(param, std::move(fs));
         } else {
             LOG(WARNING) << "unknown resource=" << param;
         }

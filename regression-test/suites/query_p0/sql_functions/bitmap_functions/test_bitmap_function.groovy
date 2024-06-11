@@ -69,7 +69,7 @@ suite("test_bitmap_function") {
     sql """
         CREATE TABLE test_bitmap1 (
           dt INT(11) NULL,
-          id bitmap BITMAP_UNION NULL
+          id bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(dt)
         DISTRIBUTED BY HASH(dt) BUCKETS 2
@@ -89,7 +89,7 @@ suite("test_bitmap_function") {
     sql """
         CREATE TABLE test_bitmap2 (
           dt INT(11) NULL,
-          id bitmap BITMAP_UNION NULL
+          id bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(dt)
         DISTRIBUTED BY HASH(dt) BUCKETS 2
@@ -323,7 +323,7 @@ suite("test_bitmap_function") {
     sql """
         CREATE TABLE test_bitmap1 (
           dt INT(11) NULL,
-          id bitmap BITMAP_UNION NULL
+          id bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(dt)
         DISTRIBUTED BY HASH(dt) BUCKETS 2
@@ -343,7 +343,7 @@ suite("test_bitmap_function") {
     sql """
         CREATE TABLE test_bitmap2 (
           dt INT(11) NULL,
-          id bitmap BITMAP_UNION NULL
+          id bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(dt)
         DISTRIBUTED BY HASH(dt) BUCKETS 2
@@ -609,7 +609,7 @@ suite("test_bitmap_function") {
     sql """ CREATE TABLE IF NOT EXISTS ${arthogonalBitmapTable} (
         tag_group bigint(20) NULL COMMENT "标签组",
         bucket int(11) NOT NULL COMMENT "分桶字段",
-        members bitmap BITMAP_UNION NULL COMMENT "人群") ENGINE=OLAP
+        members bitmap BITMAP_UNION  COMMENT "人群") ENGINE=OLAP
         AGGREGATE KEY(tag_group,
                       bucket)
         DISTRIBUTED BY HASH(bucket) BUCKETS 64
@@ -661,7 +661,7 @@ suite("test_bitmap_function") {
     sql """
         CREATE TABLE test_bitmap1 (
           dt INT(11) NULL,
-          id bitmap BITMAP_UNION NULL
+          id bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(dt)
         DISTRIBUTED BY HASH(dt) BUCKETS 1
@@ -710,7 +710,7 @@ suite("test_bitmap_function") {
             dt2 date NOT NULL,
             id varchar(256) NULL,
             type smallint(6) MAX NULL,
-            id_bitmap bitmap BITMAP_UNION NULL
+            id_bitmap bitmap BITMAP_UNION 
         ) ENGINE = OLAP AGGREGATE KEY(dt1, dt2, id) PARTITION BY RANGE(dt1) (
             PARTITION p20230725
             VALUES
@@ -756,7 +756,7 @@ suite("test_bitmap_function") {
         CREATE TABLE test_orthog_bitmap_intersect (
             tag int NOT NULL,
             hid int NOT NULL,
-            id_bitmap bitmap BITMAP_UNION NULL
+            id_bitmap bitmap BITMAP_UNION 
         ) ENGINE = OLAP AGGREGATE KEY(tag, hid)
         DISTRIBUTED BY HASH(hid) BUCKETS 1 properties("replication_num"="1");
     """
@@ -809,7 +809,7 @@ suite("test_bitmap_function") {
     sql """
         CREATE TABLE test_bitmap_base64 (
           dt INT(11) NULL,
-          id bitmap BITMAP_UNION NULL
+          id bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(dt)
         DISTRIBUTED BY HASH(dt) BUCKETS 2
@@ -870,7 +870,7 @@ suite("test_bitmap_function") {
     sql """
         CREATE TABLE test_bitmap_remove (
           dt INT(11) NULL,
-          id bitmap BITMAP_UNION NULL
+          id bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(dt)
         DISTRIBUTED BY HASH(dt) BUCKETS 2

@@ -135,25 +135,25 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         connectorMetadata = source.getConnectorMetadata();
         ConnectorSession connectorSession = source.getTrinoSession().toConnectorSession(source.getCatalogHandle());
 
-        // 2. Begin query
-        connectorMetadata.beginQuery(connectorSession);
-        applyPushDown(connectorSession);
-
-        // 3. get splitSource
         List<Split> splits = Lists.newArrayList();
-        try (SplitSource splitSource = getTrinoSplitSource(connector, source.getTrinoSession(),
-                source.getTrinoConnectorTableHandle(), DynamicFilter.EMPTY)) {
-            // 4. get trino.Splits and convert it to doris.Splits
-            while (!splitSource.isFinished()) {
-                for (io.trino.metadata.Split split : getNextSplitBatch(splitSource)) {
-                    splits.add(new TrinoConnectorSplit(split.getConnectorSplit(), source.getConnectorName()));
+        try {
+            connectorMetadata.beginQuery(connectorSession);
+            applyPushDown(connectorSession);
+
+            // 3. get splitSource
+            try (SplitSource splitSource = getTrinoSplitSource(connector, source.getTrinoSession(),
+                    source.getTrinoConnectorTableHandle(), DynamicFilter.EMPTY)) {
+                // 4. get trino.Splits and convert it to doris.Splits
+                while (!splitSource.isFinished()) {
+                    for (io.trino.metadata.Split split : getNextSplitBatch(splitSource)) {
+                        splits.add(new TrinoConnectorSplit(split.getConnectorSplit(), source.getConnectorName()));
+                    }
                 }
             }
+        } finally {
+            // 4. Clear query
+            connectorMetadata.cleanupQuery(connectorSession);
         }
-
-        // 4. Clear query
-        // It is necessary for hive connector
-        connectorMetadata.cleanupQuery(connectorSession);
         return splits;
     }
 
@@ -248,7 +248,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         fileDesc.setTrinoConnectorSplit(encodeObjectToString(trinoConnectorSplit.getSplit(), objectMapperProvider));
         fileDesc.setCatalogName(source.getCatalog().getName());
         fileDesc.setDbName(source.getTargetTable().getDbName());
-        fileDesc.setTrinoConnectorOptions(source.getCatalog().getTrinoConnectorProperties());
+        fileDesc.setTrinoConnectorOptions(source.getCatalog().getTrinoConnectorPropertiesWithCreateTime());
         fileDesc.setTableName(source.getTargetTable().getName());
         fileDesc.setTrinoConnectorTableHandle(encodeObjectToString(
                 source.getTrinoConnectorTableHandle(), objectMapperProvider));

@@ -211,14 +211,17 @@ public:
 private:
     static bool _s_initialized;
     static std::atomic<int64_t> _s_physical_mem;
-    static int64_t _s_cgroup_mem_limit;
-    static int64_t _s_cgroup_mem_limit_refresh_wait_times;
     static std::atomic<int64_t> _s_mem_limit;
     static std::atomic<int64_t> _s_soft_mem_limit;
 
     static std::atomic<int64_t> _s_allocator_cache_mem;
     static std::string _s_allocator_cache_mem_str;
     static std::atomic<int64_t> _s_virtual_memory_used;
+
+    static int64_t _s_cgroup_mem_limit;
+    static int64_t _s_cgroup_mem_usage;
+    static bool _s_cgroup_mem_refresh_state;
+    static int64_t _s_cgroup_mem_refresh_wait_times;
 
     static std::atomic<int64_t> _s_sys_mem_available;
     static int64_t _s_sys_mem_available_low_water_mark;

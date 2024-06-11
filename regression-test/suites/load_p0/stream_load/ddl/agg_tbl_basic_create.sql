@@ -19,9 +19,9 @@ CREATE TABLE stream_load_agg_tbl_basic
     k16 VARCHAR(300)         REPLACE NULL,
     k17 STRING          REPLACE NULL,
     k18 JSON            REPLACE NULL,
-    k19 BITMAP          BITMAP_UNION NULL,
-    k20 HLL             HLL_UNION NULL,
-    k21 QUANTILE_STATE  QUANTILE_UNION NULL,
+    k19 BITMAP          BITMAP_UNION ,
+    k20 HLL             HLL_UNION ,
+    k21 QUANTILE_STATE  QUANTILE_UNION ,
     kd01 BOOLEAN         REPLACE NOT NULL DEFAULT "TRUE",
     kd02 TINYINT         SUM NOT NULL DEFAULT "1",
     kd03 SMALLINT        SUM NOT NULL DEFAULT "2",
@@ -40,9 +40,9 @@ CREATE TABLE stream_load_agg_tbl_basic
     kd16 VARCHAR(300)    REPLACE NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
     kd17 STRING          REPLACE NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
     kd18 JSON            REPLACE NULL,
-    kd19 BITMAP          BITMAP_UNION NULL,
-    kd20 HLL             HLL_UNION NULL,
-    kd21 QUANTILE_STATE  QUANTILE_UNION NULL,
+    kd19 BITMAP          BITMAP_UNION ,
+    kd20 HLL             HLL_UNION ,
+    kd21 QUANTILE_STATE  QUANTILE_UNION ,
 
     INDEX idx_bitmap_k104 (`k01`) USING BITMAP
 )

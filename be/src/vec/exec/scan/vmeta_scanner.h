@@ -51,10 +51,6 @@ class VMetaScanner : public VScanner {
     ENABLE_FACTORY_CREATOR(VMetaScanner);
 
 public:
-    VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t tuple_id,
-                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
-                 TUserIdentity user_identity);
-
     VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t tuple_id,
                  const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
                  TUserIdentity user_identity);

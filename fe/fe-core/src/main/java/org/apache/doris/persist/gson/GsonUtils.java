@@ -92,6 +92,7 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -119,6 +120,9 @@ import org.apache.doris.datasource.infoschema.ExternalMysqlTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.lakesoul.LakeSoulExternalCatalog;
+import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
+import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
@@ -289,12 +293,23 @@ public class GsonUtils {
             .registerSubtype(EsResource.class, EsResource.class.getSimpleName());
 
     // runtime adapter for class "AlterJobV2"
-    private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory
-            .of(AlterJobV2.class, "clazz")
-            .registerSubtype(RollupJobV2.class, RollupJobV2.class.getSimpleName())
-            .registerSubtype(SchemaChangeJobV2.class, SchemaChangeJobV2.class.getSimpleName())
-            .registerSubtype(CloudSchemaChangeJobV2.class, CloudSchemaChangeJobV2.class.getSimpleName())
-            .registerSubtype(CloudRollupJobV2.class, CloudRollupJobV2.class.getSimpleName());
+    private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory;
+
+    static {
+        alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory.of(AlterJobV2.class, "clazz")
+                .registerSubtype(CloudSchemaChangeJobV2.class, CloudSchemaChangeJobV2.class.getSimpleName())
+                .registerSubtype(CloudRollupJobV2.class, CloudRollupJobV2.class.getSimpleName());
+        if (Config.isNotCloudMode()) {
+            alterJobV2TypeAdapterFactory
+                    .registerSubtype(RollupJobV2.class, RollupJobV2.class.getSimpleName())
+                    .registerSubtype(SchemaChangeJobV2.class, SchemaChangeJobV2.class.getSimpleName());
+        } else {
+            // compatible with old cloud code.
+            alterJobV2TypeAdapterFactory
+                    .registerCompatibleSubtype(CloudRollupJobV2.class, RollupJobV2.class.getSimpleName())
+                    .registerCompatibleSubtype(CloudSchemaChangeJobV2.class, SchemaChangeJobV2.class.getSimpleName());
+        }
+    }
 
     // runtime adapter for class "SyncJob"
     private static RuntimeTypeAdapterFactory<SyncJob> syncJobTypeAdapterFactory = RuntimeTypeAdapterFactory
@@ -317,25 +332,37 @@ public class GsonUtils {
             .registerSubtype(ForeignKeyConstraint.class, ForeignKeyConstraint.class.getSimpleName())
             .registerSubtype(UniqueConstraint.class, UniqueConstraint.class.getSimpleName());
 
-    private static RuntimeTypeAdapterFactory<CatalogIf> dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
-                    CatalogIf.class, "clazz")
-            .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
-            .registerSubtype(CloudInternalCatalog.class, CloudInternalCatalog.class.getSimpleName())
-            .registerSubtype(HMSExternalCatalog.class, HMSExternalCatalog.class.getSimpleName())
-            .registerSubtype(EsExternalCatalog.class, EsExternalCatalog.class.getSimpleName())
-            .registerSubtype(JdbcExternalCatalog.class, JdbcExternalCatalog.class.getSimpleName())
-            .registerSubtype(IcebergExternalCatalog.class, IcebergExternalCatalog.class.getSimpleName())
-            .registerSubtype(IcebergHMSExternalCatalog.class, IcebergHMSExternalCatalog.class.getSimpleName())
-            .registerSubtype(IcebergGlueExternalCatalog.class, IcebergGlueExternalCatalog.class.getSimpleName())
-            .registerSubtype(IcebergRestExternalCatalog.class, IcebergRestExternalCatalog.class.getSimpleName())
-            .registerSubtype(IcebergDLFExternalCatalog.class, IcebergDLFExternalCatalog.class.getSimpleName())
-            .registerSubtype(IcebergHadoopExternalCatalog.class, IcebergHadoopExternalCatalog.class.getSimpleName())
-            .registerSubtype(PaimonExternalCatalog.class, PaimonExternalCatalog.class.getSimpleName())
-            .registerSubtype(PaimonHMSExternalCatalog.class, PaimonHMSExternalCatalog.class.getSimpleName())
-            .registerSubtype(PaimonFileExternalCatalog.class, PaimonFileExternalCatalog.class.getSimpleName())
-            .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName())
-            .registerSubtype(TrinoConnectorExternalCatalog.class, TrinoConnectorExternalCatalog.class.getSimpleName())
-            .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName());
+    private static RuntimeTypeAdapterFactory<CatalogIf> dsTypeAdapterFactory;
+
+    static {
+        dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(CatalogIf.class, "clazz")
+                .registerSubtype(CloudInternalCatalog.class, CloudInternalCatalog.class.getSimpleName())
+                .registerSubtype(HMSExternalCatalog.class, HMSExternalCatalog.class.getSimpleName())
+                .registerSubtype(EsExternalCatalog.class, EsExternalCatalog.class.getSimpleName())
+                .registerSubtype(JdbcExternalCatalog.class, JdbcExternalCatalog.class.getSimpleName())
+                .registerSubtype(IcebergExternalCatalog.class, IcebergExternalCatalog.class.getSimpleName())
+                .registerSubtype(IcebergHMSExternalCatalog.class, IcebergHMSExternalCatalog.class.getSimpleName())
+                .registerSubtype(IcebergGlueExternalCatalog.class, IcebergGlueExternalCatalog.class.getSimpleName())
+                .registerSubtype(IcebergRestExternalCatalog.class, IcebergRestExternalCatalog.class.getSimpleName())
+                .registerSubtype(IcebergDLFExternalCatalog.class, IcebergDLFExternalCatalog.class.getSimpleName())
+                .registerSubtype(IcebergHadoopExternalCatalog.class, IcebergHadoopExternalCatalog.class.getSimpleName())
+                .registerSubtype(PaimonExternalCatalog.class, PaimonExternalCatalog.class.getSimpleName())
+                .registerSubtype(PaimonHMSExternalCatalog.class, PaimonHMSExternalCatalog.class.getSimpleName())
+                .registerSubtype(PaimonFileExternalCatalog.class, PaimonFileExternalCatalog.class.getSimpleName())
+                .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName())
+                .registerSubtype(
+                            TrinoConnectorExternalCatalog.class, TrinoConnectorExternalCatalog.class.getSimpleName())
+                .registerSubtype(LakeSoulExternalCatalog.class, LakeSoulExternalCatalog.class.getSimpleName())
+                .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName());
+        if (Config.isNotCloudMode()) {
+            dsTypeAdapterFactory
+                    .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName());
+        } else {
+            // compatible with old cloud code.
+            dsTypeAdapterFactory
+                    .registerCompatibleSubtype(CloudInternalCatalog.class, InternalCatalog.class.getSimpleName());
+        }
+    }
 
     // routine load data source
     private static RuntimeTypeAdapterFactory<AbstractDataSourceProperties> rdsTypeAdapterFactory =
@@ -360,6 +387,7 @@ public class GsonUtils {
             .registerSubtype(HMSExternalDatabase.class, HMSExternalDatabase.class.getSimpleName())
             .registerSubtype(JdbcExternalDatabase.class, JdbcExternalDatabase.class.getSimpleName())
             .registerSubtype(IcebergExternalDatabase.class, IcebergExternalDatabase.class.getSimpleName())
+            .registerSubtype(LakeSoulExternalDatabase.class, LakeSoulExternalDatabase.class.getSimpleName())
             .registerSubtype(PaimonExternalDatabase.class, PaimonExternalDatabase.class.getSimpleName())
             .registerSubtype(MaxComputeExternalDatabase.class, MaxComputeExternalDatabase.class.getSimpleName())
             .registerSubtype(ExternalInfoSchemaDatabase.class, ExternalInfoSchemaDatabase.class.getSimpleName())
@@ -374,6 +402,7 @@ public class GsonUtils {
             .registerSubtype(HMSExternalTable.class, HMSExternalTable.class.getSimpleName())
             .registerSubtype(JdbcExternalTable.class, JdbcExternalTable.class.getSimpleName())
             .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName())
+            .registerSubtype(LakeSoulExternalTable.class, LakeSoulExternalTable.class.getSimpleName())
             .registerSubtype(PaimonExternalTable.class, PaimonExternalTable.class.getSimpleName())
             .registerSubtype(MaxComputeExternalTable.class, MaxComputeExternalTable.class.getSimpleName())
             .registerSubtype(ExternalInfoSchemaTable.class, ExternalInfoSchemaTable.class.getSimpleName())
@@ -402,11 +431,20 @@ public class GsonUtils {
             .registerSubtype(Replica.class, Replica.class.getSimpleName())
             .registerSubtype(CloudReplica.class, CloudReplica.class.getSimpleName());
 
-    private static RuntimeTypeAdapterFactory<Tablet> tabletTypeAdapterFactory = RuntimeTypeAdapterFactory
-            .of(Tablet.class, "clazz")
-            .registerDefaultSubtype(Tablet.class)
-            .registerSubtype(Tablet.class, Tablet.class.getSimpleName())
-            .registerSubtype(CloudTablet.class, CloudTablet.class.getSimpleName());
+    private static RuntimeTypeAdapterFactory<Tablet> tabletTypeAdapterFactory;
+
+    static {
+        tabletTypeAdapterFactory = RuntimeTypeAdapterFactory
+                .of(Tablet.class, "clazz")
+                .registerSubtype(Tablet.class, Tablet.class.getSimpleName())
+                .registerSubtype(CloudTablet.class, CloudTablet.class.getSimpleName());
+        if (Config.isNotCloudMode()) {
+            tabletTypeAdapterFactory.registerDefaultSubtype(Tablet.class);
+        } else {
+            // compatible with old cloud code.
+            tabletTypeAdapterFactory.registerDefaultSubtype(CloudTablet.class);
+        }
+    }
 
     // runtime adapter for class "CloudPartition".
     private static RuntimeTypeAdapterFactory<Partition> partitionTypeAdapterFactory = RuntimeTypeAdapterFactory

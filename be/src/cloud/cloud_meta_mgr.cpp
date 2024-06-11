@@ -518,8 +518,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                 rs_meta->init_from_pb(meta_pb);
                 RowsetSharedPtr rowset;
                 // schema is nullptr implies using RowsetMeta.tablet_schema
-                Status s = RowsetFactory::create_rowset(nullptr, tablet->tablet_path(), rs_meta,
-                                                        &rowset);
+                Status s = RowsetFactory::create_rowset(nullptr, "", rs_meta, &rowset);
                 if (!s.ok()) {
                     LOG_WARNING("create rowset").tag("status", s);
                     return s;
@@ -635,17 +634,29 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
         delete_bitmap->merge({rst_id, segment_ids[i], vers[i]},
                              roaring::Roaring::read(delete_bitmaps[i].data()));
     }
+    int64_t latency = cntl.latency_us();
+    if (latency > 100 * 1000) { // 100ms
+        LOG(INFO) << "finish get_delete_bitmap rpc. rowset_ids.size()=" << rowset_ids.size()
+                  << ", delete_bitmaps.size()=" << delete_bitmaps.size() << ", latency=" << latency
+                  << "us";
+    } else {
+        LOG_EVERY_N(INFO, 100) << "finish get_delete_bitmap rpc. rowset_ids.size()="
+                               << rowset_ids.size()
+                               << ", delete_bitmaps.size()=" << delete_bitmaps.size()
+                               << ", latency=" << latency << "us";
+    }
     return Status::OK();
 }
 
 Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
                                     RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "prepare rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id();
+               << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
 
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_txn_id(rs_meta.txn_id());
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
@@ -666,10 +677,11 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
 Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id();
+               << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_txn_id(rs_meta.txn_id());
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
@@ -823,13 +835,14 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
                                                         .sk = obj_store.sk()},
                                           .sse_enabled = obj_store.sse_enabled(),
                                           .provider = obj_store.provider(),
-                                  });
+                                  },
+                                  StorageVaultPB_PathFormat {});
     };
 
     std::ranges::for_each(resp.obj_info(), add_obj_store);
     std::ranges::for_each(resp.storage_vault(), [&](const auto& vault) {
         if (vault.has_hdfs_info()) {
-            vault_infos->emplace_back(vault.id(), vault.hdfs_info());
+            vault_infos->emplace_back(vault.id(), vault.hdfs_info(), vault.path_format());
         }
         if (vault.has_obj_info()) {
             add_obj_store(vault.obj_info());

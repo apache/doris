@@ -600,4 +600,43 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
     return Status::OK();
 }
 
+bool VExpr::fast_execute(Block& block, const ColumnNumbers& arguments, size_t result,
+                         size_t input_rows_count, const std::string& function_name) {
+    std::string result_column_name = gen_predicate_result_sign(block, arguments, function_name);
+    if (!block.has(result_column_name)) {
+        return false;
+    }
+
+    auto result_column =
+            block.get_by_name(result_column_name).column->convert_to_full_column_if_const();
+    auto& result_info = block.get_by_position(result);
+    if (result_info.type->is_nullable()) {
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(result_column),
+                                                         ColumnUInt8::create(input_rows_count, 0)));
+    } else {
+        block.replace_by_position(result, std::move(result_column));
+    }
+
+    return true;
+}
+
+std::string VExpr::gen_predicate_result_sign(Block& block, const ColumnNumbers& arguments,
+                                             const std::string& function_name) {
+    std::string pred_result_sign;
+    std::string column_name = block.get_by_position(arguments[0]).name;
+    pred_result_sign +=
+            BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" + function_name + "_";
+    if (function_name == "in") {
+        for (size_t i = 1; i < arguments.size(); i++) {
+            pred_result_sign += block.get_by_position(arguments[i]).to_string(0);
+            pred_result_sign += ",";
+        }
+        pred_result_sign.pop_back();
+    } else {
+        pred_result_sign += block.get_by_position(arguments[1]).to_string(0);
+    }
+    return pred_result_sign;
+}
+
 } // namespace doris::vectorized

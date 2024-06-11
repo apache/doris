@@ -94,10 +94,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // Firstly,if group by expression between query and view is equals, try to rewrite expression directly
         Plan queryTopPlan = queryTopPlanAndAggPair.key();
         if (isGroupByEquals(queryTopPlanAndAggPair, viewTopPlanAndAggPair, viewToQuerySlotMapping, queryStructInfo,
-                viewStructInfo)) {
+                viewStructInfo, materializationContext)) {
             List<Expression> rewrittenQueryExpressions = rewriteExpression(queryTopPlan.getOutput(),
                     queryTopPlan,
-                    materializationContext.getMvExprToMvScanExprMapping(),
+                    materializationContext.getShuttledExprToScanExprMapping(),
                     viewToQuerySlotMapping,
                     true,
                     queryStructInfo.getTableBitSet());
@@ -121,7 +121,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     () -> String.format("expressionToWrite = %s,\n mvExprToMvScanExprMapping = %s,\n"
                                     + "viewToQuerySlotMapping = %s",
                             queryTopPlan.getOutput(),
-                            materializationContext.getMvExprToMvScanExprMapping(),
+                            materializationContext.getShuttledExprToScanExprMapping(),
                             viewToQuerySlotMapping));
         }
         // if view is scalar aggregate but query is not. Or if query is scalar aggregate but view is not
@@ -150,7 +150,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         List<? extends Expression> queryExpressions = queryTopPlan.getOutput();
         // permute the mv expr mapping to query based
         Map<Expression, Expression> mvExprToMvScanExprQueryBased =
-                materializationContext.getMvExprToMvScanExprMapping().keyPermute(viewToQuerySlotMapping)
+                materializationContext.getShuttledExprToScanExprMapping().keyPermute(viewToQuerySlotMapping)
                         .flattenMap().get(0);
         for (Expression topExpression : queryExpressions) {
             // if agg function, try to roll up and rewrite
@@ -253,7 +253,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             Pair<Plan, LogicalAggregate<Plan>> viewTopPlanAndAggPair,
             SlotMapping viewToQuerySlotMapping,
             StructInfo queryStructInfo,
-            StructInfo viewStructInfo) {
+            StructInfo viewStructInfo,
+            MaterializationContext materializationContext) {
         Plan queryTopPlan = queryTopPlanAndAggPair.key();
         Plan viewTopPlan = viewTopPlanAndAggPair.key();
         LogicalAggregate<Plan> queryAggregate = queryTopPlanAndAggPair.value();

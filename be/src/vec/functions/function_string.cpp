@@ -692,96 +692,6 @@ struct UnHexImpl {
     }
 };
 
-struct UnHexOldImpl {
-    static constexpr auto name = "unhex";
-    using ReturnType = DataTypeString;
-    using ColumnType = ColumnString;
-
-    static bool check_and_decode_one(char& c, const char src_c, bool flag) {
-        int k = flag ? 16 : 1;
-        int value = src_c - '0';
-        // 9 = ('9'-'0')
-        if (value >= 0 && value <= 9) {
-            c += value * k;
-            return true;
-        }
-
-        value = src_c - 'A';
-        // 5 = ('F'-'A')
-        if (value >= 0 && value <= 5) {
-            c += (value + 10) * k;
-            return true;
-        }
-
-        value = src_c - 'a';
-        // 5 = ('f'-'a')
-        if (value >= 0 && value <= 5) {
-            c += (value + 10) * k;
-            return true;
-        }
-        // not in ( ['0','9'], ['a','f'], ['A','F'] )
-        return false;
-    }
-
-    static int hex_decode(const char* src_str, size_t src_len, char* dst_str) {
-        // if str length is odd or 0, return empty string like mysql dose.
-        if ((src_len & 1) != 0 or src_len == 0) {
-            return 0;
-        }
-        //check and decode one character at the same time
-        // character in ( ['0','9'], ['a','f'], ['A','F'] ), return 'NULL' like mysql dose.
-        for (auto i = 0, dst_index = 0; i < src_len; i += 2, dst_index++) {
-            char c = 0;
-            // combine two character into dst_str one character
-            bool left_4bits_flag = check_and_decode_one(c, *(src_str + i), true);
-            bool right_4bits_flag = check_and_decode_one(c, *(src_str + i + 1), false);
-
-            if (!left_4bits_flag || !right_4bits_flag) {
-                return 0;
-            }
-            *(dst_str + dst_index) = c;
-        }
-        return src_len / 2;
-    }
-
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets,
-                         NullMap& null_map) {
-        auto rows_count = offsets.size();
-        dst_offsets.resize(rows_count);
-
-        for (int i = 0; i < rows_count; ++i) {
-            if (null_map[i]) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
-                continue;
-            }
-            const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1];
-
-            if (srclen == 0) {
-                StringOP::push_empty_string(i, dst_data, dst_offsets);
-                continue;
-            }
-
-            char dst_array[MAX_STACK_CIPHER_LEN];
-            char* dst = dst_array;
-
-            int cipher_len = srclen / 2;
-            std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > MAX_STACK_CIPHER_LEN) {
-                dst_uptr.reset(new char[cipher_len]);
-                dst = dst_uptr.get();
-            }
-
-            int outlen = hex_decode(source, srclen, dst);
-
-            StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
-        }
-
-        return Status::OK();
-    }
-};
-
 struct NameStringSpace {
     static constexpr auto name = "space";
 };
@@ -824,49 +734,6 @@ struct ToBase64Impl {
         dst_offsets.resize(rows_count);
 
         for (int i = 0; i < rows_count; ++i) {
-            const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1];
-
-            if (srclen == 0) {
-                StringOP::push_empty_string(i, dst_data, dst_offsets);
-                continue;
-            }
-
-            char dst_array[MAX_STACK_CIPHER_LEN];
-            char* dst = dst_array;
-
-            int cipher_len = (int)(4.0 * ceil((double)srclen / 3.0));
-            std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > MAX_STACK_CIPHER_LEN) {
-                dst_uptr.reset(new char[cipher_len]);
-                dst = dst_uptr.get();
-            }
-
-            auto outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
-
-            StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
-        }
-        return Status::OK();
-    }
-};
-
-struct ToBase64OldImpl {
-    static constexpr auto name = "to_base64";
-    using ReturnType = DataTypeString;
-    using ColumnType = ColumnString;
-
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets,
-                         NullMap& null_map) {
-        auto rows_count = offsets.size();
-        dst_offsets.resize(rows_count);
-
-        for (int i = 0; i < rows_count; ++i) {
-            if (null_map[i]) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
-                continue;
-            }
-
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t srclen = offsets[i] - offsets[i - 1];
 
@@ -1087,9 +954,6 @@ using FunctionToInitcap = FunctionStringToString<InitcapImpl, NameToInitcap>;
 
 using FunctionUnHex = FunctionStringEncode<UnHexImpl>;
 using FunctionToBase64 = FunctionStringEncode<ToBase64Impl>;
-
-using FunctionUnHexOld = FunctionStringOperateToNullType<UnHexOldImpl>;
-using FunctionToBase64Old = FunctionStringOperateToNullType<ToBase64OldImpl>;
 using FunctionFromBase64 = FunctionStringOperateToNullType<FromBase64Impl>;
 
 using FunctionStringAppendTrailingCharIfAbsent =
@@ -1160,15 +1024,6 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
     factory.register_function<FunctionStrcmp>();
-
-    /// @TEMPORARY: for be_exec_version=3
-    factory.register_alternative_function<FunctionSubstringOld<Substr3ImplOld>>();
-    factory.register_alternative_function<FunctionSubstringOld<Substr2ImplOld>>();
-    factory.register_alternative_function<FunctionLeftOld>();
-    factory.register_alternative_function<FunctionRightOld>();
-    factory.register_alternative_function<FunctionSubstringIndexOld>();
-    factory.register_alternative_function<FunctionUnHexOld>();
-    factory.register_alternative_function<FunctionToBase64Old>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");

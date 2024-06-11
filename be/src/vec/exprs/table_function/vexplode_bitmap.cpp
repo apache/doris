@@ -90,7 +90,7 @@ void VExplodeBitmapTableFunction::get_same_many_values(MutableColumnPtr& column,
 
 void VExplodeBitmapTableFunction::process_row(size_t row_idx) {
     TableFunction::process_row(row_idx);
-
+    //FIXME: use ColumnComplex instead
     StringRef value = _value_column->get_data_at(row_idx);
 
     if (value.data) {

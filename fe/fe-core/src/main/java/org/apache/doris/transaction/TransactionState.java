@@ -689,7 +689,7 @@ public class TransactionState implements Writable {
         sb.append(", db id: ").append(dbId);
         sb.append(", table id list: ").append(StringUtils.join(tableIdList, ","));
         sb.append(", callback id: ").append(callbackId);
-        sb.append(", coordinator: ").append(txnCoordinator.toString());
+        sb.append(", coordinator: ").append(txnCoordinator);
         sb.append(", transaction status: ").append(transactionStatus);
         sb.append(", error replicas num: ").append(errorReplicas.size());
         sb.append(", replica ids: ").append(Joiner.on(",").join(errorReplicas.stream().limit(5).toArray()));
@@ -857,6 +857,10 @@ public class TransactionState implements Writable {
 
     public void resetSubTransactionStates() {
         this.subTransactionStates = new ArrayList<>();
+    }
+
+    public void setSubTransactionStates(List<SubTransactionState> subTransactionStates) {
+        this.subTransactionStates = subTransactionStates;
     }
 
     public void resetSubTxnIds() {

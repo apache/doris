@@ -21,7 +21,6 @@
 #include "gen_cpp/Types_constants.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/stringpiece.h"
 #include "http/http_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
@@ -283,7 +282,7 @@ Status SingleReplicaCompaction::_fetch_rowset(const TReplicaInfo& addr, const st
                                                      _tablet->tablet_id());
     }
 
-    std::string local_data_path = _tablet->tablet_path() + CLONE_PREFIX;
+    std::string local_data_path = tablet()->tablet_path() + CLONE_PREFIX;
     std::string local_path = local_data_path + "/";
     std::string snapshot_path;
     int timeout_s = 0;
@@ -387,8 +386,7 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
     // Avoid of data is not complete, we copy the header file at last.
     // The header file's name is end of .hdr.
     for (int i = 0; i < file_name_list.size() - 1; ++i) {
-        StringPiece sp(file_name_list[i]);
-        if (sp.ends_with(".hdr")) {
+        if (file_name_list[i].ends_with(".hdr")) {
             std::swap(file_name_list[i], file_name_list[file_name_list.size() - 1]);
             break;
         }
@@ -523,7 +521,7 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
             }
 
             std::vector<io::FileInfo> local_files;
-            const auto& tablet_dir = _tablet->tablet_path();
+            const auto& tablet_dir = tablet()->tablet_path();
             RETURN_IF_ERROR(
                     io::global_local_filesystem()->list(tablet_dir, true, &local_files, &exists));
             std::unordered_set<std::string> local_file_names;
