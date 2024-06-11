@@ -67,15 +67,15 @@ suite("test_unique_model_schema_value_del", "p0") {
             "               (4, 'Emily Brown', 92.0, 'San Francisco', 28, 2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00', 'Test String 4', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (5, 'David Wilson', 88.9, 'Seattle', 32, 1, 9998887776, false, 50, 5000000000, '2024-06-15', '2024-06-15', '2024-06-15 15:45:00', '2024-06-15 15:45:00', 'Test String 5', {'a': 500, 'b': 200}, '[\"abc\", \"def\"]');"
 
-        // Test the unique model by delete a value type from BOOLEAN
-        sql initTable
-        sql initTableData
-        sql """ alter  table ${tbName} DROP  column is_ok  """
-        insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990,  60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
-        waitForSchemaChangeDone({
-            sql getTableStatusSql
-            time 60
-        }, insertSql, false, "${tbName}")
+    // Test the unique model by delete a value type from BOOLEAN
+    sql initTable
+    sql initTableData
+    sql """ alter  table ${tbName} DROP  column is_ok  """
+    insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990,  60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+    waitForSchemaChangeDone({
+        sql getTableStatusSql
+        time 60
+    }, insertSql, false, "${tbName}")
 
 
     sql """ DROP TABLE IF EXISTS ${tbName2} """
@@ -114,9 +114,8 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","t_int")
+    checkTableData("${tbName}", "${tbName2}", "t_int")
     sql """ DROP TABLE IF EXISTS ${tbName} """
-
 
 
     // Test the unique model by delete a value type from TINYINT
@@ -166,10 +165,8 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","phone")
+    checkTableData("${tbName}", "${tbName2}", "phone")
     sql """ DROP TABLE IF EXISTS ${tbName} """
-
-
 
 
     // Test the unique model by delete a value type from SMALLINT
@@ -210,7 +207,7 @@ suite("test_unique_model_schema_value_del", "p0") {
             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
             "          );"
 
-     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York',  1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
+    initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York',  1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (2, 'Jane Smith', 85.2, 'Los Angeles',  2, 9876543210, false, 20, 2000000000, '2024-06-12', '2024-06-12', '2024-06-12 09:45:00', '2024-06-12 09:45:00', 'Test String 2', {'a': 200, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (3, 'Mike Johnson', 77.8, 'Chicago',  1, 1112223334, true, 30, 3000000000, '2024-06-13', '2024-06-13', '2024-06-13 11:15:00', '2024-06-13 11:15:00', 'Test String 3', {'a': 300, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (4, 'Emily Brown', 92.0, 'San Francisco',  2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00', 'Test String 4', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -219,9 +216,8 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","sex")
+    checkTableData("${tbName}", "${tbName2}", "sex")
     sql """ DROP TABLE IF EXISTS ${tbName} """
-
 
 
     // Test the unique model by delete a value type from INT
@@ -271,7 +267,7 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","t_bigint")
+    checkTableData("${tbName}", "${tbName2}", "t_bigint")
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
@@ -322,7 +318,7 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","t_date")
+    checkTableData("${tbName}", "${tbName2}", "t_date")
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
@@ -373,7 +369,7 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","is_ok")
+    checkTableData("${tbName}", "${tbName2}", "is_ok")
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
@@ -424,7 +420,7 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","t_datev2")
+    checkTableData("${tbName}", "${tbName2}", "t_datev2")
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
@@ -475,9 +471,8 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","t_datetimev2")
+    checkTableData("${tbName}", "${tbName2}", "t_datetimev2")
     sql """ DROP TABLE IF EXISTS ${tbName} """
-
 
 
     // Test the unique model by delete a value type from t_datetimev2
@@ -518,7 +513,7 @@ suite("test_unique_model_schema_value_del", "p0") {
             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
             "          );"
 
-    initTableData1 ="insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11',  '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
+    initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11',  '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (2, 'Jane Smith', 85.2, 'Los Angeles', 30, 2, 9876543210, false, 20, 2000000000, '2024-06-12', '2024-06-12',  '2024-06-12 09:45:00', 'Test String 2', {'a': 200, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (3, 'Mike Johnson', 77.8, 'Chicago', 35, 1, 1112223334, true, 30, 3000000000, '2024-06-13', '2024-06-13',  '2024-06-13 11:15:00', 'Test String 3', {'a': 300, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (4, 'Emily Brown', 92.0, 'San Francisco', 28, 2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14',  '2024-06-14 13:30:00', 'Test String 4', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -527,9 +522,8 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","t_datetime")
+    checkTableData("${tbName}", "${tbName2}", "t_datetime")
     sql """ DROP TABLE IF EXISTS ${tbName} """
-
 
 
     // Test the unique model by delete a value type from t_datetimev2
@@ -570,7 +564,7 @@ suite("test_unique_model_schema_value_del", "p0") {
             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
             "          );"
 
-    initTableData1 ="insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11',  '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
+    initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11',  '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (2, 'Jane Smith', 85.2, 'Los Angeles', 30, 2, 9876543210, false, 20, 2000000000, '2024-06-12', '2024-06-12',  '2024-06-12 09:45:00', 'Test String 2', {'a': 200, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (3, 'Mike Johnson', 77.8, 'Chicago', 35, 1, 1112223334, true, 30, 3000000000, '2024-06-13', '2024-06-13',  '2024-06-13 11:15:00', 'Test String 3', {'a': 300, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (4, 'Emily Brown', 92.0, 'San Francisco', 28, 2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14',  '2024-06-14 13:30:00', 'Test String 4', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -579,9 +573,8 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","t_string")
+    checkTableData("${tbName}", "${tbName2}", "t_string")
     sql """ DROP TABLE IF EXISTS ${tbName} """
-
 
 
     // Test the unique model by delete a value type from t_datetime
@@ -622,7 +615,7 @@ suite("test_unique_model_schema_value_del", "p0") {
             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
             "          );"
 
-    initTableData1 ="insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11',  '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
+    initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11',  '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (2, 'Jane Smith', 85.2, 'Los Angeles', 30, 2, 9876543210, false, 20, 2000000000, '2024-06-12', '2024-06-12',  '2024-06-12 09:45:00', 'Test String 2', {'a': 200, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (3, 'Mike Johnson', 77.8, 'Chicago', 35, 1, 1112223334, true, 30, 3000000000, '2024-06-13', '2024-06-13',  '2024-06-13 11:15:00', 'Test String 3', {'a': 300, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (4, 'Emily Brown', 92.0, 'San Francisco', 28, 2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14',  '2024-06-14 13:30:00', 'Test String 4', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -631,7 +624,7 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","t_string")
+    checkTableData("${tbName}", "${tbName2}", "t_string")
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
@@ -673,7 +666,7 @@ suite("test_unique_model_schema_value_del", "p0") {
             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
             "          );"
 
-    initTableData1 ="insert into ${tbName2} values(1, 'John Doe', 95.5,  25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
+    initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5,  25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (2, 'Jane Smith', 85.2,  30, 2, 9876543210, false, 20, 2000000000, '2024-06-12', '2024-06-12', '2024-06-12 09:45:00', '2024-06-12 09:45:00', 'Test String 2', {'a': 200, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (3, 'Mike Johnson', 77.8,  35, 1, 1112223334, true, 30, 3000000000, '2024-06-13', '2024-06-13', '2024-06-13 11:15:00', '2024-06-13 11:15:00', 'Test String 3', {'a': 300, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (4, 'Emily Brown', 92.0,  28, 2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00', 'Test String 4', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -682,9 +675,8 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","age")
+    checkTableData("${tbName}", "${tbName2}", "age")
     sql """ DROP TABLE IF EXISTS ${tbName} """
-
 
 
     // Test the unique model by delete a value type from VARCHAR
@@ -725,7 +717,7 @@ suite("test_unique_model_schema_value_del", "p0") {
             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
             "          );"
 
-    initTableData1 ="insert into ${tbName2} values(1, 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
+    initTableData1 = "insert into ${tbName2} values(1, 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (2, 85.2, 'Los Angeles', 30, 2, 9876543210, false, 20, 2000000000, '2024-06-12', '2024-06-12', '2024-06-12 09:45:00', '2024-06-12 09:45:00', 'Test String 2', {'a': 200, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (3, 77.8, 'Chicago', 35, 1, 1112223334, true, 30, 3000000000, '2024-06-13', '2024-06-13', '2024-06-13 11:15:00', '2024-06-13 11:15:00', 'Test String 3', {'a': 300, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (4, 92.0, 'San Francisco', 28, 2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00', 'Test String 4', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -734,7 +726,7 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","score")
+    checkTableData("${tbName}", "${tbName2}", "score")
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
@@ -776,7 +768,7 @@ suite("test_unique_model_schema_value_del", "p0") {
             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
             "          );"
 
-    initTableData1 ="insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
+    initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (2, 'Jane Smith', 85.2, 'Los Angeles', 30, 2, 9876543210, false, 20, 2000000000, '2024-06-12', '2024-06-12', '2024-06-12 09:45:00', '2024-06-12 09:45:00', {'a': 200, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (3, 'Mike Johnson', 77.8, 'Chicago', 35, 1, 1112223334, true, 30, 3000000000, '2024-06-13', '2024-06-13', '2024-06-13 11:15:00', '2024-06-13 11:15:00', {'a': 300, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (4, 'Emily Brown', 92.0, 'San Francisco', 28, 2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -785,9 +777,8 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","score")
+    checkTableData("${tbName}", "${tbName2}", "score")
     sql """ DROP TABLE IF EXISTS ${tbName} """
-
 
 
     // Test the unique model by delete a value type from Map
@@ -828,7 +819,7 @@ suite("test_unique_model_schema_value_del", "p0") {
             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
             "          );"
 
-    initTableData1 ="insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', '[\"abc\", \"def\"]')," +
+    initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', '[\"abc\", \"def\"]')," +
             "               (2, 'Jane Smith', 85.2, 'Los Angeles', 30, 2, 9876543210, false, 20, 2000000000, '2024-06-12', '2024-06-12', '2024-06-12 09:45:00', '2024-06-12 09:45:00', 'Test String 2', '[\"abc\", \"def\"]')," +
             "               (3, 'Mike Johnson', 77.8, 'Chicago', 35, 1, 1112223334, true, 30, 3000000000, '2024-06-13', '2024-06-13', '2024-06-13 11:15:00', '2024-06-13 11:15:00', 'Test String 3', '[\"abc\", \"def\"]')," +
             "               (4, 'Emily Brown', 92.0, 'San Francisco', 28, 2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00', 'Test String 4', '[\"abc\", \"def\"]')," +
@@ -837,7 +828,7 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","score")
+    checkTableData("${tbName}", "${tbName2}", "score")
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
@@ -879,7 +870,7 @@ suite("test_unique_model_schema_value_del", "p0") {
             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
             "          );"
 
-    initTableData1 ="insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200})," +
+    initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200})," +
             "               (2, 'Jane Smith', 85.2, 'Los Angeles', 30, 2, 9876543210, false, 20, 2000000000, '2024-06-12', '2024-06-12', '2024-06-12 09:45:00', '2024-06-12 09:45:00', 'Test String 2',  {'a': 100, 'b': 200})," +
             "               (3, 'Mike Johnson', 77.8, 'Chicago', 35, 1, 1112223334, true, 30, 3000000000, '2024-06-13', '2024-06-13', '2024-06-13 11:15:00', '2024-06-13 11:15:00', 'Test String 3',  {'a': 100, 'b': 200})," +
             "               (4, 'Emily Brown', 92.0, 'San Francisco', 28, 2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00', 'Test String 4', {'a': 100, 'b': 200})," +
@@ -888,9 +879,8 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","user_id")
+    checkTableData("${tbName}", "${tbName2}", "user_id")
     sql """ DROP TABLE IF EXISTS ${tbName} """
-
 
 
     initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
@@ -939,7 +929,7 @@ suite("test_unique_model_schema_value_del", "p0") {
             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
             "          );"
 
-    initTableData1 ="insert into ${tbName2} values(1,  123.45, 1234.5678901234)," +
+    initTableData1 = "insert into ${tbName2} values(1,  123.45, 1234.5678901234)," +
             "               (2,  234.56, 2345.6789012345)," +
             "               (3,  345.67, 3456.7890123456)," +
             "               (4,  456.78, 4567.8901234567)," +
@@ -948,7 +938,7 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","t_float")
+    checkTableData("${tbName}", "${tbName2}", "t_float")
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
@@ -977,7 +967,7 @@ suite("test_unique_model_schema_value_del", "p0") {
             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
             "          );"
 
-    initTableData1 ="insert into ${tbName2} values(1, 123.4567890123,  1234.5678901234)," +
+    initTableData1 = "insert into ${tbName2} values(1, 123.4567890123,  1234.5678901234)," +
             "               (2, 234.5678901234,  2345.6789012345)," +
             "               (3, 345.6789012345,  3456.7890123456)," +
             "               (4, 456.7890123456,  4567.8901234567)," +
@@ -986,7 +976,7 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","t_double")
+    checkTableData("${tbName}", "${tbName2}", "t_double")
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
@@ -1015,7 +1005,7 @@ suite("test_unique_model_schema_value_del", "p0") {
             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
             "          );"
 
-    initTableData1 ="insert into ${tbName2} values(1, 123.4567890123, 123.45)," +
+    initTableData1 = "insert into ${tbName2} values(1, 123.4567890123, 123.45)," +
             "               (2, 234.5678901234, 234.56)," +
             "               (3, 345.6789012345, 345.67)," +
             "               (4, 456.7890123456, 456.78)," +
@@ -1024,9 +1014,8 @@ suite("test_unique_model_schema_value_del", "p0") {
 
     sql initTable1
     sql initTableData1
-    checkTableData("${tbName}","${tbName2}","user_id")
+    checkTableData("${tbName}", "${tbName2}", "user_id")
     sql """ DROP TABLE IF EXISTS ${tbName} """
-
 
 
 }
