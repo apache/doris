@@ -89,7 +89,7 @@ static void set_up() {
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
-    exec_env->set_storage_engine(std::move(engine));
+    exec_env->set_storage_engine(engine_ref);
 }
 
 static void tear_down() {
@@ -246,7 +246,7 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
     write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
-            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, &write_req, profile.get(), TUniqueId {});
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -281,8 +281,8 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
-    version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
+    version.first = tablet->rowset_with_max_version()->end_version() + 1;
+    version.second = tablet->rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
