@@ -111,12 +111,12 @@ public:
     // construct new stub
     LoadStreamStub(PUniqueId load_id, int64_t src_id,
                    std::shared_ptr<IndexToTabletSchema> schema_map,
-                   std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false);
+                   std::shared_ptr<IndexToEnableMoW> mow_map);
 
     LoadStreamStub(UniqueId load_id, int64_t src_id,
                    std::shared_ptr<IndexToTabletSchema> schema_map,
-                   std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false)
-            : LoadStreamStub(load_id.to_proto(), src_id, schema_map, mow_map, incremental) {};
+                   std::shared_ptr<IndexToEnableMoW> mow_map)
+            : LoadStreamStub(load_id.to_proto(), src_id, schema_map, mow_map) {};
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -195,8 +195,6 @@ public:
 
     int64_t dst_id() const { return _dst_id; }
 
-    bool is_incremental() const { return _is_incremental; }
-
     friend std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub);
 
     std::string to_string();
@@ -257,8 +255,6 @@ protected:
     bthread::Mutex _failed_tablets_mutex;
     std::vector<int64_t> _success_tablets;
     std::unordered_map<int64_t, Status> _failed_tablets;
-
-    bool _is_incremental = false;
 };
 
 } // namespace doris
