@@ -34,7 +34,7 @@ suite("txn_insert") {
         logger.info("frontends: ${fes}")
         if (fes.size() > 1) {
             for (def fe : fes) {
-                if (fe.IsMaster == "false") {
+                if (fe.IsMaster == "false" && fe.Alive == "true") {
                     return "jdbc:mysql://${fe.Host}:${fe.QueryPort}/"
                 }
             }
