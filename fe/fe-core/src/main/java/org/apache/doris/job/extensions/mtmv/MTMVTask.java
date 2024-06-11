@@ -437,8 +437,8 @@ public class MTMVTask extends AbstractTask {
             } else if (!CollectionUtils
                     .isEmpty(taskContext.getPartitions())) {
                 return taskContext.getPartitions();
-            } else if (taskContext.getRange().isPresent()) {
-                return MTMVPartitionUtil.getPartitionsByRange(mtmv, taskContext.getRange().get());
+            } else if (taskContext.getRange() != null) {
+                return MTMVPartitionUtil.getPartitionsByRange(mtmv, taskContext.getRange());
             }
         }
         // if refreshMethod is COMPLETE, we must FULL refresh, avoid external table MTMV always not refresh
