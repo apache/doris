@@ -424,7 +424,7 @@ public class SystemInfoService {
         Set<String> hosts = Sets.newHashSet();
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
-            if (aliveOnly && !backend.isAlive() && backend.isComputeNode()) {
+            if ((aliveOnly && !backend.isAlive()) || backend.isComputeNode()) {
                 continue;
             }
             hosts.add(backend.getHost());
