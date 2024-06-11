@@ -412,5 +412,9 @@ inline bool is_complex_type(const DataTypePtr& data_type) {
     return which.is_array() || which.is_map() || which.is_struct();
 }
 
+inline bool is_variant_type(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_variant_type();
+}
+
 } // namespace vectorized
 } // namespace doris

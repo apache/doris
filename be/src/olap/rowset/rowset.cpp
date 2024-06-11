@@ -23,6 +23,7 @@
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "util/time.h"
+#include "vec/common/schema_util.h"
 
 namespace doris {
 
@@ -97,6 +98,21 @@ void Rowset::merge_rowset_meta(const RowsetMetaSharedPtr& other) {
     other->get_segments_key_bounds(&key_bounds);
     for (auto key_bound : key_bounds) {
         _rowset_meta->add_segment_key_bounds(key_bound);
+    }
+
+    // In partial update the rowset schema maybe updated when table contains variant type, so we need the newest schema to be updated
+    // Otherwise the schema is stale and lead to wrong data read
+    if (tablet_schema()->num_variant_columns() > 0) {
+        // merge extracted columns
+        TabletSchemaSPtr merged_schema;
+        static_cast<void>(vectorized::schema_util::get_least_common_schema(
+                {tablet_schema(), other->tablet_schema()}, nullptr, merged_schema));
+        if (*_schema != *merged_schema) {
+            _rowset_meta->set_tablet_schema(merged_schema);
+        }
+        // rowset->meta_meta()->tablet_schema() maybe updated so make sure _schema is
+        // consistent with rowset meta
+        _schema = _rowset_meta->tablet_schema();
     }
 }
 
