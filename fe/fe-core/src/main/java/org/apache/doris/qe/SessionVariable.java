@@ -1453,7 +1453,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"如果分区数量超过阈值，BE将通过batch方式获取scan ranges",
                     "If the number of partitions exceeds the threshold, scan ranges will be got through batch mode."},
             needForward = true)
-    public int numPartitionsInBatchMode = 1024;
+    public int numPartitionsInBatchMode = -1;
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
