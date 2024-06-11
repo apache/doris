@@ -148,12 +148,21 @@ setup_java_env() {
     )"
     if [[ "${java_version}" -gt 8 ]]; then
         export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${LD_LIBRARY_PATH}"
+        if [[ "$(uname -s)" == 'Darwin' ]]; then
+            export DYLD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${DYLD_LIBRARY_PATH}"
+        fi
         # JAVA_HOME is jdk
     elif [[ -d "${JAVA_HOME}/jre" ]]; then
         export LD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}/server:${JAVA_HOME}/jre/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
+        if [[ "$(uname -s)" == 'Darwin' ]]; then
+            export DYLD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}/server:${JAVA_HOME}/jre/lib/${jvm_arch}:${DYLD_LIBRARY_PATH}"
+        fi
         # JAVA_HOME is jre
     else
         export LD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
+        if [[ "$(uname -s)" == 'Darwin' ]]; then
+            export DYLD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${DYLD_LIBRARY_PATH}"
+        fi
     fi
 }
 

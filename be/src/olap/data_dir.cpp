@@ -375,7 +375,8 @@ Status DataDir::load() {
                 (!delete_pred->in_predicates().empty() &&
                  delete_pred->in_predicates()[0].has_column_unique_id())) {
                 // convert pred and write only when delete sub pred v2 is not set or there is in list pred to be set column uid
-                DeleteHandler::convert_to_sub_pred_v2(delete_pred, rowset_meta->tablet_schema());
+                RETURN_IF_ERROR(DeleteHandler::convert_to_sub_pred_v2(
+                        delete_pred, rowset_meta->tablet_schema()));
                 LOG(INFO) << fmt::format(
                         "convert rowset with old delete pred: rowset_id={}, tablet_id={}",
                         rowset_id.to_string(), tablet_uid.to_string());

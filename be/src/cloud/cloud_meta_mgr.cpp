@@ -46,6 +46,7 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/cloud.pb.h"
 #include "gen_cpp/olap_file.pb.h"
+#include "io/fs/obj_storage_client.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
@@ -651,11 +652,12 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
 Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
                                     RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "prepare rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id();
+               << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
 
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_txn_id(rs_meta.txn_id());
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
@@ -676,10 +678,11 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
 Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id();
+               << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_txn_id(rs_meta.txn_id());
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
@@ -823,17 +826,7 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
     }
 
     auto add_obj_store = [&vault_infos](const auto& obj_store) {
-        vault_infos->emplace_back(obj_store.id(),
-                                  S3Conf {
-                                          .bucket = obj_store.bucket(),
-                                          .prefix = obj_store.prefix(),
-                                          .client_conf {.endpoint = obj_store.endpoint(),
-                                                        .region = obj_store.region(),
-                                                        .ak = obj_store.ak(),
-                                                        .sk = obj_store.sk()},
-                                          .sse_enabled = obj_store.sse_enabled(),
-                                          .provider = obj_store.provider(),
-                                  },
+        vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
                                   StorageVaultPB_PathFormat {});
     };
 
@@ -851,7 +844,7 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
         resp.mutable_obj_info(i)->set_sk(resp.obj_info(i).sk().substr(0, 2) + "xxx");
     }
     for (int i = 0; i < resp.storage_vault_size(); ++i) {
-        auto j = resp.mutable_storage_vault(i);
+        auto* j = resp.mutable_storage_vault(i);
         if (!j->has_obj_info()) continue;
         j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
     }
