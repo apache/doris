@@ -494,7 +494,7 @@ void BetaRowset::clear_cache() {
     clear_inverted_index_cache();
 
     auto fs = _rowset_meta->fs();
-    for (int i = 0; i < num_segments(); ++i) {
+    for (int i = 0; i < num_segments() && fs != nullptr; ++i) {
         auto seg_path = segment_file_path(i);
         if (fs->type() != io::FileSystemType::LOCAL) {
             auto cache_path = segment_cache_path(i);
