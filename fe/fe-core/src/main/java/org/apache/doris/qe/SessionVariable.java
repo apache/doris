@@ -1417,7 +1417,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_COMPOUND_INLIST,
             description = {"让compound inlist条件可以使用倒排索引",
                     "Let the compound inlist condition use an inverted index"})
-    public boolean enableInvertedIndexCompoundInlist = false;
+    public boolean enableInvertedIndexCompoundInlist = true;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         return Arrays.stream(ignoreRuntimeFilterIds.split(",[\\s]*"))
