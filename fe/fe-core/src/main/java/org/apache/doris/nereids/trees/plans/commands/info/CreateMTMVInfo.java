@@ -52,7 +52,6 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -67,6 +66,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -74,7 +74,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -154,7 +153,7 @@ public class CreateMTMVInfo {
             throw new AnalysisException(message);
         }
         analyzeProperties();
-        analyzeQuery(ctx);
+        analyzeQuery(ctx, this.mvProperties);
         // analyze column
         final boolean finalEnableMergeOnWrite = false;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
@@ -183,7 +182,7 @@ public class CreateMTMVInfo {
         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
             throw new AnalysisException("Not support dynamic partition properties on async materialized view");
         }
-        for (String key : MTMVPropertyUtil.mvPropertyKeys) {
+        for (String key : MTMVPropertyUtil.MV_PROPERTY_KEYS) {
             if (properties.containsKey(key)) {
                 MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
                 mvProperties.put(key, properties.get(key));
@@ -195,7 +194,7 @@ public class CreateMTMVInfo {
     /**
      * analyzeQuery
      */
-    public void analyzeQuery(ConnectContext ctx) {
+    public void analyzeQuery(ConnectContext ctx, Map<String, String> mvProperties) {
         // create table as select
         StatementContext statementContext = ctx.getStatementContext();
         NereidsPlanner planner = new NereidsPlanner(statementContext);
@@ -208,7 +207,7 @@ public class CreateMTMVInfo {
         // can not contain VIEW or MTMV
         analyzeBaseTables(planner.getAnalyzedPlan());
         // can not contain Random function
-        analyzeExpressions(planner.getAnalyzedPlan());
+        analyzeExpressions(planner.getAnalyzedPlan(), mvProperties);
         // can not contain partition or tablets
         boolean containTableQueryOperator = MaterializedViewUtils.containTableQueryOperator(planner.getAnalyzedPlan());
         if (containTableQueryOperator) {
@@ -295,11 +294,16 @@ public class CreateMTMVInfo {
         }
     }
 
-    private void analyzeExpressions(Plan plan) {
+    private void analyzeExpressions(Plan plan, Map<String, String> mvProperties) {
+        boolean enableDateNondeterministicFunction = Boolean.parseBoolean(
+                mvProperties.get(PropertyAnalyzer.PROPERTIES_ENABLE_DATE_NONDETERMINISTIC_FUNCTION));
         List<Expression> functionCollectResult = MaterializedViewUtils.extractNondeterministicFunction(
-                plan, NondeterministicFunctionCollector.WHITE_FUNCTION_LIST);
+                plan, enableDateNondeterministicFunction
+                        ? NondeterministicFunctionCollector.WHITE_FUNCTION_LIST : ImmutableSet.of());
         if (!CollectionUtils.isEmpty(functionCollectResult)) {
-            throw new AnalysisException("can not contain invalid expression");
+            throw new AnalysisException(String.format(
+                    "can not contain invalid expression, the expression is %s",
+                    functionCollectResult.stream().map(Expression::toString).collect(Collectors.joining(","))));
         }
     }
 

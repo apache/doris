@@ -21,7 +21,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
@@ -35,6 +34,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import mockit.Mock;
 import mockit.MockUp;
@@ -256,22 +256,39 @@ public class PlanVisitorTest extends TestWithFeService {
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT *, now() FROM table1 "
                                 + "LEFT SEMI JOIN table2 ON table1.c1 = table2.c1 "
-                                + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR CURDATE() < '2023-01-01' and current_time() = '2023-01-10'",
+                                + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR current_date() < '2023-01-01' and current_time() = '2023-01-10'",
                         nereidsPlanner -> {
                             // Check nondeterministic collect
                             List<Expression> nondeterministicFunctionSet =
                                     MaterializedViewUtils.extractNondeterministicFunction(
                                             nereidsPlanner.getAnalyzedPlan(),
                                             NondeterministicFunctionCollector.WHITE_FUNCTION_LIST);
-                            Assertions.assertEquals(1, nondeterministicFunctionSet.size());
-                            Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof CurrentTime);
+                            Assertions.assertEquals(2, nondeterministicFunctionSet.size());
+                            Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof Now);
+                            Assertions.assertTrue(nondeterministicFunctionSet.get(1) instanceof CurrentTime);
                         });
     }
 
     @Test
-    public void testUnixTimestampFunction() {
+    public void testCurrentDateFunction() {
         PlanChecker.from(connectContext)
-                .checkExplain("SELECT *, unix_timestamp() FROM table1 "
+                .checkExplain("SELECT * FROM table1 "
+                                + "LEFT SEMI JOIN table2 ON table1.c1 = table2.c1 "
+                                + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR current_date() < '2023-01-01'",
+                        nereidsPlanner -> {
+                            // Check nondeterministic collect
+                            List<Expression> nondeterministicFunctionSet =
+                                    MaterializedViewUtils.extractNondeterministicFunction(
+                                            nereidsPlanner.getAnalyzedPlan(),
+                                            NondeterministicFunctionCollector.WHITE_FUNCTION_LIST);
+                            Assertions.assertEquals(0, nondeterministicFunctionSet.size());
+                        });
+    }
+
+    @Test
+    public void testUnixTimestampWithArgsFunction() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT * FROM table1 "
                                 + "LEFT SEMI JOIN table2 ON table1.c1 = table2.c1 "
                                 + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR unix_timestamp(table1.c4, '%Y-%m-%d %H:%i-%s') < '2023-01-01' and unix_timestamp(table1.c4) = '2023-01-10'",
                         nereidsPlanner -> {
@@ -279,7 +296,22 @@ public class PlanVisitorTest extends TestWithFeService {
                             List<Expression> nondeterministicFunctionSet =
                                     MaterializedViewUtils.extractNondeterministicFunction(
                                             nereidsPlanner.getAnalyzedPlan(),
-                                            NondeterministicFunctionCollector.WHITE_FUNCTION_LIST);
+                                            ImmutableSet.of());
+                            Assertions.assertEquals(0, nondeterministicFunctionSet.size());
+                        });
+    }
+
+    @Test
+    public void testUnixTimestampWithoutArgsFunction() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT unix_timestamp(), * FROM table1 "
+                                + "LEFT SEMI JOIN table2 ON table1.c1 = table2.c1 ",
+                        nereidsPlanner -> {
+                            // Check nondeterministic collect
+                            List<Expression> nondeterministicFunctionSet =
+                                    MaterializedViewUtils.extractNondeterministicFunction(
+                                            nereidsPlanner.getAnalyzedPlan(),
+                                            ImmutableSet.of());
                             Assertions.assertEquals(1, nondeterministicFunctionSet.size());
                             Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof UnixTimestamp);
                         });

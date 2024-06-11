@@ -21,15 +21,11 @@ import org.apache.doris.nereids.trees.expressions.Any;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector.FunctionCollectContext;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableSet;
 
-import java.util.BitSet;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -42,9 +38,7 @@ public class NondeterministicFunctionCollector
         extends DefaultPlanVisitor<Void, FunctionCollectContext> {
 
     public static final NondeterministicFunctionCollector INSTANCE = new NondeterministicFunctionCollector();
-    public static final ImmutableSet<Expression> WHITE_FUNCTION_LIST = ImmutableSet.of(
-            new Now(), new Now(Any.INSTANCE), new CurrentDate(), new UnixTimestamp(Any.INSTANCE, Any.INSTANCE),
-            new UnixTimestamp(Any.INSTANCE));
+    public static final ImmutableSet<Expression> WHITE_FUNCTION_LIST = ImmutableSet.of(new CurrentDate());
 
     @Override
     public Void visit(Plan plan, FunctionCollectContext collectContext) {
@@ -52,11 +46,11 @@ public class NondeterministicFunctionCollector
         if (expressions.isEmpty()) {
             return super.visit(plan, collectContext);
         }
-        for (Expression shuttledExpression : expressions) {
-            Set<Nondeterministic> nondeterministicFunctions = shuttledExpression.collect(
-                    Nondeterministic.class::isInstance);
+        for (Expression expression : expressions) {
+            Set<Nondeterministic> nondeterministicFunctions = expression.collect(expr ->
+                    expr instanceof Nondeterministic && !((Nondeterministic) expr).isDeterministic());
             for (Nondeterministic function : nondeterministicFunctions) {
-                if (WHITE_FUNCTION_LIST.stream()
+                if (collectContext.getWhiteFunctionSet().stream()
                         .anyMatch(whiteFunction -> Any.equals(whiteFunction, (Expression) function))) {
                     continue;
                 }
@@ -66,6 +60,10 @@ public class NondeterministicFunctionCollector
         return super.visit(plan, collectContext);
     }
 
+    /**
+     * Function collect context, collected expressions would be added to collectedExpressions,
+     * the expression in whiteFunctionSet would not be collected
+     */
     public static class FunctionCollectContext {
         private final List<Expression> collectedExpressions = new LinkedList<>();
         private final Set<Expression> whiteFunctionSet = new HashSet<>();

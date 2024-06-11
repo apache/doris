@@ -142,4 +142,9 @@ public class UnixTimestamp extends ScalarFunction
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUnixTimestamp(this, context);
     }
+
+    @Override
+    public boolean isDeterministic() {
+        return !this.children.isEmpty();
+    }
 }
