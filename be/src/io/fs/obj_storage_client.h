@@ -27,7 +27,8 @@ namespace io {
 
 // Names are in lexico order.
 enum class ObjStorageType : uint8_t {
-    AWS = 0,
+    UNKNOWN = 0,
+    AWS = 1,
     AZURE,
     BOS,
     COS,

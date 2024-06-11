@@ -172,12 +172,14 @@ message ObjectStoreInfoPB {
     // presigned url use
     // oss,aws,cos,obs,bos
     enum Provider {
-        OSS = 0;
-        S3 =  1;
-        COS = 2;
-        OBS = 3;
-        BOS = 4;
-        GCP = 5;
+        UNKONWN = -1;
+        OSS     = 0;
+        S3      = 1;
+        COS     = 2;
+        OBS     = 3;
+        BOS     = 4;
+        GCP     = 5;
+        AZURE   = 6;
     }
     optional int64 ctime = 1;
     optional int64 mtime = 2;
