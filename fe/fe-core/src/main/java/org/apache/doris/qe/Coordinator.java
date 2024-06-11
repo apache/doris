@@ -697,6 +697,11 @@ public class Coordinator implements CoordInterface {
 
             if (!context.isReturnResultFromLocal()) {
                 Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
+                if (queryOptions.isEnableParallelResultSink()) {
+                    context.setFinstId(queryId);
+                } else {
+                    context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
+                }
                 context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
                 context.setResultFlightServerAddr(toArrowFlightHost(execBeAddr));
                 context.setResultInternalServiceAddr(toBrpcHost(execBeAddr));
