@@ -77,6 +77,7 @@ private:
     EntriesType* entries = nullptr;
     std::mutex _this_lock;
     bool _own_index_input = true;
+    bool _closed = false;
 
 protected:
     /** Removes an existing file in the directory-> */

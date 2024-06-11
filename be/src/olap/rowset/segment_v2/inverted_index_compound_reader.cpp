@@ -197,8 +197,12 @@ void DorisCompoundReader::copyFile(const char* file, int64_t file_length, uint8_
 }
 
 DorisCompoundReader::~DorisCompoundReader() {
-    if (_own_index_input) {
-        _CLDELETE(entries)
+    if (!_closed) {
+        try{
+            close();
+        } catch (CLuceneError& err) {
+            LOG(ERROR) << "DorisCompoundReader finalize error:" << err.what();
+        }
     }
 }
 
@@ -289,6 +293,7 @@ void DorisCompoundReader::close() {
         entries->clear();
         stream->close();
         _CLDELETE(stream)
+        _CLDELETE(entries)
     }
     if (ram_dir) {
         ram_dir->close();
@@ -298,6 +303,7 @@ void DorisCompoundReader::close() {
         dir->close();
         _CLDECDELETE(dir)
     }
+    _closed = true;
 }
 
 bool DorisCompoundReader::doDeleteFile(const char* /*name*/) {
