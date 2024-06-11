@@ -128,15 +128,23 @@ suite("test_refresh_range_mtmv","mtmv") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${tableNameNum};
+            SELECT * FROM ${tableName};
     """
 
     // test start < end
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-02-01' end '2017-02-02';
+        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-02-01' end '2017-01-01';
         """
      waitingMTMVTaskFinishedByMvNameNotNeedSuccess(mvName)
-     order_qt_int_error "select Status,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime DESC limit 1"
+     order_qt_int_error "select Status,RefreshMode from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime DESC limit 1"
+
+    // test refresh 0201
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-02-01' end '2017-02-02';
+        """
+     waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_0201 "select * from ${mvName}"
+
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
