@@ -53,7 +53,7 @@ import java.util.regex.Pattern;
 
 // TODO(dhc) add nanosecond timer for coordinator's root profile
 public class TimeUtils {
-    public static final String UTC_TIME_ZONE = "Europe/London"; // This is just a Country to represent UTC offset +00:00
+    public static final String UTC_TIME_ZONE = "UTC"; // This is just a Country to represent UTC offset +00:00
     public static final String DEFAULT_TIME_ZONE = "Asia/Shanghai";
     public static final ZoneId TIME_ZONE;
     public static final ImmutableMap<String, String> timeZoneAliasMap;
