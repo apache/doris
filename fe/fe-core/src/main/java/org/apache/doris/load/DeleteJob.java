@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -299,11 +300,12 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         for (Partition partition : partitions) {
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
                 long indexId = index.getId();
-                int schemaHash = targetTbl.getSchemaHashByIndexId(indexId);
-
+                MaterializedIndexMeta indexMeta = targetTbl.getIndexMetaByIndexId(indexId);
+                int schemaVersion = indexMeta.getSchemaVersion();
+                int schemaHash = indexMeta.getSchemaHash();
                 List<TColumn> columnsDesc = Lists.newArrayList();
                 // using to update schema of the rowset, so full columns should be included
-                for (Column column : targetTbl.getSchemaByIndexId(indexId, true)) {
+                for (Column column : indexMeta.getSchema(true)) {
                     columnsDesc.add(column.toThrift());
                 }
 
@@ -350,7 +352,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                                 transactionId,
                                 Env.getCurrentEnv().getNextId() + 10000000000L,
                                 columnsDesc,
-                                vaultId);
+                                vaultId, schemaVersion);
                         pushTask.setIsSchemaChanging(false);
                         pushTask.setCountDownLatch(countDownLatch);
 
