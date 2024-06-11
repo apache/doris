@@ -148,6 +148,10 @@ public class TimeUtils {
         return TimeZone.getTimeZone(ZoneId.of(timezone, timeZoneAliasMap));
     }
 
+    public static TimeZone getUTCTimeZone() {
+        return TimeZone.getTimeZone(UTC_TIME_ZONE);
+    }
+
     // return the time zone of current system
     public static TimeZone getSystemTimeZone() {
         return TimeZone.getTimeZone(ZoneId.of(ZoneId.systemDefault().getId(), timeZoneAliasMap));
