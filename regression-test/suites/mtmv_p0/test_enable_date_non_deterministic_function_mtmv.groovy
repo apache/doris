@@ -21,6 +21,7 @@ suite("test_enable_date_non_deterministic_function_mtmv","mtmv") {
     String suiteName = "test_enable_date_non_deterministic_function_mtmv"
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
+    String db = context.config.getDbNameByFile(context.file)
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
@@ -81,7 +82,7 @@ suite("test_enable_date_non_deterministic_function_mtmv","mtmv") {
     // when enable date nondeterministic function, create mv with current_date should success
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
-        BUILD DEFERRED REFRESH AUTO ON MANUAL
+        BUILD IMMEDIATE REFRESH AUTO ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
         'replication_num' = '1',
@@ -90,6 +91,8 @@ suite("test_enable_date_non_deterministic_function_mtmv","mtmv") {
         AS
         SELECT *, unix_timestamp(k3, '%Y-%m-%d %H:%i-%s') from ${tableName} where current_date() > k3;
         """
+
+    waitingMTMVTaskFinished(getJobName(db, mvName))
     order_qt_with_current_date """select * from ${mvName}"""
     sql """drop materialized view if exists ${mvName};"""
 
