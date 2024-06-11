@@ -84,7 +84,7 @@ struct TS3StorageParam {
     9: optional string bucket
     10: optional bool use_path_style = false
     11: optional string token
-    12: optional TObjStorageType provider = TObjStorageType.AWS
+    12: optional TObjStorageType provider
 }
 
 struct TStoragePolicy {
