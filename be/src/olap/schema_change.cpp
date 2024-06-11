@@ -737,7 +737,7 @@ SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
         // This is because the schema change for a variant needs to ignore the extracted columns.
         // Otherwise, the schema types in different rowsets might be inconsistent. When performing a schema change,
         // the complete variant is constructed by reading all the sub-columns of the variant.
-        _new_tablet_schema = _new_tablet->tablet_schema()->copy_without_extracted_columns();
+        _new_tablet_schema = _new_tablet->tablet_schema()->copy_without_variant_extracted_columns();
     }
     _job_id = job_id;
 }
