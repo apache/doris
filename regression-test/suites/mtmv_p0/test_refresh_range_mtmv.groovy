@@ -54,7 +54,7 @@ suite("test_refresh_range_mtmv","mtmv") {
          exception "SELF_MANAGE"
     }
 
-    // test invalid date
+    // test illegal date type
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
@@ -91,13 +91,52 @@ suite("test_refresh_range_mtmv","mtmv") {
      waitingMTMVTaskFinishedByMvNameNotNeedSuccess(mvName)
      order_qt_int_error "select Status,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime DESC limit 1"
 
-    // test illegal date type
     test {
          sql """
             REFRESH MATERIALIZED VIEW ${mvName} partition start '2' end '3';
             """
          exception "invalid"
     }
+
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+
+    // test range partition
+    sql """
+        CREATE TABLE `${tableName}` (
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`, `date`, `num`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`date`)
+        (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')),
+        PARTITION p201702_2000 VALUES [('2017-02-01'), ('2017-03-01')),
+        PARTITION p201703_all VALUES [('2017-03-01'), ('2017-04-01')))
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableNameNum} values(1,"2017-01-15",1),(1,"2017-02-15",2),(1,"2017-03-15",3);
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${tableNameNum};
+    """
+
+    // test start < end
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-02-01' end '2017-02-02';
+        """
+     waitingMTMVTaskFinishedByMvNameNotNeedSuccess(mvName)
+     order_qt_int_error "select Status,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime DESC limit 1"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""

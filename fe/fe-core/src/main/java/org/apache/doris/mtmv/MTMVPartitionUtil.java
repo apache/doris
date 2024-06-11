@@ -529,24 +529,27 @@ public class MTMVPartitionUtil {
             ListPartitionItem listPartitionItem = (ListPartitionItem) item;
             List<PartitionKey> keys = listPartitionItem.getItems();
             for (PartitionKey key : keys) {
-                if (ifPartitionKeyInRange(key, range)) {
+                if (ifPartitionKeyInRange(key, range, false)) {
                     return true;
                 }
             }
         } else if (item instanceof RangePartitionItem) {
             RangePartitionItem rangePartitionItem = (RangePartitionItem) item;
             Range<PartitionKey> items = rangePartitionItem.getItems();
-            return ifPartitionKeyInRange(items.lowerEndpoint(), range);
+            return ifPartitionKeyInRange(items.lowerEndpoint(), range, false) || ifPartitionKeyInRange(
+                    items.lowerEndpoint(), range, true);
         }
         return false;
     }
 
-    private static boolean ifPartitionKeyInRange(PartitionKey partitionKey, MTMVRefreshPartitionRange range) {
+    private static boolean ifPartitionKeyInRange(PartitionKey partitionKey, MTMVRefreshPartitionRange range,
+            boolean isUpper) {
         Preconditions.checkState(partitionKey.getKeys().size() == 1,
                 "only support one partition column");
         String stringValue = partitionKey.getKeys().get(0).getStringValue();
         DateV2Literal dateV2Literal = new DateV2Literal(stringValue);
         Long value = dateV2Literal.getValue();
-        return value <= range.getEndDate().getValue() && value >= range.getStartDate().getValue();
+        return value <= range.getEndDate().getValue() && (isUpper ? value > range.getStartDate().getValue()
+                : value >= range.getStartDate().getValue());
     }
 }
