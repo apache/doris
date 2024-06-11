@@ -20,6 +20,10 @@ suite("materialized_view_grouping_sets") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "SET enable_fallback_to_original_planner=false"
+    sql "SET enable_materialized_view_rewrite=true"
+    sql "SET enable_nereids_planner=true"
+
 
     sql """
     drop table if exists orders
