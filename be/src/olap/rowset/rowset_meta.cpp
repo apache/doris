@@ -233,9 +233,6 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
             _rowset_meta_pb.add_segments_file_size(fsize);
         }
     }
-    if (rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
-        set_rowset_state(RowsetStatePB::COMMITTED);
-    }
     // In partial update the rowset schema maybe updated when table contains variant type, so we need the newest schema to be updated
     // Otherwise the schema is stale and lead to wrong data read
     if (tablet_schema()->num_variant_columns() > 0) {
@@ -246,6 +243,9 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
         if (*_schema != *merged_schema) {
             set_tablet_schema(merged_schema);
         }
+    }
+    if (rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
+        set_rowset_state(RowsetStatePB::COMMITTED);
     }
 }
 

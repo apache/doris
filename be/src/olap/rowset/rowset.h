@@ -132,6 +132,8 @@ public:
 
     const RowsetMetaSharedPtr& rowset_meta() const { return _rowset_meta; }
 
+    void merge_rowset_meta(const RowsetMeta& other);
+
     bool is_pending() const { return _is_pending; }
 
     bool is_local() const { return _rowset_meta->is_local(); }
@@ -141,7 +143,6 @@ public:
     // publish rowset to make it visible to read
     void make_visible(Version version);
     void set_version(Version version);
-    void set_schema(TabletSchemaSPtr new_schema) { _schema = new_schema; }
     const TabletSchemaSPtr& tablet_schema() const { return _schema; }
 
     // helper class to access RowsetMeta

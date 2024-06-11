@@ -1298,7 +1298,6 @@ Status ColumnObject::merge_sparse_to_root_column() {
     // to make sure the root column ptr is not changed
     subcolumns.get_mutable_root()->data.get_finalized_column().insert_range_from(
             *mresult->get_ptr(), 0, num_rows);
-    // subcolumns.get_mutable_root()->data.get_finalized_column_ptr() = mresult->get_ptr();
     return Status::OK();
 }
 

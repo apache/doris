@@ -1829,7 +1829,7 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
     // This is because the partial update for a variant needs to ignore the extracted columns.
     // Otherwise, the schema types in different rowsets might be inconsistent. When performing a partial update,
     // the complete variant is constructed by reading all the sub-columns of the variant.
-    context.tablet_schema = rowset.tablet_schema()->copy_without_extracted_columns();
+    context.tablet_schema = rowset.tablet_schema()->copy_without_variant_extracted_columns();
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = table_id();
     context.enable_segcompaction = false;

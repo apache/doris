@@ -699,10 +699,9 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
                                                                   : _context.tablet_schema;
     _rowset_meta->set_tablet_schema(rowset_schema);
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            RowsetFactory::create_rowset(rowset_schema, _context.tablet_path, _rowset_meta,
-                                         &rowset),
-            "rowset init failed when build new rowset");
+    RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,
+                                                                _rowset_meta, &rowset),
+                                   "rowset init failed when build new rowset");
     _already_built = true;
     return Status::OK();
 }

@@ -239,10 +239,10 @@ Status OlapBlockDataConvertor::set_source_content_with_specifid_column(
     DCHECK(num_rows > 0);
     DCHECK(row_pos + num_rows <= typed_column.column->size());
     DCHECK(cid < _convertors.size());
-    RETURN_IF_CATCH_EXCEPTION({_convertors[cid]->set_source_column(typed_column, row_pos, num_rows);});
-    return Statuse::OK();
+    RETURN_IF_CATCH_EXCEPTION(
+            { _convertors[cid]->set_source_column(typed_column, row_pos, num_rows); });
+    return Status::OK();
 }
-
 
 Status OlapBlockDataConvertor::set_source_content_with_specifid_columns(
         const vectorized::Block* block, size_t row_pos, size_t num_rows,

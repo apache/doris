@@ -1115,7 +1115,7 @@ void TabletSchema::merge_dropped_columns(const TabletSchema& src_schema) {
     }
 }
 
-TabletSchemaSPtr TabletSchema::copy_without_extracted_columns() {
+TabletSchemaSPtr TabletSchema::copy_without_variant_extracted_columns() {
     TabletSchemaSPtr copy = std::make_shared<TabletSchema>();
     TabletSchemaPB tablet_schema_pb;
     this->to_schema_pb(&tablet_schema_pb);

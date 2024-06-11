@@ -45,6 +45,7 @@
 #include "vec/core/block.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -89,7 +90,7 @@ Status SegmentFlusher::_parse_variant_columns(vectorized::Block& block) {
     std::vector<int> variant_column_pos;
     for (int i = 0; i < block.columns(); ++i) {
         const auto& entry = block.get_by_position(i);
-        if (remove_nullable(entry.type)->get_type_id() == vectorized::TypeIndex::VARIANT) {
+        if (vectorized::is_variant_type(remove_nullable(entry.type))) {
             variant_column_pos.push_back(i);
         }
     }
@@ -145,8 +146,8 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     }
 
     writer = std::make_unique<segment_v2::SegmentWriter>(
-            file_writer.get(), segment_id, _context.tablet_schema, _context.tablet, _context.data_dir,
-            _context.max_rows_per_segment, writer_options, _context.mow_context);
+            file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
+            _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context);
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(file_writer)));
     auto s = writer->init();
     if (!s.ok()) {
@@ -172,8 +173,8 @@ Status SegmentFlusher::_create_segment_writer(
     }
 
     writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
-            file_writer.get(), segment_id, _context.tablet_schema, _context.tablet, _context.data_dir,
-            _context.max_rows_per_segment, writer_options, _context.mow_context);
+            file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
+            _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context);
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(file_writer)));
     auto s = writer->init();
     if (!s.ok()) {

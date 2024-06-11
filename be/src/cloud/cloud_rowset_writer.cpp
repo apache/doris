@@ -115,10 +115,9 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
         _rowset_meta->add_segments_file_size(seg_file_size.value());
     }
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            RowsetFactory::create_rowset(rowset_schema, _context.tablet_path, _rowset_meta,
-                                         &rowset),
-            "rowset init failed when build new rowset");
+    RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,
+                                                                _rowset_meta, &rowset),
+                                   "rowset init failed when build new rowset");
     _already_built = true;
     return Status::OK();
 }

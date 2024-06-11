@@ -140,6 +140,10 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
     }
+    // add sparse column to footer
+    for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
+        _init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i));
+    }
 }
 
 Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& column,
@@ -775,10 +779,10 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
                                                                _flush_schema);
             RETURN_IF_ERROR(_create_column_writer(current_column_id /*unused*/, tablet_column,
                                                   _flush_schema));
-            _olap_data_convertor->set_source_content_with_specifid_column(
+            RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
                     {entry->data.get_finalized_column_ptr()->get_ptr(),
                      entry->data.get_least_common_type(), tablet_column.name()},
-                    data.row_pos, data.num_rows, current_column_id);
+                    data.row_pos, data.num_rows, current_column_id));
             // convert column data from engine format to storage layer format
             auto [status, column] = _olap_data_convertor->convert_column_data(current_column_id);
             if (!status.ok()) {
@@ -887,6 +891,8 @@ Status VerticalSegmentWriter::write_batch() {
             return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
                                                             _data_dir->path_hash());
         }
+        RETURN_IF_ERROR(_column_writers[cid]->finish());
+        RETURN_IF_ERROR(_column_writers[cid]->write_data());
     }
 
     for (auto& data : _batched_blocks) {
@@ -935,14 +941,15 @@ Status VerticalSegmentWriter::write_batch() {
 
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
+        size_t original_writers_cnt = _column_writers.size();
+        // handle variant dynamic sub columns
         for (auto& data : _batched_blocks) {
             RETURN_IF_ERROR(_append_block_with_variant_subcolumns(data));
         }
-    }
-
-    for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->finish());
-        RETURN_IF_ERROR(column_writer->write_data());
+        for (size_t i = original_writers_cnt; i < _column_writers.size(); ++i) {
+            RETURN_IF_ERROR(_column_writers[i]->finish());
+            RETURN_IF_ERROR(_column_writers[i]->write_data());
+        }
     }
 
     _batched_blocks.clear();

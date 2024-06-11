@@ -172,7 +172,6 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
         init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i), tablet_schema);
     }
-
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
 }
@@ -381,10 +380,10 @@ Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& da
                                                                _flush_schema);
             RETURN_IF_ERROR(_create_column_writer(current_column_id /*unused*/, tablet_column,
                                                   _flush_schema));
-            _olap_data_convertor->set_source_content_with_specifid_column(
+            RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
                     {entry->data.get_finalized_column_ptr()->get_ptr(),
                      entry->data.get_least_common_type(), tablet_column.name()},
-                    0, data.rows(), current_column_id);
+                    0, data.rows(), current_column_id));
             // convert column data from engine format to storage layer format
             auto [status, column] = _olap_data_convertor->convert_column_data(current_column_id);
             if (!status.ok()) {
@@ -558,12 +557,12 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
-
     // locate rows in base data
     int64_t num_rows_updated = 0;
     int64_t num_rows_new_added = 0;
     int64_t num_rows_deleted = 0;
     int64_t num_rows_filtered = 0;
+
     for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
         // block   segment
         //   2   ->   0
@@ -670,7 +669,6 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
                                          has_default_or_nullable, segment_start_pos, block));
     full_block.set_columns(std::move(mutable_full_columns));
-
     // row column should be filled here
     if (_tablet_schema->store_row_column()) {
         // convert block to row store format
@@ -694,7 +692,6 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                      converted_result.second->get_data(),
                                                      num_rows));
     }
-
     _num_rows_updated += num_rows_updated;
     _num_rows_deleted += num_rows_deleted;
     _num_rows_new_added += num_rows_new_added;

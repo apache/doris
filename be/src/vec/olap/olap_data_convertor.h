@@ -81,7 +81,7 @@ public:
     Status set_source_content_with_specifid_columns(const vectorized::Block* block, size_t row_pos,
                                                     size_t num_rows, std::vector<uint32_t> cids);
     Status set_source_content_with_specifid_column(const ColumnWithTypeAndName& typed_column,
-                                                 size_t row_pos, size_t num_rows, uint32_t cid);
+                                                   size_t row_pos, size_t num_rows, uint32_t cid);
 
     void clear_source_content();
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
