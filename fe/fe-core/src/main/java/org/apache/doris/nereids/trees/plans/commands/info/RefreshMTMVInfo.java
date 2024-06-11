@@ -24,7 +24,9 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVRefreshPartitionRange;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
@@ -34,6 +36,7 @@ import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * refresh mtmv info
@@ -42,11 +45,14 @@ public class RefreshMTMVInfo {
     private final TableNameInfo mvName;
     private List<String> partitions;
     private boolean isComplete;
+    private Optional<MTMVRefreshPartitionRange> rangeOptional;
 
-    public RefreshMTMVInfo(TableNameInfo mvName, List<String> partitions, boolean isComplete) {
+    public RefreshMTMVInfo(TableNameInfo mvName, List<String> partitions, boolean isComplete,
+            Optional<MTMVRefreshPartitionRange> rangeOptional) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
         this.partitions = Utils.copyRequiredList(partitions);
         this.isComplete = Objects.requireNonNull(isComplete, "require isComplete object");
+        this.rangeOptional = Objects.requireNonNull(rangeOptional, "require rangeOptional object");
     }
 
     /**
@@ -68,6 +74,15 @@ public class RefreshMTMVInfo {
             MTMV mtmv = (MTMV) db.getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
             if (!CollectionUtils.isEmpty(partitions)) {
                 MTMVPartitionUtil.getPartitionsIdsByNames(mtmv, partitions);
+            }
+            if (rangeOptional.isPresent()) {
+                if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+                    throw new AnalysisException(
+                            "The partitioning method: SELF_MANAGE of async materialized views "
+                                    + "does not support refreshing by partition range");
+                }
+                rangeOptional.get().getStartDate();
+                rangeOptional.get().getEndDate();
             }
         } catch (org.apache.doris.common.AnalysisException | MetaNotFoundException | DdlException e) {
             throw new AnalysisException(e.getMessage());
@@ -101,12 +116,22 @@ public class RefreshMTMVInfo {
         return isComplete;
     }
 
+    /**
+     * getRangeOptional
+     *
+     * @return rangeOptional
+     */
+    public Optional<MTMVRefreshPartitionRange> getRangeOptional() {
+        return rangeOptional;
+    }
+
     @Override
     public String toString() {
         return "RefreshMTMVInfo{"
                 + "mvName=" + mvName
                 + ", partitions=" + partitions
                 + ", isComplete=" + isComplete
+                + ", rangeOptional=" + rangeOptional
                 + '}';
     }
 }

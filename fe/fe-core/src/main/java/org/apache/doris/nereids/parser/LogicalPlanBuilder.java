@@ -40,6 +40,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
+import org.apache.doris.mtmv.MTMVRefreshPartitionRange;
 import org.apache.doris.mtmv.MTMVRefreshSchedule;
 import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.nereids.DorisParser;
@@ -793,8 +794,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitions = visitIdentifierList(ctx.partitionSpec().partitions);
             }
         }
+        Optional<MTMVRefreshPartitionRange> range = ctx.partitionRange() == null ? Optional.empty()
+                : Optional.of(new MTMVRefreshPartitionRange(ctx.partitionRange().start.getText(),
+                        ctx.partitionRange().end.getText()));
         return new RefreshMTMVCommand(new RefreshMTMVInfo(new TableNameInfo(nameParts),
-                partitions, ctx.COMPLETE() != null));
+                partitions, ctx.COMPLETE() != null, range));
     }
 
     @Override
