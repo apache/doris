@@ -348,6 +348,7 @@ under the License.
         <immutables.version>2.9.3</immutables.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
+        <aircompressor.version>0.27</aircompressor.version>
         <!-- paimon -->
         <paimon.version>0.8.1</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
@@ -399,6 +400,11 @@ under the License.
     </profiles>
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>io.airlift</groupId>
+                <artifactId>aircompressor</artifactId>
+                <version>${aircompressor.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.quartz-scheduler</groupId>
                 <artifactId>quartz</artifactId>
