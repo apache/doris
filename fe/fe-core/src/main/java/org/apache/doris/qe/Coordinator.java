@@ -682,6 +682,8 @@ public class Coordinator implements CoordInterface {
         DataSink topDataSink = topParams.fragment.getSink();
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
+            Boolean enableParallelResultSink = queryOptions.isEnableParallelResultSink()
+                    && topDataSink instanceof ResultSink;
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             Set<TNetworkAddress> addrs = new HashSet<>();
             for (FInstanceExecParam param : topParams.instanceExecParams) {
@@ -691,13 +693,12 @@ public class Coordinator implements CoordInterface {
                 addrs.add(param.host);
                 receivers.add(new ResultReceiver(queryId, param.instanceId, addressToBackendID.get(param.host),
                         toBrpcHost(param.host), this.timeoutDeadline,
-                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver(),
-                        queryOptions.isEnableParallelResultSink()));
+                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver(), enableParallelResultSink));
             }
 
             if (!context.isReturnResultFromLocal()) {
                 Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
-                if (queryOptions.isEnableParallelResultSink()) {
+                if (enableParallelResultSink) {
                     context.setFinstId(queryId);
                 } else {
                     context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
@@ -1268,10 +1269,8 @@ public class Coordinator implements CoordInterface {
     }
 
     private void cancelInternal(Status cancelReason) {
-        if (!receivers.isEmpty()) {
-            for (ResultReceiver receiver : receivers) {
-                receiver.cancel(cancelReason);
-            }
+        for (ResultReceiver receiver : receivers) {
+            receiver.cancel(cancelReason);
         }
         if (null != pointExec) {
             pointExec.cancel();

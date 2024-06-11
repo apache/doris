@@ -143,7 +143,7 @@ struct TQueryOptions {
   // whether enable spilling to disk
   31: optional bool enable_spilling = false;
   // whether enable parallel merge in exchange node
-  32: optional bool enable_enable_exchange_node_parallel_merge = false;
+  32: optional bool enable_enable_exchange_node_parallel_merge = false; // deprecated
 
   // Time in ms to wait until runtime filters are delivered.
   33: optional i32 runtime_filter_wait_time_ms = 1000

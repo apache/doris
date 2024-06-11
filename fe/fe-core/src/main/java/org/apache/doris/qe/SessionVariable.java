@@ -132,7 +132,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String INSERT_MAX_FILTER_RATIO = "insert_max_filter_ratio";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_point_query";
-    public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
@@ -656,9 +655,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY)
     public boolean enableShortCircuitQuery = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_EXCHANGE_NODE_PARALLEL_MERGE)
-    public boolean enableExchangeNodeParallelMerge = false;
 
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
@@ -3346,7 +3342,6 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         tResult.setEnableSpilling(enableSpilling);
-        tResult.setEnableEnableExchangeNodeParallelMerge(enableExchangeNodeParallelMerge);
 
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
