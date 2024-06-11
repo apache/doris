@@ -148,4 +148,52 @@ suite("test_refresh_range_mtmv","mtmv") {
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
+
+
+    // test list staring partition
+     sql """
+        CREATE TABLE `${tableName}` (
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `date` varchar(100) NOT NULL COMMENT '\"数据灌入日期时间\"',
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
+        ) ENGINE=OLAP
+        COMMENT 'OLAP'
+        PARTITION BY list(`date`)
+        (
+        PARTITION p_20170101 VALUES IN ("2017-01-01"),
+        PARTITION p_20170102_20170103 VALUES IN ("2017-01-02","2017-01-03")
+        )
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName} values(1,"2017-01-01",1),(1,"2017-01-02",2),(1,"2017-01-03",3);
+        """
+
+     sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${tableName};
+    """
+
+    // test refresh 0101
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-01-01' end '2017-01-01';
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_0101 "select * from ${mvName}"
+
+    // test refresh 0102
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-01-02' end '2017-01-02';
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_0102 "select * from ${mvName}"
+
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
 }
