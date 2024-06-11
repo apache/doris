@@ -1786,9 +1786,7 @@ public class RestoreJob extends AbstractJob {
                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!replica.checkVersionCatchUp(part.getVisibleVersion(), false)) {
-                                    replica.updateVersion(part.getVisibleVersion());
-                                }
+                                replica.updateVersionForRestore(entry.getValue());
                             }
                         }
                     }
