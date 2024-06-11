@@ -43,6 +43,7 @@ public class Placeholder extends Expression implements LeafExpression {
     public Placeholder(PlaceholderId placeholderId, int mysqlTypeCode) {
         this.placeholderId = placeholderId;
         this.mysqlColType = Optional.of(MysqlColType.fromCode(mysqlTypeCode));
+        this.mysqlTypeCode = mysqlTypeCode;
     }
 
     public PlaceholderId getPlaceholderId() {
