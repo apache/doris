@@ -1025,6 +1025,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     query_options.execution_timeout = params.execution_timeout;
     query_options.mem_limit = params.mem_limit;
     query_options.query_type = TQueryType::EXTERNAL;
+    query_options.be_exec_version = BeExecVersionManager::get_newest_version();
     query_options.__set_enable_pipeline_x_engine(true);
     exec_fragment_params.__set_query_options(query_options);
     VLOG_ROW << "external exec_plan_fragment params is "
