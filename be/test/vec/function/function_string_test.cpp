@@ -283,7 +283,7 @@ TEST(function_string_test, function_lpad_test) {
                         {{std::string("hi"), 0, std::string("?")}, std::string("")},
                         {{std::string("hi"), -1, std::string("?")}, Null()},
                         {{std::string("h"), 1, std::string("")}, std::string("h")},
-                        {{std::string("hi"), 5, std::string("")}, Null()},
+                        {{std::string("hi"), 5, std::string("")}, std::string("")},
                         {{std::string("hi"), 5, std::string("ab")}, std::string("abahi")},
                         {{std::string("hi"), 5, std::string("呵呵")}, std::string("呵呵呵hi")},
                         {{std::string("呵呵"), 5, std::string("hi")}, std::string("hih呵呵")}};
@@ -304,7 +304,7 @@ TEST(function_string_test, function_rpad_test) {
                         {{std::string("hi"), 0, std::string("?")}, std::string("")},
                         {{std::string("hi"), -1, std::string("?")}, Null()},
                         {{std::string("h"), 1, std::string("")}, std::string("h")},
-                        {{std::string("hi"), 5, std::string("")}, Null()},
+                        {{std::string("hi"), 5, std::string("")}, std::string("")},
                         {{std::string("hi"), 5, std::string("ab")}, std::string("hiaba")},
                         {{std::string("hi"), 5, std::string("呵呵")}, std::string("hi呵呵呵")},
                         {{std::string("呵呵"), 5, std::string("hi")}, std::string("呵呵hih")}};
