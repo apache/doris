@@ -1371,7 +1371,13 @@ const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id,
     return nullptr;
 }
 
-const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col) const {
+const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col,
+                                                    bool check_valid) const {
+    // With check_valid set to true by default
+    // Some columns from the variant do not support inverted index
+    if (check_valid && !segment_v2::InvertedIndexColumnWriter::check_column_valid(col)) {
+        return nullptr;
+    }
     // TODO use more efficient impl
     // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
