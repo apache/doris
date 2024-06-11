@@ -46,6 +46,7 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,9 +60,13 @@ import java.util.zip.CRC32;
 
 public class PartitionKey implements Comparable<PartitionKey>, Writable {
     private static final Logger LOG = LogManager.getLogger(PartitionKey.class);
+    @SerializedName("keys")
     private List<LiteralExpr> keys;
+    @SerializedName("originHiveKeys")
     private List<String> originHiveKeys;
+    @SerializedName("types")
     private List<PrimitiveType> types;
+    @SerializedName("isDefaultListPartitionKey")
     private boolean isDefaultListPartitionKey = false;
 
     // constructor for partition prune
@@ -413,7 +418,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             if (isMax) {
                 literal = MaxLiteral.MAX_VALUE;
             } else {
-                if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_133) {
+                if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_134) {
                     literal = (LiteralExpr) GsonUtils.GSON.fromJson(Text.readString(in), Expr.class);
                 } else {
                     switch (type) {

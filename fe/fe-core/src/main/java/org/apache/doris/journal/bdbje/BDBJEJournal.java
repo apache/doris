@@ -352,7 +352,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 DataInputStream in = new DataInputStream(new ByteArrayInputStream(retData));
                 ret = new JournalEntity();
                 try {
-                    ret.readFields(in);
+                    ret = JournalEntity.read(in);
                 } catch (IOException e) {
                     LOG.warn("", e);
                 }

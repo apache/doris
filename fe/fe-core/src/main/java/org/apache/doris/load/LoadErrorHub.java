@@ -17,12 +17,16 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -32,11 +36,17 @@ import java.util.Map;
 public abstract class LoadErrorHub {
 
     public static class MysqlParam implements Writable {
+        @SerializedName("host")
         private String host;
+        @SerializedName("port")
         private int port;
+        @SerializedName("user")
         private String user;
+        @SerializedName("passwd")
         private String passwd;
+        @SerializedName("db")
         private String db;
+        @SerializedName("table")
         private String table;
 
         public MysqlParam() {
@@ -90,8 +100,11 @@ public abstract class LoadErrorHub {
     }
 
     public static class BrokerParam implements Writable {
+        @SerializedName("brokerName")
         private String brokerName;
+        @SerializedName("path")
         private String path;
+        @SerializedName("prop")
         private Map<String, String> prop = Maps.newHashMap();
 
         // for persist
@@ -137,8 +150,11 @@ public abstract class LoadErrorHub {
     }
 
     public static class Param implements Writable {
+        @SerializedName(value = "type")
         private HubType type;
+        @SerializedName(value = "mysqlParam")
         private MysqlParam mysqlParam;
+        @SerializedName(value = "brokerParam")
         private BrokerParam brokerParam;
 
         // for replay
@@ -148,21 +164,20 @@ public abstract class LoadErrorHub {
 
         @Override
         public void write(DataOutput out) throws IOException {
-            Text.writeString(out, type.name());
-            switch (type) {
-                case MYSQL_TYPE:
-                    mysqlParam.write(out);
-                    break;
-                case BROKER_TYPE:
-                    brokerParam.write(out);
-                    break;
-                case NULL_TYPE:
-                    break;
-                default:
-                    Preconditions.checkState(false, "unknown hub type");
+            Text.writeString(out, GsonUtils.GSON.toJson(this));
+        }
+
+        public static Param read(DataInput in) throws IOException {
+            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_134) {
+                Param param = new Param();
+                param.readFields(in);
+                return param;
+            } else {
+                return GsonUtils.GSON.fromJson(Text.readString(in), Param.class);
             }
         }
 
+        @Deprecated
         public void readFields(DataInput in) throws IOException {
             type = HubType.valueOf(Text.readString(in));
             switch (type) {

@@ -162,9 +162,7 @@ public final class LocalJournalCursor implements JournalCursor {
 
     @Deprecated
     private JournalEntity getJournalEntity(DataInputStream in) throws IOException {
-        JournalEntity ret = new JournalEntity();
-        ret.readFields(in);
-        return ret;
+        return JournalEntity.read(in);
     }
 
     @Override

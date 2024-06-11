@@ -153,7 +153,7 @@ public class BDBTool {
             DataInputStream in = new DataInputStream(new ByteArrayInputStream(retData));
             JournalEntity entity = new JournalEntity();
             try {
-                entity.readFields(in);
+                entity = JournalEntity.read(in);
             } catch (Exception e) {
                 LOG.warn("", e);
                 LogUtils.stderr("Fail to read journal entity for key: " + key + ". reason: " + e.getMessage());

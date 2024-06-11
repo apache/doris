@@ -217,7 +217,7 @@ public class BDBDebugger {
                 JournalEntity entity = new JournalEntity();
                 try {
                     // read the journal data
-                    entity.readFields(in);
+                    entity = JournalEntity.read(in);
                     entityWrapper.entity = entity;
                 } catch (Exception e) {
                     LOG.warn("failed to read entity", e);
