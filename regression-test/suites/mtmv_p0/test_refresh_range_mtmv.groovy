@@ -88,7 +88,7 @@ suite("test_refresh_range_mtmv","mtmv") {
      sql """
         REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-02-01' end '2017-02-02';
         """
-     waitingMTMVTaskFinishedByMvName(mvName)
+     waitingMTMVTaskFinishedByMvNameNotNeedSuccess(mvName)
      order_qt_int_error "select Status,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime DESC limit 1"
 
     // test illegal date type
