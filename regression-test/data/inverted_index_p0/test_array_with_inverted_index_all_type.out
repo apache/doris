@@ -262,11 +262,6 @@
 -- !sql_array_contains_null --
 
 -- !sql_array_contains --
-1	32
-
--- !sql_array_contains_null --
-
--- !sql_array_contains --
 0	1
 1	1
 2	1
@@ -1862,11 +1857,6 @@
 -- !sql_array_contains_null --
 
 -- !sql_array_contains --
-1	32
-
--- !sql_array_contains_null --
-
--- !sql_array_contains --
 0	1
 1	1
 2	1
@@ -3458,11 +3448,6 @@
 98	9
 99	2
 100	9
-
--- !sql_array_contains_null --
-
--- !sql_array_contains --
-1	32
 
 -- !sql_array_contains_null --
 

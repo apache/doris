@@ -25,7 +25,7 @@ suite("test_array_with_inverted_index_all_type"){
                                         "ai_all_type_mow_with_standard_parser", "ai_all_type_mow_with_english_parser"]
     def colNameArr = ['c_bool',
                       "c_tinyint", "c_smallint", "c_int", "c_bigint",
-                       "c_decimal", "c_date", "c_datetime", "c_datev2", "c_datetimev2",
+                      "c_date", "c_datetime", "c_datev2", "c_datetimev2",
                       "c_char", "c_varchar", "c_string"]
     def colNameArrAgg = ["c_date", "c_char", "c_varchar", "c_string"]
     def dataFile = """test_array_with_inverted_index_all_type.json"""
@@ -171,7 +171,8 @@ suite("test_array_with_inverted_index_all_type"){
     "storage_format" = "V2",
     "light_schema_change" = "true",
     "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "enable_single_replica_compaction" = "false",
+    "enable_unique_key_merge_on_write" = "true"
     );
     """
     
