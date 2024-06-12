@@ -16,20 +16,18 @@
 // under the License.
 
 suite("test_unique_model_schema_value_drop", "p0") {
-    def tbName = "test_unique_model_schema_value_del"
-    def tbName2 = "test_unique_model_schema_value_del_1"
-    //Test the unique model by adding a value column
+    def tbName = "test_unique_model_schema_value_drop"
+    def tbName2 = "test_unique_model_schema_value_drop_1"
     sql """ DROP TABLE IF EXISTS ${tbName} """
     def initTable1 = ""
     def initTableData1 = ""
-    //Test the unique model by adding a value column with VARCHAR
     def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1  "
     def errorMessage = ""
     def insertSql = "insert into ${tbName} values(123456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
 
 
     /**
-     *  Test the unique model by delete a value type
+     *  Test the unique model by drop a value type
      */
 
 
@@ -67,7 +65,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "               (4, 'Emily Brown', 92.0, 'San Francisco', 28, 2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00', 'Test String 4', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (5, 'David Wilson', 88.9, 'Seattle', 32, 1, 9998887776, false, 50, 5000000000, '2024-06-15', '2024-06-15', '2024-06-15 15:45:00', '2024-06-15 15:45:00', 'Test String 5', {'a': 500, 'b': 200}, '[\"abc\", \"def\"]');"
 
-    // Test the unique model by delete a value type from BOOLEAN
+    // Test the unique model by drop a value type from BOOLEAN
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column is_ok  """
@@ -118,7 +116,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from TINYINT
+    // Test the unique model by drop a value type from TINYINT
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column sex  """
@@ -169,7 +167,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from SMALLINT
+    // Test the unique model by drop a value type from SMALLINT
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column age  """
@@ -220,7 +218,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from INT
+    // Test the unique model by drop a value type from INT
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column t_int  """
@@ -271,7 +269,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from BIGINT
+    // Test the unique model by drop a value type from BIGINT
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column t_bigint  """
@@ -322,7 +320,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from LARGEINT
+    // Test the unique model by drop a value type from LARGEINT
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column phone  """
@@ -373,7 +371,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from DATE
+    // Test the unique model by drop a value type from DATE
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column t_date  """
@@ -424,7 +422,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from DATEV2
+    // Test the unique model by drop a value type from DATEV2
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column t_datev2  """
@@ -475,7 +473,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from t_datetimev2
+    // Test the unique model by drop a value type from t_datetimev2
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column t_datetimev2  """
@@ -526,7 +524,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from t_datetimev2
+    // Test the unique model by drop a value type from t_datetimev2
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column t_datetimev2  """
@@ -577,7 +575,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from t_datetime
+    // Test the unique model by drop a value type from t_datetime
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column t_datetime  """
@@ -628,7 +626,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from CHAR
+    // Test the unique model by drop a value type from CHAR
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column city  """
@@ -679,7 +677,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from VARCHAR
+    // Test the unique model by drop a value type from VARCHAR
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column username  """
@@ -730,7 +728,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from STRING
+    // Test the unique model by drop a value type from STRING
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column t_string  """
@@ -781,7 +779,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from Map
+    // Test the unique model by drop a value type from Map
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column m  """
@@ -832,7 +830,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from JSON
+    // Test the unique model by drop a value type from JSON
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column j  """
@@ -904,7 +902,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "               (5, 567.8901234567, 567.89, 5678.9012345678);"
 
 
-    // Test the unique model by delete a value type from DECIMAL
+    // Test the unique model by drop a value type from DECIMAL
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column t_decimal  """
@@ -942,7 +940,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from FLOAT
+    // Test the unique model by drop a value type from FLOAT
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column t_float  """
@@ -980,7 +978,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
 
 
-    // Test the unique model by delete a value type from DOUBLE
+    // Test the unique model by drop a value type from DOUBLE
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} DROP  column t_double  """
