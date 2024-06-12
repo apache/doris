@@ -344,6 +344,8 @@ public enum RuleType {
     BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_PROJECT_SCAN(RuleTypeClass.REWRITE),
     BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_FILTER_SCAN(RuleTypeClass.REWRITE),
     BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_AGG_SCAN(RuleTypeClass.REWRITE),
+    // short circuit rule
+    SHOR_CIRCUIT_POINT_QUERY(RuleTypeClass.REWRITE),
     // exploration rules
     REORDER_INTERSECT(RuleTypeClass.EXPLORATION),
     TEST_EXPLORATION(RuleTypeClass.EXPLORATION),
@@ -460,7 +462,6 @@ public enum RuleType {
 
     // sentinel, use to count rules
     SENTINEL(RuleTypeClass.SENTINEL),
-    SHOR_CIRCUIT_POINT_QUERY(RuleTypeClass.REWRITE),
     ;
 
     private final RuleTypeClass ruleTypeClass;

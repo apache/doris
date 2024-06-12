@@ -19,49 +19,80 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
+import java.util.List;
 import java.util.Set;
 
 /**
  * short circuit query optimization
  * pattern : select xxx from tbl where key = ?
  */
-public class LogicalResultSinkToShortCircuitPointQuery extends OneRewriteRuleFactory {
-    @Override
-    public Rule build() {
-        return logicalResultSink(logicalProject(logicalFilter(logicalOlapScan())))
-                .when(r -> r.child().child().child().getTable().getEnableLightSchemaChange())
-                .when(r -> r.child().child().child().getTable().getEnableUniqueKeyMergeOnWrite())
-                .when(r -> r.child().child().child().getTable().storeRowColumn())
+public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFactory {
+    private boolean filterMatchShortCircuitCondition(LogicalFilter<LogicalOlapScan> filter) {
+        return filter.getConjuncts().stream().allMatch(
                 // all conjuncts match with pattern `key = ?`
-                .when(r -> r.child().child().getConjuncts().stream().allMatch(
-                        expression -> (expression instanceof EqualTo)
-                                && (expression.child(0).isKeyColumnFromTable()
-                                || ((SlotReference) expression.child(0)).getName().equals(Column.DELETE_SIGN))
-                                && expression.child(1).isLiteral()))
+                expression -> (expression instanceof EqualTo)
+                        && (expression.child(0).isKeyColumnFromTable()
+                        || ((SlotReference) expression.child(0)).getName().equals(Column.DELETE_SIGN))
+                        && expression.child(1).isLiteral());
+    }
 
-                .thenApply(ctx -> {
-                    if (ConnectContext.get().getSessionVariable().enableShortCircuitQuery) {
-                        OlapTable olapTable = ctx.root.child().child().child().getTable();
-                        // All key columns in conjuncts
-                        Set<String> colNames = Sets.newHashSet();
-                        for (Expression expr : ctx.root.child().child().getConjuncts()) {
-                            colNames.add(((SlotReference) (expr.child(0))).getName());
-                        }
-                        // set short circuit flag and modify nothing to the plan
-                        if (olapTable.getBaseSchemaKeyColumns().size() <= colNames.size()) {
-                            ctx.statementContext.setShortCircuitQuery(true);
-                        }
-                    }
-                    return ctx.root;
-                }).toRule(RuleType.SHOR_CIRCUIT_POINT_QUERY);
+    private boolean scanMatchShortCircuitCondition(LogicalOlapScan olapScan) {
+        if (!ConnectContext.get().getSessionVariable().enableShortCircuitQuery) {
+            return false;
+        }
+        OlapTable olapTable = olapScan.getTable();
+        return olapTable.getEnableLightSchemaChange() && olapTable.getEnableUniqueKeyMergeOnWrite()
+                        && olapTable.storeRowColumn();
+    }
+
+    // set short circuit flag and return the original plan
+    private Plan shortCircuit(Plan root, OlapTable olapTable,
+                Set<Expression> conjuncts, StatementContext statementContext) {
+        // All key columns in conjuncts
+        Set<String> colNames = Sets.newHashSet();
+        for (Expression expr : conjuncts) {
+            colNames.add(((SlotReference) (expr.child(0))).getName());
+        }
+        // set short circuit flag and modify nothing to the plan
+        if (olapTable.getBaseSchemaKeyColumns().size() <= colNames.size()) {
+            statementContext.setShortCircuitQuery(true);
+        }
+        return root;
+    }
+
+    @Override
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                RuleType.SHOR_CIRCUIT_POINT_QUERY.build(
+                        logicalResultSink(logicalProject(logicalFilter(logicalOlapScan()
+                            .when(this::scanMatchShortCircuitCondition)
+                    ).when(this::filterMatchShortCircuitCondition)))
+                        .thenApply(ctx -> {
+                            return shortCircuit(ctx.root, ctx.root.child().child().child().getTable(),
+                                        ctx.root.child().child().getConjuncts(), ctx.statementContext);
+                        })),
+                RuleType.SHOR_CIRCUIT_POINT_QUERY.build(
+                        logicalResultSink(logicalFilter(logicalOlapScan()
+                                .when(this::scanMatchShortCircuitCondition)
+                        ).when(this::filterMatchShortCircuitCondition))
+                                .thenApply(ctx -> {
+                                    return shortCircuit(ctx.root, ctx.root.child().child().getTable(),
+                                            ctx.root.child().getConjuncts(), ctx.statementContext);
+                                }))
+        );
     }
 }

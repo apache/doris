@@ -216,7 +216,7 @@ public class PointQueryExec implements CoordInterface {
         Iterator<Backend> backendIter = candidateBackends.iterator();
         RowBatch rowBatch = null;
         int tryCount = 0;
-        int maxTry = Math.min(Config.max_point_query_retry_count, candidateBackends.size());
+        int maxTry = Math.min(Config.max_point_query_retry_time, candidateBackends.size());
         Status status = new Status();
         do {
             Backend backend = backendIter.next();
