@@ -177,6 +177,7 @@ public class RuleSet {
             .add(new LogicalDeferMaterializeOlapScanToPhysicalDeferMaterializeOlapScan())
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
             .add(new LogicalFileScanToPhysicalFileScan())
+            .add(new LogicalHudiScanToPhysicalHudiScan())
             .add(new LogicalJdbcScanToPhysicalJdbcScan())
             .add(new LogicalOdbcScanToPhysicalOdbcScan())
             .add(new LogicalEsScanToPhysicalEsScan())

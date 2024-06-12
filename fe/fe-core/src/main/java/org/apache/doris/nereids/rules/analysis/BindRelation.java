@@ -270,7 +270,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                     }
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
-                        hmsTable.setScanParams(unboundRelation.getScanParams());
                         LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
                                 qualifierWithoutTableName, unboundRelation.getTableSample(),
                                 unboundRelation.getTableSnapshot());

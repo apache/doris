@@ -568,7 +568,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (table instanceof HMSExternalTable) {
             switch (((HMSExternalTable) table).getDlaType()) {
                 case HUDI:
-                    Preconditions.checkState(fileScan instanceof PhysicalHudiScan);
+                    Preconditions.checkState(fileScan instanceof PhysicalHudiScan,
+                            "Invalid physical scan: " + fileScan.getClass().getSimpleName());
                     PhysicalHudiScan hudiScan = (PhysicalHudiScan) fileScan;
                     scanNode = new HudiScanNode(context.nextPlanNodeId(), tupleDescriptor, false,
                             hudiScan.getScanParams(), hudiScan.getIncrementalRelation());

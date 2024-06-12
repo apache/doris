@@ -126,6 +126,13 @@ public class LogicalHudiScan extends LogicalFileScan {
         this.scanParams = Optional.of(scanParams);
     }
 
+    public Optional<TableScanParams> getScanParams() {
+        return scanParams;
+    }
+
+    public Optional<IncrementalRelation> getIncrementalRelation() {
+        return incrementalRelation;
+    }
 
     /**
      * replace incremental params as AND expression
