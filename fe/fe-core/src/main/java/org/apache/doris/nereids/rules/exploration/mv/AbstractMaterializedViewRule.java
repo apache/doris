@@ -279,14 +279,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 boolean partitionNeedUnion = needUnionRewrite(invalidPartitions, cascadesContext);
                 final Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> finalInvalidPartitions =
                         invalidPartitions;
-                if (partitionNeedUnion && !sessionVariable.isEnableMaterializedViewUnionRewrite()) {
-                    // if use invalid partition but not enable union rewrite
-                    materializationContext.recordFailReason(queryStructInfo,
-                            "Partition query used is invalid",
-                            () -> String.format("the partition used by query is invalid by materialized view,"
-                                    + "invalid partition info query used is %s", finalInvalidPartitions));
-                    continue;
-                }
                 if (partitionNeedUnion) {
                     MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
                     Plan originPlanWithFilter = StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(),
