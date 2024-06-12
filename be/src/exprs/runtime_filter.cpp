@@ -31,6 +31,7 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <utility>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/logging.h"
@@ -1029,6 +1030,30 @@ Status IRuntimeFilter::publish(bool publish_local) {
     return Status::OK();
 }
 
+class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
+                                                  DummyBrpcCallback<PSendFilterSizeResponse>> {
+    std::shared_ptr<pipeline::Dependency> _dependency;
+    using Base =
+            AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
+    ENABLE_FACTORY_CREATOR(SyncSizeClosure);
+
+    void _process_if_rpc_failed() override {
+        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
+        Base::_process_if_rpc_failed();
+    }
+
+    void _process_if_meet_error_status(const Status& status) override {
+        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
+        Base::_process_if_meet_error_status(status);
+    }
+
+public:
+    SyncSizeClosure(std::shared_ptr<PSendFilterSizeRequest> req,
+                    std::shared_ptr<DummyBrpcCallback<PSendFilterSizeResponse>> callback,
+                    std::shared_ptr<pipeline::Dependency> dependency)
+            : Base(req, callback), _dependency(std::move(dependency)) {}
+};
+
 Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
     DCHECK(is_producer());
 
@@ -1069,10 +1094,7 @@ Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
 
     auto request = std::make_shared<PSendFilterSizeRequest>();
     auto callback = DummyBrpcCallback<PSendFilterSizeResponse>::create_shared();
-    auto closure =
-            AutoReleaseClosure<PSendFilterSizeRequest,
-                               DummyBrpcCallback<PSendFilterSizeResponse>>::create_unique(request,
-                                                                                          callback);
+    auto closure = SyncSizeClosure::create_unique(request, callback, _dependency);
     auto* pquery_id = request->mutable_query_id();
     pquery_id->set_hi(_state->query_id.hi());
     pquery_id->set_lo(_state->query_id.lo());
