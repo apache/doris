@@ -405,12 +405,15 @@ public:
                             _parser_type != InvertedIndexParserType::PARSER_NONE) {
                             // in this case stream need to delete after add_document, because the
                             // stream can not reuse for different field
+                            bool own_token_stream = true;
+                            bool own_reader = true;
                             std::unique_ptr<lucene::util::Reader> char_string_reader = nullptr;
                             RETURN_IF_ERROR(create_char_string_reader(char_string_reader));
                             char_string_reader->init(v->get_data(), v->get_size(), false);
                             ts = _analyzer->tokenStream(new_field->name(),
                                                         char_string_reader.release());
-                            new_field->setValue(ts);
+                            _analyzer->set_ownReader(own_reader);
+                            new_field->setValue(ts, own_token_stream);
                         } else {
                             new_field_char_value(v->get_data(), v->get_size(), new_field);
                         }
@@ -422,7 +425,6 @@ public:
                     // if this array is null, we just ignore to write inverted index
                     RETURN_IF_ERROR(add_document());
                     _doc->clear();
-                    _CLDELETE(ts);
                 } else {
                     // avoid to add doc which without any field which may make threadState init skip
                     // init fieldDataArray, then will make error with next doc with fields in
@@ -436,7 +438,6 @@ public:
                     _doc->add(*new_field);
                     RETURN_IF_ERROR(add_null_document());
                     _doc->clear();
-                    _CLDELETE(ts);
                 }
                 _rid++;
             }

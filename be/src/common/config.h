@@ -1313,6 +1313,8 @@ DECLARE_mBool(skip_loading_stale_rowset_meta);
 // Disable this option will no longer use file to record log.
 // Only works when starting BE with --console.
 DECLARE_Bool(enable_file_logger);
+// The time out milliseconds for remote fetch schema RPC
+DECLARE_mInt64(fetch_remote_schema_rpc_timeout_ms);
 
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
