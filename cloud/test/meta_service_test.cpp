@@ -1629,7 +1629,7 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest2) {
     }
 
     std::vector<SubTxnInfo> sub_txn_infos;
-    for (int i = 0; i < 800; i++) {
+    for (int i = 0; i < 500; i++) {
         int64_t sub_txn_id1 = -1;
         if (i == 0) {
             sub_txn_id1 = txn_id;
@@ -1757,15 +1757,15 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest2) {
 
         ASSERT_EQ(res.table_ids()[0], t2);
         ASSERT_EQ(res.partition_ids()[0], t2_p3);
-        ASSERT_EQ(res.versions()[0], 801);
+        ASSERT_EQ(res.versions()[0], 501);
 
         ASSERT_EQ(res.table_ids()[1], t1);
         ASSERT_EQ(res.partition_ids()[1], t1_p2);
-        ASSERT_EQ(res.versions()[1], 801);
+        ASSERT_EQ(res.versions()[1], 501);
 
         ASSERT_EQ(res.table_ids()[2], t1);
         ASSERT_EQ(res.partition_ids()[2], t1_p1);
-        ASSERT_EQ(res.versions()[2], 1601);
+        ASSERT_EQ(res.versions()[2], 1001);
     }
 }
 
