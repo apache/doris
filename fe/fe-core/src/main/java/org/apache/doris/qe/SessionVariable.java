@@ -3770,6 +3770,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableParallelResultSink;
     }
 
+    public void setParallelResultSink(Boolean enableParallelResultSink) {
+        this.enableParallelResultSink   = enableParallelResultSink;
+    }
+
     public boolean enableSyncRuntimeFilterSize() {
         return enableSyncRuntimeFilterSize;
     }
