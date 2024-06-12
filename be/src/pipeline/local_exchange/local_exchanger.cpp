@@ -288,8 +288,12 @@ Status LocalMergeSortExchanger::sink(RuntimeState* state, vectorized::Block* in_
     new_block.swap(*in_block);
     DCHECK_LE(local_state._channel_id, _data_queue.size());
     add_mem_usage(local_state, new_block.allocated_bytes());
+
     if (_data_queue[local_state._channel_id].enqueue(std::move(new_block))) {
         local_state._shared_state->set_ready_to_read(0);
+    }
+    if (eos) {
+        _queue_deps[local_state._channel_id]->set_always_ready();
     }
     return Status::OK();
 }
@@ -361,6 +365,7 @@ void LocalMergeSortExchanger::add_mem_usage(LocalExchangeSinkLocalState& local_s
     if (_queues_mem_usege[channel_id].fetch_add(delta) > _each_queue_limit) {
         _sink_deps[channel_id]->block();
     }
+    _queue_deps[channel_id]->set_ready();
 }
 
 void LocalMergeSortExchanger::sub_mem_usage(LocalExchangeSourceLocalState& local_state,
@@ -369,6 +374,26 @@ void LocalMergeSortExchanger::sub_mem_usage(LocalExchangeSourceLocalState& local
     if (_queues_mem_usege[channel_id].fetch_sub(delta) <= _each_queue_limit) {
         _sink_deps[channel_id]->set_ready();
     }
+    // if queue empty , block this queue
+    if (_queues_mem_usege[channel_id] == 0) {
+        _queue_deps[channel_id]->block();
+    }
+}
+
+std::vector<Dependency*> LocalMergeSortExchanger::local_sink_state_dependency(int channel_id) {
+    DCHECK(_sink_deps[channel_id]);
+    return {_sink_deps[channel_id].get()};
+}
+
+std::vector<Dependency*> LocalMergeSortExchanger::local_state_dependency(int channel_id) {
+    if (channel_id != 0) {
+        return {};
+    }
+    std::vector<Dependency*> deps;
+    for (auto depSptr : _queue_deps) {
+        deps.push_back(depSptr.get());
+    }
+    return deps;
 }
 
 Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
