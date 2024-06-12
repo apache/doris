@@ -127,39 +127,28 @@ void TaskScheduler::_do_work(size_t index) {
         bool eos = false;
         auto status = Status::OK();
 
-        try {
-            doris::enable_thread_catch_bad_alloc++;
-            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
-            //TODO: use a better enclose to abstracting these
-            if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
-                TUniqueId query_id = task->query_context()->query_id();
-                std::string task_name = task->task_name();
 #ifdef __APPLE__
-                uint32_t core_id = 0;
+        uint32_t core_id = 0;
 #else
-                uint32_t core_id = sched_getcpu();
+        uint32_t core_id = sched_getcpu();
 #endif
-                std::thread::id tid = std::this_thread::get_id();
-                uint64_t thread_id = *reinterpret_cast<uint64_t*>(&tid);
-                uint64_t start_time = MonotonicMicros();
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(
+                //TODO: use a better enclose to abstracting these
+                if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
+                    TUniqueId query_id = task->query_context()->query_id();
+                    std::string task_name = task->task_name();
 
-                status = task->execute(&eos);
+                    std::thread::id tid = std::this_thread::get_id();
+                    uint64_t thread_id = *reinterpret_cast<uint64_t*>(&tid);
+                    uint64_t start_time = MonotonicMicros();
 
-                uint64_t end_time = MonotonicMicros();
-                ExecEnv::GetInstance()->pipeline_tracer_context()->record(
-                        {query_id, task_name, core_id, thread_id, start_time, end_time});
-            } else {
-                status = task->execute(&eos);
-            }
-        } catch (const Exception& e) {
-            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
-                status = Status::MemoryLimitExceeded(fmt::format(
-                        "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}",
-                        e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
-            } else {
-                status = e.to_status();
-            }
-        }
+                    status = task->execute(&eos);
+
+                    uint64_t end_time = MonotonicMicros();
+                    ExecEnv::GetInstance()->pipeline_tracer_context()->record(
+                            {query_id, task_name, core_id, thread_id, start_time, end_time});
+                } else { status = task->execute(&eos); },
+                status);
 
         task->set_previous_core_id(index);
 
