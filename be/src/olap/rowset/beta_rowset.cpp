@@ -507,8 +507,7 @@ Status BetaRowset::add_to_binlog() {
                 continue;
             }
             auto index_id = index.index_id();
-            auto index_file = InvertedIndexDescriptor::get_index_file_name(
-                    seg_file, index_id, index.get_index_suffix());
+            auto index_file = InvertedIndexDescriptor::get_index_file_name(seg_file, index_id);
             auto binlog_index_file = (std::filesystem::path(binlog_dir) /
                                       std::filesystem::path(index_file).filename())
                                              .string();

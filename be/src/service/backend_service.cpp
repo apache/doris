@@ -320,8 +320,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
                 return client->get_content_length(&segment_index_file_size);
             };
             auto index_file = InvertedIndexDescriptor::inverted_index_file_path(
-                    local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index, index_id,
-                    index.get_index_suffix());
+                    local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index, index_id);
             segment_index_file_names.push_back(index_file);
 
             status = HttpClient::execute_with_retry(max_retry, 1, get_segment_index_file_size_cb);
