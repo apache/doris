@@ -2672,6 +2672,10 @@ public class DatabaseTransactionMgr {
     }
 
     private PublishResult finishCheckQuorumReplicas(TransactionState transactionState, Set<Long> errorReplicaIds) {
+        Database database = Env.getCurrentInternalCatalog().getDbNullable(transactionState.getDbId());
+        if (database == null) {
+            return PublishResult.QUORUM_SUCC;
+        }
         long now = System.currentTimeMillis();
         long firstPublishVersionTime = transactionState.getFirstPublishVersionTime();
         boolean allowPublishOneSucc = false;
@@ -2687,10 +2691,6 @@ public class DatabaseTransactionMgr {
         for (Long subTxnId : transactionState.getSubTxnIds()) {
             TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfoBySubTxnId(subTxnId);
             if (tableCommitInfo == null) {
-                continue;
-            }
-            Database database = Env.getCurrentInternalCatalog().getDbNullable(transactionState.getDbId());
-            if (database == null) {
                 continue;
             }
             Table tableIf = database.getTableNullable(tableCommitInfo.getTableId());
@@ -2722,10 +2722,6 @@ public class DatabaseTransactionMgr {
             }
             TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfoBySubTxnId(subTxnIds.get(0));
             long tableId = tableCommitInfo.getTableId();
-            Database database = Env.getCurrentInternalCatalog().getDbNullable(transactionState.getDbId());
-            if (database == null) {
-                continue;
-            }
             Table tableIf = database.getTableNullable(tableCommitInfo.getTableId());
             if (tableIf == null) {
                 continue;

@@ -45,10 +45,9 @@ suite("txn_insert_restart_fe_with_schema_change") {
     options.setFeNum(2)
     options.enableDebugPoints()
     options.feConfigs.add('publish_wait_time_second=-1')
-    /*options.feConfigs.add('sys_log_verbose_modules=org.apache.doris')
+    options.feConfigs.add('sys_log_verbose_modules=org.apache.doris')
     options.beConfigs.add('sys_log_verbose_modules=*')
-    options.beConfigs.add('enable_java_support=false')*/
-    options.beConfigs.add('report_tablet_interval_seconds=1')
+    options.beConfigs.add('enable_java_support=false')
     docker(options) {
         // ---------- test restart fe ----------
         def result = sql 'SELECT DATABASE()'
@@ -121,21 +120,5 @@ suite("txn_insert_restart_fe_with_schema_change") {
         assertTrue(getAlterTableState(dbName, "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName = 'tbl_3'"))
         assertTrue(getAlterTableState(dbName, "SHOW ALTER TABLE ROLLUP WHERE TableName = 'tbl_4'"))
         assertTrue(getAlterTableState(dbName, "SHOW ALTER TABLE COLUMN WHERE TableName = 'tbl_5'"))
-
-        /*jobs = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName = 'tbl_2'"
-        assertEquals(1, jobs.size())
-        assertEquals('FINISHED', jobs[0].State)
-
-        jobs = sql_return_maparray "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName = 'tbl_3'"
-        assertEquals(1, jobs.size())
-        assertEquals('FINISHED', jobs[0].State)
-
-        jobs = sql_return_maparray "SHOW ALTER TABLE ROLLUP WHERE TableName = 'tbl_4'"
-        assertEquals(1, jobs.size())
-        assertEquals('FINISHED', jobs[0].State)
-
-        jobs = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName = 'tbl_5'"
-        assertEquals(1, jobs.size())
-        assertEquals('FINISHED', jobs[0].State)*/
     }
 }

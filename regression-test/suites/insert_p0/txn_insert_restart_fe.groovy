@@ -40,10 +40,9 @@ suite("txn_insert_restart_fe") {
     options.setFeNum(2)
     options.enableDebugPoints()
     options.feConfigs.add('publish_wait_time_second=-1')
-    /*options.feConfigs.add('sys_log_verbose_modules=org.apache.doris')
+    options.feConfigs.add('sys_log_verbose_modules=org.apache.doris')
     options.beConfigs.add('sys_log_verbose_modules=*')
-    options.beConfigs.add('enable_java_support=false')*/
-    options.beConfigs.add('report_tablet_interval_seconds=1')
+    options.beConfigs.add('enable_java_support=false')
     docker(options) {
         // ---------- test restart fe ----------
         def result = sql 'SELECT DATABASE()'
@@ -76,6 +75,10 @@ suite("txn_insert_restart_fe") {
         sql 'commit'
         order_qt_select_4 'SELECT * FROM tbl_2'
 
+        sql 'INSERT INTO tbl_2 SELECT * FROM tbl_1'
+        sql 'INSERT INTO tbl_2 VALUES(3, 11)'
+        order_qt_select_5 'SELECT * FROM tbl_2'
+
         // select from observer
         def observer_fe_url = get_observer_fe_url()
         if (observer_fe_url != null) {
@@ -88,20 +91,20 @@ suite("txn_insert_restart_fe") {
         result = sql_return_maparray 'SHOW PROC "/transactions"'
         logger.info("show txn result: ${result}")
         def runningTxn = result.find { it.DbName.indexOf(dbName) >= 0 }.RunningTransactionNum as int
-        assertEquals(2, runningTxn)
+        assertEquals(4, runningTxn)
 
         cluster.restartFrontends()
         sleep(30000)
         context.reconnectFe()
 
         // should publish visible
-        order_qt_select_5 'SELECT * FROM tbl_2'
+        order_qt_select_6 'SELECT * FROM tbl_2'
 
         sql 'begin'
         sql 'INSERT INTO tbl_2 SELECT * FROM tbl_1'
         sql 'INSERT INTO tbl_2 SELECT * FROM tbl_1'
         sql 'commit'
-        order_qt_select_6 'SELECT * FROM tbl_2'
+        order_qt_select_7 'SELECT * FROM tbl_2'
 
         if (observer_fe_url != null) {
             logger.info("observer url: $observer_fe_url")
