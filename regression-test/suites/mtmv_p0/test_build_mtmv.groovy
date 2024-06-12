@@ -84,9 +84,13 @@ suite("test_build_mtmv") {
         SELECT id, username FROM ${tableName};
         """
 
-    def showCreateTableResult = sql """show create table ${mvName}"""
-    logger.info("showCreateTableResult: " + showCreateTableResult.toString())
-    assertTrue(showCreateTableResult.toString().contains("CREATE MATERIALIZED VIEW `multi_mv_test_create_mtmv` (\n  `aa` BIGINT NULL COMMENT 'aaa',\n  `bb` VARCHAR(20) NULL\n) ENGINE=MATERIALIZED_VIEW\nCOMMENT 'comment1'\nDISTRIBUTED BY RANDOM BUCKETS 2\nPROPERTIES"))
+    // not support show create table
+    test {
+          sql """
+              show create table ${mvName};
+          """
+          exception "not support"
+      }
 
     // desc
     def descTableAllResult = sql """desc ${mvName} all"""
