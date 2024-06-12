@@ -28,6 +28,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -55,8 +56,8 @@ public class PhysicalHudiScan extends PhysicalFileScan {
             SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
             Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation) {
-        super(id, table, qualifier, distributionSpec, groupExpression, logicalProperties, conjuncts,
-                selectedPartitions, tableSample, tableSnapshot);
+        super(id, PlanType.PHYSICAL_HUDI_SCAN, table, qualifier, distributionSpec, groupExpression, logicalProperties,
+                conjuncts, selectedPartitions, tableSample, tableSnapshot);
         this.scanParams = scanParams;
         this.incrementalRelation = incrementalRelation;
     }
@@ -70,7 +71,7 @@ public class PhysicalHudiScan extends PhysicalFileScan {
             Statistics statistics, Set<Expression> conjuncts, SelectedPartitions selectedPartitions,
             Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation) {
-        super(id, table, qualifier, distributionSpec, groupExpression, logicalProperties,
+        super(id, PlanType.PHYSICAL_HUDI_SCAN, table, qualifier, distributionSpec, groupExpression, logicalProperties,
                 physicalProperties, statistics, conjuncts, selectedPartitions, tableSample, tableSnapshot);
         this.scanParams = scanParams;
         this.incrementalRelation = incrementalRelation;
