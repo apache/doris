@@ -116,7 +116,6 @@ DorisCompoundReader::DorisCompoundReader(lucene::store::Directory* d, const char
           dir(d),
           ram_dir(new lucene::store::RAMDirectory()),
           file_name(name),
-          stream(nullptr),
           entries(_CLNEW EntriesType(true, true)) {
     bool success = false;
     try {
@@ -198,7 +197,7 @@ void DorisCompoundReader::copyFile(const char* file, int64_t file_length, uint8_
 
 DorisCompoundReader::~DorisCompoundReader() {
     if (!_closed) {
-        try{
+        try {
             close();
         } catch (CLuceneError& err) {
             LOG(ERROR) << "DorisCompoundReader finalize error:" << err.what();
@@ -289,10 +288,12 @@ bool DorisCompoundReader::openInput(const char* name, lucene::store::IndexInput*
 
 void DorisCompoundReader::close() {
     std::lock_guard<std::mutex> wlock(_this_lock);
-    if (_own_index_input && stream != nullptr) {
-        entries->clear();
+    if (stream != nullptr) {
         stream->close();
         _CLDELETE(stream)
+    }
+    if (entries != nullptr) {
+        entries->clear();
         _CLDELETE(entries)
     }
     if (ram_dir) {
