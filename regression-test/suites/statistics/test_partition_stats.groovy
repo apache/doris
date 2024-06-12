@@ -186,7 +186,7 @@ suite("test_partition_stats") {
     sql """drop database if exists test_partition_stats"""
     sql """create database test_partition_stats"""
     sql """use test_partition_stats"""
-    sql """CREATE TABLE `part` (
+    sql """CREATE TABLE `part2` (
         `id` INT NULL,
         `colint` INT NULL,
         `coltinyint` tinyint NULL,
@@ -210,10 +210,10 @@ suite("test_partition_stats") {
         "replication_allocation" = "tag.location.default: 1"
     )
     """
-    sql """analyze table part with sync;"""
-    sql """Insert into part values (1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1), (2, 2, 2, 2, 2, 2, 2.2, 2.2, 2.2), (3, 3, 3, 3, 3, 3, 3.3, 3.3, 3.3),(4, 4, 4, 4, 4, 4, 4.4, 4.4, 4.4),(5, 5, 5, 5, 5, 5, 5.5, 5.5, 5.5),(6, 6, 6, 6, 6, 6, 6.6, 6.6, 6.6),(10001, 10001, 10001, 10001, 10001, 10001, 10001.10001, 10001.10001, 10001.10001),(10002, 10002, 10002, 10002, 10002, 10002, 10002.10002, 10002.10002, 10002.10002),(10003, 10003, 10003, 10003, 10003, 10003, 10003.10003, 10003.10003, 10003.10003),(10004, 10004, 10004, 10004, 10004, 10004, 10004.10004, 10004.10004, 10004.10004),(10005, 10005, 10005, 10005, 10005, 10005, 10005.10005, 10005.10005, 10005.10005),(10006, 10006, 10006, 10006, 10006, 10006, 10006.10006, 10006.10006, 10006.10006),(20001, 20001, 20001, 20001, 20001, 20001, 20001.20001, 20001.20001, 20001.20001),(20002, 20002, 20002, 20002, 20002, 20002, 20002.20002, 20002.20002, 20002.20002),(20003, 20003, 20003, 20003, 20003, 20003, 20003.20003, 20003.20003, 20003.20003),(20004, 20004, 20004, 20004, 20004, 20004, 20004.20004, 20004.20004, 20004.20004),(20005, 20005, 20005, 20005, 20005, 20005, 20005.20005, 20005.20005, 20005.20005),(20006, 20006, 20006, 20006, 20006, 20006, 20006.20006, 20006.20006, 20006.20006)"""
-    sql """analyze table part with sync;"""
-    result = sql """show column stats part"""
+    sql """analyze table part2 with sync;"""
+    sql """Insert into part2 values (1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1), (2, 2, 2, 2, 2, 2, 2.2, 2.2, 2.2), (3, 3, 3, 3, 3, 3, 3.3, 3.3, 3.3),(4, 4, 4, 4, 4, 4, 4.4, 4.4, 4.4),(5, 5, 5, 5, 5, 5, 5.5, 5.5, 5.5),(6, 6, 6, 6, 6, 6, 6.6, 6.6, 6.6),(10001, 10001, 10001, 10001, 10001, 10001, 10001.10001, 10001.10001, 10001.10001),(10002, 10002, 10002, 10002, 10002, 10002, 10002.10002, 10002.10002, 10002.10002),(10003, 10003, 10003, 10003, 10003, 10003, 10003.10003, 10003.10003, 10003.10003),(10004, 10004, 10004, 10004, 10004, 10004, 10004.10004, 10004.10004, 10004.10004),(10005, 10005, 10005, 10005, 10005, 10005, 10005.10005, 10005.10005, 10005.10005),(10006, 10006, 10006, 10006, 10006, 10006, 10006.10006, 10006.10006, 10006.10006),(20001, 20001, 20001, 20001, 20001, 20001, 20001.20001, 20001.20001, 20001.20001),(20002, 20002, 20002, 20002, 20002, 20002, 20002.20002, 20002.20002, 20002.20002),(20003, 20003, 20003, 20003, 20003, 20003, 20003.20003, 20003.20003, 20003.20003),(20004, 20004, 20004, 20004, 20004, 20004, 20004.20004, 20004.20004, 20004.20004),(20005, 20005, 20005, 20005, 20005, 20005, 20005.20005, 20005.20005, 20005.20005),(20006, 20006, 20006, 20006, 20006, 20006, 20006.20006, 20006.20006, 20006.20006)"""
+    sql """analyze table part2 with sync;"""
+    result = sql """show column stats part2"""
     assertEquals(9, result.size())
     assertEquals("18.0", result[0][2])
     assertEquals("18.0", result[1][2])
@@ -224,23 +224,23 @@ suite("test_partition_stats") {
     assertEquals("18.0", result[6][2])
     assertEquals("18.0", result[7][2])
     assertEquals("18.0", result[8][2])
-    result = sql """show column stats part partition(*)"""
+    result = sql """show column stats part2 partition(*)"""
     assertEquals(27, result.size())
-    sql """alter table part drop partition p3"""
-    result = sql """show table stats part"""
+    sql """alter table part2 drop partition p3"""
+    result = sql """show table stats part2"""
     assertEquals("true", result[0][6])
-    sql """analyze table part with sync;"""
-    result = sql """show table stats part"""
+    sql """analyze table part2 with sync;"""
+    result = sql """show table stats part2"""
     assertEquals("false", result[0][6])
-    result = sql """show column stats part partition(*)"""
+    result = sql """show column stats part2 partition(*)"""
     assertEquals(18, result.size())
-    result = sql """show column stats part partition(p3)"""
+    result = sql """show column stats part2 partition(p3)"""
     assertEquals(0, result.size())
-    result = sql """show column stats part partition(p1)"""
+    result = sql """show column stats part2 partition(p1)"""
     assertEquals(9, result.size())
-    result = sql """show column stats part partition(p2)"""
+    result = sql """show column stats part2 partition(p2)"""
     assertEquals(9, result.size())
-    result = sql """show column stats part"""
+    result = sql """show column stats part2"""
     assertEquals(9, result.size())
     assertEquals("12.0", result[0][2])
     assertEquals("12.0", result[1][2])
@@ -251,6 +251,64 @@ suite("test_partition_stats") {
     assertEquals("12.0", result[6][2])
     assertEquals("12.0", result[7][2])
     assertEquals("12.0", result[8][2])
+
+    // Test skip big partitions and fallback to sample analyze
+    sql """CREATE TABLE `part3` (
+        `id` INT NULL,
+        `colint` INT NULL,
+        `coltinyint` tinyint NULL,
+        `colsmallint` smallINT NULL,
+        `colbigint` bigINT NULL,
+        `collargeint` largeINT NULL,
+        `colfloat` float NULL,
+        `coldouble` double NULL,
+        `coldecimal` decimal(27, 9) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT 'OLAP'
+    PARTITION BY RANGE(`id`)
+    (
+        PARTITION p1 VALUES [("-2147483648"), ("10000")),
+        PARTITION p2 VALUES [("10000"), ("20000")),
+        PARTITION p3 VALUES [("20000"), ("30000"))
+    )
+    DISTRIBUTED BY HASH(`id`) BUCKETS 3
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    )
+    """
+    sql """Insert into part3 values (1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1), (2, 2, 2, 2, 2, 2, 2.2, 2.2, 2.2), (3, 3, 3, 3, 3, 3, 3.3, 3.3, 3.3),(4, 4, 4, 4, 4, 4, 4.4, 4.4, 4.4),(5, 5, 5, 5, 5, 5, 5.5, 5.5, 5.5),(6, 6, 6, 6, 6, 6, 6.6, 6.6, 6.6),(1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1), (2, 2, 2, 2, 2, 2, 2.2, 2.2, 2.2), (3, 3, 3, 3, 3, 3, 3.3, 3.3, 3.3),(4, 4, 4, 4, 4, 4, 4.4, 4.4, 4.4),(5, 5, 5, 5, 5, 5, 5.5, 5.5, 5.5),(6, 6, 6, 6, 6, 6, 6.6, 6.6, 6.6),(10001, 10001, 10001, 10001, 10001, 10001, 10001.10001, 10001.10001, 10001.10001),(10002, 10002, 10002, 10002, 10002, 10002, 10002.10002, 10002.10002, 10002.10002),(10003, 10003, 10003, 10003, 10003, 10003, 10003.10003, 10003.10003, 10003.10003),(10004, 10004, 10004, 10004, 10004, 10004, 10004.10004, 10004.10004, 10004.10004),(10005, 10005, 10005, 10005, 10005, 10005, 10005.10005, 10005.10005, 10005.10005),(10006, 10006, 10006, 10006, 10006, 10006, 10006.10006, 10006.10006, 10006.10006),(20001, 20001, 20001, 20001, 20001, 20001, 20001.20001, 20001.20001, 20001.20001),(20002, 20002, 20002, 20002, 20002, 20002, 20002.20002, 20002.20002, 20002.20002),(20003, 20003, 20003, 20003, 20003, 20003, 20003.20003, 20003.20003, 20003.20003),(20004, 20004, 20004, 20004, 20004, 20004, 20004.20004, 20004.20004, 20004.20004),(20005, 20005, 20005, 20005, 20005, 20005, 20005.20005, 20005.20005, 20005.20005),(20006, 20006, 20006, 20006, 20006, 20006, 20006.20006, 20006.20006, 20006.20006)"""
+    wait_row_count_reported("test_partition_stats", "part3", 0, 4, "24")
+    result = sql """show tablets from part3"""
+    logger.info("tablets: " + result)
+    sql """set global huge_partition_lower_bound_rows = 10"""
+    result = sql """ show variables like \"huge_partition_lower_bound_rows\""""
+    logger.info("huge partition bound: " + result)
+    sql """analyze table part3 with sync;"""
+    result = sql """show column stats part3"""
+    logger.info("column result" + result)
+    assertEquals(9, result.size())
+    assertEquals("24.0", result[0][2])
+    assertEquals("24.0", result[1][2])
+    assertEquals("24.0", result[2][2])
+    assertEquals("24.0", result[3][2])
+    assertEquals("24.0", result[4][2])
+    assertEquals("24.0", result[5][2])
+    assertEquals("24.0", result[6][2])
+    assertEquals("24.0", result[7][2])
+    assertEquals("24.0", result[8][2])
+    result = sql """show column stats part3 partition(*)"""
+    logger.info("partition result" + result)
+    assertEquals(18, result.size())
+    result = sql """show column stats part3 partition(p1)"""
+    assertEquals(0, result.size())
+
+    sql """set global huge_partition_lower_bound_rows = 100000000"""
+    sql """analyze table part3 with sync;"""
+    result = sql """show column stats part3 partition(*)"""
+    assertEquals(27, result.size())
+    result = sql """show column stats part3 partition(p1)"""
+    assertEquals(9, result.size())
 
     sql """drop database test_partition_stats"""
 }
