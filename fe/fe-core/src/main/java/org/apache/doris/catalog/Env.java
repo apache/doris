@@ -3274,6 +3274,12 @@ public class Env {
                 hidePassword, false, specificVersion, false, true);
     }
 
+    public static String getMTMVDdl(MTMV mtmv) {
+        StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
+        sb.append(mtmv.getName());
+        return sb.toString();
+    }
+
     /**
      * Get table ddl stmt.
      *
