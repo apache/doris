@@ -78,8 +78,8 @@ suite("test_show_create_mtmv","mtmv") {
     showCreateMTMVResult = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
     logger.info("showCreateMTMVResult: " + showCreateMTMVResult.toString())
     assertTrue(showCreateMTMVResult.toString().contains("BUILD DEFERRED REFRESH AUTO ON SCHEDULE EVERY 10 DAY"))
-    assertTrue(showCreateMTMVResult.toString().contains("partition by (`k2`)"))
-    assertTrue(showCreateMTMVResult.toString().contains("DISTRIBUTED BY hash(k1) BUCKETS 2"))
+    assertTrue(showCreateMTMVResult.toString().contains("PARTITION BY (`k2`)"))
+    assertTrue(showCreateMTMVResult.toString().contains("DISTRIBUTED BY HASH(`k1`) BUCKETS 2"))
 
     sql """drop materialized view if exists ${mvName};"""
     sql """
