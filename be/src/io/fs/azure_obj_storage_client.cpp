@@ -18,6 +18,7 @@
 #include "io/fs/azure_obj_storage_client.h"
 
 #include <algorithm>
+#include <azure/core/http/http.hpp>
 #include <azure/core/io/body_stream.hpp>
 #include <azure/storage/blobs.hpp>
 #include <azure/storage/blobs/blob_client.hpp>
@@ -49,9 +50,9 @@ template <typename Func>
 ObjectStorageResponse do_azure_client_call(Func f, const ObjectStoragePathOptions& opts) {
     try {
         f();
-    } catch (Azure::Storage::StorageException& e) {
-        auto msg = fmt::format("Azure request failed because {}, path msg {}", e.Message,
-                               wrap_object_storage_path_msg(opts));
+    } catch (Azure::Core::RequestFailedException& e) {
+        auto msg = fmt::format("Azure request failed because {}, error msg {}, path msg {}",
+                               e.what(), e.Message, wrap_object_storage_path_msg(opts));
         LOG_WARNING(msg);
         return {.status = convert_to_obj_response(Status::InternalError<false>(std::move(msg))),
                 .http_code = static_cast<int>(e.StatusCode),
@@ -84,9 +85,9 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
         Azure::Core::IO::MemoryBodyStream memory_body(
                 reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
         client.StageBlock(std::to_string(part_num), memory_body);
-    } catch (Azure::Storage::StorageException& e) {
-        auto msg = fmt::format("Azure request failed because {}, path msg {}", e.Message,
-                               wrap_object_storage_path_msg(opts));
+    } catch (Azure::Core::RequestFailedException& e) {
+        auto msg = fmt::format("Azure request failed because {}, error msg {}, path msg {}",
+                               e.what(), e.Message, wrap_object_storage_path_msg(opts));
         LOG_WARNING(msg);
         // clang-format off
         return {
@@ -117,7 +118,7 @@ ObjectStorageHeadResponse AzureObjStorageClient::head_object(const ObjectStorage
         Azure::Storage::Blobs::Models::BlobProperties properties =
                 _client->GetBlockBlobClient(opts.key).GetProperties().Value;
         return {.file_size = properties.BlobSize};
-    } catch (Azure::Storage::StorageException& e) {
+    } catch (Azure::Core::RequestFailedException& e) {
         if (e.StatusCode == Azure::Core::Http::HttpStatusCode::NotFound) {
             return ObjectStorageHeadResponse {
                     .resp = {.status = convert_to_obj_response(Status::NotFound<false>("")),
@@ -143,8 +144,8 @@ ObjectStorageResponse AzureObjStorageClient::get_object(const ObjectStoragePathO
     return do_azure_client_call(
             [&]() {
                 Azure::Storage::Blobs::DownloadBlobToOptions download_opts;
-                download_opts.Range->Offset = offset;
-                download_opts.Range->Length = bytes_read;
+                Azure::Core::Http::HttpRange range {static_cast<int64_t>(offset), bytes_read};
+                download_opts.Range = range;
                 client.DownloadTo(reinterpret_cast<uint8_t*>(buffer), bytes_read, download_opts);
             },
             opts);
