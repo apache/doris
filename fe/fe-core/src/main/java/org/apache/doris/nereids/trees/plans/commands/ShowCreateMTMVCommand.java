@@ -44,6 +44,6 @@ public class ShowCreateMTMVCommand extends Command implements ForwardWithSync, N
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitResumeMTMVCommand(this, context);
+        return visitor.visitShowCreateMTMVCommand(this, context);
     }
 }
