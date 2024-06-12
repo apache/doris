@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_unique_model_schema_value_del", "p0") {
+suite("test_unique_model_schema_value_drop", "p0") {
     def tbName = "test_unique_model_schema_value_del"
     def tbName2 = "test_unique_model_schema_value_del_1"
     //Test the unique model by adding a value column
