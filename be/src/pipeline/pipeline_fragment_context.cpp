@@ -1621,8 +1621,9 @@ Status PipelineFragmentContext::send_report(bool done) {
                              _runtime_state.get(),
                              [this](const Status& reason) { cancel(reason); }};
 
-    return _report_status_cb(
-            req, std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
+    return _report_status_cb(req,
+                             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()),
+                             _query_ctx);
 }
 
 std::string PipelineFragmentContext::debug_string() {

@@ -61,7 +61,8 @@ public:
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
     using report_status_callback = std::function<Status(
-            const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
+            const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&,
+            std::shared_ptr<QueryContext>)>;
     PipelineFragmentContext(const TUniqueId& query_id, const int fragment_id,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,

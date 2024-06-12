@@ -189,9 +189,10 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
 }
 
 Status FragmentMgr::trigger_pipeline_context_report(
-        const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
-    return _async_report_thread_pool->submit_func([this, req, ctx]() {
-        SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker);
+        const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx,
+        std::shared_ptr<QueryContext> query_ctx) {
+    return _async_report_thread_pool->submit_func([this, req, ctx, query_ctx]() {
+        SCOPED_ATTACH_TASK(query_ctx->query_mem_tracker);
         coordinator_callback(req);
         if (!req.done) {
             ctx->refresh_next_report_time();
@@ -715,7 +716,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             std::make_shared<pipeline::PipelineFragmentContext>(
                     query_ctx->query_id(), params.fragment_id, query_ctx, _exec_env, cb,
                     std::bind<Status>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
-                                      this, std::placeholders::_1, std::placeholders::_2));
+                                      this, std::placeholders::_1, std::placeholders::_2,
+                                      std::placeholders::_3));
     {
         SCOPED_RAW_TIMER(&duration_ns);
         auto prepare_st = context->prepare(params);

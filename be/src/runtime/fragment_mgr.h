@@ -96,7 +96,8 @@ public:
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
     Status trigger_pipeline_context_report(const ReportStatusRequest,
-                                           std::shared_ptr<pipeline::PipelineFragmentContext>&&);
+                                           std::shared_ptr<pipeline::PipelineFragmentContext>&&,
+                                           std::shared_ptr<QueryContext> query_ctx);
 
     // Cancel instance (pipeline or nonpipeline).
     void cancel_instance(const TUniqueId instance_id, const Status reason);
