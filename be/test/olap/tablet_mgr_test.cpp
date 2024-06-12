@@ -395,15 +395,15 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
                 TabletMetaManager::get_meta(_data_dir, tablet_id, 3333, new_tablet_meta);
         ASSERT_TRUE(check_meta_st.ok()) << check_meta_st;
         // insert into rowset
-        auto create_rowset = [=](int64_t start, int64 end) {
+        auto create_rowset = [=, this](int64_t start, int64 end) {
             auto rowset_meta = std::make_shared<RowsetMeta>();
             Version version(start, end);
             rowset_meta->set_version(version);
             rowset_meta->set_tablet_id(tablet->tablet_id());
             rowset_meta->set_tablet_uid(tablet->tablet_uid());
             rowset_meta->set_rowset_id(k_engine->next_rowset_id());
-            return std::make_shared<BetaRowset>(tablet->tablet_schema(), tablet->tablet_path(),
-                                                std::move(rowset_meta));
+            return std::make_shared<BetaRowset>(tablet->tablet_schema(), std::move(rowset_meta),
+                                                tablet->tablet_path());
         };
         auto st = tablet->init();
         ASSERT_TRUE(st.ok()) << st;

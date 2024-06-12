@@ -151,17 +151,6 @@ Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool*
     return _shrink_block_if_need(block);
 }
 
-Status IcebergTableReader::set_fill_columns(
-        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                partition_columns,
-        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    return _file_format_reader->set_fill_columns(partition_columns, missing_columns);
-}
-
-bool IcebergTableReader::fill_all_columns() const {
-    return _file_format_reader->fill_all_columns();
-};
-
 Status IcebergTableReader::get_columns(
         std::unordered_map<std::string, TypeDescriptor>* name_to_type,
         std::unordered_set<std::string>* missing_cols) {

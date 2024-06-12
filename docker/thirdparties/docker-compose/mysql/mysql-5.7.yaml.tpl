@@ -37,6 +37,7 @@ services:
     volumes:
       - ./data/:/var/lib/mysql 
       - ./init:/docker-entrypoint-initdb.d
+      - ./my.cnf:/etc/mysql/conf.d/my.cnf
     networks:
       - doris--mysql_57
   doris--mysql-hello-world:

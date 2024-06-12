@@ -272,6 +272,7 @@ enum TWorkloadMetricType {
     QUERY_TIME
     BE_SCAN_ROWS
     BE_SCAN_BYTES
+    QUERY_BE_MEMORY_BYTES
 }
 
 enum TCompareOperator {

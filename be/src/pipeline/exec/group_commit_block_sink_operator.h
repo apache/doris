@@ -17,8 +17,13 @@
 
 #pragma once
 
+#include "exec/tablet_info.h"
 #include "operator.h"
-#include "vec/sink/group_commit_block_sink.h"
+#include "runtime/group_commit_mgr.h"
+
+namespace doris::vectorized {
+class OlapTableBlockConvertor;
+}
 
 namespace doris::pipeline {
 
@@ -60,6 +65,7 @@ private:
     size_t _estimated_wal_bytes = 0;
     TGroupCommitMode::type _group_commit_mode;
     Bitmap _filter_bitmap;
+    int64_t _table_id;
 };
 
 class GroupCommitBlockSinkOperatorX final

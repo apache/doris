@@ -21,16 +21,18 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
-import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -47,7 +49,9 @@ import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 
 public abstract class BaseAnalysisTask {
 
@@ -159,6 +163,7 @@ public abstract class BaseAnalysisTask {
             + "${dbId} AS `db_id`, "
             + "${tblId} AS `tbl_id`, "
             + "${idxId} AS `idx_id`, "
+            + "${partName} AS `part_name`, "
             + "${partId} AS `part_id`, "
             + "'${colId}' AS `col_id`, "
             + "COUNT(1) AS `row_count`, "
@@ -181,8 +186,8 @@ public abstract class BaseAnalysisTask {
             + "SUM(count) AS `row_count`, "
             + "HLL_CARDINALITY(HLL_UNION(ndv)) AS `ndv`, "
             + "SUM(null_count) AS `null_count`, "
-            + "MIN(min) AS `min`, "
-            + "MAX(max) AS `max`, "
+            + "MIN(${min}) AS `min`, "
+            + "MAX(${max}) AS `max`, "
             + "SUM(data_size_in_bytes) AS `data_size`, "
             + "NOW() AS `update_time` FROM "
             + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
@@ -326,10 +331,6 @@ public abstract class BaseAnalysisTask {
             return new TableSample(true, (long) info.samplePercent);
         } else if (info.sampleRows > 0) {
             return new TableSample(false, info.sampleRows);
-        } else if (info.jobType.equals(JobType.SYSTEM) && info.analysisMethod == AnalysisMethod.FULL
-                && tbl.getDataSize(true) > StatisticsUtil.getHugeTableLowerBoundSizeInBytes()) {
-            // If user doesn't specify sample percent/rows, use auto sample and update sample rows in analysis info.
-            return new TableSample(false, StatisticsUtil.getHugeTableSampleRows());
         } else {
             return null;
         }
@@ -347,18 +348,48 @@ public abstract class BaseAnalysisTask {
     }
 
     /**
-     * 1. Get stats of each partition
-     * 2. insert partition in batch
-     * 3. calculate column stats based on partition stats
+     * 1. Remove not exist partition stats
+     * 2. Get stats of each partition
+     * 3. insert partition in batch
+     * 4. calculate column stats based on partition stats
      */
     protected void doPartitionTable() throws Exception {
+        deleteNotExistPartitionStats();
         Map<String, String> params = buildSqlParams();
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         Set<String> partitionNames = tbl.getPartitionNames();
         List<String> sqls = Lists.newArrayList();
         int count = 0;
+        AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
+        TableStatsMeta tableStatsStatus = analysisManager.findTableStatsStatus(tbl.getId());
         for (String part : partitionNames) {
-            params.put("partId", "'" + StatisticsUtil.escapeColumnName(part) + "'");
+            Partition partition = tbl.getPartition(part);
+            params.put("partId", partition == null ? "-1" : String.valueOf(partition.getId()));
+            // Skip partitions that not changed after last analyze.
+            // External table getPartition always return null. So external table doesn't skip any partitions.
+            if (partition != null && tableStatsStatus != null && tableStatsStatus.partitionUpdateRows != null) {
+                ConcurrentMap<Long, Long> tableUpdateRows = tableStatsStatus.partitionUpdateRows;
+                String idxName = info.indexId == -1 ? tbl.getName() : ((OlapTable) tbl).getIndexNameById(info.indexId);
+                ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(idxName, col.getName());
+                if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
+                    ConcurrentMap<Long, Long> columnUpdateRows = columnStatsMeta.partitionUpdateRows;
+
+                    // findJobInfo will return null when doing sync analyzing.
+                    AnalysisInfo jobInfo = analysisManager.findJobInfo(job.getJobInfo().jobId);
+                    jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
+                    // For cluster upgrade compatible (older version metadata doesn't have partition update rows map)
+                    // and insert before first analyze, set partition update rows to 0.
+                    jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
+
+                    long id = partition.getId();
+                    if (Objects.equals(tableUpdateRows.getOrDefault(id, 0L), columnUpdateRows.get(id))) {
+                        LOG.debug("Partition {} doesn't change after last analyze for column {}, skip it.",
+                                part, col.getName());
+                        continue;
+                    }
+                }
+            }
+            params.put("partName", "'" + StatisticsUtil.escapeColumnName(part) + "'");
             params.put("partitionInfo", getPartitionInfo(part));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             sqls.add(stringSubstitutor.replace(PARTITION_ANALYZE_TEMPLATE));
@@ -376,9 +407,14 @@ public abstract class BaseAnalysisTask {
                     + Joiner.on(" UNION ALL ").join(sqls);
             runInsert(sql);
         }
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(buildSqlParams());
+        params = buildSqlParams();
+        params.put("min", castToNumeric("min"));
+        params.put("max", castToNumeric("max"));
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
     }
+
+    protected abstract void deleteNotExistPartitionStats() throws DdlException;
 
     protected String getPartitionInfo(String partitionName) {
         return "";
@@ -386,6 +422,15 @@ public abstract class BaseAnalysisTask {
 
     protected Map<String, String> buildSqlParams() {
         return Maps.newHashMap();
+    }
+
+    protected String castToNumeric(String colName) {
+        Type type = col.getType();
+        if (type.isNumericType()) {
+            return "CAST(" + colName + " AS " + type.toSql() + ")";
+        } else {
+            return colName;
+        }
     }
 
     protected void runQuery(String sql) {

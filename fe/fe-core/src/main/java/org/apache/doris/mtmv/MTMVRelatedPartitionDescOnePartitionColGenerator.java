@@ -51,10 +51,10 @@ public class MTMVRelatedPartitionDescOnePartitionColGenerator implements MTMVRel
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return;
         }
-        Map<PartitionKeyDesc, Set<Long>> res = Maps.newHashMap();
-        Map<Long, PartitionItem> relatedPartitionItems = lastResult.getItems();
+        Map<PartitionKeyDesc, Set<String>> res = Maps.newHashMap();
+        Map<String, PartitionItem> relatedPartitionItems = lastResult.getItems();
         int relatedColPos = mvPartitionInfo.getRelatedColPos();
-        for (Entry<Long, PartitionItem> entry : relatedPartitionItems.entrySet()) {
+        for (Entry<String, PartitionItem> entry : relatedPartitionItems.entrySet()) {
             PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(relatedColPos);
             if (res.containsKey(partitionKeyDesc)) {
                 res.get(partitionKeyDesc).add(entry.getKey());

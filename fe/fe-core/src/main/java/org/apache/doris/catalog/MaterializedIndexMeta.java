@@ -164,6 +164,18 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         initColumnNameMap();
     }
 
+    public List<Column> getPrefixKeyColumns() {
+        List<Column> keys = Lists.newArrayList();
+        for (Column col : schema) {
+            if (col.isKey()) {
+                keys.add(col);
+            } else {
+                break;
+            }
+        }
+        return keys;
+    }
+
     public void setSchemaHash(int newSchemaHash) {
         this.schemaHash = newSchemaHash;
     }

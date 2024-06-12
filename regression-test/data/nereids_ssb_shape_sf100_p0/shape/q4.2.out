@@ -15,13 +15,14 @@ PhysicalResultSink
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF1 d_datekey->[lo_orderdate]
-------------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2 RF3
---------------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------PhysicalProject
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
 ----------------------------------PhysicalProject
-------------------------------------filter((supplier.s_region = 'AMERICA'))
---------------------------------------PhysicalOlapScan[supplier]
+------------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2 RF3
+----------------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------------PhysicalProject
+--------------------------------------filter((supplier.s_region = 'AMERICA'))
+----------------------------------------PhysicalOlapScan[supplier]
 ------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------PhysicalProject
 ----------------------------------filter(d_year IN (1997, 1998))

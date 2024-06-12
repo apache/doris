@@ -31,7 +31,6 @@
 #include "olap/wal/wal_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/plan_fragment_executor.h"
 #include "util/path_util.h"
 #include "util/thrift_rpc_helper.h"
 

@@ -163,11 +163,12 @@ public class AlterTest {
                 + "PROPERTIES\n"
                 + "(\n"
                 + "\"colocate_with\" = \"group_3\",\n"
+                + "\"replication_num\" = \"1\",\n"
                 + "\"dynamic_partition.enable\" = \"true\",\n"
                 + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
                 + "\"dynamic_partition.end\" = \"3\",\n"
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
-                + "\"dynamic_partition.buckets\" = \"32\",\n"
+                + "\"dynamic_partition.buckets\" = \"3\",\n"
                 + "\"dynamic_partition.replication_num\" = \"1\",\n"
                 + "\"dynamic_partition.create_history_partition\"=\"true\",\n"
                 + "\"dynamic_partition.start\" = \"-3\"\n"
@@ -254,7 +255,12 @@ public class AlterTest {
     private static void createTable(String sql) throws Exception {
         Config.enable_odbc_mysql_broker_table = true;
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
+        try {
+            Env.getCurrentEnv().createTable(createTableStmt);
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw e;
+        }
     }
 
     private static void createRemoteStorageResource(String sql) throws Exception {
@@ -370,7 +376,7 @@ public class AlterTest {
         // empty comment
         stmt = "alter table test.tbl5 modify comment ''";
         alterTable(stmt, false);
-        Assert.assertEquals("OLAP", tbl.getComment());
+        Assert.assertEquals("", tbl.getComment());
 
         // empty column comment
         stmt = "alter table test.tbl5 modify column k1 comment '', modify column v1 comment 'v111'";

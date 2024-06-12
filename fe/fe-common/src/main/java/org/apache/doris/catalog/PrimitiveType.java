@@ -889,6 +889,10 @@ public enum PrimitiveType {
         return this == HLL;
     }
 
+    public boolean isQuantileStateType() {
+        return this == QUANTILE_STATE;
+    }
+
     public boolean isBitmapType() {
         return this == BITMAP;
     }

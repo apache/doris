@@ -174,10 +174,13 @@ DECLARE_mString(process_full_gc_size);
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
-//waibibabu
+
 // gc will release cache, cancel task, and task will wait for gc to release memory,
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
+
+// Allocator check failed log stacktrace if not catch exception
+DECLARE_mBool(enable_stacktrace_in_allocator_check_failed);
 
 // malloc or new large memory larger than large_memory_check_bytes, default 2G,
 // will print a warning containing the stacktrace, but not prevent memory alloc.
@@ -386,6 +389,7 @@ DECLARE_Bool(disable_storage_page_cache);
 DECLARE_mBool(disable_storage_row_cache);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
+DECLARE_Bool(enable_non_pipeline);
 
 // Cache for mow primary key storage page size, it's seperated from
 // storage_page_cache_limit
@@ -551,6 +555,7 @@ DECLARE_Int32(brpc_heavy_work_pool_threads);
 DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
+DECLARE_mBool(enable_bthread_transmit_block);
 
 // The maximum amount of data that can be processed by a stream load
 DECLARE_mInt64(streaming_load_max_mb);
@@ -673,6 +678,9 @@ DECLARE_mInt32(priority_queue_remaining_tasks_increased_frequency);
 
 // sync tablet_meta when modifying meta
 DECLARE_mBool(sync_tablet_meta);
+
+// sync a file writer when it is closed
+DECLARE_mBool(sync_file_on_close);
 
 // default thrift rpc timeout ms
 DECLARE_mInt32(thrift_rpc_timeout_ms);
@@ -890,7 +898,7 @@ DECLARE_mString(kafka_debug);
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
-DECLARE_Int32(routine_load_consumer_pool_size);
+DECLARE_mInt32(routine_load_consumer_pool_size);
 
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
@@ -1124,6 +1132,8 @@ DECLARE_mBool(enable_delete_when_cumu_compaction);
 // max_write_buffer_number for rocksdb
 DECLARE_Int32(rocksdb_max_write_buffer_number);
 
+// Convert date 0000-00-00 to 0000-01-01. It's recommended to set to false.
+DECLARE_mBool(allow_zero_date);
 // Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
 DECLARE_mBool(allow_invalid_decimalv2_literal);
 // Allow to specify kerberos credentials cache path.
@@ -1234,7 +1244,6 @@ DECLARE_Bool(ignore_always_true_predicate_for_segment);
 
 // Dir of default timezone files
 DECLARE_String(default_tzfiles_path);
-DECLARE_Bool(use_doris_tzfile);
 
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
@@ -1278,7 +1287,7 @@ DECLARE_String(spill_storage_root_path);
 //   disk_capacity_bytes * storage_flood_stage_usage_percent * spill_storage_limit
 DECLARE_String(spill_storage_limit);
 DECLARE_mInt32(spill_gc_interval_ms);
-DECLARE_mInt32(spill_gc_file_count);
+DECLARE_mInt32(spill_gc_work_time_ms);
 DECLARE_Int32(spill_io_thread_pool_thread_num);
 DECLARE_Int32(spill_io_thread_pool_queue_size);
 
@@ -1309,6 +1318,9 @@ DECLARE_mInt32(table_sink_partition_write_max_partition_nums_per_writer);
 
 /** Hive sink configurations **/
 DECLARE_mInt64(hive_sink_max_file_size);
+
+/** Iceberg sink configurations **/
+DECLARE_mInt64(iceberg_sink_max_file_size);
 
 // Number of open tries, default 1 means only try to open once.
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
@@ -1346,6 +1358,28 @@ DECLARE_mInt64(hdfs_jni_write_max_retry_time);
 DECLARE_Int64(min_nonblock_close_thread_num);
 // The max thread num for NonBlockCloseThreadPool
 DECLARE_Int64(max_nonblock_close_thread_num);
+// The possibility that mem allocator throws an exception during memory allocation
+// This config is for test usage, be careful when changing it.
+DECLARE_mDouble(mem_alloc_fault_probability);
+// The time out milliseconds for remote fetch schema RPC
+DECLARE_mInt64(fetch_remote_schema_rpc_timeout_ms);
+// The size of the local buffer for S3FileSytem's upload function
+
+DECLARE_Int64(s3_file_system_local_upload_buffer_size);
+
+//JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues.
+DECLARE_Bool(enable_jvm_monitor);
+
+// Num threads to load data dirs, default value -1 indicates the same number of threads as the number of data dirs
+DECLARE_Int32(load_data_dirs_threads);
+
+// Skip loading stale rowset meta when initializing `TabletMeta` from protobuf
+DECLARE_mBool(skip_loading_stale_rowset_meta);
+// Whether to use file to record log. When starting BE with --console,
+// all logs will be written to both standard output and file.
+// Disable this option will no longer use file to record log.
+// Only works when starting BE with --console.
+DECLARE_Bool(enable_file_logger);
 
 #ifdef BE_TEST
 // test s3

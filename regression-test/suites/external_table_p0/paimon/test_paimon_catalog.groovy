@@ -174,6 +174,11 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             def c102= """select * from row_native_test order by id;"""
             def c103= """select * from row_jni_test order by id;"""
 
+            def c104= """select * from deletion_vector_orc;"""
+            def c105= """select * from deletion_vector_parquet;"""
+            def c106= """select * from deletion_vector_orc;"""
+            def c107= """select * from deletion_vector_parquet;"""
+
             String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
             String catalog_name = "ctl_test_paimon_catalog"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -274,6 +279,12 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c102 c102
             sql """ set force_jni_scanner=true; """
             qt_c103 c103
+            sql """ set force_jni_scanner=false; """
+            qt_c104 c104
+            qt_c105 c105
+            sql """ set force_jni_scanner=true; """
+            qt_c106 c106
+            qt_c107 c107
             sql """ set force_jni_scanner=false; """
 
             // test view from jion paimon

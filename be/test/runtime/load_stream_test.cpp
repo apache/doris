@@ -376,12 +376,12 @@ public:
                 tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
             }
 
-            LoadStreamSharedPtr load_stream;
+            LoadStream* load_stream;
             LOG(INFO) << "total streams: " << request->total_streams();
             EXPECT_GT(request->total_streams(), 0);
             auto st = _load_stream_mgr->open_load_stream(request, load_stream);
 
-            stream_options.handler = load_stream.get();
+            stream_options.handler = load_stream;
 
             StreamId streamid;
             if (brpc::StreamAccept(&streamid, *cntl, &stream_options) != 0) {
@@ -641,7 +641,9 @@ public:
             if (tablet.tablet_id != tablet_id || rowset == nullptr) {
                 continue;
             }
-            auto path = static_cast<BetaRowset*>(rowset.get())->segment_file_path(segid);
+
+            auto path = local_segment_path(rowset->tablet_path(), rowset->rowset_id().to_string(),
+                                           segid);
             LOG(INFO) << "read data from " << path;
             std::ifstream inputFile(path, std::ios::binary);
             inputFile.seekg(0, std::ios::end);

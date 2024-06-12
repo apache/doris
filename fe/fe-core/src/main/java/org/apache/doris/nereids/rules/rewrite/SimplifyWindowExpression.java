@@ -81,7 +81,7 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             // after normalize window, partition key must be slot
             List<Slot> partitionSlots = (List<Slot>) (List) windowExpression.getPartitionKeys();
             Set<Slot> partitionSlotSet = new HashSet<>(partitionSlots);
-            if (!window.getLogicalProperties().getFunctionalDependencies().isUnique(partitionSlotSet)) {
+            if (!window.getLogicalProperties().getTrait().isUnique(partitionSlotSet)) {
                 remainWindowExpression.add(expr);
                 continue;
             }
@@ -120,7 +120,7 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             }
             List<NamedExpression> finalProjections = Lists.newArrayList(projections);
             finalProjections.addAll(windowOutputs);
-            return new LogicalProject(finalProjections, window.withExpression(remainWindows,
+            return new LogicalProject(finalProjections, window.withExpressionsAndChild(remainWindows,
                     window.child(0)));
         }
     }

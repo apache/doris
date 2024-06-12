@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "http/action/adjust_log_level.h"
 #include "http/action/adjust_tracing_dump.h"
+#include "http/action/calc_file_crc_action.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
@@ -52,6 +53,7 @@
 #include "http/action/report_action.h"
 #include "http/action/reset_rpc_channel_action.h"
 #include "http/action/restore_tablet_action.h"
+#include "http/action/show_hotspot_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
 #include "http/action/stream_load_2pc.h"
@@ -159,6 +161,11 @@ Status HttpService::start() {
     LongPipelineTaskAction* long_pipeline_task_action = _pool.add(new LongPipelineTaskAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/running_pipeline_tasks/{duration}",
                                       long_pipeline_task_action);
+
+    // Dump all running pipeline tasks which has been running for more than {duration} seconds
+    QueryPipelineTaskAction* query_pipeline_task_action = _pool.add(new QueryPipelineTaskAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/query_pipeline_tasks/{query_id}",
+                                      query_pipeline_task_action);
 
     // Register Tablets Info action
     TabletsInfoAction* tablets_info_action =
@@ -344,6 +351,10 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     ReportAction* report_disk_action = _pool.add(new ReportAction(
             _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_DISK_STATE"));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/disk", report_disk_action);
+
+    CalcFileCrcAction* calc_crc_action = _pool.add(
+            new CalcFileCrcAction(_env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
 }
 
 void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
@@ -370,6 +381,8 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
     ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());
     _ev_http_server->register_handler(HttpMethod::POST, "/api/clear_file_cache",
                                       clear_file_cache_action);
+    auto* show_hotspot_action = _pool.add(new ShowHotspotAction(engine));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/hotspot/tablet", show_hotspot_action);
 }
 // NOLINTEND(readability-function-size)
 

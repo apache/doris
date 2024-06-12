@@ -226,7 +226,7 @@ public class ConnectContext {
 
     private String workloadGroupName = "";
     private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
-    private boolean isGroupCommitStreamLoadSql;
+    private boolean isGroupCommit;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
@@ -251,7 +251,12 @@ public class ConnectContext {
     }
 
     private StatementContext statementContext;
+
+    // legacy planner
     private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
+
+    // new planner
+    private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
 
     private List<TableIf> tables = null;
 
@@ -385,12 +390,20 @@ public class ConnectContext {
         this.preparedStmtCtxs.put(stmtName, ctx);
     }
 
+    public void addPreparedStatementContext(String stmtName, PreparedStatementContext ctx) {
+        this.preparedStatementContextMap.put(stmtName, ctx);
+    }
+
     public void removePrepareStmt(String stmtName) {
         this.preparedStmtCtxs.remove(stmtName);
     }
 
     public PrepareStmtContext getPreparedStmt(String stmtName) {
         return this.preparedStmtCtxs.get(stmtName);
+    }
+
+    public PreparedStatementContext getPreparedStementContext(String stmtName) {
+        return this.preparedStatementContextMap.get(stmtName);
     }
 
     public List<TableIf> getTables() {
@@ -1113,9 +1126,13 @@ public class ConnectContext {
 
     public static String cloudNoBackendsReason() {
         StringBuilder sb = new StringBuilder();
-        sb.append(" ");
         if (ConnectContext.get() != null) {
             String clusterName = ConnectContext.get().getCloudCluster();
+            String hits = "or you may not have permission to access the current cluster = ";
+            sb.append(" ");
+            if (Strings.isNullOrEmpty(clusterName)) {
+                return sb.append(hits).append("cluster name empty").toString();
+            }
             String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getCloudStatusByName(clusterName);
             if (!Strings.isNullOrEmpty(clusterStatus)
@@ -1125,7 +1142,7 @@ public class ConnectContext {
                 sb.append("cluster ").append(clusterName)
                     .append(" is shutdown manually, please start it first");
             } else {
-                sb.append("or you may not have permission to access the current cluster = ").append(clusterName);
+                sb.append(hits).append(clusterName);
             }
         }
         return sb.toString();
@@ -1332,12 +1349,12 @@ public class ConnectContext {
         return this.sessionVariable.getNetWriteTimeout();
     }
 
-    public boolean isGroupCommitStreamLoadSql() {
-        return isGroupCommitStreamLoadSql;
+    public boolean isGroupCommit() {
+        return isGroupCommit;
     }
 
-    public void setGroupCommitStreamLoadSql(boolean groupCommitStreamLoadSql) {
-        isGroupCommitStreamLoadSql = groupCommitStreamLoadSql;
+    public void setGroupCommit(boolean groupCommit) {
+        isGroupCommit = groupCommit;
     }
 
     public Map<String, LiteralExpr> getUserVars() {

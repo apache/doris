@@ -27,13 +27,13 @@ import org.apache.doris.common.AnalysisException;
 public class MTMVPartitionExprFactory {
     public static MTMVPartitionExprService getExprService(Expr expr) throws AnalysisException {
         if (!(expr instanceof FunctionCallExpr)) {
-            throw new AnalysisException("now mtmv partition only support FunctionCallExpr");
+            throw new AnalysisException("now async materialized view partition only support FunctionCallExpr");
         }
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
         String fnName = functionCallExpr.getFnName().getFunction().toLowerCase();
         if ("date_trunc".equals(fnName)) {
             return new MTMVPartitionExprDateTrunc(functionCallExpr);
         }
-        throw new AnalysisException("MTMV partition not support function name: " + fnName);
+        throw new AnalysisException("async materialized view partition not support function name: " + fnName);
     }
 }

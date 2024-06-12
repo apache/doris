@@ -20,8 +20,8 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
@@ -211,70 +211,75 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();
+        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getTrait().getFdItems();
         builder.addAll(childItems);
 
         return builder.build();
     }
 
     @Override
-    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    public void computeUnique(DataTrait.Builder builder) {
+        builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
         for (NamedExpression proj : getProjects()) {
             if (proj.children().isEmpty()) {
                 continue;
             }
             if (proj.child(0) instanceof Uuid) {
-                fdBuilder.addUniqueSlot(proj.toSlot());
+                builder.addUniqueSlot(proj.toSlot());
             } else if (ExpressionUtils.isInjective(proj.child(0))) {
                 ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
-                if (child(0).getLogicalProperties().getFunctionalDependencies().isUnique(inputs)) {
-                    fdBuilder.addUniqueSlot(proj.toSlot());
+                if (child(0).getLogicalProperties().getTrait().isUnique(inputs)) {
+                    builder.addUniqueSlot(proj.toSlot());
                 }
             }
         }
-        fdBuilder.pruneSlots(getOutputSet());
+        builder.pruneSlots(getOutputSet());
     }
 
     @Override
-    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    public void computeUniform(DataTrait.Builder builder) {
+        builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
         for (NamedExpression proj : getProjects()) {
             if (proj.children().isEmpty()) {
                 continue;
             }
             if (proj.child(0).isConstant()) {
-                fdBuilder.addUniformSlot(proj.toSlot());
+                builder.addUniformSlot(proj.toSlot());
             } else if (ExpressionUtils.isInjective(proj.child(0))) {
                 ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
-                if (child(0).getLogicalProperties().getFunctionalDependencies().isUniform(inputs)) {
-                    fdBuilder.addUniformSlot(proj.toSlot());
+                if (child(0).getLogicalProperties().getTrait().isUniform(inputs)) {
+                    builder.addUniformSlot(proj.toSlot());
                 }
             }
         }
-        fdBuilder.pruneSlots(getOutputSet());
+        builder.pruneSlots(getOutputSet());
     }
 
     @Override
-    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+    public void computeEqualSet(DataTrait.Builder builder) {
         Map<Expression, NamedExpression> aliasMap = new HashMap<>();
-        fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
         for (NamedExpression expr : getProjects()) {
             if (expr instanceof Alias) {
                 if (aliasMap.containsKey(expr.child(0))) {
-                    fdBuilder.addEqualPair(expr.toSlot(), aliasMap.get(expr.child(0)).toSlot());
+                    builder.addEqualPair(expr.toSlot(), aliasMap.get(expr.child(0)).toSlot());
                 }
                 aliasMap.put(expr.child(0), expr);
                 if (expr.child(0).isSlot()) {
-                    fdBuilder.addEqualPair(expr.toSlot(), (Slot) expr.child(0));
+                    builder.addEqualPair(expr.toSlot(), (Slot) expr.child(0));
                 }
             }
         }
-        fdBuilder.pruneSlots(getOutputSet());
+        builder.pruneSlots(getOutputSet());
     }
 
     @Override
-    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
+        for (NamedExpression expr : getProjects()) {
+            if (!expr.isSlot()) {
+                builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
+            }
+        }
     }
 }

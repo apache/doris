@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import java.util.HashMap;
+import java.util.Map;
+
 // MySQL column type
 // TYPE codes are defined in the file 'mysql/include/mysql_com.h' enum enum_field_types
 // which is also demostrated in
@@ -55,6 +58,14 @@ public enum MysqlColType {
     MYSQL_TYPE_GEOMETRY(255, "GEOMETRY", "GEOMETRY"),
     MYSQL_TYPE_MAP(400, "MAP", "MAP");
 
+    private static final Map<Integer, MysqlColType> CODE_MAP = new HashMap<>();
+
+    static {
+        for (MysqlColType type : MysqlColType.values()) {
+            CODE_MAP.put(type.code, type);
+        }
+    }
+
     private MysqlColType(int code, String desc, String jdbcColumnTypeName) {
         this.code = code;
         this.desc = desc;
@@ -75,6 +86,10 @@ public enum MysqlColType {
 
     public int getCode() {
         return code;
+    }
+
+    public static MysqlColType fromCode(int code) {
+        return CODE_MAP.get(code);
     }
 
     public String getJdbcColumnTypeName() {

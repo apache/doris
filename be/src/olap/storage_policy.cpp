@@ -24,6 +24,11 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "gen_cpp/cloud.pb.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
+#include "util/hash_util.hpp"
+
 namespace doris {
 
 struct StoragePolicyMgr {
@@ -33,20 +38,19 @@ struct StoragePolicyMgr {
 
 static StoragePolicyMgr s_storage_policy_mgr;
 
-Status get_remote_file_system(int64_t storage_policy_id,
-                              std::shared_ptr<io::RemoteFileSystem>* fs) {
+Result<StorageResource> get_resource_by_storage_policy_id(int64_t storage_policy_id) {
     auto storage_policy = get_storage_policy(storage_policy_id);
     if (storage_policy == nullptr) {
-        return Status::NotFound<false>("could not find storage_policy, storage_policy_id={}",
-                                       storage_policy_id);
+        return ResultError(Status::NotFound<false>(
+                "could not find storage_policy, storage_policy_id={}", storage_policy_id));
     }
-    auto resource = get_storage_resource(storage_policy->resource_id);
-    *fs = resource.fs;
-    if (*fs == nullptr) {
-        return Status::NotFound<false>("could not find resource, resource_id={}",
-                                       storage_policy->resource_id);
+
+    if (auto resource = get_storage_resource(storage_policy->resource_id); resource) {
+        return resource->first;
+    } else {
+        return ResultError(Status::NotFound<false>("could not find resource, resource_id={}",
+                                                   storage_policy->resource_id));
     }
-    return Status::OK();
 }
 
 StoragePolicyPtr get_storage_policy(int64_t id) {
@@ -79,7 +83,8 @@ std::vector<std::pair<int64_t, int64_t>> get_storage_policy_ids() {
 
 struct StorageResourceMgr {
     std::mutex mtx;
-    std::unordered_map<std::string, StorageResource> map;
+    // resource_id -> storage_resource, resource_version
+    std::unordered_map<std::string, std::pair<StorageResource, int64_t>> map;
 };
 
 static StorageResourceMgr s_storage_resource_mgr;
@@ -88,28 +93,33 @@ io::RemoteFileSystemSPtr get_filesystem(const std::string& resource_id) {
     std::lock_guard lock(s_storage_resource_mgr.mtx);
     if (auto it = s_storage_resource_mgr.map.find(resource_id);
         it != s_storage_resource_mgr.map.end()) {
-        return it->second.fs;
+        return it->second.first.fs;
     }
     return nullptr;
 }
 
-StorageResource get_storage_resource(int64_t resource_id) {
-    auto id_str = std::to_string(resource_id);
+std::optional<std::pair<StorageResource, int64_t>> get_storage_resource(int64_t resource_id) {
+    return get_storage_resource(std::to_string(resource_id));
+}
+
+std::optional<std::pair<StorageResource, int64_t>> get_storage_resource(
+        const std::string& resource_id) {
     std::lock_guard lock(s_storage_resource_mgr.mtx);
-    if (auto it = s_storage_resource_mgr.map.find(id_str); it != s_storage_resource_mgr.map.end()) {
+    if (auto it = s_storage_resource_mgr.map.find(resource_id);
+        it != s_storage_resource_mgr.map.end()) {
         return it->second;
     }
-    return StorageResource {nullptr, -1};
+    return std::nullopt;
 }
 
-void put_storage_resource(std::string resource_id, StorageResource resource) {
+void put_storage_resource(std::string resource_id, StorageResource resource, int64_t version) {
     std::lock_guard lock(s_storage_resource_mgr.mtx);
-    s_storage_resource_mgr.map[resource_id] = std::move(resource);
+    s_storage_resource_mgr.map[resource_id] = std::make_pair(std::move(resource), version);
 }
 
-void put_storage_resource(int64_t resource_id, StorageResource resource) {
+void put_storage_resource(int64_t resource_id, StorageResource resource, int64_t version) {
     auto id_str = std::to_string(resource_id);
-    put_storage_resource(id_str, std::move(resource));
+    put_storage_resource(id_str, std::move(resource), version);
 }
 
 void delete_storage_resource(int64_t resource_id) {
@@ -123,9 +133,79 @@ std::vector<std::pair<std::string, int64_t>> get_storage_resource_ids() {
     res.reserve(s_storage_resource_mgr.map.size());
     std::lock_guard lock(s_storage_resource_mgr.mtx);
     for (auto& [id, resource] : s_storage_resource_mgr.map) {
-        res.emplace_back(id, resource.version);
+        res.emplace_back(id, resource.second);
     }
     return res;
+}
+
+namespace {
+
+[[noreturn]] void exit_at_unknown_path_version(std::string_view resource_id, int64_t path_version) {
+    LOG(FATAL) << "unknown path version, please upgrade BE or drop this storage vault. resource_id="
+               << resource_id << " path_version=" << path_version;
+}
+
+} // namespace
+
+StorageResource::StorageResource(io::RemoteFileSystemSPtr fs_,
+                                 const cloud::StorageVaultPB_PathFormat& path_format)
+        : fs(std::move(fs_)), path_version(path_format.path_version()) {
+    switch (path_version) {
+    case 0:
+        break;
+    case 1:
+        shard_fn = [shard_num = path_format.shard_num()](int64_t tablet_id) {
+            return HashUtil::murmur_hash64A(static_cast<void*>(&tablet_id), sizeof(tablet_id),
+                                            HashUtil::MURMUR_SEED) %
+                   shard_num;
+        };
+        break;
+    default:
+        exit_at_unknown_path_version(fs->id(), path_version);
+    }
+}
+
+std::string StorageResource::remote_segment_path(int64_t tablet_id, std::string_view rowset_id,
+                                                 int64_t seg_id) const {
+    switch (path_version) {
+    case 0:
+        return fmt::format("{}/{}/{}_{}.dat", DATA_PREFIX, tablet_id, rowset_id, seg_id);
+    case 1:
+        return fmt::format("{}/{}/{}/{}/{}.dat", DATA_PREFIX, shard_fn(tablet_id), tablet_id,
+                           rowset_id, seg_id);
+    default:
+        exit_at_unknown_path_version(fs->id(), path_version);
+    }
+}
+
+std::string StorageResource::remote_segment_path(const RowsetMeta& rowset, int64_t seg_id) const {
+    switch (path_version) {
+    case 0:
+        return fmt::format("{}/{}/{}_{}.dat", DATA_PREFIX, rowset.tablet_id(),
+                           rowset.rowset_id().to_string(), seg_id);
+    case 1:
+        return fmt::format("{}/{}/{}/{}/{}.dat", DATA_PREFIX, shard_fn(rowset.tablet_id()),
+                           rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id);
+    default:
+        exit_at_unknown_path_version(fs->id(), path_version);
+    }
+}
+
+std::string StorageResource::remote_tablet_path(int64_t tablet_id) const {
+    switch (path_version) {
+    case 0:
+        return fmt::format("{}/{}", DATA_PREFIX, tablet_id);
+    case 1:
+        return fmt::format("{}/{}/{}", DATA_PREFIX, shard_fn(tablet_id), tablet_id);
+    default:
+        exit_at_unknown_path_version(fs->id(), path_version);
+    }
+}
+
+std::string StorageResource::cooldown_tablet_meta_path(int64_t tablet_id, int64_t replica_id,
+                                                       int64_t cooldown_term) const {
+    return remote_tablet_path(tablet_id) + '/' +
+           cooldown_tablet_meta_filename(replica_id, cooldown_term);
 }
 
 } // namespace doris

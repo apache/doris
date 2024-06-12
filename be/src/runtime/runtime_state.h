@@ -190,7 +190,6 @@ public:
         return _query_options.__isset.mysql_row_binary_format &&
                _query_options.mysql_row_binary_format;
     }
-    Status query_status();
 
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
@@ -206,21 +205,19 @@ public:
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
     [[nodiscard]] bool is_cancelled() const;
-    std::string cancel_reason() const;
-    int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(std::string msg) {
-        if (!_is_cancelled.exchange(true)) {
-            _cancel_reason = msg;
+    Status cancel_reason() const;
+    void cancel(const Status& reason) {
+        if (_exec_status.update(reason)) {
             // Create a error status, so that we could print error stack, and
             // we could know which path call cancel.
             LOG(WARNING) << "Task is cancelled, instance: "
                          << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                         << ", st = " << Status::Error<ErrorCode::CANCELLED>(msg);
+                         << ", st = " << reason;
         } else {
             LOG(WARNING) << "Task is already cancelled, instance: "
                          << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                         << ", original cancel msg: " << _cancel_reason
-                         << ", new cancel msg: " << Status::Error<ErrorCode::CANCELLED>(msg);
+                         << ", original cancel msg: " << _exec_status.status()
+                         << ", new cancel msg: " << reason;
         }
     }
 
@@ -229,18 +226,6 @@ public:
 
     void set_be_number(int be_number) { _be_number = be_number; }
     int be_number(void) const { return _be_number; }
-
-    // Sets _process_status with err_msg if no error has been set yet.
-    void set_process_status(const Status& status) {
-        if (status.ok()) {
-            return;
-        }
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        if (!_process_status.ok()) {
-            return;
-        }
-        _process_status = status;
-    }
 
     std::vector<std::string>& output_files() { return _output_files; }
 
@@ -370,12 +355,6 @@ public:
         }
         return _query_options.be_exec_version;
     }
-    bool enable_pipeline_x_exec() const {
-        return (_query_options.__isset.enable_pipeline_x_engine &&
-                _query_options.enable_pipeline_x_engine) ||
-               (_query_options.__isset.enable_pipeline_engine &&
-                _query_options.enable_pipeline_engine);
-    }
     bool enable_local_shuffle() const {
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
     }
@@ -450,6 +429,8 @@ public:
     std::vector<TTabletCommitInfo>& tablet_commit_infos() { return _tablet_commit_infos; }
 
     std::vector<THivePartitionUpdate>& hive_partition_updates() { return _hive_partition_updates; }
+
+    std::vector<TIcebergCommitData>& iceberg_commit_datas() { return _iceberg_commit_datas; }
 
     const std::vector<TErrorTabletInfo>& error_tablet_infos() const { return _error_tablet_infos; }
 
@@ -610,6 +591,11 @@ public:
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
 
+    bool enable_local_merge_sort() const {
+        return _query_options.__isset.enable_local_merge_sort &&
+               _query_options.enable_local_merge_sort;
+    }
+
     int64_t min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
             return _query_options.min_revocable_mem;
@@ -693,9 +679,7 @@ private:
     TQueryOptions _query_options;
     ExecEnv* _exec_env = nullptr;
 
-    // if true, execution should stop with a CANCELLED status
-    std::atomic<bool> _is_cancelled;
-    std::string _cancel_reason;
+    AtomicStatus _exec_status;
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;
@@ -708,12 +692,6 @@ private:
 
     // used as send id
     int _be_number;
-
-    // Non-OK if an error has occurred and query execution should abort. Used only for
-    // asynchronously reporting such errors (e.g., when a UDF reports an error), so this
-    // will not necessarily be set in all error cases.
-    std::mutex _process_status_lock;
-    Status _process_status;
 
     // put here to collect files??
     std::vector<std::string> _output_files;
@@ -746,6 +724,8 @@ private:
     int _task_num = 0;
 
     std::vector<THivePartitionUpdate> _hive_partition_updates;
+
+    std::vector<TIcebergCommitData> _iceberg_commit_datas;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
 

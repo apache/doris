@@ -212,9 +212,10 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
 
         // ownership of null_bitmap and its deletion will be transfered to cache
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-        auto null_bitmap_file_name = InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
-        if (dir->fileExists(null_bitmap_file_name.c_str())) {
-            null_bitmap_in = dir->openInput(null_bitmap_file_name.c_str());
+        const char* null_bitmap_file_name =
+                InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
+        if (dir->fileExists(null_bitmap_file_name)) {
+            null_bitmap_in = dir->openInput(null_bitmap_file_name);
             size_t null_bitmap_size = null_bitmap_in->length();
             faststring buf;
             buf.resize(null_bitmap_size);
@@ -280,6 +281,8 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
     if (std::string(dir->getObjectName()) == "DorisCompoundReader") {
         static_cast<DorisCompoundReader*>(dir)->getDorisIndexInput()->setIdxFileCache(false);
     }
+    // NOTE: before mem_tracker hook becomes active, we caculate reader memory size by hand.
+    mem_tracker->consume(index_searcher_builder->get_reader_size());
     return Status::OK();
 };
 
@@ -307,8 +310,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
     SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
 
     std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
-    LOG(INFO) << column_name << " begin to search the fulltext index from clucene, query_str ["
-              << search_str << "]";
+    VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
+               << search_str << "]";
 
     try {
         InvertedIndexQueryInfo query_info;

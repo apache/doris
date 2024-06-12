@@ -58,4 +58,9 @@ suite("test_date_function_const") {
         sql("""select date_add(CURRENT_DATE(),-2);""")
         notContains("00:00:00")
     }
+
+    test {
+        sql """select date_add("1900-01-01 12:00:00.123456", interval 10000000000 month);"""
+        exception "Operation months_add 133705200962757184 1410065408 out of range"
+    }
 }

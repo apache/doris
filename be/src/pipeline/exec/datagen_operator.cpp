@@ -19,10 +19,11 @@
 
 #include <memory>
 
+#include "exprs/runtime_filter.h"
+#include "pipeline/common/data_gen_functions/vdata_gen_function_inf.h"
+#include "pipeline/common/data_gen_functions/vnumbers_tvf.h"
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
-#include "vec/exec/data_gen_functions/vdata_gen_function_inf.h"
-#include "vec/exec/data_gen_functions/vnumbers_tvf.h"
 
 namespace doris {
 class RuntimeState;
@@ -76,7 +77,7 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block*
 Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
     auto& p = _parent->cast<DataGenSourceOperatorX>();
-    _table_func = std::make_shared<vectorized::VNumbersTVF>(p._tuple_id, p._tuple_desc);
+    _table_func = std::make_shared<VNumbersTVF>(p._tuple_id, p._tuple_desc);
     _table_func->set_tuple_desc(p._tuple_desc);
     RETURN_IF_ERROR(_table_func->set_scan_ranges(info.scan_ranges));
 

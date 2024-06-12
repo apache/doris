@@ -120,16 +120,6 @@ void ColumnStruct::get(size_t n, Field& res) const {
     }
 }
 
-bool ColumnStruct::is_default_at(size_t n) const {
-    const size_t tuple_size = columns.size();
-    for (size_t i = 0; i < tuple_size; ++i) {
-        if (!columns[i]->is_default_at(n)) {
-            return false;
-        }
-    }
-    return true;
-}
-
 void ColumnStruct::insert(const Field& x) {
     const auto& tuple = x.get<const Tuple&>();
     const size_t tuple_size = columns.size();

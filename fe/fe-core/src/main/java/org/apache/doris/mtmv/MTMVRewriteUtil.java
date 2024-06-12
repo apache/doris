@@ -66,7 +66,7 @@ public class MTMVRewriteUtil {
                 && mtmv.getStatus().getRefreshState() == MTMVRefreshState.SUCCESS)) {
             return res;
         }
-        Map<Long, Set<Long>> partitionMappings = null;
+        Map<String, Set<String>> partitionMappings = null;
         // check gracePeriod
         long gracePeriodMills = mtmv.getGracePeriod();
         for (Partition partition : allPartitions) {
@@ -79,8 +79,8 @@ public class MTMVRewriteUtil {
                 if (partitionMappings == null) {
                     partitionMappings = mtmv.calculatePartitionMappings();
                 }
-                if (MTMVPartitionUtil.isMTMVPartitionSync(mtmv, partition.getId(),
-                        partitionMappings.get(partition.getId()), mtmvRelation.getBaseTables(),
+                if (MTMVPartitionUtil.isMTMVPartitionSync(mtmv, partition.getName(),
+                        partitionMappings.get(partition.getName()), mtmvRelation.getBaseTables(),
                         Sets.newHashSet())) {
                     res.add(partition);
                 }

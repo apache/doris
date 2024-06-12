@@ -25,10 +25,6 @@ void register_function_array_index(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayIndex<ArrayContainsAction>>();
     factory.register_function<FunctionArrayIndex<ArrayPositionAction>>();
     factory.register_function<FunctionArrayIndex<ArrayCountEqual>>();
-
-    factory.register_alternative_function<FunctionArrayIndex<ArrayContainsAction, true>>();
-    factory.register_alternative_function<FunctionArrayIndex<ArrayPositionAction, true>>();
-    factory.register_alternative_function<FunctionArrayIndex<ArrayCountEqual, true>>();
 }
 
 } // namespace doris::vectorized

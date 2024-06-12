@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
@@ -98,7 +97,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
             if (Config.enable_pipeline_load) {
                 tRoutineLoadTask.setPipelineParams(rePlanForPipeline(routineLoadJob));
             } else {
-                tRoutineLoadTask.setParams(rePlan(routineLoadJob));
+                throw new UserException("Pipeline load should be enabled");
             }
         } else {
             Env.getCurrentEnv().getRoutineLoadManager().addMultiLoadTaskTxnIdToRoutineLoadJobId(txnId, jobId);
@@ -129,10 +128,10 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         return routineLoadJob.hasMoreDataToConsume(id, partitionIdToOffset);
     }
 
-    private TExecPlanFragmentParams rePlan(RoutineLoadJob routineLoadJob) throws UserException {
+    private TPipelineFragmentParams rePlan(RoutineLoadJob routineLoadJob) throws UserException {
         TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
-        TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(loadId, txnId);
+        TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(loadId, txnId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
         // it needs update timeout to make task timeout backoff work

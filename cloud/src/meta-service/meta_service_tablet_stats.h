@@ -21,6 +21,7 @@
 
 namespace doris::cloud {
 class Transaction;
+class RangeGetIterator;
 
 // Detached tablet stats
 struct TabletStats {
@@ -45,5 +46,9 @@ void merge_tablet_stats(TabletStatsPB& stats, const TabletStats& detached_stats)
 void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transaction* txn,
                                const std::string& instance_id, const TabletIndexPB& idx,
                                TabletStatsPB& stats, bool snapshot = false);
+
+// Get detached tablet stats via `iter`, `iter.next` SHOULD be the first splitted tablet stats KV.
+// Return 0 if success, otherwise error.
+[[nodiscard]] int get_detached_tablet_stats(RangeGetIterator& iter, TabletStats& detached_stats);
 
 } // namespace doris::cloud

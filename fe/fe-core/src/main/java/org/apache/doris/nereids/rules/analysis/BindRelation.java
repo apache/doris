@@ -148,13 +148,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
         TableIf table = null;
-        if (!CollectionUtils.isEmpty(cascadesContext.getTables())) {
-            table = cascadesContext.getTableInMinidumpCache(tableName);
-        }
-        if (table == null) {
-            if (customTableResolver.isPresent()) {
-                table = customTableResolver.get().apply(tableQualifier);
-            }
+        if (customTableResolver.isPresent()) {
+            table = customTableResolver.get().apply(tableQualifier);
         }
         // In some cases even if we have already called the "cascadesContext.getTableByName",
         // it also gets the null. So, we just check it in the catalog again for safety.
@@ -206,7 +201,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 }
                 PreAggStatus preAggStatus
                         = olapTable.getIndexMetaByIndexId(indexId).getKeysType().equals(KeysType.DUP_KEYS)
-                        ? PreAggStatus.on()
+                        ? PreAggStatus.unset()
                         : PreAggStatus.off("For direct index scan.");
 
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
@@ -274,13 +269,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     }
                     hmsTable.setScanParams(unboundRelation.getScanParams());
                     return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
-                            qualifierWithoutTableName, unboundRelation.getTableSample());
+                            qualifierWithoutTableName, unboundRelation.getTableSample(),
+                            unboundRelation.getTableSnapshot());
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
-                            qualifierWithoutTableName, unboundRelation.getTableSample());
+                            qualifierWithoutTableName, unboundRelation.getTableSample(),
+                            unboundRelation.getTableSnapshot());
                 case SCHEMA:
                     return new LogicalSchemaScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 case JDBC_EXTERNAL_TABLE:

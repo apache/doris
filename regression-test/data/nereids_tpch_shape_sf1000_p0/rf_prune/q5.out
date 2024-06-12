@@ -25,13 +25,14 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[supplier] apply RFs: RF1
 ------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------hashJoin[INNER_JOIN] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF0 r_regionkey->[n_regionkey]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[nation] apply RFs: RF0
-----------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF0 r_regionkey->[n_regionkey]
 ------------------------------------PhysicalProject
---------------------------------------filter((region.r_name = 'ASIA'))
-----------------------------------------PhysicalOlapScan[region]
+--------------------------------------PhysicalOlapScan[nation] apply RFs: RF0
+------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------------PhysicalProject
+----------------------------------------filter((region.r_name = 'ASIA'))
+------------------------------------------PhysicalOlapScan[region]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[customer]

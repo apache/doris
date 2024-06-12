@@ -99,7 +99,7 @@ public:
 
     virtual InvertedIndexReaderType type() = 0;
 
-    [[nodiscard]] uint32_t get_index_id() const { return _index_meta.index_id(); }
+    [[nodiscard]] uint64_t get_index_id() const { return _index_meta.index_id(); }
 
     [[nodiscard]] const std::map<string, string>& get_index_properties() const {
         return _index_meta.properties();

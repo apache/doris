@@ -36,6 +36,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.BitSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -63,6 +64,9 @@ public class InitMaterializationContextHook implements PlannerHook {
         }
         Plan rewritePlan = cascadesContext.getRewritePlan();
         TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), true);
+        // Keep use one connection context when in query, if new connect context,
+        // the ConnectionContext.get() will change
+        collectorContext.setConnectContext(cascadesContext.getConnectContext());
         rewritePlan.accept(TableCollector.INSTANCE, collectorContext);
         Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         if (collectedTables.isEmpty()) {
@@ -80,16 +84,23 @@ public class InitMaterializationContextHook implements PlannerHook {
         for (MTMV materializedView : availableMTMVs) {
             MTMVCache mtmvCache = null;
             try {
-                mtmvCache = materializedView.getOrGenerateCache();
+                mtmvCache = materializedView.getOrGenerateCache(cascadesContext.getConnectContext());
             } catch (AnalysisException e) {
                 LOG.warn("MaterializationContext init mv cache generate fail", e);
             }
             if (mtmvCache == null) {
                 continue;
             }
+            // For async materialization context, the cascades context when construct the struct info maybe
+            // different from the current cascadesContext
+            // so regenerate the struct info table bitset
+            StructInfo mvStructInfo = mtmvCache.getStructInfo();
+            BitSet tableBitSetInCurrentCascadesContext = new BitSet();
+            mvStructInfo.getRelations().forEach(relation -> tableBitSetInCurrentCascadesContext.set(
+                    cascadesContext.getStatementContext().getTableId(relation.getTable()).asInt()));
             cascadesContext.addMaterializationContext(new AsyncMaterializationContext(materializedView,
                     mtmvCache.getLogicalPlan(), mtmvCache.getOriginalPlan(), ImmutableList.of(), ImmutableList.of(),
-                    cascadesContext));
+                    cascadesContext, mtmvCache.getStructInfo().withTableBitSet(tableBitSetInCurrentCascadesContext)));
         }
     }
 }

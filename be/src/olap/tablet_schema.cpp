@@ -53,6 +53,8 @@
 
 namespace doris {
 
+static bvar::Adder<size_t> g_total_tablet_schema_num("doris_total_tablet_schema_num");
+
 FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     switch (primitiveType) {
     case PrimitiveType::INVALID_TYPE:
@@ -820,6 +822,14 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
     }
 }
 
+TabletSchema::TabletSchema() {
+    g_total_tablet_schema_num << 1;
+}
+
+TabletSchema::~TabletSchema() {
+    g_total_tablet_schema_num << -1;
+}
+
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     if (column.is_key()) {
         _num_key_columns++;
@@ -983,6 +993,24 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     tablet_schema.to_schema_pb(&tablet_schema_pb);
     init_from_pb(tablet_schema_pb);
     _table_id = tablet_schema.table_id();
+}
+
+void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
+    for (auto& col : _cols) {
+        if (col->unique_id() < 0) {
+            continue;
+        }
+        const auto iter = tablet_schema._field_id_to_index.find(col->unique_id());
+        if (iter == tablet_schema._field_id_to_index.end()) {
+            continue;
+        }
+        auto col_idx = iter->second;
+        if (col_idx < 0 || col_idx >= tablet_schema._cols.size()) {
+            continue;
+        }
+        col->set_is_bf_column(tablet_schema._cols[col_idx]->is_bf_column());
+        col->set_has_bitmap_index(tablet_schema._cols[col_idx]->has_bitmap_index());
+    }
 }
 
 std::string TabletSchema::to_key() const {
@@ -1295,7 +1323,7 @@ bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
     return false;
 }
 
-bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id,
+bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id,
                                                     const std::string& suffix_name) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED &&
@@ -1307,7 +1335,7 @@ bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id,
 }
 
 const TabletIndex* TabletSchema::get_inverted_index_with_index_id(
-        int32_t index_id, const std::string& suffix_name) const {
+        int64_t index_id, const std::string& suffix_name) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED &&
             _indexes[i].get_index_suffix() == suffix_name && _indexes[i].index_id() == index_id) {

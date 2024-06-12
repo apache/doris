@@ -22,8 +22,6 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <map>
 #include <memory>
@@ -162,12 +160,30 @@ public:
     int32_t parent_unique_id() const { return _parent_col_unique_id; }
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
+    void set_has_bitmap_index(bool has_bitmap_index) { _has_bitmap_index = has_bitmap_index; }
     std::shared_ptr<const vectorized::IDataType> get_vec_type() const;
 
     void append_sparse_column(TabletColumn column);
     const TabletColumn& sparse_column_at(size_t oridinal) const;
     const std::vector<TabletColumnPtr>& sparse_columns() const;
     size_t num_sparse_columns() const { return _num_sparse_columns; }
+
+    Status check_valid() const {
+        if (type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
+            type() != FieldType::OLAP_FIELD_TYPE_STRUCT &&
+            type() != FieldType::OLAP_FIELD_TYPE_MAP) {
+            return Status::OK();
+        }
+        if (is_bf_column()) {
+            return Status::NotSupported("Do not support bloom filter index, type={}",
+                                        get_string_by_field_type(type()));
+        }
+        if (has_bitmap_index()) {
+            return Status::NotSupported("Do not support bitmap index, type={}",
+                                        get_string_by_field_type(type()));
+        }
+        return Status::OK();
+    }
 
 private:
     int32_t _unique_id = -1;
@@ -234,14 +250,14 @@ public:
     const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
     const std::map<string, string>& properties() const { return _properties; }
     int32_t get_gram_size() const {
-        if (_properties.count("gram_size")) {
+        if (_properties.contains("gram_size")) {
             return std::stoi(_properties.at("gram_size"));
         }
 
         return 0;
     }
     int32_t get_gram_bf_size() const {
-        if (_properties.count("bf_size")) {
+        if (_properties.contains("bf_size")) {
             return std::stoi(_properties.at("bf_size"));
         }
 
@@ -268,7 +284,9 @@ public:
     // TODO(yingchun): better to make constructor as private to avoid
     // manually init members incorrectly, and define a new function like
     // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
-    TabletSchema() = default;
+    TabletSchema();
+    virtual ~TabletSchema();
+
     void init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns = false);
     // Notice: Use deterministic way to serialize protobuf,
     // since serialize Map in protobuf may could lead to un-deterministic by default
@@ -282,6 +300,7 @@ public:
     // Must make sure the row column is always the last column
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
+    void update_index_info_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
     // Don't use.
     // TODO: memory size of TabletSchema cannot be accurately tracked.
@@ -346,8 +365,8 @@ public:
     }
     std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
     bool has_inverted_index(const TabletColumn& col) const;
-    bool has_inverted_index_with_index_id(int32_t index_id, const std::string& suffix_path) const;
-    const TabletIndex* get_inverted_index_with_index_id(int32_t index_id,
+    bool has_inverted_index_with_index_id(int64_t index_id, const std::string& suffix_path) const;
+    const TabletIndex* get_inverted_index_with_index_id(int64_t index_id,
                                                         const std::string& suffix_name) const;
     const TabletIndex* get_inverted_index(const TabletColumn& col) const;
     const TabletIndex* get_inverted_index(int32_t col_unique_id,

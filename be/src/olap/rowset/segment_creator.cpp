@@ -198,7 +198,7 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     const auto& tablet_schema = flush_schema ? flush_schema : _context.tablet_schema;
     writer = std::make_unique<segment_v2::SegmentWriter>(
             file_writer.get(), segment_id, tablet_schema, _context.tablet, _context.data_dir,
-            _context.max_rows_per_segment, writer_options, _context.mow_context, _context.fs);
+            _context.max_rows_per_segment, writer_options, _context.mow_context);
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(file_writer)));
     auto s = writer->init();
     if (!s.ok()) {
@@ -226,7 +226,7 @@ Status SegmentFlusher::_create_segment_writer(
     const auto& tablet_schema = flush_schema ? flush_schema : _context.tablet_schema;
     writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
             file_writer.get(), segment_id, tablet_schema, _context.tablet, _context.data_dir,
-            _context.max_rows_per_segment, writer_options, _context.mow_context, _context.fs);
+            _context.max_rows_per_segment, writer_options, _context.mow_context);
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(file_writer)));
     auto s = writer->init();
     if (!s.ok()) {
@@ -245,6 +245,9 @@ Status SegmentFlusher::_flush_segment_writer(
         std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer, TabletSchemaSPtr flush_schema,
         int64_t* flush_size) {
     uint32_t row_num = writer->num_rows_written();
+    _num_rows_updated += writer->num_rows_updated();
+    _num_rows_deleted += writer->num_rows_deleted();
+    _num_rows_new_added += writer->num_rows_new_added();
     _num_rows_filtered += writer->num_rows_filtered();
 
     if (row_num == 0) {
@@ -287,6 +290,9 @@ Status SegmentFlusher::_flush_segment_writer(
 Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                              TabletSchemaSPtr flush_schema, int64_t* flush_size) {
     uint32_t row_num = writer->num_rows_written();
+    _num_rows_updated += writer->num_rows_updated();
+    _num_rows_deleted += writer->num_rows_deleted();
+    _num_rows_new_added += writer->num_rows_new_added();
     _num_rows_filtered += writer->num_rows_filtered();
 
     if (row_num == 0) {
@@ -299,7 +305,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
     VLOG_DEBUG << "tablet_id:" << _context.tablet_id
-               << " flushing rowset_dir: " << _context.rowset_dir
+               << " flushing rowset_dir: " << _context.tablet_path
                << " rowset_id:" << _context.rowset_id;
 
     KeyBoundsPB key_bounds;
@@ -366,6 +372,7 @@ Status SegmentCreator::add_block(const vectorized::Block* block) {
         if (_buffer_block.allocated_bytes() > config::write_buffer_size) {
             vectorized::Block block = _buffer_block.to_block();
             RETURN_IF_ERROR(flush_single_block(&block));
+            _buffer_block.clear();
         } else {
             RETURN_IF_ERROR(_buffer_block.merge(*block));
         }
@@ -397,6 +404,7 @@ Status SegmentCreator::flush() {
     if (_buffer_block.rows() > 0) {
         vectorized::Block block = _buffer_block.to_block();
         RETURN_IF_ERROR(flush_single_block(&block));
+        _buffer_block.clear();
     }
     if (_flush_writer == nullptr) {
         return Status::OK();
