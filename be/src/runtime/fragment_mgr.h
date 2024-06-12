@@ -150,6 +150,8 @@ public:
     Status get_realtime_exec_status(const TUniqueId& query_id,
                                     TReportExecStatusParams* exec_status);
 
+    std::shared_ptr<QueryContext> get_or_erase_query_ctx(TUniqueId query_id);
+
 private:
     template <typename Param>
     void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
@@ -157,7 +159,6 @@ private:
     template <typename Params>
     Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                           std::shared_ptr<QueryContext>& query_ctx);
-    std::shared_ptr<QueryContext> _get_or_erase_query_ctx(TUniqueId query_id);
 
     // This is input params
     ExecEnv* _exec_env = nullptr;
