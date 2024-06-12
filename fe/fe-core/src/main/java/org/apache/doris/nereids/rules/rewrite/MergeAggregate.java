@@ -74,10 +74,7 @@ public class MergeAggregate implements RewriteRuleFactory {
      */
     private Plan mergeTwoAggregate(LogicalAggregate<LogicalAggregate<Plan>> outerAgg) {
         LogicalAggregate<Plan> innerAgg = outerAgg.child();
-        Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc = innerAgg.getOutputExpressions().stream()
-                .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
-                .collect(Collectors.toMap(NamedExpression::getExprId, value -> (AggregateFunction) value.child(0),
-                        (existValue, newValue) -> existValue));
+        Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc = getInnerAggExprIdToAggFuncMap(innerAgg);
         List<NamedExpression> newOutputExpressions = outerAgg.getOutputExpressions().stream()
                 .map(e -> rewriteAggregateFunction(e, innerAggExprIdToAggFunc))
                 .collect(Collectors.toList());
@@ -99,10 +96,7 @@ public class MergeAggregate implements RewriteRuleFactory {
         List<NamedExpression> outputExpressions = outerAgg.getOutputExpressions();
         List<NamedExpression> replacedOutputExpressions = PlanUtils.replaceExpressionByProjections(
                                 project.getProjects(), (List) outputExpressions);
-        Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc = innerAgg.getOutputExpressions().stream()
-                .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
-                .collect(Collectors.toMap(NamedExpression::getExprId, value -> (AggregateFunction) value.child(0),
-                        (existValue, newValue) -> existValue));
+        Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc = getInnerAggExprIdToAggFuncMap(innerAgg);
         // rewrite agg function. e.g. max(max)
         List<NamedExpression> replacedAggFunc = replacedOutputExpressions.stream()
                 .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
@@ -158,10 +152,7 @@ public class MergeAggregate implements RewriteRuleFactory {
 
     private boolean commonCheck(LogicalAggregate<? extends Plan> outerAgg, LogicalAggregate<Plan> innerAgg,
             boolean sameGroupBy, Optional<LogicalProject> projectOptional) {
-        Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc = innerAgg.getOutputExpressions().stream()
-                .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
-                .collect(Collectors.toMap(NamedExpression::getExprId, value -> (AggregateFunction) value.child(0),
-                        (existValue, newValue) -> existValue));
+        Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc = getInnerAggExprIdToAggFuncMap(innerAgg);
         Set<AggregateFunction> aggregateFunctions = outerAgg.getAggregateFunctions();
         List<AggregateFunction> replacedAggFunctions = projectOptional.map(project ->
                 (List<AggregateFunction>) PlanUtils.replaceExpressionByProjections(
@@ -230,5 +221,12 @@ public class MergeAggregate implements RewriteRuleFactory {
         }
         boolean sameGroupBy = (innerAgg.getGroupByExpressions().size() == outerAgg.getGroupByExpressions().size());
         return commonCheck(outerAgg, innerAgg, sameGroupBy, Optional.of(project));
+    }
+
+    private Map<ExprId, AggregateFunction> getInnerAggExprIdToAggFuncMap(LogicalAggregate<Plan> innerAgg) {
+        return innerAgg.getOutputExpressions().stream()
+                .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
+                .collect(Collectors.toMap(NamedExpression::getExprId, value -> (AggregateFunction) value.child(0),
+                        (existValue, newValue) -> existValue));
     }
 }
