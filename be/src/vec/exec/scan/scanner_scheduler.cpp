@@ -223,6 +223,12 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         return;
     }
 
+    // Query context maybe destructed once pipeline fragment context closed. So we hold this shared pointer here.
+    auto query_ctx = ctx->get_query_ctx();
+    if (query_ctx == nullptr) {
+        return;
+    }
+
     std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
     if (scanner_delegate == nullptr) {
         return;

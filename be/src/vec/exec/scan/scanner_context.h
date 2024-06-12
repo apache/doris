@@ -121,6 +121,7 @@ public:
     }
     Status init();
 
+    std::shared_ptr<QueryContext> get_query_ctx() { return _query_ctx.lock(); }
     vectorized::BlockUPtr get_free_block(bool force);
     void return_free_block(vectorized::BlockUPtr block);
     inline void inc_free_block_usage(size_t usage) {
@@ -242,6 +243,7 @@ protected:
     const float WAIT_BLOCK_DURATION_RATIO = 0.5;
     const float SCALE_UP_RATIO = 0.5;
     float MAX_SCALE_UP_RATIO;
+    std::weak_ptr<QueryContext> _query_ctx;
 };
 } // namespace vectorized
 } // namespace doris

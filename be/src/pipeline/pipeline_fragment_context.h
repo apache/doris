@@ -86,6 +86,7 @@ public:
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
     QueryContext* get_query_ctx() { return _query_ctx.get(); }
+    std::shared_ptr<QueryContext> get_query_ctx_sptr() { return _query_ctx; }
     // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
 

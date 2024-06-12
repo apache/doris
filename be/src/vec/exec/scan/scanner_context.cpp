@@ -28,6 +28,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "pipeline/exec/scan_operator.h"
+#include "pipeline/pipeline_fragment_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
@@ -58,6 +59,9 @@ ScannerContext::ScannerContext(
           _scanner_scheduler(state->exec_env()->scanner_scheduler()),
           _all_scanners(scanners.begin(), scanners.end()),
           _num_parallel_instances(num_parallel_instances) {
+    _query_ctx = std::dynamic_pointer_cast<pipeline::PipelineFragmentContext>(
+                         state->get_task_execution_context().lock())
+                         ->get_query_ctx_sptr();
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
     _query_id = _state->get_query_ctx()->query_id();
