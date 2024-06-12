@@ -1965,6 +1965,10 @@ public class SingleNodePlanner {
                     case HUDI:
                         // Old planner does not support hudi incremental read,
                         // so just pass Optional.empty() to HudiScanNode
+                        if (tblRef.getScanParams() != null) {
+                            throw new UserException("Hudi incremental read is not supported, "
+                                    + "please set enable_nereids_planner = true to enable new optimizer");
+                        }
                         scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true,
                                 Optional.empty(), Optional.empty());
                         break;

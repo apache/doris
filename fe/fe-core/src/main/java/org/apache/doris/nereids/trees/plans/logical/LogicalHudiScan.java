@@ -88,8 +88,8 @@ public class LogicalHudiScan extends LogicalFileScan {
     /**
      * Set scan params for incremental read
      *
-     * @param table
-     * @param scanParams
+     * @param table should be hudi table
+     * @param scanParams including incremental read params
      */
     public void setScanParams(HMSExternalTable table, TableScanParams scanParams) {
         if (scanParams != null && scanParams.incrementalRead()) {
