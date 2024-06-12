@@ -507,6 +507,8 @@ if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
     ## import tpch data into lakesoul
     ## install rustup
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y
+    # shellcheck source=/dev/null
+    . "${HOME}/.cargo/env"
     ## install rust nightly-2023-05-20
     rustup install nightly-2023-05-20
     ## download&generate tpch data
