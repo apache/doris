@@ -60,13 +60,11 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
-import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -295,11 +293,12 @@ public class CreateMTMVInfo {
     }
 
     private void analyzeExpressions(Plan plan, Map<String, String> mvProperties) {
-        boolean enableDateNondeterministicFunction = Boolean.parseBoolean(
-                mvProperties.get(PropertyAnalyzer.PROPERTIES_ENABLE_DATE_NONDETERMINISTIC_FUNCTION));
-        List<Expression> functionCollectResult = MaterializedViewUtils.extractNondeterministicFunction(
-                plan, enableDateNondeterministicFunction
-                        ? NondeterministicFunctionCollector.WHITE_FUNCTION_LIST : ImmutableSet.of());
+        boolean enableNondeterministicFunction = Boolean.parseBoolean(
+                mvProperties.get(PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION));
+        if (enableNondeterministicFunction) {
+            return;
+        }
+        List<Expression> functionCollectResult = MaterializedViewUtils.extractNondeterministicFunction(plan);
         if (!CollectionUtils.isEmpty(functionCollectResult)) {
             throw new AnalysisException(String.format(
                     "can not contain invalid expression, the expression is %s",

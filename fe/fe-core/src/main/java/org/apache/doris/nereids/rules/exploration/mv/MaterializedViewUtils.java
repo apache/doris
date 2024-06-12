@@ -264,9 +264,9 @@ public class MaterializedViewUtils {
      * the function would be considered as deterministic function and will not return
      * in the result expression result
      */
-    public static List<Expression> extractNondeterministicFunction(Plan plan, Set<Expression> whiteExpressionSet) {
+    public static List<Expression> extractNondeterministicFunction(Plan plan) {
         NondeterministicFunctionCollector.FunctionCollectContext collectContext =
-                NondeterministicFunctionCollector.FunctionCollectContext.of(whiteExpressionSet);
+                NondeterministicFunctionCollector.FunctionCollectContext.of();
         plan.accept(NondeterministicFunctionCollector.INSTANCE, collectContext);
         return collectContext.getCollectedExpressions();
     }

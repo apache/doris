@@ -86,7 +86,7 @@ suite("test_enable_date_non_deterministic_function_mtmv","mtmv") {
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
         'replication_num' = '1',
-        'enable_date_nondeterministic_function' = 'true'
+        'enable_nondeterministic_function' = 'true'
         )
         AS
         SELECT *, unix_timestamp(k3, '%Y-%m-%d %H:%i-%s') from ${tableName} where current_date() > k3;
@@ -94,6 +94,25 @@ suite("test_enable_date_non_deterministic_function_mtmv","mtmv") {
 
     waitingMTMVTaskFinished(getJobName(db, mvName))
     order_qt_with_current_date """select * from ${mvName}"""
+    sql """drop materialized view if exists ${mvName};"""
+
+
+    sql """drop materialized view if exists ${mvName};"""
+
+    // when disable date nondeterministic function, create mv with param unix_timestamp should success
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+        BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+        'replication_num' = '1'
+        )
+        AS
+        SELECT *, unix_timestamp(k3, '%Y-%m-%d %H:%i-%s') from ${tableName};
+        """
+
+    waitingMTMVTaskFinished(getJobName(db, mvName))
+    order_qt_with_unix_timestamp_format """select * from ${mvName}"""
     sql """drop materialized view if exists ${mvName};"""
 
     // when enable date nondeterministic function, create mv with orther fuction except current_date() should fail
