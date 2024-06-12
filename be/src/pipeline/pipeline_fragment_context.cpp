@@ -128,13 +128,6 @@ PipelineFragmentContext::PipelineFragmentContext(
 PipelineFragmentContext::~PipelineFragmentContext() {
     // The memory released by the query end is recorded in the query mem tracker.
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
-    auto st = _query_ctx->exec_status();
-    _query_ctx.reset();
-    for (size_t i = 0; i < _tasks.size(); i++) {
-        if (!_tasks[i].empty()) {
-            _call_back(_tasks[i].front()->runtime_state(), &st);
-        }
-    }
     _tasks.clear();
     for (auto& runtime_state : _task_runtime_states) {
         runtime_state.reset();
@@ -1580,6 +1573,14 @@ void PipelineFragmentContext::_close_fragment_instance() {
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
+
+    auto st = _query_ctx->exec_status();
+    _query_ctx.reset();
+    for (size_t i = 0; i < _tasks.size(); i++) {
+        if (!_tasks[i].empty()) {
+            _call_back(_tasks[i].front()->runtime_state(), &st);
+        }
+    }
 }
 
 void PipelineFragmentContext::close_a_pipeline() {
