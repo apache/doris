@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 
-suite("test_compaction_uniq_keys_row_store") {
+suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
     def realDb = "regression_test_serving_p0"
     def tableName = realDb + ".compaction_uniq_keys_row_store_regression_test"
     sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
@@ -213,4 +213,5 @@ suite("test_compaction_uniq_keys_row_store") {
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
+    sql "set global enable_server_side_prepared_statement = false"
 }
