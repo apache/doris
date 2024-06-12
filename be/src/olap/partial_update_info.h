@@ -28,6 +28,12 @@ struct PartialUpdateInfo {
               const std::string& auto_increment_column) {
         is_partial_update = partial_update;
         partial_update_input_columns = partial_update_cols;
+        std::stringstream ss;
+        for (string s: partial_update_input_columns) {
+            ss << s << ",";
+        }
+        LOG(INFO) << "DEBUG(PartialUpdateInfo::init): partial_update_input_columns: " << ss.str();
+
         this->timestamp_ms = timestamp_ms;
         this->timezone = timezone;
         missing_cids.clear();
@@ -35,6 +41,7 @@ struct PartialUpdateInfo {
         for (auto i = 0; i < tablet_schema.num_columns(); ++i) {
             auto tablet_column = tablet_schema.column(i);
             if (!partial_update_input_columns.contains(tablet_column.name())) {
+                LOG(INFO) << "DEBUG(PartialUpdateInfo::init): " << tablet_column.name() << " is a missing column.";
                 missing_cids.emplace_back(i);
                 if (!tablet_column.has_default_value() && !tablet_column.is_nullable() &&
                     tablet_schema.auto_increment_column() != tablet_column.name()) {
@@ -64,5 +71,7 @@ struct PartialUpdateInfo {
     std::string timezone;
     bool is_input_columns_contains_auto_inc_column = false;
     bool is_schema_contains_auto_inc_column = false;
+
+    vectorized::Block default_value_block;
 };
 } // namespace doris
