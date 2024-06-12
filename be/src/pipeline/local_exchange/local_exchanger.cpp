@@ -302,24 +302,15 @@ Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
         vectorized::BlockSupplier block_supplier = [&, id = channel_id](vectorized::Block* block,
                                                                         bool* eos) {
             vectorized::Block next_block;
-            if (_running_sink_operators == 0) {
-                if (_data_queue[id].try_dequeue(next_block)) {
-                    block->swap(next_block);
-                    if (_free_block_limit == 0 ||
-                        _free_blocks.size_approx() < _free_block_limit * _num_sources) {
-                        _free_blocks.enqueue(std::move(next_block));
-                    }
-                    sub_mem_usage(local_state, id, block->allocated_bytes());
-                } else {
-                    *eos = true;
-                }
-            } else if (_data_queue[id].try_dequeue(next_block)) {
+            if (_data_queue[id].try_dequeue(next_block)) {
                 block->swap(next_block);
                 if (_free_block_limit == 0 ||
                     _free_blocks.size_approx() < _free_block_limit * _num_sources) {
                     _free_blocks.enqueue(std::move(next_block));
                 }
                 sub_mem_usage(local_state, id, block->allocated_bytes());
+            } else if (_running_sink_operators == 0) {
+                *eos = true;
             }
             return Status::OK();
         };

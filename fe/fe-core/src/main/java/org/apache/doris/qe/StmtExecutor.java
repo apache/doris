@@ -848,7 +848,7 @@ public class StmtExecutor {
                 LOG.debug("due to exception {} retry {} rpc {} user {}",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
                 String msg = e.getMessage();
-                boolean isNeedRetry = true;
+                boolean isNeedRetry;
                 if (Config.isCloudMode()) {
                     isNeedRetry = false;
                     // errCode = 2, detailMessage = There is no scanNode Backend available.[10003: not alive]
@@ -878,6 +878,8 @@ public class StmtExecutor {
                             }
                         }
                     }
+                } else {
+                    isNeedRetry = e instanceof RpcException;
                 }
                 if (i != retryTime - 1 && isNeedRetry
                         && context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
