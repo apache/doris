@@ -267,7 +267,7 @@ public:
     }
     void set_write_cooldown_meta_executors();
     static void set_tracking_memory(bool tracking_memory) {
-        _s_tracking_memory.store(tracking_memory, std::memory_order_acquire);
+        _s_tracking_memory.store(tracking_memory, std::memory_order_release);
     }
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }

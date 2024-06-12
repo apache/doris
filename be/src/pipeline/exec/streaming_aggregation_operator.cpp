@@ -24,6 +24,8 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "pipeline/exec/operator.h"
+#include "vec/exprs/vectorized_agg_fn.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class RuntimeState;
@@ -76,7 +78,7 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 StreamingAggLocalState::StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
           _agg_arena_pool(std::make_unique<vectorized::Arena>()),
-          _agg_data(std::make_unique<vectorized::AggregatedDataVariants>()),
+          _agg_data(std::make_unique<AggregatedDataVariants>()),
           _agg_profile_arena(std::make_unique<vectorized::Arena>()),
           _child_block(vectorized::Block::create_unique()),
           _pre_aggregated_block(vectorized::Block::create_unique()) {}
@@ -164,13 +166,11 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
                                using KeyType = typename HashTableType::Key;
 
                                /// some aggregate functions (like AVG for decimal) have align issues.
-                               _aggregate_data_container =
-                                       std::make_unique<vectorized::AggregateDataContainer>(
-                                               sizeof(KeyType),
-                                               ((p._total_size_of_aggregate_states +
-                                                 p._align_aggregate_states - 1) /
-                                                p._align_aggregate_states) *
-                                                       p._align_aggregate_states);
+                               _aggregate_data_container = std::make_unique<AggregateDataContainer>(
+                                       sizeof(KeyType), ((p._total_size_of_aggregate_states +
+                                                          p._align_aggregate_states - 1) /
+                                                         p._align_aggregate_states) *
+                                                                p._align_aggregate_states);
                            }},
                    _agg_data->method_variant);
         if (p._is_merge) {
@@ -716,7 +716,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
             _agg_data->method_variant));
 
     if (!ret_flag) {
-        RETURN_IF_CATCH_EXCEPTION(_emplace_into_hash_table(_places.data(), key_columns, rows));
+        _emplace_into_hash_table(_places.data(), key_columns, rows);
 
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
             RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(
@@ -1148,8 +1148,7 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
     _aggregate_evaluators.reserve(tnode.agg_node.aggregate_functions.size());
     // In case of : `select * from (select GoodEvent from hits union select CounterID from hits) as h limit 10;`
     // only union with limit: we can short circuit query the pipeline exec engine.
-    _can_short_circuit =
-            tnode.agg_node.aggregate_functions.empty() && state->enable_pipeline_x_exec();
+    _can_short_circuit = tnode.agg_node.aggregate_functions.empty();
 
     TSortInfo dummy;
     for (int i = 0; i < tnode.agg_node.aggregate_functions.size(); ++i) {

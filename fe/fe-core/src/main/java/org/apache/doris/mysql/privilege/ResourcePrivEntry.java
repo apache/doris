@@ -45,9 +45,8 @@ public class ResourcePrivEntry extends PrivEntry {
         PatternMatcher resourcePattern = PatternMatcher.createMysqlPattern(
                 resourceName,
                 CaseSensibility.RESOURCE.getCaseSensibility());
-        if (privs.containsNodePriv() || privs.containsDbTablePriv()) {
-            throw new AnalysisException("Resource privilege can not contains node or db table privileges: " + privs);
-        }
+
+        Privilege.checkIncorrectPrivilege(Privilege.notBelongToResourcePrivileges, privs.toPrivilegeList());
         return new ResourcePrivEntry(resourcePattern,
                 resourceName, privs);
     }

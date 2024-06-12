@@ -425,8 +425,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             slotDesc.setAutoInc(column.isAutoInc());
         }
         OlapTableSink sink;
-        // This statement is only used in the group_commit mode in the http_stream
-        if (context.getConnectContext().isGroupCommitStreamLoadSql()) {
+        // This statement is only used in the group_commit mode
+        if (context.getConnectContext().isGroupCommit()) {
             sink = new GroupCommitBlockSink(olapTableSink.getTargetTable(), olapTuple,
                 olapTableSink.getTargetTable().getPartitionIds(), olapTableSink.isSingleReplicaLoad(),
                 context.getSessionVariable().getGroupCommit(), 0);
@@ -593,6 +593,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         } else if (table instanceof IcebergExternalTable) {
             scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+            if (fileScan.getTableSnapshot().isPresent()) {
+                ((IcebergScanNode) scanNode).setTableSnapshot(fileScan.getTableSnapshot().get());
+            }
         } else if (table instanceof PaimonExternalTable) {
             scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else if (table instanceof TrinoConnectorExternalTable) {
@@ -954,7 +957,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<AggregateExpression> aggregateExpressionList = outputExpressions.stream()
                 .filter(o -> o.anyMatch(AggregateExpression.class::isInstance))
                 .peek(o -> aggFunctionOutput.add(o.toSlot()))
-                .map(o -> o.<Set<AggregateExpression>>collect(AggregateExpression.class::isInstance))
+                .map(o -> o.<AggregateExpression>collect(AggregateExpression.class::isInstance))
                 .flatMap(Set::stream)
                 .collect(Collectors.toList());
         ArrayList<FunctionCallExpr> execAggregateFunctions = aggregateExpressionList.stream()

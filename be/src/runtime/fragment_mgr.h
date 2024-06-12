@@ -35,7 +35,6 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
-#include "runtime/plan_fragment_executor.h"
 #include "runtime/query_context.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
@@ -55,7 +54,6 @@ class PipelineFragmentContext;
 } // namespace pipeline
 class QueryContext;
 class ExecEnv;
-class PlanFragmentExecutor;
 class ThreadPool;
 class TExecPlanFragmentParams;
 class PExecPlanFragmentStartRequest;
@@ -152,17 +150,15 @@ public:
     Status get_realtime_exec_status(const TUniqueId& query_id,
                                     TReportExecStatusParams* exec_status);
 
-private:
-    void _exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
-                      const FinishCallback& cb);
+    std::shared_ptr<QueryContext> get_or_erase_query_ctx(TUniqueId query_id);
 
+private:
     template <typename Param>
     void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
 
     template <typename Params>
     Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                           std::shared_ptr<QueryContext>& query_ctx);
-    std::shared_ptr<QueryContext> _get_or_erase_query_ctx(TUniqueId query_id);
 
     // This is input params
     ExecEnv* _exec_env = nullptr;
@@ -173,9 +169,6 @@ private:
     // when allocate failed, allocator may call query_is_cancelled, query is callced will also
     // call _lock, so that there is dead lock.
     std::mutex _lock;
-
-    // Make sure that remove this before no data reference PlanFragmentExecutor
-    std::unordered_map<TUniqueId, std::shared_ptr<PlanFragmentExecutor>> _fragment_instance_map;
 
     std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
 

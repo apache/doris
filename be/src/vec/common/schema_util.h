@@ -90,13 +90,11 @@ struct ParseContext {
 // 1. parse variant from raw json string
 // 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
 // 3. encode sparse sub columns
-Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                                        const ParseContext& ctx);
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                              const ParseContext& ctx);
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
                               bool ignore_sparse = true);
-Status encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos);
+Status encode_variant_sparse_subcolumns(ColumnObject& column);
 
 // Pick the tablet schema with the highest schema version as the reference.
 // Then update all variant columns to there least common types.
@@ -117,7 +115,14 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
                                 const std::unordered_set<PathInData, PathInData::Hash>& path_set);
 
 // inherit attributes like index/agg info from it's parent column
-void inherit_root_attributes(TabletSchemaSPtr& schema);
+void inherit_column_attributes(TabletSchemaSPtr& schema);
+
+void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
+                               TabletSchemaSPtr& target_schema);
+
+// get sorted subcolumns of variant
+vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
+        const vectorized::ColumnObject::Subcolumns& subcolumns);
 
 // Rebuild schema from original schema by extend dynamic columns generated from ColumnObject.
 // Block consists of two parts, dynamic part of columns and static part of columns.

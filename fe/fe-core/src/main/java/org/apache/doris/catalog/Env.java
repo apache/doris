@@ -103,6 +103,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.LogUtils;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsSqlCacheManager;
 import org.apache.doris.common.Pair;
@@ -306,6 +307,7 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -549,6 +551,8 @@ public class Env {
     private final NereidsSqlCacheManager sqlCacheManager;
 
     private final SplitSourceManager splitSourceManager;
+
+    private final List<String> forceSkipJournalIds = Arrays.asList(Config.force_skip_journal_ids);
 
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
@@ -962,6 +966,10 @@ public class Env {
         return dnsCache;
     }
 
+    public List<String> getForceSkipJournalIds() {
+        return forceSkipJournalIds;
+    }
+
     // Use tryLock to avoid potential dead lock
     private boolean tryLock(boolean mustLock) {
         while (true) {
@@ -1045,6 +1053,7 @@ public class Env {
         if (!Config.enable_check_compatibility_mode) {
             getClusterIdAndRole();
         } else {
+            isElectable = true;
             role = FrontendNodeType.FOLLOWER;
             nodeName = genFeNodeName(selfNode.getHost(),
                     selfNode.getPort(), false /* new style */);
@@ -1508,7 +1517,7 @@ public class Env {
             if (Config.enable_check_compatibility_mode) {
                 String msg = "check metadata compatibility successfully";
                 LOG.info(msg);
-                System.out.println(msg);
+                LogUtils.stdout(msg);
                 System.exit(0);
             }
 
@@ -1576,6 +1585,11 @@ public class Env {
                                 SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
                     }
                 }
+                if (journalVersion <= FeMetaVersion.VERSION_133) {
+                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                            SessionVariable.ENABLE_MATERIALIZED_VIEW_REWRITE,
+                            "true");
+                }
             }
 
             getPolicyMgr().createDefaultStoragePolicy();
@@ -1612,7 +1626,7 @@ public class Env {
             checkLowerCaseTableNames();
 
             String msg = "master finished to replay journal, can write now.";
-            Util.stdoutWithTime(msg);
+            LogUtils.stdout(msg);
             LOG.info(msg);
             // for master, there are some new thread pools need to register metric
             ThreadPoolManager.registerAllThreadPoolMetric();
@@ -1717,6 +1731,8 @@ public class Env {
             getConsistencyChecker().start();
             // Backup handler
             getBackupHandler().start();
+            // start daemon thread to update global partition version and in memory information periodically
+            partitionInfoCollector.start();
         }
         jobManager.start();
         // transient task manager
@@ -1743,8 +1759,6 @@ public class Env {
         dynamicPartitionScheduler.start();
         // start daemon thread to update db used data quota for db txn manager periodically
         dbUsedDataQuotaInfoCollector.start();
-        // start daemon thread to update global partition in memory information periodically
-        partitionInfoCollector.start();
         if (Config.enable_storage_policy) {
             cooldownConfHandler.start();
         }
@@ -2721,7 +2735,7 @@ public class Env {
         try {
             String msg = "notify new FE type transfer: " + newType;
             LOG.warn(msg);
-            Util.stdoutWithTime(msg);
+            LogUtils.stdout(msg);
             this.typeTransferQueue.put(newType);
         } catch (InterruptedException e) {
             LOG.error("failed to put new FE type: {}", newType, e);
@@ -2739,7 +2753,7 @@ public class Env {
                         newType = typeTransferQueue.take();
                     } catch (InterruptedException e) {
                         LOG.error("got exception when take FE type from queue", e);
-                        Util.stdoutWithTime("got exception when take FE type from queue. " + e.getMessage());
+                        LogUtils.stdout("got exception when take FE type from queue. " + e.getMessage());
                         System.exit(-1);
                     }
                     Preconditions.checkNotNull(newType);
@@ -2821,7 +2835,7 @@ public class Env {
                             // exit if master changed to any other type
                             String msg = "transfer FE type from MASTER to " + newType.name() + ". exit";
                             LOG.error(msg);
-                            Util.stdoutWithTime(msg);
+                            LogUtils.stdout(msg);
                             System.exit(-1);
                             break;
                         }
@@ -2866,7 +2880,19 @@ public class Env {
             Long logId = kv.first;
             JournalEntity entity = kv.second;
             if (entity == null) {
-                break;
+                if (logId != null && forceSkipJournalIds.contains(String.valueOf(logId))) {
+                    replayedJournalId.incrementAndGet();
+                    String msg = "journal " + replayedJournalId + " has skipped by config force_skip_journal_id";
+                    LOG.info(msg);
+                    LogUtils.stdout(msg);
+                    if (MetricRepo.isInit) {
+                        // Metric repo may not init after this replay thread start
+                        MetricRepo.COUNTER_EDIT_LOG_READ.increase(1L);
+                    }
+                    continue;
+                } else {
+                    break;
+                }
             }
             hasLog = true;
             EditLog.loadJournal(this, logId, entity);
@@ -6320,13 +6346,13 @@ public class Env {
     private void replayJournalsAndExit() {
         replayJournal(-1);
         LOG.info("check metadata compatibility successfully");
-        System.out.println("check metadata compatibility successfully");
+        LogUtils.stdout("check metadata compatibility successfully");
 
         if (Config.checkpoint_after_check_compatibility) {
             String imagePath = dumpImage();
             String msg = "the new image file path is: " + imagePath;
             LOG.info(msg);
-            System.out.println(msg);
+            LogUtils.stdout(msg);
         }
 
         System.exit(0);

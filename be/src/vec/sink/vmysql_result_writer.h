@@ -49,8 +49,6 @@ public:
 
     Status write(Block& block) override;
 
-    bool can_sink() override;
-
     Status close(Status status) override;
 
     const ResultList& results() { return _results; }

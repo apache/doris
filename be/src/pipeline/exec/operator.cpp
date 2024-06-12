@@ -19,7 +19,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "exec/exec_node.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
@@ -389,8 +388,7 @@ std::shared_ptr<BasicSharedState> DataSinkOperatorX<LocalStateType>::create_shar
         LOG(FATAL) << "should not reach here!";
         return nullptr;
     } else {
-        std::shared_ptr<BasicSharedState> ss = nullptr;
-        ss = LocalStateType::SharedStateType::create_shared();
+        auto ss = LocalStateType::SharedStateType::create_shared();
         ss->id = operator_id();
         for (auto& dest : dests_id()) {
             ss->related_op_ids.insert(dest);

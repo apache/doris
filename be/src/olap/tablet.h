@@ -110,6 +110,8 @@ public:
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
     TabletUid tablet_uid() const { return _tablet_meta->tablet_uid(); }
 
+    const std::string& tablet_path() const { return _tablet_path; }
+
     bool set_tablet_schema_into_rowset_meta();
     Status init();
     bool init_succeeded();
@@ -265,8 +267,6 @@ public:
     void delete_all_files();
 
     void check_tablet_path_exists();
-
-    bool check_path(const std::string& check_path) const;
 
     TabletInfo get_tablet_info() const;
 
@@ -515,7 +515,7 @@ private:
     ////////////////////////////////////////////////////////////////////////////
     Status _cooldown_data(RowsetSharedPtr rowset);
     Status _follow_cooldowned_data();
-    Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+    Status _read_cooldown_meta(const StorageResource& storage_resource,
                                TabletMetaPB* tablet_meta_pb);
     bool _has_data_to_cooldown();
     int64_t _get_newest_cooldown_time(const RowsetSharedPtr& rowset);
@@ -531,6 +531,8 @@ public:
 private:
     StorageEngine& _engine;
     DataDir* _data_dir = nullptr;
+
+    std::string _tablet_path;
 
     DorisCallOnce<Status> _init_once;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently

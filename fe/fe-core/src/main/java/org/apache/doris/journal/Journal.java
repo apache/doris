@@ -66,4 +66,6 @@ public interface Journal {
     // Get all the dbs' name
     public List<Long> getDatabaseNames();
 
+    public boolean exceedMaxJournalSize(short op, Writable writable) throws IOException;
+
 }

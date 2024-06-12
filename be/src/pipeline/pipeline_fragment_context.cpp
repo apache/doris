@@ -36,8 +36,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "exec/data_sink.h"
 #include "io/fs/stream_load_pipe.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
@@ -91,6 +91,7 @@
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
+#include "pipeline/local_exchange/local_exchanger.h"
 #include "pipeline/task_scheduler.h"
 #include "pipeline_task.h"
 #include "runtime/exec_env.h"
@@ -104,7 +105,6 @@
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
-#include "vec/exec/scan/vscan_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
@@ -131,7 +131,9 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     auto st = _query_ctx->exec_status();
     _query_ctx.reset();
     for (size_t i = 0; i < _tasks.size(); i++) {
-        _call_back(_tasks[i].front()->runtime_state(), &st);
+        if (!_tasks[i].empty()) {
+            _call_back(_tasks[i].front()->runtime_state(), &st);
+        }
     }
     _tasks.clear();
     for (auto& runtime_state : _task_runtime_states) {
@@ -169,6 +171,10 @@ void PipelineFragmentContext::cancel(const Status reason) {
             return;
         }
     }
+    // Timeout is a special error code, we need print current stack to debug timeout issue.
+    if (reason.is<ErrorCode::TIMEOUT>()) {
+        LOG(WARNING) << "PipelineFragmentContext is cancelled due to timeout : " << debug_string();
+    }
     _query_ctx->cancel(reason, _fragment_id);
     if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
@@ -189,9 +195,6 @@ void PipelineFragmentContext::cancel(const Status reason) {
     // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
-            if (task->is_finished()) {
-                continue;
-            }
             task->clear_blocking_state();
         }
     }
@@ -303,18 +306,17 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         SCOPED_TIMER(_build_pipelines_timer);
         // 2. Build pipelines with operators in this fragment.
         auto root_pipeline = add_pipeline();
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_pipelines(_runtime_state->obj_pool(), request,
-                                                            *_query_ctx->desc_tbl, &_root_op,
-                                                            root_pipeline));
+        RETURN_IF_ERROR(_build_pipelines(_runtime_state->obj_pool(), request, *_query_ctx->desc_tbl,
+                                         &_root_op, root_pipeline));
 
         // 3. Create sink operator
         if (!request.fragment.__isset.output_sink) {
             return Status::InternalError("No output sink in this fragment!");
         }
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_data_sink(
-                _runtime_state->obj_pool(), request.fragment.output_sink,
-                request.fragment.output_exprs, request, root_pipeline->output_row_desc(),
-                _runtime_state.get(), *_desc_tbl, root_pipeline->id()));
+        RETURN_IF_ERROR(_create_data_sink(_runtime_state->obj_pool(), request.fragment.output_sink,
+                                          request.fragment.output_exprs, request,
+                                          root_pipeline->output_row_desc(), _runtime_state.get(),
+                                          *_desc_tbl, root_pipeline->id()));
         RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
         RETURN_IF_ERROR(root_pipeline->set_sink(_sink));
 
@@ -402,7 +404,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
                     _runtime_state->runtime_filter_wait_infinitely();
             filterparams->runtime_filter_wait_time_ms =
                     _runtime_state->runtime_filter_wait_time_ms();
-            filterparams->enable_pipeline_exec = _runtime_state->enable_pipeline_x_exec();
             filterparams->execution_timeout = _runtime_state->execution_timeout();
 
             filterparams->exec_env = ExecEnv::GetInstance();
@@ -741,6 +742,21 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                         ? _runtime_state->query_options().local_exchange_free_blocks_limit
                         : 0);
         break;
+    case ExchangeType::LOCAL_MERGE_SORT: {
+        auto child_op = cur_pipe->sink_x()->child_x();
+        auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(child_op);
+        if (!sort_source) {
+            return Status::InternalError(
+                    "LOCAL_MERGE_SORT must use in SortSourceOperatorX , but now is {} ",
+                    child_op->get_name());
+        }
+        shared_state->exchanger = LocalMergeSortExchanger::create_unique(
+                sort_source, cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
+        break;
+    }
     case ExchangeType::ADAPTIVE_PASSTHROUGH:
         shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
                 cur_pipe->num_tasks(), _num_instances,
@@ -1175,6 +1191,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             !tnode.agg_node.grouping_exprs.empty()) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs,
                                                        _require_bucket_distribution));
+            _require_bucket_distribution =
+                    _require_bucket_distribution || op->require_data_distribution();
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
                    tnode.agg_node.use_streaming_preaggregation &&
@@ -1204,6 +1222,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                                 _require_bucket_distribution));
             }
+            _require_bucket_distribution =
+                    _require_bucket_distribution || sink->require_data_distribution();
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1342,6 +1362,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                              _require_bucket_distribution));
         }
+        _require_bucket_distribution =
+                _require_bucket_distribution || sink->require_data_distribution();
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1379,6 +1401,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         DataSinkOperatorXPtr sink;
         sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                              _require_bucket_distribution));
+        _require_bucket_distribution =
+                _require_bucket_distribution || sink->require_data_distribution();
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1548,8 +1572,8 @@ void PipelineFragmentContext::_close_fragment_instance() {
     }
 
     if (_query_ctx->enable_profile()) {
-        _query_ctx->add_fragment_profile_x(_fragment_id, collect_realtime_profile_x(),
-                                           collect_realtime_load_channel_profile_x());
+        _query_ctx->add_fragment_profile(_fragment_id, collect_realtime_profile_x(),
+                                         collect_realtime_load_channel_profile_x());
     }
 
     // all submitted tasks done
@@ -1622,9 +1646,6 @@ std::string PipelineFragmentContext::debug_string() {
 std::vector<std::shared_ptr<TRuntimeProfileTree>>
 PipelineFragmentContext::collect_realtime_profile_x() const {
     std::vector<std::shared_ptr<TRuntimeProfileTree>> res;
-    DCHECK(_query_ctx->enable_pipeline_x_exec() == true)
-            << fmt::format("Query {} calling a pipeline X function, but its pipeline X is disabled",
-                           print_id(this->_query_id));
 
     // we do not have mutex to protect pipeline_id_to_profile
     // so we need to make sure this funciton is invoked after fragment context

@@ -22,7 +22,7 @@
 
 #include "common/exception.h"
 #include "pipeline/exec/operator.h"
-#include "vec//utils/util.hpp"
+#include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
 
@@ -444,8 +444,17 @@ Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* blo
     local_state.make_nullable_output_key(block);
     // dispose the having clause, should not be execute in prestreaming agg
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
-    local_state.reached_limit(block, eos);
+    local_state.do_agg_limit(block, eos);
     return Status::OK();
+}
+
+void AggLocalState::do_agg_limit(vectorized::Block* block, bool* eos) {
+    if (_shared_state->reach_limit) {
+        if (_shared_state->do_sort_limit && _shared_state->do_limit_filter(block, block->rows())) {
+            vectorized::Block::filter_block_internal(block, _shared_state->need_computes);
+        }
+        reached_limit(block, eos);
+    }
 }
 
 void AggLocalState::make_nullable_output_key(vectorized::Block* block) {

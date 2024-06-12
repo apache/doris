@@ -177,7 +177,7 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add(formattedDateTime);
         row.add(tableStatistic.analyzeColumns().toString());
         row.add(tableStatistic.jobType.toString());
-        row.add(String.valueOf(tableStatistic.newPartitionLoaded.get()));
+        row.add(String.valueOf(tableStatistic.partitionChanged.get()));
         row.add(String.valueOf(tableStatistic.userInjected));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);

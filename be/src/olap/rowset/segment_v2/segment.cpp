@@ -28,6 +28,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/block_file_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/io_common.h"
@@ -73,7 +74,7 @@
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris::segment_v2 {
-bvar::Adder<size_t> g_total_segment_num("doris_total_segment_num");
+static bvar::Adder<size_t> g_total_segment_num("doris_total_segment_num");
 class InvertedIndexIterator;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
@@ -102,6 +103,10 @@ Segment::~Segment() {
     g_total_segment_num << -1;
 }
 
+io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t seg_id) {
+    return io::BlockFileCache::hash(fmt::format("{}_{}.dat", rowset_id, seg_id));
+}
+
 Status Segment::_open() {
     _footer_pb = std::make_unique<SegmentFooterPB>();
     RETURN_IF_ERROR(_parse_footer(_footer_pb.get()));
@@ -112,12 +117,25 @@ Status Segment::_open() {
     // DCHECK(footer.has_short_key_index_page());
     _sk_index_page = _footer_pb->short_key_index_page();
     _num_rows = _footer_pb->num_rows();
+
+    // An estimated memory usage of a segment
+    _meta_mem_usage += _footer_pb->ByteSizeLong();
+    _meta_mem_usage += sizeof(*this);
+    _meta_mem_usage += _tablet_schema->num_columns() * config::estimated_mem_per_column_reader;
+
+    // 1024 comes from SegmentWriterOptions
+    _meta_mem_usage += (_num_rows + 1023) / 1024 * (36 + 4);
+    // 0.01 comes from PrimaryKeyIndexBuilder::init
+    _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;
+
     return Status::OK();
 }
 
 Status Segment::_open_inverted_index() {
     _inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
-            _fs, _file_reader->path().parent_path(), _file_reader->path().filename().native(),
+            _fs,
+            std::string {
+                    InvertedIndexDescriptor::get_index_path_prefix(_file_reader->path().native())},
             _tablet_schema->get_inverted_index_storage_format());
     bool open_idx_file_cache = true;
     auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
@@ -298,7 +316,7 @@ Status Segment::_load_pk_bloom_filter() {
     auto status = [this]() {
         return _load_pk_bf_once.call([this] {
             RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, *_pk_index_meta));
-            _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
+            // _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
             return Status::OK();
         });
     }();
@@ -335,7 +353,7 @@ Status Segment::_load_index_impl() {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
             _pk_index_reader.reset(new PrimaryKeyIndexReader());
             RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta));
-            _meta_mem_usage += _pk_index_reader->get_memory_size();
+            // _meta_mem_usage += _pk_index_reader->get_memory_size();
             return Status::OK();
         } else {
             // read and parse short key index page
@@ -357,7 +375,7 @@ Status Segment::_load_index_impl() {
             DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
             DCHECK(footer.has_short_key_page_footer());
 
-            _meta_mem_usage += body.get_size();
+            // _meta_mem_usage += body.get_size();
             _sk_index_decoder.reset(new ShortKeyIndexDecoder);
             return _sk_index_decoder->parse(body, footer.short_key_page_footer());
         }
@@ -427,7 +445,6 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second), footer.num_rows(),
                                              _file_reader, &reader));
         _column_readers.emplace(column.unique_id(), std::move(reader));
-        _meta_mem_usage += config::estimated_mem_per_column_reader;
     }
 
     // init by column path
@@ -522,24 +539,17 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
     auto sparse_node = tablet_column.has_path_info()
                                ? _sparse_column_tree.find_exact(*tablet_column.path_info_ptr())
                                : nullptr;
-    if (opt != nullptr && opt->io_ctx.reader_type == ReaderType::READER_ALTER_TABLE) {
-        CHECK(tablet_column.is_variant_type());
-        if (root == nullptr) {
-            // No such variant column in this segment, get a default one
-            RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
-            return Status::OK();
-        }
-        bool output_as_raw_json = true;
-        // Alter table operation should read the whole variant column, since it does not aware of
-        // subcolumns of variant during processing rewriting rowsets.
-        // This is slow, since it needs to read all sub columns and merge them into a single column
-        RETURN_IF_ERROR(
-                HierarchicalDataReader::create(iter, root_path, root, root, output_as_raw_json));
-        return Status::OK();
-    }
 
-    if (opt == nullptr || opt->io_ctx.reader_type != ReaderType::READER_QUERY) {
-        // Could be compaction ..etc and read flat leaves nodes data
+    auto is_compaction = [](ReaderType type) {
+        return type == ReaderType::READER_BASE_COMPACTION ||
+               type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+               type == ReaderType::READER_COLD_DATA_COMPACTION ||
+               type == ReaderType::READER_SEGMENT_COMPACTION ||
+               type == ReaderType::READER_FULL_COMPACTION;
+    };
+
+    if (opt != nullptr && is_compaction(opt->io_ctx.reader_type)) {
+        // compaction need to read flat leaves nodes data to prevent from amplification
         const auto* node = tablet_column.has_path_info()
                                    ? _sub_column_tree.find_leaf(*tablet_column.path_info_ptr())
                                    : nullptr;
@@ -619,7 +629,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         LOG(WARNING) << "different type between schema and column reader,"
                      << " column schema name: " << tablet_column.name()
                      << " column schema type: " << int(tablet_column.type())
-                     << " column reader meta type"
+                     << " column reader meta type: "
                      << int(_column_readers.at(tablet_column.unique_id())->get_meta_type());
         return Status::InternalError("different type between schema and column reader");
     }

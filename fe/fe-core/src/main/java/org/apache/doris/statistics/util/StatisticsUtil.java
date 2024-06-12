@@ -208,6 +208,7 @@ public class StatisticsUtil {
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
+        sessionVariable.setInsertMaxFilterRatio(1.0);
         sessionVariable.enablePageCache = false;
         sessionVariable.enableProfile = Config.enable_profile_when_analyze;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
@@ -862,6 +863,16 @@ public class StatisticsUtil {
         return StatisticConstants.HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES;
     }
 
+    public static long getHugePartitionLowerBoundRows() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_PARTITION_LOWER_BOUND_ROWS)
+                .hugePartitionLowerBoundRows;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of huge_partition_lower_bound_rows, return default", e);
+        }
+        return StatisticConstants.HUGE_PARTITION_LOWER_BOUND_ROWS;
+    }
+
     public static long getHugeTableAutoAnalyzeIntervalInMillis() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS)
@@ -984,13 +995,13 @@ public class StatisticsUtil {
         }
         // Partition table partition stats never been collected.
         if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()
-                && (columnStatsMeta.partitionUpdateRows == null || columnStatsMeta.partitionUpdateRows.isEmpty())) {
+                && columnStatsMeta.partitionUpdateRows == null) {
             return true;
         }
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
             // 0. Check new partition first time loaded flag.
-            if (olapTable.isPartitionColumn(column.second) && tableStatsStatus.newPartitionLoaded.get()) {
+            if (olapTable.isPartitionColumn(column.second) && tableStatsStatus.partitionChanged.get()) {
                 return true;
             }
             // 1. Check row count.
@@ -1061,16 +1072,14 @@ public class StatisticsUtil {
             if (!partitionUpdateRows.containsKey(id)) {
                 return true;
             }
-            long currentUpdateRows = tableStatsStatus.partitionUpdateRows.get(id);
+            long currentUpdateRows = tableStatsStatus.partitionUpdateRows.getOrDefault(id, 0L);
             long lastUpdateRows = partitionUpdateRows.get(id);
-            if (currentUpdateRows != 0) {
-                long changedRows = currentUpdateRows - lastUpdateRows;
-                if (changedRows > 0) {
-                    changedPartitions++;
-                    // Too much partition changed, need to reanalyze.
-                    if (changedPartitions > UPDATED_PARTITION_THRESHOLD) {
-                        return true;
-                    }
+            long changedRows = currentUpdateRows - lastUpdateRows;
+            if (changedRows > 0) {
+                changedPartitions++;
+                // Too much partition changed, need to reanalyze.
+                if (changedPartitions > UPDATED_PARTITION_THRESHOLD) {
+                    return true;
                 }
                 double changeRate = ((double) changedRows) / currentUpdateRows;
                 // One partition changed too much, need to reanalyze.

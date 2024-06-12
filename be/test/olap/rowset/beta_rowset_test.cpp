@@ -53,6 +53,7 @@
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 #include "util/s3_util.h"
@@ -152,7 +153,7 @@ protected:
         rowset_writer_context->tablet_schema_hash = 1111;
         rowset_writer_context->partition_id = 10;
         rowset_writer_context->rowset_type = BETA_ROWSET;
-        rowset_writer_context->rowset_dir = kTestDir;
+        rowset_writer_context->tablet_path = kTestDir;
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
@@ -227,7 +228,7 @@ class S3ClientMockGetErrorData : public S3ClientMock {
 
 TEST_F(BetaRowsetTest, ReadTest) {
     RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
-    BetaRowset rowset(nullptr, "", rowset_meta);
+    BetaRowset rowset(nullptr, rowset_meta, "");
     S3Conf s3_conf {.bucket = "bucket",
                     .prefix = "prefix",
                     .client_conf = {
@@ -240,6 +241,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
     auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
     ASSERT_TRUE(res.has_value()) << res.error();
     auto fs = res.value();
+    StorageResource storage_resource(fs);
     auto& client = fs->client_holder()->_client;
     // failed to head object
     {
@@ -252,7 +254,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
         client.reset(new io::S3ObjStorageClient(std::move(s3_client)));
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_fs(fs);
+        rowset.rowset_meta()->set_remote_storage_resource(storage_resource);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
         Status st = rowset.load_segments(&segments);
@@ -267,7 +269,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
                 std::make_shared<Aws::S3::S3Client>(S3ClientMockGetError())));
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_fs(fs);
+        rowset.rowset_meta()->set_remote_storage_resource(storage_resource);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
         Status st = rowset.load_segments(&segments);
@@ -282,7 +284,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
                 std::make_shared<Aws::S3::S3Client>(S3ClientMockGetErrorData())));
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_fs(fs);
+        rowset.rowset_meta()->set_remote_storage_resource(storage_resource);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
         Status st = rowset.load_segments(&segments);

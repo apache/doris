@@ -27,9 +27,16 @@
 
 #include "common/status.h"
 #include "io/fs/hdfs.h"
+#include "io/fs/obj_storage_client.h"
 
 namespace doris {
 using namespace ErrorCode;
+
+io::ObjectStorageStatus convert_to_obj_response(Status st) {
+    int code = st._code;
+    std::string msg = st._err_msg == nullptr ? "" : std::move(st._err_msg->_msg);
+    return io::ObjectStorageStatus {.code = code, .msg = std::move(msg)};
+}
 
 namespace io {
 

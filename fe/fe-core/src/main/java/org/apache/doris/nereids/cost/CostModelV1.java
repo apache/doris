@@ -25,7 +25,6 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -204,9 +203,14 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
-        long exprCount = physicalProject.getProjects().stream()
-                .filter(proj -> (proj instanceof Alias) && !(proj.child(0) instanceof SlotReference)).count();
-        return CostV1.ofCpu(context.getSessionVariable(), exprCount + 1);
+        ExpressionCostEvaluator expressionCostEvaluator = new ExpressionCostEvaluator();
+        double exprCost = 0.0;
+        for (Expression expr : physicalProject.getProjects()) {
+            if (!(expr instanceof SlotReference)) {
+                exprCost += expr.accept(expressionCostEvaluator, null);
+            }
+        }
+        return CostV1.ofCpu(context.getSessionVariable(), exprCost + 1);
     }
 
     @Override
@@ -366,6 +370,13 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 }
             } else if (probeStats.getWidthInJoinCluster() < buildStats.getWidthInJoinCluster()) {
                 leftRowCount += 1;
+            }
+            if (probeStats.getWidthInJoinCluster() == buildStats.getWidthInJoinCluster()
+                    && probeStats.computeTupleSize() < buildStats.computeTupleSize()) {
+                // When the number of rows and the width on both sides of the join are the same,
+                // we need to consider the cost of materializing the output.
+                // When there is more data on the build side, a greater penalty will be given.
+                leftRowCount += 1e-3;
             }
         }
 

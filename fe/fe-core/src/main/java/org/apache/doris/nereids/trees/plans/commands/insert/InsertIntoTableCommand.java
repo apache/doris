@@ -54,7 +54,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * insert into select command implementation
@@ -152,7 +151,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 ctx.getMysqlChannel().reset();
             }
             Optional<PhysicalSink<?>> plan = (planner.getPhysicalPlan()
-                    .<Set<PhysicalSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
+                    .<PhysicalSink<?>>collect(PhysicalSink.class::isInstance)).stream()
                     .findAny();
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain target table");
             PhysicalSink physicalSink = plan.get();
@@ -162,11 +161,13 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     ctx.isTxnModel() ? null : String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
-                if (GroupCommitInserter.groupCommit(ctx, sink, physicalSink)) {
-                    // return;
-                    throw new AnalysisException("group commit is not supported in Nereids now");
-                }
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                if (GroupCommitInsertExecutor.canGroupCommit(ctx, sink, physicalSink, planner)) {
+                    insertExecutor = new GroupCommitInsertExecutor(ctx, targetTableIf, label, planner, insertCtx,
+                            emptyInsert);
+                    targetTableIf.readUnlock();
+                    return insertExecutor;
+                }
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 // the insertCtx contains some variables to adjust SinkNode
                 insertExecutor = ctx.isTxnModel()

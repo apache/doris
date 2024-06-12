@@ -342,8 +342,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
           _row_desc(row_desc),
           _is_merging(is_merging),
           _is_closed(false),
-          _profile(profile),
-          _enable_pipeline(state->enable_pipeline_x_exec()) {
+          _profile(profile) {
     // DataStreamRecvr may be destructed after the instance execution thread ends.
     _mem_tracker =
             std::make_unique<MemTracker>("VDataStreamRecvr:" + print_id(_fragment_instance_id));
@@ -351,26 +350,18 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;
-    if (state->enable_pipeline_x_exec()) {
-        _sender_to_local_channel_dependency.resize(num_queues);
-        for (size_t i = 0; i < num_queues; i++) {
-            _sender_to_local_channel_dependency[i] = pipeline::Dependency::create_shared(
-                    _dest_node_id, _dest_node_id, "LocalExchangeChannelDependency", true);
-        }
+    _sender_to_local_channel_dependency.resize(num_queues);
+    for (size_t i = 0; i < num_queues; i++) {
+        _sender_to_local_channel_dependency[i] = pipeline::Dependency::create_shared(
+                _dest_node_id, _dest_node_id, "LocalExchangeChannelDependency", true);
     }
     _sender_queues.reserve(num_queues);
     int num_sender_per_queue = is_merging ? 1 : num_senders;
     _sender_queue_mem_limit = std::max(20480, config::exchg_node_buffer_size_bytes / num_queues);
     for (int i = 0; i < num_queues; ++i) {
         SenderQueue* queue = nullptr;
-        if (_enable_pipeline) {
-            queue = _sender_queue_pool.add(new PipSenderQueue(this, num_sender_per_queue, profile));
-            if (state->enable_pipeline_x_exec()) {
-                queue->set_local_channel_dependency(_sender_to_local_channel_dependency[i]);
-            }
-        } else {
-            queue = _sender_queue_pool.add(new SenderQueue(this, num_sender_per_queue, profile));
-        }
+        queue = _sender_queue_pool.add(new PipSenderQueue(this, num_sender_per_queue, profile));
+        queue->set_local_channel_dependency(_sender_to_local_channel_dependency[i]);
         _sender_queues.push_back(queue);
     }
 
@@ -411,7 +402,6 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
                                                      _sender_queues[i], std::placeholders::_1,
                                                      std::placeholders::_2));
     }
-    _merger->set_pipeline_engine_enabled(_enable_pipeline);
     RETURN_IF_ERROR(_merger->prepare(child_block_suppliers));
     return Status::OK();
 }

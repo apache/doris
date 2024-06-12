@@ -35,6 +35,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "cctz/time_zone.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/factory_creator.h"
@@ -350,16 +351,9 @@ public:
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
 
     int be_exec_version() const {
-        if (!_query_options.__isset.be_exec_version) {
-            return 0;
-        }
+        DCHECK(_query_options.__isset.be_exec_version &&
+               BeExecVersionManager::check_be_exec_version(_query_options.be_exec_version));
         return _query_options.be_exec_version;
-    }
-    bool enable_pipeline_x_exec() const {
-        return (_query_options.__isset.enable_pipeline_x_engine &&
-                _query_options.enable_pipeline_x_engine) ||
-               (_query_options.__isset.enable_pipeline_engine &&
-                _query_options.enable_pipeline_engine);
     }
     bool enable_local_shuffle() const {
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
@@ -595,6 +589,11 @@ public:
 
     bool enable_force_spill() const {
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
+    }
+
+    bool enable_local_merge_sort() const {
+        return _query_options.__isset.enable_local_merge_sort &&
+               _query_options.enable_local_merge_sort;
     }
 
     int64_t min_revocable_mem() const {

@@ -485,9 +485,6 @@ public class MaterializedViewHandler extends AlterHandler {
         if (olapTable.hasMaterializedIndex(addMVClause.getMVName())) {
             throw new DdlException("Materialized view[" + addMVClause.getMVName() + "] already exists");
         }
-        if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new DdlException("MergeOnWrite table can't create materialized view.");
-        }
         if (olapTable.getRowStoreCol() != null) {
             throw new DdlException("RowStore table can't create materialized view.");
         }

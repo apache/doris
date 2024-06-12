@@ -65,6 +65,10 @@ public class Statistics {
         return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
     }
 
+    public Statistics withExpressionToColumnStats(Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
+    }
+
     /**
      * Update by count.
      */
@@ -118,7 +122,7 @@ public class Statistics {
                         && expressionToColumnStats.get(s).isUnKnown);
     }
 
-    private double computeTupleSize() {
+    public double computeTupleSize() {
         if (tupleSize <= 0) {
             double tempSize = 0.0;
             for (ColumnStatistic s : expressionToColumnStats.values()) {
