@@ -26,6 +26,7 @@
 #include <azure/storage/blobs/rest_client.hpp>
 #include <azure/storage/common/storage_credential.hpp>
 #include <azure/storage/common/storage_exception.hpp>
+#include <exception>
 #include <iterator>
 
 #include "common/logging.h"
@@ -57,6 +58,11 @@ ObjectStorageResponse do_azure_client_call(Func f, const ObjectStoragePathOption
         return {.status = convert_to_obj_response(Status::InternalError<false>(std::move(msg))),
                 .http_code = static_cast<int>(e.StatusCode),
                 .request_id = std::move(e.RequestId)};
+    } catch (std::exception& e) {
+        auto msg = fmt::format("Azure request failed because {}, path msg {}", e.what(),
+                               wrap_object_storage_path_msg(opts));
+        LOG_WARNING(msg);
+        return {.status = convert_to_obj_response(Status::InternalError<false>(std::move(msg)))};
     }
     return {};
 }
@@ -146,7 +152,9 @@ ObjectStorageResponse AzureObjStorageClient::get_object(const ObjectStoragePathO
                 Azure::Storage::Blobs::DownloadBlobToOptions download_opts;
                 Azure::Core::Http::HttpRange range {static_cast<int64_t>(offset), bytes_read};
                 download_opts.Range = range;
-                client.DownloadTo(reinterpret_cast<uint8_t*>(buffer), bytes_read, download_opts);
+                auto resp = client.DownloadTo(reinterpret_cast<uint8_t*>(buffer), bytes_read,
+                                              download_opts);
+                *size_return = resp.Value.ContentRange.Length.Value();
             },
             opts);
 }
