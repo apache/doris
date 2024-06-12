@@ -741,7 +741,7 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         _column_predicate_info->column_name = expr->expr_name();
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = std::dynamic_pointer_cast<doris::vectorized::VLiteral>(expr);
-        _column_predicate_info->query_values.push_back(v_literal_expr->value());
+        _column_predicate_info->query_values.insert(v_literal_expr->value());
     } else if (node_type == TExprNodeType::BINARY_PRED || node_type == TExprNodeType::MATCH_PRED ||
                node_type == TExprNodeType::IN_PRED) {
         if (node_type == TExprNodeType::MATCH_PRED) {
@@ -968,7 +968,8 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predica
 std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* predicate_info) {
     std::string pred_result_sign;
     pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + predicate_info->column_name + "_" +
-                       predicate_info->query_op + "_" + join(predicate_info->query_values, ",");
+                       predicate_info->query_op + "_" +
+                       boost::join(predicate_info->query_values, ",");
     return pred_result_sign;
 }
 
@@ -2643,7 +2644,7 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
         }
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
-        _column_predicate_info->query_values.push_back(v_literal_expr->value());
+        _column_predicate_info->query_values.insert(v_literal_expr->value());
     } else {
         if (node_type == TExprNodeType::MATCH_PRED) {
             _column_predicate_info->query_op = "match";
