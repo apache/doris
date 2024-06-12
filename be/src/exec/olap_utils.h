@@ -169,11 +169,6 @@ enum class MatchType {
     MATCH_ANY = 0,
     MATCH_ALL = 1,
     MATCH_PHRASE = 2,
-    MATCH_ELEMENT_EQ = 3,
-    MATCH_ELEMENT_LT = 4,
-    MATCH_ELEMENT_GT = 5,
-    MATCH_ELEMENT_LE = 6,
-    MATCH_ELEMENT_GE = 7,
     MATCH_PHRASE_PREFIX = 8,
     MATCH_REGEXP = 9,
 };
@@ -195,21 +190,6 @@ inline MatchType to_match_type(TExprOpcode::type type) {
     case TExprOpcode::type::MATCH_REGEXP:
         return MatchType::MATCH_REGEXP;
         break;
-    case TExprOpcode::type::MATCH_ELEMENT_EQ:
-        return MatchType::MATCH_ELEMENT_EQ;
-        break;
-    case TExprOpcode::type::MATCH_ELEMENT_LT:
-        return MatchType::MATCH_ELEMENT_LT;
-        break;
-    case TExprOpcode::type::MATCH_ELEMENT_GT:
-        return MatchType::MATCH_ELEMENT_GT;
-        break;
-    case TExprOpcode::type::MATCH_ELEMENT_LE:
-        return MatchType::MATCH_ELEMENT_LE;
-        break;
-    case TExprOpcode::type::MATCH_ELEMENT_GE:
-        return MatchType::MATCH_ELEMENT_GE;
-        break;
     default:
         VLOG_CRITICAL << "TExprOpcode: " << type;
         DCHECK(false);
@@ -228,16 +208,6 @@ inline MatchType to_match_type(const std::string& condition_op) {
         return MatchType::MATCH_PHRASE_PREFIX;
     } else if (condition_op.compare("match_regexp") == 0) {
         return MatchType::MATCH_REGEXP;
-    } else if (condition_op.compare("match_element_eq") == 0) {
-        return MatchType::MATCH_ELEMENT_EQ;
-    } else if (condition_op.compare("match_element_lt") == 0) {
-        return MatchType::MATCH_ELEMENT_LT;
-    } else if (condition_op.compare("match_element_gt") == 0) {
-        return MatchType::MATCH_ELEMENT_GT;
-    } else if (condition_op.compare("match_element_le") == 0) {
-        return MatchType::MATCH_ELEMENT_LE;
-    } else if (condition_op.compare("match_element_ge") == 0) {
-        return MatchType::MATCH_ELEMENT_GE;
     }
     return MatchType::UNKNOWN;
 }
@@ -246,12 +216,7 @@ inline bool is_match_condition(const std::string& op) {
     if (0 == strcasecmp(op.c_str(), "match_any") || 0 == strcasecmp(op.c_str(), "match_all") ||
         0 == strcasecmp(op.c_str(), "match_phrase") ||
         0 == strcasecmp(op.c_str(), "match_phrase_prefix") ||
-        0 == strcasecmp(op.c_str(), "match_regexp") ||
-        0 == strcasecmp(op.c_str(), "match_element_eq") ||
-        0 == strcasecmp(op.c_str(), "match_element_lt") ||
-        0 == strcasecmp(op.c_str(), "match_element_gt") ||
-        0 == strcasecmp(op.c_str(), "match_element_le") ||
-        0 == strcasecmp(op.c_str(), "match_element_ge")) {
+        0 == strcasecmp(op.c_str(), "match_regexp")) {
         return true;
     }
     return false;
@@ -260,9 +225,7 @@ inline bool is_match_condition(const std::string& op) {
 inline bool is_match_operator(const TExprOpcode::type& op_type) {
     return TExprOpcode::MATCH_ANY == op_type || TExprOpcode::MATCH_ALL == op_type ||
            TExprOpcode::MATCH_PHRASE == op_type || TExprOpcode::MATCH_PHRASE_PREFIX == op_type ||
-           TExprOpcode::MATCH_REGEXP == op_type || TExprOpcode::MATCH_ELEMENT_EQ == op_type ||
-           TExprOpcode::MATCH_ELEMENT_LT == op_type || TExprOpcode::MATCH_ELEMENT_GT == op_type ||
-           TExprOpcode::MATCH_ELEMENT_LE == op_type || TExprOpcode::MATCH_ELEMENT_GE == op_type;
+           TExprOpcode::MATCH_REGEXP == op_type;
 }
 
 } // namespace doris
