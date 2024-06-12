@@ -279,6 +279,6 @@ suite("test_point_query", "nonConcurrent") {
         set_be_config.call("disable_storage_row_cache", "true")
         sql """set global enable_nereids_planner=true"""
         sql "set global enable_fallback_to_original_planner = true"
-        // sql "set global enable_server_side_prepared_statement = false"
+        sql "set global enable_server_side_prepared_statement = false"
     }
 } 
