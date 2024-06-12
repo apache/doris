@@ -73,9 +73,7 @@ public:
         const bool right_const = is_column_const(*col_right.column);
         bool left_only_null = col_left.column->only_null();
         bool right_only_null = col_right.column->only_null();
-        std::cerr << "left_only_null: " << left_only_null
-                  << ", right_only_null: " << right_only_null << ", left const: " << left_const
-                  << ", right const: " << right_const << std::endl;
+
         if (left_only_null && right_only_null) {
             // TODO: return ColumnConst after function.cpp::default_implementation_for_constant_arguments supports it.
             auto result_column = ColumnVector<UInt8>::create(input_rows_count, 1);
@@ -177,11 +175,6 @@ public:
                                     : col_right.type,
                             ""}};
             Block temporary_block(eq_columns);
-
-            std::cerr << "Left nullable: " << left_nullable
-                      << ", right nullable: " << right_nullable << ", left size "
-                      << eq_columns.at(0).column->size() << ", right size "
-                      << eq_columns.at(1).column->size() << std::endl;
 
             auto func_eq =
                     SimpleFunctionFactory::instance().get_function("eq", eq_columns, return_type);
