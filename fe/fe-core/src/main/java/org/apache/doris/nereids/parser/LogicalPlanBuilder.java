@@ -172,6 +172,7 @@ import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
 import org.apache.doris.nereids.DorisParser.SetOperationContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
+import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefContext;
