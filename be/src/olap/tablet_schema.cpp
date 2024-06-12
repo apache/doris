@@ -1037,7 +1037,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _is_in_memory = ori_tablet_schema.is_in_memory();
     _disable_auto_compaction = ori_tablet_schema.disable_auto_compaction();
     _enable_single_replica_compaction = ori_tablet_schema.enable_single_replica_compaction();
-    _store_row_column = ori_tablet_schema.has_full_row_store_column();
+    _store_row_column = ori_tablet_schema._store_row_column;
     _skip_write_index_on_load = ori_tablet_schema.skip_write_index_on_load();
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
