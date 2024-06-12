@@ -51,6 +51,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -61,8 +62,8 @@ public class LogicalHudiScan extends LogicalFileScan {
     private static final Logger LOG = LogManager.getLogger(LogicalHudiScan.class);
 
     // for hudi incremental read
-    private Optional<TableScanParams> scanParams;
-    private Optional<IncrementalRelation> incrementalRelation;
+    private final Optional<TableScanParams> scanParams;
+    private final Optional<IncrementalRelation> incrementalRelation;
 
     /**
      * Constructor for LogicalHudiScan.
@@ -74,6 +75,8 @@ public class LogicalHudiScan extends LogicalFileScan {
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation) {
         super(id, table, qualifier, groupExpression, logicalProperties, conjuncts,
                 selectedPartitions, tableSample, tableSnapshot);
+        Objects.requireNonNull(scanParams);
+        Objects.requireNonNull(incrementalRelation);
         this.scanParams = scanParams;
         this.incrementalRelation = incrementalRelation;
     }
@@ -83,53 +86,6 @@ public class LogicalHudiScan extends LogicalFileScan {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 Sets.newHashSet(), SelectedPartitions.NOT_PRUNED, tableSample, tableSnapshot,
                 Optional.empty(), Optional.empty());
-    }
-
-    /**
-     * Set scan params for incremental read
-     *
-     * @param table should be hudi table
-     * @param scanParams including incremental read params
-     */
-    public void setScanParams(HMSExternalTable table, TableScanParams scanParams) {
-        if (scanParams != null && scanParams.incrementalRead()) {
-            Map<String, String> optParams = table.getHadoopProperties();
-            if (scanParams.getParams().containsKey("beginTime")) {
-                optParams.put("hoodie.datasource.read.begin.instanttime", scanParams.getParams().get("beginTime"));
-            }
-            if (scanParams.getParams().containsKey("endTime")) {
-                optParams.put("hoodie.datasource.read.end.instanttime", scanParams.getParams().get("endTime"));
-            }
-            scanParams.getParams().forEach((k, v) -> {
-                if (k.startsWith("hoodie.")) {
-                    optParams.put(k, v);
-                }
-            });
-            HoodieTableMetaClient hudiClient = HiveMetaStoreClientHelper.getHudiClient(table);
-            try {
-                boolean isCowOrRoTable = table.isHoodieCowTable();
-                if (isCowOrRoTable) {
-                    Map<String, String> serd = table.getRemoteTable().getSd().getSerdeInfo().getParameters();
-                    if ("true".equals(serd.get("hoodie.query.as.ro.table"))
-                            && table.getRemoteTable().getTableName().endsWith("_ro")) {
-                        // Incremental read RO table as RT table, I don't know why?
-                        isCowOrRoTable = false;
-                        LOG.warn("Execute incremental read on RO table: {}", table.getFullQualifiers());
-                    }
-                }
-                if (isCowOrRoTable) {
-                    incrementalRelation = Optional.of(new COWIncrementalRelation(
-                            optParams, HiveMetaStoreClientHelper.getConfiguration(table), hudiClient));
-                } else {
-                    incrementalRelation = Optional.of(new MORIncrementalRelation(
-                            optParams, HiveMetaStoreClientHelper.getConfiguration(table), hudiClient));
-                }
-            } catch (Exception e) {
-                throw new AnalysisException(
-                        "Failed to create incremental relation for table: " + table.getFullQualifiers(), e);
-            }
-        }
-        this.scanParams = Optional.of(scanParams);
     }
 
     public Optional<TableScanParams> getScanParams() {
@@ -214,5 +170,57 @@ public class LogicalHudiScan extends LogicalFileScan {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalHudiScan(this, context);
+    }
+
+    /**
+     * Set scan params for incremental read
+     *
+     * @param table should be hudi table
+     * @param scanParams including incremental read params
+     */
+    public LogicalHudiScan withScanParams(HMSExternalTable table, TableScanParams scanParams) {
+        Optional<IncrementalRelation> newIncrementalRelation = Optional.empty();
+        Optional<TableScanParams> newScanParams = Optional.empty();
+        if (scanParams != null && scanParams.incrementalRead()) {
+            Map<String, String> optParams = table.getHadoopProperties();
+            if (scanParams.getParams().containsKey("beginTime")) {
+                optParams.put("hoodie.datasource.read.begin.instanttime", scanParams.getParams().get("beginTime"));
+            }
+            if (scanParams.getParams().containsKey("endTime")) {
+                optParams.put("hoodie.datasource.read.end.instanttime", scanParams.getParams().get("endTime"));
+            }
+            scanParams.getParams().forEach((k, v) -> {
+                if (k.startsWith("hoodie.")) {
+                    optParams.put(k, v);
+                }
+            });
+            HoodieTableMetaClient hudiClient = HiveMetaStoreClientHelper.getHudiClient(table);
+            try {
+                boolean isCowOrRoTable = table.isHoodieCowTable();
+                if (isCowOrRoTable) {
+                    Map<String, String> serd = table.getRemoteTable().getSd().getSerdeInfo().getParameters();
+                    if ("true".equals(serd.get("hoodie.query.as.ro.table"))
+                            && table.getRemoteTable().getTableName().endsWith("_ro")) {
+                        // Incremental read RO table as RT table, I don't know why?
+                        isCowOrRoTable = false;
+                        LOG.warn("Execute incremental read on RO table: {}", table.getFullQualifiers());
+                    }
+                }
+                if (isCowOrRoTable) {
+                    newIncrementalRelation = Optional.of(new COWIncrementalRelation(
+                            optParams, HiveMetaStoreClientHelper.getConfiguration(table), hudiClient));
+                } else {
+                    newIncrementalRelation = Optional.of(new MORIncrementalRelation(
+                            optParams, HiveMetaStoreClientHelper.getConfiguration(table), hudiClient));
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "Failed to create incremental relation for table: " + table.getFullQualifiers(), e);
+            }
+        }
+        newScanParams = Optional.ofNullable(scanParams);
+        return new LogicalHudiScan(relationId, table, qualifier, Optional.empty(),
+                Optional.empty(), conjuncts, selectedPartitions, tableSample, tableSnapshot,
+                newScanParams, newIncrementalRelation);
     }
 }

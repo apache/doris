@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.Statistics;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -44,8 +45,8 @@ import java.util.Set;
 public class PhysicalHudiScan extends PhysicalFileScan {
 
     // for hudi incremental read
-    private Optional<TableScanParams> scanParams;
-    private Optional<IncrementalRelation> incrementalRelation;
+    private final Optional<TableScanParams> scanParams;
+    private final Optional<IncrementalRelation> incrementalRelation;
 
     /**
      * Constructor for PhysicalHudiScan.
@@ -58,6 +59,8 @@ public class PhysicalHudiScan extends PhysicalFileScan {
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation) {
         super(id, PlanType.PHYSICAL_HUDI_SCAN, table, qualifier, distributionSpec, groupExpression, logicalProperties,
                 conjuncts, selectedPartitions, tableSample, tableSnapshot);
+        Objects.requireNonNull(scanParams);
+        Objects.requireNonNull(incrementalRelation);
         this.scanParams = scanParams;
         this.incrementalRelation = incrementalRelation;
     }

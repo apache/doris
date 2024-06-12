@@ -102,7 +102,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -469,11 +468,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitPhysicalFileScan(PhysicalFileScan fileScan, Void context) {
-        return computeCatalogRelation(fileScan);
-    }
-
-    @Override
-    public Statistics visitPhysicalHudiScan(PhysicalHudiScan fileScan, Void context) {
         return computeCatalogRelation(fileScan);
     }
 

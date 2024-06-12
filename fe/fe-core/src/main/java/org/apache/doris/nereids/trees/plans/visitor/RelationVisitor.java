@@ -160,8 +160,8 @@ public interface RelationVisitor<R, C> {
         return visitPhysicalCatalogRelation(fileScan, context);
     }
 
-    default R visitPhysicalHudiScan(PhysicalHudiScan fileScan, C context) {
-        return visitPhysicalCatalogRelation(fileScan, context);
+    default R visitPhysicalHudiScan(PhysicalHudiScan hudiScan, C context) {
+        return visitPhysicalFileScan(hudiScan, context);
     }
 
     default R visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, C context) {
