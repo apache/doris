@@ -58,6 +58,17 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
     }
 
     @Test
+    void testPriWithJoin() {
+        String sql = "select pri.id1 from (select p1.id1 from pri as p1 cross join pri as p2) pri "
+                + "inner join foreign_not_null on pri.id1 = foreign_not_null.id2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
     void testNotNull() {
         String sql = "select pri.id1 from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2";
         PlanChecker.from(connectContext)
