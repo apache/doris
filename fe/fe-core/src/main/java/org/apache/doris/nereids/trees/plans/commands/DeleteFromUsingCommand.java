@@ -77,8 +77,8 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
                     + ctx.getSessionVariable().printDebugModeVariables());
         }
         // NOTE: delete from using command is executed as insert command, so txn insert can support it
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(), cte).run(
-                ctx, executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
+                Optional.empty()).run(ctx, executor);
     }
 
     /**

@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -116,7 +115,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         }
         this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
         if (cte.isPresent()) {
-            this.logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
+            this.logicalQuery = (LogicalPlan) logicalQuery.withChildren(cte.get());
         }
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
@@ -146,9 +145,6 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                         ((OlapTable) targetTable).getQualifiedDbName() + ": " + targetTable.getName());
             }
             ConnectContext.get().setSkipAuth(true);
-            if (logicalQuery instanceof LogicalCTE) {
-                logicalQuery = (LogicalPlan) ((LogicalCTE<?>) logicalQuery).child(0);
-            }
             partitionNames = ((UnboundTableSink<?>) logicalQuery).getPartitions();
             if (CollectionUtils.isEmpty(partitionNames)) {
                 partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
@@ -191,7 +187,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
                                   ConnectContext ctx, StmtExecutor executor) throws Exception {
         InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(logicalQuery, labelName,
-                Optional.of(insertCtx), cte);
+                Optional.of(insertCtx), Optional.empty());
         insertCommand.run(ctx, executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
