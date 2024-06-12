@@ -237,6 +237,7 @@ public class CreateMTMVInfo {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
         if (keys.isEmpty() && !enableDuplicateWithoutKeysByDefault) {
+            keys = Lists.newArrayList();
             int keyLength = 0;
             for (ColumnDefinition column : columns) {
                 DataType type = column.getType();
