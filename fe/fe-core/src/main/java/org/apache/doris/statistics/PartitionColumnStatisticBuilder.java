@@ -157,7 +157,7 @@ public class PartitionColumnStatisticBuilder {
     }
 
     public PartitionColumnStatisticBuilder merge(PartitionColumnStatistic other) {
-        count +=  other.count;
+        count += other.count;
         ndv.merge(other.ndv);
         numNulls += other.numNulls;
         if (minValue > other.minValue) {

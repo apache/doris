@@ -816,15 +816,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         long tableUpdatedRows = tableMeta == null ? 0 : tableMeta.updatedRows.get();
         boolean hasUnknownKeyCol = false;
         long idxId = -1;
-        List<String> selectedPartitionNames = new ArrayList<>();
+        List<String> selectedPartitionNames;
         if (catalogRelation instanceof OlapScan) {
             OlapScan olapScan = (OlapScan) catalogRelation;
             if (olapScan.getTable().getBaseIndexId() != olapScan.getSelectedIndexId()) {
                 idxId = olapScan.getSelectedIndexId();
             }
+            selectedPartitionNames = new ArrayList<>(olapScan.getSelectedPartitionIds().size());
             olapScan.getSelectedPartitionIds().forEach(id -> {
                 selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());
             });
+        } else {
+            selectedPartitionNames = new ArrayList<>();
         }
         double rowCount = 0.0;
         for (SlotReference slotReference : slotSet) {
