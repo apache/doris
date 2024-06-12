@@ -115,7 +115,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         }
         this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
         if (cte.isPresent()) {
-            this.logicalQuery = (LogicalPlan) logicalQuery.withChildren(cte.get());
+            this.logicalQuery = (LogicalPlan) logicalQuery.withChildren(cte.get().withChildren(
+                    this.logicalQuery.child(0)));
         }
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
