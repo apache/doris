@@ -108,7 +108,7 @@ public interface RelationVisitor<R, C> {
     }
 
     default R visitLogicalHudiScan(LogicalHudiScan fileScan, C context) {
-        return visitLogicalExternalRelation(fileScan, context);
+        return visitLogicalFileScan(fileScan, context);
     }
 
     default R visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, C context) {
@@ -161,7 +161,7 @@ public interface RelationVisitor<R, C> {
     }
 
     default R visitPhysicalHudiScan(PhysicalHudiScan hudiScan, C context) {
-        return visitPhysicalFileScan(hudiScan, context);
+        return visitPhysicalCatalogRelation(hudiScan, context);
     }
 
     default R visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, C context) {

@@ -59,8 +59,8 @@ public class PhysicalHudiScan extends PhysicalFileScan {
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation) {
         super(id, PlanType.PHYSICAL_HUDI_SCAN, table, qualifier, distributionSpec, groupExpression, logicalProperties,
                 conjuncts, selectedPartitions, tableSample, tableSnapshot);
-        Objects.requireNonNull(scanParams);
-        Objects.requireNonNull(incrementalRelation);
+        Objects.requireNonNull(scanParams, "scanParams should not null");
+        Objects.requireNonNull(incrementalRelation, "incrementalRelation should not null");
         this.scanParams = scanParams;
         this.incrementalRelation = incrementalRelation;
     }
