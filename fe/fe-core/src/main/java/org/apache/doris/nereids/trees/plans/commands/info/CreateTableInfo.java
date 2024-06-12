@@ -131,6 +131,7 @@ public class CreateTableInfo {
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
         this.properties = properties;
+        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
         this.extProperties = extProperties;
         this.clusterKeysColumnNames = Utils.copyRequiredList(clusterKeyColumnNames);
     }
@@ -161,6 +162,7 @@ public class CreateTableInfo {
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
         this.properties = properties;
+        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
         this.extProperties = extProperties;
         this.clusterKeysColumnNames = Utils.copyRequiredList(clusterKeyColumnNames);
     }
