@@ -860,15 +860,15 @@ public class CreateTableStmt extends DdlStmt {
         }
     }
 
-    private void generatedColumnCommonCheck() {
+    private void generatedColumnCommonCheck() throws AnalysisException {
         for (ColumnDef column : columnDefs) {
             if (keysDesc != null && keysDesc.getKeysType() == KeysType.AGG_KEYS
                     && column.getGeneratedColumnInfo().isPresent() && !column.isKey()) {
-                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                throw new AnalysisException(
                         "Generated Columns in aggregate table must be keys.");
             }
             if (column.getGeneratedColumnInfo().isPresent() && !engineName.equalsIgnoreCase("olap")) {
-                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                throw new AnalysisException(
                         "Tables can only have generated columns if the olap engine is used");
             }
         }

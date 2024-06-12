@@ -866,7 +866,7 @@ public class Column implements Writable, GsonPostProcessable {
         // TODO check cluster key
 
         if (generatedColumnInfo != null || other.getGeneratedColumnInfo() != null) {
-            throw new DdlException("Temporarily not supporting alter table modify generated columns.");
+            throw new DdlException("Not supporting alter table modify generated columns.");
         }
     }
 

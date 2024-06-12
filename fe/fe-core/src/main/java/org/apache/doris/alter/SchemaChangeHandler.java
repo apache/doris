@@ -1028,7 +1028,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         if (newColumn.getGeneratedColumnInfo() != null) {
-            throw  new DdlException("Temporarily not supporting alter table add generated columns.");
+            throw new DdlException("Not supporting alter table add generated columns.");
         }
 
         /*
