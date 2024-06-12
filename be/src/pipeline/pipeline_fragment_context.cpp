@@ -1518,10 +1518,6 @@ Status PipelineFragmentContext::submit() {
         }
     }
     if (!st.ok()) {
-        std::lock_guard<std::mutex> l(_task_mutex);
-        if (_closed_tasks == _total_tasks) {
-            _close_fragment_instance();
-        }
         return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
                                      BackendOptions::get_localhost());
     } else {
@@ -1532,9 +1528,7 @@ Status PipelineFragmentContext::submit() {
 // If all pipeline tasks binded to the fragment instance are finished, then we could
 // close the fragment instance.
 void PipelineFragmentContext::_close_fragment_instance() {
-    if (_is_fragment_instance_closed) {
-        return;
-    }
+    DCHECK(!_is_fragment_instance_closed);
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
@@ -1586,8 +1580,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
 void PipelineFragmentContext::close_a_pipeline() {
     std::lock_guard<std::mutex> l(_task_mutex);
     g_pipeline_tasks_count << -1;
-    ++_closed_tasks;
-    if (_closed_tasks == _total_tasks) {
+    if (_closed_tasks.fetch_add(1) == _total_tasks - 1) {
         _close_fragment_instance();
     }
 }
