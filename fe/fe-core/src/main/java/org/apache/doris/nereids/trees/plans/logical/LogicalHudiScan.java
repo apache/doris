@@ -85,6 +85,12 @@ public class LogicalHudiScan extends LogicalFileScan {
                 Optional.empty(), Optional.empty());
     }
 
+    /**
+     * Set scan params for incremental read
+     *
+     * @param table
+     * @param scanParams
+     */
     public void setScanParams(HMSExternalTable table, TableScanParams scanParams) {
         if (scanParams != null && scanParams.incrementalRead()) {
             Map<String, String> optParams = table.getHadoopProperties();
