@@ -53,6 +53,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/obj_storage_client.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
@@ -1378,23 +1379,8 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
 
     if (!existed_fs) {
         // No such FS instance on BE
-        S3Conf s3_conf {
-                .bucket = param.s3_storage_param.bucket,
-                .prefix = param.s3_storage_param.root_path,
-                .client_conf = {
-                        .endpoint = param.s3_storage_param.endpoint,
-                        .region = param.s3_storage_param.region,
-                        .ak = param.s3_storage_param.ak,
-                        .sk = param.s3_storage_param.sk,
-                        .token = param.s3_storage_param.token,
-                        .max_connections = param.s3_storage_param.max_conn,
-                        .request_timeout_ms = param.s3_storage_param.request_timeout_ms,
-                        .connect_timeout_ms = param.s3_storage_param.conn_timeout_ms,
-                        // When using cold heat separation in minio, user might use ip address directly,
-                        // which needs enable use_virtual_addressing to true
-                        .use_virtual_addressing = !param.s3_storage_param.use_path_style,
-                }};
-        auto res = io::S3FileSystem::create(std::move(s3_conf), std::to_string(param.id));
+        auto res = io::S3FileSystem::create(S3Conf::get_s3_conf(param.s3_storage_param),
+                                            std::to_string(param.id));
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
@@ -1403,10 +1389,12 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
     } else {
         DCHECK_EQ(existed_fs->type(), io::FileSystemType::S3) << param.id << ' ' << param.name;
         auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
+        auto new_s3_conf = S3Conf::get_s3_conf(param.s3_storage_param);
         S3ClientConf conf {
-                .ak = param.s3_storage_param.ak,
-                .sk = param.s3_storage_param.sk,
-                .token = param.s3_storage_param.token,
+                .ak = std::move(new_s3_conf.client_conf.ak),
+                .sk = std::move(new_s3_conf.client_conf.sk),
+                .token = std::move(new_s3_conf.client_conf.token),
+                .provider = new_s3_conf.client_conf.provider,
         };
         st = client->reset(conf);
         fs = std::move(existed_fs);

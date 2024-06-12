@@ -365,6 +365,15 @@ public abstract class BaseAnalysisTask {
         for (String part : partitionNames) {
             Partition partition = tbl.getPartition(part);
             params.put("partId", partition == null ? "-1" : String.valueOf(partition.getId()));
+            if (partition != null) {
+                // For cluster upgrade compatible (older version metadata doesn't have partition update rows map)
+                // and insert before first analyze, set partition update rows to 0.
+                //
+                // findJobInfo will return null when doing sync analyzing.
+                AnalysisInfo jobInfo = analysisManager.findJobInfo(job.getJobInfo().jobId);
+                jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
+                jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
+            }
             // Skip partitions that not changed after last analyze.
             // External table getPartition always return null. So external table doesn't skip any partitions.
             if (partition != null && tableStatsStatus != null && tableStatsStatus.partitionUpdateRows != null) {
@@ -373,14 +382,6 @@ public abstract class BaseAnalysisTask {
                 ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(idxName, col.getName());
                 if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
                     ConcurrentMap<Long, Long> columnUpdateRows = columnStatsMeta.partitionUpdateRows;
-
-                    // findJobInfo will return null when doing sync analyzing.
-                    AnalysisInfo jobInfo = analysisManager.findJobInfo(job.getJobInfo().jobId);
-                    jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
-                    // For cluster upgrade compatible (older version metadata doesn't have partition update rows map)
-                    // and insert before first analyze, set partition update rows to 0.
-                    jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
-
                     long id = partition.getId();
                     if (Objects.equals(tableUpdateRows.getOrDefault(id, 0L), columnUpdateRows.get(id))) {
                         LOG.debug("Partition {} doesn't change after last analyze for column {}, skip it.",
