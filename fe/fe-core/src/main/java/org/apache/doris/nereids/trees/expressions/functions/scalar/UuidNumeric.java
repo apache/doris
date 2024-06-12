@@ -60,9 +60,4 @@ public class UuidNumeric extends ScalarFunction
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
     }
-
-    @Override
-    public boolean isDeterministic() {
-        return false;
-    }
 }

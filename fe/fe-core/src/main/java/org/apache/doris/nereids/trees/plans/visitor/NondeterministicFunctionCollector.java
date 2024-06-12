@@ -18,12 +18,12 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector.FunctionCollectContext;
 
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 
@@ -42,8 +42,8 @@ public class NondeterministicFunctionCollector
             return super.visit(plan, collectContext);
         }
         for (Expression expression : expressions) {
-            Set<Expression> nondeterministicFunctions = expression.collect(expr ->
-                    expr instanceof Nondeterministic && !((Nondeterministic) expr).isDeterministic());
+            Set<Expression> nondeterministicFunctions =
+                    expression.collect(expr -> !((ExpressionTrait) expr).isDeterministic());
             collectContext.addAllExpressions(nondeterministicFunctions);
         }
         return super.visit(plan, collectContext);
@@ -54,7 +54,7 @@ public class NondeterministicFunctionCollector
      * the expression in whiteFunctionSet would not be collected
      */
     public static class FunctionCollectContext {
-        private final List<Expression> collectedExpressions = new LinkedList<>();
+        private final List<Expression> collectedExpressions = new ArrayList<>();
 
         private FunctionCollectContext() {
         }

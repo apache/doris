@@ -55,9 +55,4 @@ public class UtcTimestamp extends ScalarFunction
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUtcTimestamp(this, context);
     }
-
-    @Override
-    public boolean isDeterministic() {
-        return false;
-    }
 }

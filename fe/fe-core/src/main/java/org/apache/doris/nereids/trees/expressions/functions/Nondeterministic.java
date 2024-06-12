@@ -19,9 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 /**
  * Nondeterministic functions.
- *
+ * <p>
  * e.g. 'rand()', 'random()'.
- *
  */
 public interface Nondeterministic extends ExpressionTrait {
 
@@ -29,5 +28,7 @@ public interface Nondeterministic extends ExpressionTrait {
      * Identify the function is deterministic or not, such as UnixTimestamp, when it's children is not empty
      * it's deterministic
      */
-    boolean isDeterministic();
+    default boolean isDeterministic() {
+        return false;
+    }
 }

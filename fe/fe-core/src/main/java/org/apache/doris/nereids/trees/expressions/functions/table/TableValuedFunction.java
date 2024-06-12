@@ -136,9 +136,4 @@ public abstract class TableValuedFunction extends BoundFunction
     public String toString() {
         return toSql();
     }
-
-    @Override
-    public boolean isDeterministic() {
-        return false;
-    }
 }

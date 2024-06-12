@@ -91,9 +91,4 @@ public class Now extends DateTimeWithPrecision implements ExplicitlyCastableSign
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitNow(this, context);
     }
-
-    @Override
-    public boolean isDeterministic() {
-        return false;
-    }
 }

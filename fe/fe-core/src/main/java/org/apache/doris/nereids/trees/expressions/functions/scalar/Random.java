@@ -112,9 +112,4 @@ public class Random extends ScalarFunction
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitRandom(this, context);
     }
-
-    @Override
-    public boolean isDeterministic() {
-        return false;
-    }
 }
