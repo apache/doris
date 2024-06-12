@@ -22,6 +22,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -41,11 +42,19 @@ import java.util.Set;
  * pattern : select xxx from tbl where key = ?
  */
 public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFactory {
+
+    private Expression removeCast(Expression expression) {
+        if (expression instanceof Cast) {
+            return expression.child(0);
+        }
+        return expression;
+    }
+
     private boolean filterMatchShortCircuitCondition(LogicalFilter<LogicalOlapScan> filter) {
         return filter.getConjuncts().stream().allMatch(
                 // all conjuncts match with pattern `key = ?`
                 expression -> (expression instanceof EqualTo)
-                        && (expression.child(0).isKeyColumnFromTable()
+                        && (removeCast(expression.child(0)).isKeyColumnFromTable()
                         || ((SlotReference) expression.child(0)).getName().equals(Column.DELETE_SIGN))
                         && expression.child(1).isLiteral());
     }
@@ -65,7 +74,7 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
         // All key columns in conjuncts
         Set<String> colNames = Sets.newHashSet();
         for (Expression expr : conjuncts) {
-            colNames.add(((SlotReference) (expr.child(0))).getName());
+            colNames.add(((SlotReference) removeCast((expr.child(0)))).getName());
         }
         // set short circuit flag and modify nothing to the plan
         if (olapTable.getBaseSchemaKeyColumns().size() <= colNames.size()) {
@@ -83,6 +92,7 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
                     ).when(this::filterMatchShortCircuitCondition)))
                         .thenApply(ctx -> {
                             return shortCircuit(ctx.root, ctx.root.child().child().child().getTable(),
+
                                         ctx.root.child().child().getConjuncts(), ctx.statementContext);
                         })),
                 RuleType.SHOR_CIRCUIT_POINT_QUERY.build(
