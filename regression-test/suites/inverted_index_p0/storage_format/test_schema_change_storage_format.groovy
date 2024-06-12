@@ -70,7 +70,7 @@ suite("test_schema_change_storge_format", "p0") {
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1", "disable_auto_compaction" = "true");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V2");
     """
 
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "6294967296")
