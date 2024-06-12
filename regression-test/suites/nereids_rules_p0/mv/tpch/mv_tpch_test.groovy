@@ -84,10 +84,7 @@ suite("mv_tpch_test") {
 
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
     // mv8 Nereids cost too much time ( > 5s )
     sql "SET enable_nereids_timeout=false"
 
