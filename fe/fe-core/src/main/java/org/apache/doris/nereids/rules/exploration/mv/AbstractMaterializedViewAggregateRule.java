@@ -404,7 +404,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             viewGroupShuttledExpressionQueryBased.add(
                     groupByExpressionToViewShuttledExpressionQueryBasedMap.get(viewExpression));
         }
-        return queryGroupShuttledExpression.equals(viewGroupShuttledExpressionQueryBased);
+        return materializationContext instanceof SyncMaterializationContext ? false
+                : queryGroupShuttledExpression.equals(viewGroupShuttledExpressionQueryBased);
     }
 
     /**
