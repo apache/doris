@@ -246,7 +246,7 @@ Status VParquetTransformer::_parse_properties() {
         }
         builder.created_by(
                 fmt::format("{}({})", doris::get_short_version(), parquet::DEFAULT_CREATED_BY));
-        builder.max_row_group_length(std::numeric_limits<uint64_t>::max());
+        builder.max_row_group_length(std::numeric_limits<int64_t>::max());
         _parquet_writer_properties = builder.build();
         _arrow_properties = parquet::ArrowWriterProperties::Builder()
                                     .enable_deprecated_int96_timestamps()
