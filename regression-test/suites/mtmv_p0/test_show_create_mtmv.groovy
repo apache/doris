@@ -59,7 +59,7 @@ suite("test_show_create_mtmv","mtmv") {
     sql """drop materialized view if exists ${mvName};"""
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
-        BUILD DEFERRED REFRESH AUTO ON SCHEDULE EVERY 10 MONTH
+        BUILD DEFERRED REFRESH AUTO ON SCHEDULE EVERY 10 DAY
         partition by (`k2`)
         DISTRIBUTED BY hash(k1) BUCKETS 2
         PROPERTIES (
