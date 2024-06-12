@@ -89,16 +89,23 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                     return new LogicalAggregate<>(repeat.getGroupByExpressions(),
                             repeat.getOutputExpressions(), repeat.child());
                 }
-                checkRepeatLegality(repeat);
-                repeat = removeDuplicateColumns(repeat);
-                // add virtual slot, LogicalAggregate and LogicalProject for normalize
-                LogicalAggregate<Plan> agg = normalizeRepeat(repeat);
-                return dealSlotAppearBothInAggFuncAndGroupingSets(agg);
+                return doNormalize(repeat);
             })
         );
     }
 
-    private LogicalRepeat<Plan> removeDuplicateColumns(LogicalRepeat<Plan> repeat) {
+    /**
+     * Normalize repeat, this can be used directly, if optimize the repeat
+     */
+    public static LogicalAggregate<Plan> doNormalize(LogicalRepeat<Plan> repeat) {
+        checkRepeatLegality(repeat);
+        repeat = removeDuplicateColumns(repeat);
+        // add virtual slot, LogicalAggregate and LogicalProject for normalize
+        LogicalAggregate<Plan> agg = normalizeRepeat(repeat);
+        return dealSlotAppearBothInAggFuncAndGroupingSets(agg);
+    }
+
+    private static LogicalRepeat<Plan> removeDuplicateColumns(LogicalRepeat<Plan> repeat) {
         List<List<Expression>> groupingSets = repeat.getGroupingSets();
         ImmutableList.Builder<List<Expression>> builder = ImmutableList.builder();
         for (List<Expression> sets : groupingSets) {
@@ -108,11 +115,11 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         return repeat.withGroupSets(builder.build());
     }
 
-    private void checkRepeatLegality(LogicalRepeat<Plan> repeat) {
+    private static void checkRepeatLegality(LogicalRepeat<Plan> repeat) {
         checkGroupingSetsSize(repeat);
     }
 
-    private void checkGroupingSetsSize(LogicalRepeat<Plan> repeat) {
+    private static void checkGroupingSetsSize(LogicalRepeat<Plan> repeat) {
         Set<Expression> flattenGroupingSetExpr = ImmutableSet.copyOf(
                 ExpressionUtils.flatExpressions(repeat.getGroupingSets()));
         if (flattenGroupingSetExpr.size() > LogicalRepeat.MAX_GROUPING_SETS_NUM) {
@@ -122,7 +129,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         }
     }
 
-    private LogicalAggregate<Plan> normalizeRepeat(LogicalRepeat<Plan> repeat) {
+    private static LogicalAggregate<Plan> normalizeRepeat(LogicalRepeat<Plan> repeat) {
         Set<Expression> needToSlotsGroupingExpr = collectNeedToSlotGroupingExpr(repeat);
         NormalizeToSlotContext groupingExprContext = buildContext(repeat, needToSlotsGroupingExpr);
         Map<Expression, NormalizeToSlotTriplet> groupingExprMap = groupingExprContext.getNormalizeToSlotMap();
@@ -198,14 +205,14 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 Optional.of(normalizedRepeat), normalizedRepeat);
     }
 
-    private Set<Expression> collectNeedToSlotGroupingExpr(LogicalRepeat<Plan> repeat) {
+    private static Set<Expression> collectNeedToSlotGroupingExpr(LogicalRepeat<Plan> repeat) {
         // grouping sets should be pushed down, e.g. grouping sets((k + 1)),
         // we should push down the `k + 1` to the bottom plan
         return ImmutableSet.copyOf(
                 ExpressionUtils.flatExpressions(repeat.getGroupingSets()));
     }
 
-    private Set<Expression> collectNeedToSlotArgsOfGroupingScalarFuncAndAggFunc(LogicalRepeat<Plan> repeat) {
+    private static Set<Expression> collectNeedToSlotArgsOfGroupingScalarFuncAndAggFunc(LogicalRepeat<Plan> repeat) {
         Set<GroupingScalarFunction> groupingScalarFunctions = ExpressionUtils.collect(
                 repeat.getOutputExpressions(), GroupingScalarFunction.class::isInstance);
         ImmutableSet.Builder<Expression> argumentsSetBuilder = ImmutableSet.builder();
@@ -237,7 +244,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .build();
     }
 
-    private Plan pushDownProject(Set<NamedExpression> pushedExprs, Plan originBottomPlan) {
+    private static Plan pushDownProject(Set<NamedExpression> pushedExprs, Plan originBottomPlan) {
         if (!pushedExprs.equals(originBottomPlan.getOutputSet()) && !pushedExprs.isEmpty()) {
             return new LogicalProject<>(ImmutableList.copyOf(pushedExprs), originBottomPlan);
         }
@@ -245,7 +252,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     /** buildContext */
-    public NormalizeToSlotContext buildContext(Repeat<? extends Plan> repeat,
+    public static NormalizeToSlotContext buildContext(Repeat<? extends Plan> repeat,
             Set<? extends Expression> sourceExpressions) {
         Set<Alias> aliases = ExpressionUtils.collect(repeat.getOutputExpressions(), Alias.class::isInstance);
         Map<Expression, Alias> existsAliasMap = Maps.newLinkedHashMap();
@@ -271,7 +278,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         return new NormalizeToSlotContext(normalizeToSlotMap);
     }
 
-    private Optional<NormalizeToSlotTriplet> toGroupingSetExpressionPushDownTriplet(
+    private static Optional<NormalizeToSlotTriplet> toGroupingSetExpressionPushDownTriplet(
             Expression expression, @Nullable Alias existsAlias) {
         NormalizeToSlotTriplet originTriplet = NormalizeToSlotTriplet.toTriplet(expression, existsAlias);
         SlotReference remainSlot = (SlotReference) originTriplet.remainExpr;
@@ -279,7 +286,8 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         return Optional.of(new NormalizeToSlotTriplet(expression, newSlot, originTriplet.pushedExpr));
     }
 
-    private Expression normalizeAggFuncChildrenAndGroupingScalarFunc(NormalizeToSlotContext context, Expression expr) {
+    private static Expression normalizeAggFuncChildrenAndGroupingScalarFunc(NormalizeToSlotContext context,
+            Expression expr) {
         if (expr instanceof AggregateFunction) {
             AggregateFunction function = (AggregateFunction) expr;
             List<Expression> normalizedRealExpressions = context.normalizeToUseSlotRef(function.getArguments());
@@ -296,7 +304,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         }
     }
 
-    private Set<Alias> getExistsAlias(LogicalRepeat<Plan> repeat,
+    private static Set<Alias> getExistsAlias(LogicalRepeat<Plan> repeat,
             Map<Expression, NormalizeToSlotTriplet> groupingExprMap) {
         Set<Alias> existsAlias = Sets.newHashSet();
         Set<Alias> aliases = ExpressionUtils.collect(repeat.getOutputExpressions(), Alias.class::isInstance);
@@ -323,7 +331,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
      *   +--LogicalRepeat (groupingSets=[[a#0]], outputExpr=[a#0, a#3, GROUPING_ID#1]
      *      +--LogicalProject (projects =[a#0, a#0 as `a`#3])
      */
-    private LogicalAggregate<Plan> dealSlotAppearBothInAggFuncAndGroupingSets(
+    private static LogicalAggregate<Plan> dealSlotAppearBothInAggFuncAndGroupingSets(
             @NotNull LogicalAggregate<Plan> aggregate) {
         LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) aggregate.child();
         Map<Slot, Alias> commonSlotToAliasMap = getCommonSlotToAliasMap(repeat, aggregate);
@@ -370,7 +378,8 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         return aggregate.withAggOutput(newOutputExpressions);
     }
 
-    private Map<Slot, Alias> getCommonSlotToAliasMap(LogicalRepeat<Plan> repeat, LogicalAggregate<Plan> aggregate) {
+    private static Map<Slot, Alias> getCommonSlotToAliasMap(LogicalRepeat<Plan> repeat,
+            LogicalAggregate<Plan> aggregate) {
         List<AggregateFunction> aggregateFunctions =
                 CollectNonWindowedAggFuncs.collect(aggregate.getOutputExpressions());
         ImmutableSet.Builder<Slot> aggUsedSlotBuilder = ImmutableSet.builder();
