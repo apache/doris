@@ -120,7 +120,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
             }
             static_cast<void>(io::global_local_filesystem()->batch_delete(paths));
             LOG(WARNING) << "done delete downloaded success files due to error " << tstatus;
-            }
+        }
 
         if (ingest_binlog_tstatus) {
             *ingest_binlog_tstatus = std::move(tstatus);
