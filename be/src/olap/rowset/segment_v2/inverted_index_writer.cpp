@@ -395,9 +395,9 @@ public:
                     } else {
                         // now we temp create field . later make a pool
                         if (Status st = create_field(&new_field); st != Status::OK()) {
-                            LOG(ERROR)
-                                    << "create field " << string(_field_name.begin(), _field_name.end())
-                                    << " error:" << st;
+                            LOG(ERROR) << "create field "
+                                       << string(_field_name.begin(), _field_name.end())
+                                       << " error:" << st;
                             return st;
                         }
                         if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
