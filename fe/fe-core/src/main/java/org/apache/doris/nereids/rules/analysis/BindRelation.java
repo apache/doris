@@ -274,6 +274,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                 qualifierWithoutTableName, unboundRelation.getTableSample(),
                                 unboundRelation.getTableSnapshot());
                         hudiScan.setScanParams(hmsTable, unboundRelation.getScanParams());
+                        return hudiScan;
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                                 qualifierWithoutTableName, unboundRelation.getTableSample(),
