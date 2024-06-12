@@ -29,6 +29,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -55,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -267,10 +269,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         Plan hiveViewPlan = parseAndAnalyzeHiveView(hmsTable, hiveCatalog, ddlSql, cascadesContext);
                         return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                     }
-                    hmsTable.setScanParams(unboundRelation.getScanParams());
-                    return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
-                            qualifierWithoutTableName, unboundRelation.getTableSample(),
-                            unboundRelation.getTableSnapshot());
+                    if (hmsTable.getDlaType() == DLAType.HUDI) {
+                        hmsTable.setScanParams(unboundRelation.getScanParams());
+                        LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
+                                qualifierWithoutTableName, unboundRelation.getTableSample(),
+                                unboundRelation.getTableSnapshot());
+                        hudiScan.setScanParams(hmsTable, unboundRelation.getScanParams());
+                    } else {
+                        return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
+                                qualifierWithoutTableName, unboundRelation.getTableSample(),
+                                unboundRelation.getTableSnapshot());
+                    }
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:

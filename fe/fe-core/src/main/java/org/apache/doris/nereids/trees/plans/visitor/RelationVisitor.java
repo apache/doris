@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -102,6 +103,10 @@ public interface RelationVisitor<R, C> {
     }
 
     default R visitLogicalFileScan(LogicalFileScan fileScan, C context) {
+        return visitLogicalExternalRelation(fileScan, context);
+    }
+
+    default R visitLogicalHudiScan(LogicalHudiScan fileScan, C context) {
         return visitLogicalExternalRelation(fileScan, context);
     }
 

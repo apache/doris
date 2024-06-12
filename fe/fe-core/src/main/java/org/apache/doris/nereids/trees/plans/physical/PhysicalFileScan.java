@@ -42,11 +42,11 @@ import java.util.Set;
  */
 public class PhysicalFileScan extends PhysicalCatalogRelation {
 
-    private final DistributionSpec distributionSpec;
-    private final Set<Expression> conjuncts;
-    private final SelectedPartitions selectedPartitions;
-    private final Optional<TableSample> tableSample;
-    private final Optional<TableSnapshot> tableSnapshot;
+    protected final DistributionSpec distributionSpec;
+    protected final Set<Expression> conjuncts;
+    protected final SelectedPartitions selectedPartitions;
+    protected final Optional<TableSample> tableSample;
+    protected final Optional<TableSnapshot> tableSnapshot;
 
     /**
      * Constructor for PhysicalFileScan.
