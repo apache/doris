@@ -3280,6 +3280,7 @@ public class Env {
     public static String getMTMVDdl(MTMV mtmv) {
         StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
         sb.append(mtmv.getName());
+        addMTMVCols(mtmv, sb);
         sb.append("\n");
         sb.append(mtmv.getRefreshInfo());
         addMTMVKeyInfo(mtmv, sb);
@@ -3321,6 +3322,24 @@ public class Env {
             sb.append("`" + mvPartitionInfo.getPartitionCol() + "`");
         } else {
             sb.append(mvPartitionInfo.getExpr().toSql());
+        }
+        sb.append(")");
+    }
+
+    private static void addMTMVCols(MTMV mtmv, StringBuilder sb) {
+        sb.append("\n(");
+        List<Column> columns = mtmv.getBaseSchema();
+        for (int i = 0; i < columns.size(); i++) {
+            if (i != 0) {
+                sb.append(",");
+            }
+            Column column = columns.get(i);
+            sb.append(column.getName());
+            if (!StringUtils.isEmpty(column.getComment())) {
+                sb.append(" comment '");
+                sb.append(column.getComment());
+                sb.append("'");
+            }
         }
         sb.append(")");
     }
