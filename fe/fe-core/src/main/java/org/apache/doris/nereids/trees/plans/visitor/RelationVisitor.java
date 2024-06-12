@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOla
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -156,6 +157,10 @@ public interface RelationVisitor<R, C> {
     }
 
     default R visitPhysicalFileScan(PhysicalFileScan fileScan, C context) {
+        return visitPhysicalCatalogRelation(fileScan, context);
+    }
+
+    default R visitPhysicalHudiScan(PhysicalHudiScan fileScan, C context) {
         return visitPhysicalCatalogRelation(fileScan, context);
     }
 

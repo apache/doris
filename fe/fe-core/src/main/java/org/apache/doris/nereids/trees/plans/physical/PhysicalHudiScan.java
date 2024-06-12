@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.Statistics;
 
 import java.util.List;
@@ -105,5 +106,10 @@ public class PhysicalHudiScan extends PhysicalFileScan {
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, conjuncts,
                 selectedPartitions, tableSample, tableSnapshot,
                 scanParams, incrementalRelation);
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitPhysicalHudiScan(this, context);
     }
 }
