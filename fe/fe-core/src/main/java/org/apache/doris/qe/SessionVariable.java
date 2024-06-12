@@ -1716,7 +1716,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE, needForward = true,
             description = {"是否开启基于结构信息的物化视图透明改写",
                     "Whether to enable materialized view rewriting based on struct info"})
-    public boolean enableMaterializedViewRewrite = false;
+    public boolean enableMaterializedViewRewrite = true;
 
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE, needForward = true,
             description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
@@ -1738,7 +1738,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"当物化视图不足以提供查询的全部数据时，是否允许基表和物化视图 union 来响应查询",
                     "When the materialized view is not enough to provide all the data for the query, "
                             + "whether to allow the union of the base table and the materialized view to "
-                            + "respond to the query"})
+                            + "respond to the query"}, varType = VariableAnnotation.REMOVED)
     public boolean enableMaterializedViewUnionRewrite = true;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_NEST_REWRITE, needForward = true,
@@ -3884,6 +3884,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableMaterializedViewRewrite() {
         return enableMaterializedViewRewrite;
+    }
+
+    public void setEnableMaterializedViewRewrite(boolean enableMaterializedViewRewrite) {
+        this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
     }
 
     public boolean isMaterializedViewRewriteEnableContainExternalTable() {
