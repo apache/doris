@@ -15,11 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.apache.doris.regression.suite.ClusterOptions
-import org.apache.doris.regression.util.NodeType
-import org.apache.doris.regression.suite.SuiteCluster
-
-suite("test_build_index_with_clone"){
+suite("test_build_index_with_clone_fault_injection", "nonConcurrent"){
     if (isCloudMode()) {
         return 
     }
@@ -58,37 +54,43 @@ suite("test_build_index_with_clone"){
     }
 
     def tbl = 'test_build_index_with_clone'
-    cluster.injectDebugPoints(NodeType.BE, ['EngineCloneTask.wait_clone' : null])
-    sql """
-        CREATE TABLE ${tbl} (
-        `k1` int(11) NULL,
-        `k2` int(11) NULL
-        )
-        DUPLICATE KEY(`k1`, `k2`)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
-        PROPERTIES ("replication_num" = "1")
-        """
-    for (def i = 1; i <= 5; i++) {
-        sql "INSERT INTO ${tbl} VALUES (${i}, ${10 * i})"
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("EngineCloneTask.wait_clone")
+        logger.info("add debug point EngineCloneTask.wait_clone")
+        sql """ DROP TABLE IF EXISTS ${tbl} """
+        sql """
+            CREATE TABLE ${tbl} (
+            `k1` int(11) NULL,
+            `k2` int(11) NULL
+            )
+            DUPLICATE KEY(`k1`, `k2`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+            """
+        for (def i = 1; i <= 5; i++) {
+            sql "INSERT INTO ${tbl} VALUES (${i}, ${10 * i})"
+        }
+
+        sql """ sync """
+
+        // get tablets and set replica status to DROP
+        def tablet = sql_return_maparray("show tablets from ${tbl}")[0]
+        sql """
+            ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "${tablet.TabletId}", "backend_id" = "${tablet.BackendId}", "status" = "drop");
+            """
+        // create index on table 
+        sql """ create index idx_k2 on ${tbl}(k2) using inverted """
+        sql """ build index idx_k2 on ${tbl} """
+        // sleep 5s to wait for the build index job report table is unstable
+        sleep(5000)
+        def show_build_index = sql_return_maparray("show build index where TableName = \"${tbl}\" ORDER BY JobId DESC LIMIT 1")
+        assertEquals('WAITING_TXN', show_build_index[0].State)
+        assertEquals('table is unstable', show_build_index[0].Msg)
+
+        def state = wait_for_last_build_index_on_table_finish(tbl, timeout)
+        assertEquals(state, "FINISHED")
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("EngineCloneTask.wait_clone")
     }
-
-    sql """ sync """
-
-    // get tablets and set replica status to DROP
-    def tablet = sql_return_maparray("show tablets from ${tbl}")[0]
-    sql """
-        ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "${tablet.TabletId}", "backend_id" = "${tablet.BackendId}", "status" = "drop");
-        """
-    // create index on table 
-    sql """ create index idx_k2 on ${tbl}(k2) using inverted """
-    sql """ build index idx_k2 on ${tbl} """
-    // sleep 5s to wait for the build index job report table is unstable
-    sleep(5000)
-    def show_build_index = sql_return_maparray("show build index where TableName = \"${tbl}\"")
-    assertEquals('WAITING_TXN', show_build_index[0].State)
-    assertEquals('table is unstable', show_build_index[0].Msg)
-
-    def state = wait_for_last_build_index_on_table_finish(tbl, timeout)
-    assertEquals(state, "FINISHED")
 }

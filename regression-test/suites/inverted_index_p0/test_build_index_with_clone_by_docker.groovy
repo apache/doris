@@ -60,6 +60,7 @@ suite("test_build_index_with_clone_by_docker"){
     def tbl = 'test_build_index_with_clone_by_docker'
     docker(options) {
         cluster.injectDebugPoints(NodeType.BE, ['EngineCloneTask.wait_clone' : null])
+        sql """ DROP TABLE IF EXISTS ${tbl} """
         sql """
             CREATE TABLE ${tbl} (
             `k1` int(11) NULL,
@@ -86,7 +87,7 @@ suite("test_build_index_with_clone_by_docker"){
         sql """ build index idx_k2 on ${tbl} """
         // sleep 5s to wait for the build index job report table is unstable
         sleep(5000)
-        def show_build_index = sql_return_maparray("show build index where TableName = \"${tbl}\"")
+        def show_build_index = sql_return_maparray("show build index where TableName = \"${tbl}\" ORDER BY JobId DESC LIMIT 1")
         assertEquals('WAITING_TXN', show_build_index[0].State)
         assertEquals('table is unstable', show_build_index[0].Msg)
 
