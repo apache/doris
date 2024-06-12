@@ -53,8 +53,15 @@ suite("test_show_create_mtmv","mtmv") {
         SELECT * FROM ${tableName};
     """
 
-    order_qt_date_trunc "show CREATE MATERIALIZED VIEW ${mvName}"
-
+    def showCreateMTMVResult = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
+    logger.info("showCreateMTMVResult: " + showCreateMTMVResult.toString())
+    assertTrue(showCreateMTMVResult.toString().contains("CREATE MATERIALIZED VIEW"))
+    assertTrue(showCreateMTMVResult.toString().contains("BUILD DEFERRED REFRESH AUTO ON MANUAL"))
+    assertTrue(showCreateMTMVResult.toString().contains("DUPLICATE KEY(`k1`, `k2`)"))
+    assertTrue(showCreateMTMVResult.toString().contains("PARTITION BY (date_trunc(`k2`, 'month'))"))
+    assertTrue(showCreateMTMVResult.toString().contains("DISTRIBUTED BY RANDOM BUCKETS 2"))
+    assertTrue(showCreateMTMVResult.toString().contains("SELECT * FROM"))
+    assertTrue(showCreateMTMVResult.toString().contains("grace_period"))
 
     sql """drop materialized view if exists ${mvName};"""
     sql """
@@ -68,8 +75,11 @@ suite("test_show_create_mtmv","mtmv") {
         AS
         SELECT * FROM ${tableName};
     """
-    order_qt_follow_base_table "show CREATE MATERIALIZED VIEW ${mvName}"
-
+    showCreateMTMVResult = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
+    logger.info("showCreateMTMVResult: " + showCreateMTMVResult.toString())
+    assertTrue(showCreateMTMVResult.toString().contains("BUILD DEFERRED REFRESH AUTO ON SCHEDULE EVERY 10 DAY"))
+    assertTrue(showCreateMTMVResult.toString().contains("partition by (`k2`)"))
+    assertTrue(showCreateMTMVResult.toString().contains("DISTRIBUTED BY hash(k1) BUCKETS 2"))
 
     sql """drop materialized view if exists ${mvName};"""
     sql """
@@ -83,7 +93,11 @@ suite("test_show_create_mtmv","mtmv") {
         AS
         SELECT * FROM ${tableName};
     """
-    order_qt_follow_self_manage "show CREATE MATERIALIZED VIEW ${mvName}"
+    showCreateMTMVResult = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
+    logger.info("showCreateMTMVResult: " + showCreateMTMVResult.toString())
+    assertTrue(showCreateMTMVResult.toString().contains("aa comment 'aa_comment',bb"))
+    assertTrue(showCreateMTMVResult.toString().contains("BUILD IMMEDIATE REFRESH COMPLETE ON COMMIT"))
+    assertTrue(showCreateMTMVResult.toString().contains("DISTRIBUTED BY RANDOM BUCKETS AUTO"))
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
