@@ -59,13 +59,13 @@ public class Utils {
             }
         } else {
             String hadoopUserName = conf.get(Constants.HADOOP_USER_NAME);
-            if (hadoopUserName != null) {
-                UserGroupInformation ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
-                UserGroupInformation.setLoginUser(ugi);
-                return ugi;
+            if (hadoopUserName == null) {
+                hadoopUserName = "hadoop";
             }
+            UserGroupInformation ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
+            UserGroupInformation.setLoginUser(ugi);
+            return ugi;
         }
-        return null;
     }
 
     public static long getCurrentProcId() {
