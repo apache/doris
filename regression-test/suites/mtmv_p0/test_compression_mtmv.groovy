@@ -59,7 +59,7 @@ suite("test_compression_mtmv","mtmv") {
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_mv "SELECT * FROM ${mvName}"
 
-    def showCreateTableResult = sql """show create table ${mvName}"""
+    def showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains('ZSTD'))
 
