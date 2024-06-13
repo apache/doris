@@ -164,11 +164,11 @@ public class AlterRoutineLoadStmt extends DdlStmt {
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK)) {
             long consumerNumPerTask = ((Long) Util.getLongPropertyOrDefault(
-                jobProperties.get(CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK),
-                -1, CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK_PRED,
-                CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK + " should > 0")).intValue();
+                    jobProperties.get(CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK),
+                    -1, CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK_PRED,
+                    CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK + " should > 0")).intValue();
             analyzedJobProperties.put(CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK,
-                String.valueOf(consumerNumPerTask));
+                    String.valueOf(consumerNumPerTask));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)) {
