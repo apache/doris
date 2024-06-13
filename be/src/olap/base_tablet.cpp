@@ -961,6 +961,22 @@ Status BaseTablet::generate_new_block_for_partial_update(
         delete_sign_column_data = delete_sign_col.get_data().data();
     }
 
+    // build default value block
+    auto default_value_block = old_block.clone_empty();
+    auto mutable_default_value_columns = default_value_block.mutate_columns();
+    if (delete_sign_column_data != nullptr) {
+        for (auto i = 0; i < missing_cids.size(); ++i) {
+            const auto& column = rowset_schema->column(missing_cids[i]);
+            if (column.has_default_value()) {
+                const auto& default_value = partial_update_info->default_values[i];
+                vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
+                                          default_value.size());
+                RETURN_IF_ERROR(old_block.get_by_position(i).type->from_string(
+                        rb, mutable_default_value_columns[i].get()));
+            }
+        }
+    }
+
     // build full block
     CHECK(read_index_old.size() == read_index_update.size());
 
@@ -978,10 +994,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
                 delete_sign_column_data[read_index_old[idx]] != 0) {
                 auto& mutable_column = full_mutable_columns[missing_cids[i]];
                 if (rs_column.has_default_value()) {
-                    mutable_column->insert_from(*(partial_update_info->default_value_block
-                                                          .get_columns_with_type_and_name()[i]
-                                                          .column.get()),
-                                                0);
+                    mutable_column->insert_from(*mutable_default_value_columns[i].get(), 0);
                 } else if (rs_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*>(mutable_column.get())
                             ->insert_null_elements(1);
