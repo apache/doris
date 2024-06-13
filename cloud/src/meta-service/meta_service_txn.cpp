@@ -293,9 +293,7 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
     std::string running_val;
     TxnRunningPB running_pb;
     running_pb.set_timeout_time(prepare_time + txn_info.timeout_ms());
-    for (auto i : txn_info.table_ids()) {
-        running_pb.add_table_ids(i);
-    }
+    running_pb.mutable_table_ids()->CopyFrom(txn_info.table_ids());
     VLOG_DEBUG << "label=" << label << " txn_id=" << txn_id
                << "running_pb=" << running_pb.ShortDebugString();
     if (!running_pb.SerializeToString(&running_val)) {
@@ -467,6 +465,7 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
 
     TxnRunningPB running_pb;
     running_pb.set_timeout_time(precommit_time + txn_info.precommit_timeout_ms());
+    running_pb.mutable_table_ids()->CopyFrom(txn_info.table_ids());
     if (!running_pb.SerializeToString(&running_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         ss << "failed to serialize running_pb, txn_id=" << txn_id;
