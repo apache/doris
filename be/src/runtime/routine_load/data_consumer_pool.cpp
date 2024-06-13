@@ -89,7 +89,8 @@ Status DataConsumerPool::get_consumer_grp(std::shared_ptr<StreamLoadContext> ctx
 
     // one data consumer group contains at least one data consumers.
     int max_consumer_num = config::max_consumer_num_per_group;
-    size_t consumer_num = std::min((size_t)max_consumer_num, ctx->kafka_info->begin_offset.size());
+    size_t consumer_num = std::min((size_t)ctx->consumer_num_per_task, std::min((size_t)max_consumer_num, 
+                                   ctx->kafka_info->begin_offset.size()));
 
     std::shared_ptr<KafkaDataConsumerGroup> grp =
             std::make_shared<KafkaDataConsumerGroup>(consumer_num);

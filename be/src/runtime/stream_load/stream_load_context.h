@@ -147,6 +147,7 @@ public:
     AuthInfo auth;
     bool two_phase_commit = false;
     std::string load_comment;
+    int consumer_num_per_task = 3;
 
     // the following members control the max progress of a consuming
     // process. if any of them reach, the consuming will finish.

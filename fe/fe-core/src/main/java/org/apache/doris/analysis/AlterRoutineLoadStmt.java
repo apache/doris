@@ -54,6 +54,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
 
     private static final ImmutableSet<String> CONFIGURABLE_JOB_PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)
+            .add(CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK)
             .add(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)
@@ -159,6 +160,15 @@ public class AlterRoutineLoadStmt extends DdlStmt {
                     CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY + " should > 0")).intValue();
             analyzedJobProperties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY,
                     String.valueOf(desiredConcurrentNum));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK)) {
+            long consumerNumPerTask = ((Long) Util.getLongPropertyOrDefault(
+                jobProperties.get(CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK),
+                -1, CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK_PRED,
+                CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK + " should > 0")).intValue();
+            analyzedJobProperties.put(CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK,
+                String.valueOf(consumerNumPerTask));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)) {

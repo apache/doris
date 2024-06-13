@@ -93,6 +93,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     // routine load properties
     public static final String DESIRED_CONCURRENT_NUMBER_PROPERTY = "desired_concurrent_number";
     public static final String CURRENT_CONCURRENT_NUMBER_PROPERTY = "current_concurrent_number";
+    public static final String CONSUMER_NUM_PER_TASK = "consumer_num_per_task";
     // max error number in ten thousand records
     public static final String MAX_ERROR_NUMBER_PROPERTY = "max_error_number";
     public static final String MAX_FILTER_RATIO_PROPERTY = "max_filter_ratio";
@@ -123,6 +124,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(DESIRED_CONCURRENT_NUMBER_PROPERTY)
+            .add(CONSUMER_NUM_PER_TASK)
             .add(MAX_ERROR_NUMBER_PROPERTY)
             .add(MAX_FILTER_RATIO_PROPERTY)
             .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
@@ -155,6 +157,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private String dbName;
     private RoutineLoadDesc routineLoadDesc;
     private int desiredConcurrentNum = 1;
+    private int consumerNumPerRoutineloadTask = 3;
     private long maxErrorNum = -1;
     private double maxFilterRatio = -1;
     private long maxBatchIntervalS = -1;
@@ -197,6 +200,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private boolean isMultiTable = false;
 
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
+    public static final Predicate<Long> CONSUMER_NUM_PER_TASK_PRED = (v) -> v > 0L;
     public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
     public static final Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0 && v <= 1;
     public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 1;
@@ -229,6 +233,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public String getName() {
         return name;
+    }
+
+    public int getConsumerNumPerRoutineloadTask() {
+        return consumerNumPerRoutineloadTask;
     }
 
     public String getDBName() {
@@ -473,6 +481,11 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 jobProperties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY),
                 Config.max_routine_load_task_concurrent_num, DESIRED_CONCURRENT_NUMBER_PRED,
                 DESIRED_CONCURRENT_NUMBER_PROPERTY + " must be greater than 0")).intValue();
+
+        consumerNumPerRoutineloadTask = ((Long) Util.getLongPropertyOrDefault(
+            jobProperties.get(CONSUMER_NUM_PER_TASK),
+            Config.consumer_num_per_task, CONSUMER_NUM_PER_TASK_PRED,
+            CONSUMER_NUM_PER_TASK + " should > 0")).intValue();
 
         maxErrorNum = Util.getLongPropertyOrDefault(jobProperties.get(MAX_ERROR_NUMBER_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_ERROR_NUM, MAX_ERROR_NUMBER_PRED,

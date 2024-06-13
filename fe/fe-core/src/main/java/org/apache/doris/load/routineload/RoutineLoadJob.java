@@ -173,6 +173,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected Separator columnSeparator; // optional
     protected Separator lineDelimiter;
     protected int desireTaskConcurrentNum; // optional
+    protected int consumerNumPerTask;   // optional
     protected JobState state = JobState.NEED_SCHEDULE;
     @Getter
     protected LoadDataSourceType dataSourceType;
@@ -332,6 +333,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.getDesiredConcurrentNum() != -1) {
             this.desireTaskConcurrentNum = stmt.getDesiredConcurrentNum();
         }
+        if (stmt.getConsumerNumPerRoutineloadTask() != -1) {
+            this.consumerNumPerTask = stmt.getConsumerNumPerRoutineloadTask();
+        }
         if (stmt.getMaxErrorNum() != -1) {
             this.maxErrorNum = stmt.getMaxErrorNum();
         }
@@ -483,6 +487,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public long getTableId() {
         return tableId;
     }
+
+    public int getConsumerNumPerTask() { return consumerNumPerTask; }
 
     public String getTableName() throws MetaNotFoundException {
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
@@ -1715,6 +1721,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         // 5.job_properties. See PROPERTIES_SET of CreateRoutineLoadStmt
         sb.append("PROPERTIES\n(\n");
         appendProperties(sb, CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, desireTaskConcurrentNum, false);
+        appendProperties(sb, CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK, consumerNumPerTask, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, maxErrorNum, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, maxBatchIntervalS, false);
@@ -1813,6 +1820,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 String.valueOf(currentTaskConcurrentNum));
         jobProperties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY,
                 String.valueOf(desireTaskConcurrentNum));
+        jobProperties.put(CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK, String.valueOf(consumerNumPerTask));
         jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(execMemLimit));
         jobProperties.put(LoadStmt.KEY_IN_PARAM_MERGE_TYPE, mergeType.toString());
         jobProperties.put(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION,
@@ -1903,6 +1911,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             Text.writeString(out, cloudClusterId);
         }
         Text.writeString(out, comment);
+        // for consumer num of  routine load task
+        out.writeInt(consumerNumPerTask);
     }
 
     protected void readFields(DataInput in) throws IOException {
@@ -2002,6 +2012,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         } else {
             comment = "";
         }
+
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_134) {
+            consumerNumPerTask = in.readInt();
+        } else {
+            consumerNumPerTask = Config.consumer_num_per_task;
+        }
     }
 
     public abstract void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException;
@@ -2013,6 +2029,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (jobProperties.containsKey(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
             this.desireTaskConcurrentNum = Integer.parseInt(
                     jobProperties.remove(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK)) {
+            this.consumerNumPerTask = Integer.parseInt(
+                jobProperties.remove(CreateRoutineLoadStmt.CONSUMER_NUM_PER_TASK));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)) {

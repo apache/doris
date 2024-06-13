@@ -230,6 +230,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     ctx->table = task.tbl;
     ctx->label = task.label;
     ctx->auth.auth_code = task.auth_code;
+    ctx->consumer_num_per_task = task.consumer_number_per_task;
 
     if (task.__isset.max_interval_s) {
         ctx->max_interval_s = task.max_interval_s;
