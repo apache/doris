@@ -2051,7 +2051,7 @@ public class SessionVariable implements Serializable, Writable {
 
         // for spill to disk
         if (Config.pull_request_id > 10000) {
-            if (Config.pull_request_id % 2 == 1) {
+            if (Config.pull_request_id % 2 == 0) {
                 this.enableJoinSpill = true;
                 this.enableSortSpill = true;
                 this.enableAggSpill = true;
