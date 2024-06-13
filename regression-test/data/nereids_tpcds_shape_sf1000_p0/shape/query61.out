@@ -15,7 +15,7 @@ PhysicalResultSink
 ------------------------PhysicalOlapScan[customer_address] apply RFs: RF10
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF9 ss_customer_sk->[c_customer_sk]
+------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF9 ss_customer_sk->[c_customer_sk]shuffle 16: 12,000,000 vs 737,640.28
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[customer] apply RFs: RF9
@@ -71,7 +71,7 @@ PhysicalResultSink
 --------------------------------------PhysicalOlapScan[item]
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
+------------------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]shuffle 12: 12,000,000 vs 969,963.5
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[customer] apply RFs: RF0

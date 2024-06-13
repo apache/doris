@@ -6,7 +6,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[ss_addr_sk]
+------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[ss_addr_sk]shuffle 71: 429,183,936.74 vs 6,000,000
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
@@ -25,7 +25,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[ws_bill_addr_sk]
+--------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[ws_bill_addr_sk]shuffle 17: 107,296,487.32 vs 6,000,000
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ws_sold_date_sk]

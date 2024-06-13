@@ -9,9 +9,9 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
+------------------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]bc: 285,149.64 vs 6,087.42
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
+----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]bc: 287,997,024 vs 202.99
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 ------------------------PhysicalDistribute[DistributionSpecReplicated]

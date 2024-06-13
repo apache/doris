@@ -26,7 +26,7 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((household_demographics.hd_demo_sk = customer.c_current_hdemo_sk)) otherCondition=() build RFs:RF1 hd_demo_sk->[c_current_hdemo_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer_demographics.cd_demo_sk = customer.c_current_cdemo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[c_current_cdemo_sk]
+------------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer_demographics.cd_demo_sk = customer.c_current_cdemo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[c_current_cdemo_sk]shuffle 109: 12,000,000 vs 109,760
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------PhysicalProject
 ------------------------------------------------PhysicalOlapScan[customer] apply RFs: RF0 RF1

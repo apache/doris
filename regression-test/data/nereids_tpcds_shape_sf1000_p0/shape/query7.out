@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->[ss_item_sk]
+----------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->[ss_item_sk]shuffle 20: 6,190,784.27 vs 300,000
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF2 p_promo_sk->[ss_promo_sk]
