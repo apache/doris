@@ -1448,7 +1448,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    public Pair<Long, TransactionState> beginSubTxn(long txnId, long dbId, List<Long> tableIds, String label,
+    public Pair<Long, TransactionState> beginSubTxn(long txnId, long dbId, Set<Long> tableIds, String label,
             long subTxnNum) throws UserException {
         LOG.info("try to begin sub transaction, txnId: {}, dbId: {}, tableIds: {}, label: {}, subTxnNum: {}", txnId,
                 dbId, tableIds, label, subTxnNum);
@@ -1488,7 +1488,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 TxnUtil.transactionStateFromPb(response.getTxnInfo()));
     }
 
-    public TransactionState abortSubTxn(long txnId, long subTxnId, long dbId, List<Long> tableIds, long subTxnNum)
+    public TransactionState abortSubTxn(long txnId, long subTxnId, long dbId, Set<Long> tableIds, long subTxnNum)
             throws UserException {
         LOG.info("try to abort sub transaction, txnId: {}, subTxnId: {}, dbId: {}, tableIds: {}, subTxnNum: {}", txnId,
                 subTxnId, dbId, tableIds, subTxnNum);
