@@ -798,8 +798,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         auto partial_update_info = rowset_writer->get_partial_update_info();
         DCHECK(partial_update_info);
         RETURN_IF_ERROR(generate_new_block_for_partial_update(
-                rowset_schema, partial_update_info.get(),
-                read_plan_ori, read_plan_update, rsid_to_rowset, &block));
+                rowset_schema, partial_update_info.get(), read_plan_ori, read_plan_update,
+                rsid_to_rowset, &block));
         RETURN_IF_ERROR(sort_block(block, ordered_block));
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
         if (new_generated_rows != rowset_writer->num_rows()) {
@@ -929,8 +929,7 @@ Status BaseTablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t 
 
 Status BaseTablet::generate_new_block_for_partial_update(
         TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
-        const PartialUpdateReadPlan& read_plan_ori,
-        const PartialUpdateReadPlan& read_plan_update,
+        const PartialUpdateReadPlan& read_plan_ori, const PartialUpdateReadPlan& read_plan_update,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         vectorized::Block* output_block) {
     // do partial update related works
@@ -983,7 +982,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
                                                           .get_columns_with_type_and_name()[i]
                                                           .column.get()),
                                                 0);
-                } else if (rs_column.is_nullable()){
+                } else if (rs_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*>(mutable_column.get())
                             ->insert_null_elements(1);
                 } else {
