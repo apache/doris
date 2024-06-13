@@ -1166,7 +1166,7 @@ PARTITION `p599` VALUES IN (599)
     );"""
     sql """insert into test_analyze_specific_column values('%.', 2, 1);"""
     sql """ANALYZE TABLE test_analyze_specific_column(col2) WITH SYNC"""
-    result = sql """SHOW COLUMN STATS test_analyze_specific_column"""
+    def result = sql """SHOW COLUMN STATS test_analyze_specific_column"""
     assert result.size() == 1
 
     // test escape sql
@@ -2731,7 +2731,8 @@ PARTITION `p599` VALUES IN (599)
 
     // Test analyze default full.
     sql """analyze table trigger_test with sync"""
-    def result = sql """show column stats trigger_test"""
+    result = sql """show column stats trigger_test"""
+    logger.info("show column trigger_test stats: " + result)
     assertEquals(2, result.size())
     assertEquals("4.0", result[0][2])
     assertEquals("FULL", result[0][9])
