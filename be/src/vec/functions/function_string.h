@@ -3073,7 +3073,7 @@ static StringRef do_money_format(FunctionContext* context, const string& value) 
     if (!is_positive) {
         *result_data = '-';
     }
-    for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3, j = j - 4) {
+    for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3) {
         *(result_data + j) = *(value.data() + i);
         if (i - 1 < 0) {
             break;
@@ -3085,6 +3085,9 @@ static StringRef do_money_format(FunctionContext* context, const string& value) 
         *(result_data + j - 2) = *(value.data() + i - 2);
         if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
             *(result_data + j - 3) = ',';
+            j -= 4;
+        } else {
+            j -= 3;
         }
     }
     memcpy(result_data + result_len - 3, value.data() + value.size() - 3, 3);
