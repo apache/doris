@@ -154,8 +154,7 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
     if (runtime_state->is_cancelled()) {
         auto st = runtime_state->cancel_reason();
         _cancel_without_lock(st);
-        return Status::Cancelled("cancel group_commit, label=" + label +
-                                 ", status=" + st.to_string());
+        return status;
     }
     if (!_block_queue.empty()) {
         const BlockData block_data = _block_queue.front();
@@ -218,7 +217,8 @@ void LoadBlockQueue::cancel(const Status& st) {
 void LoadBlockQueue::_cancel_without_lock(const Status& st) {
     LOG(INFO) << "cancel group_commit, instance_id=" << load_instance_id << ", label=" << label
               << ", status=" << st.to_string();
-    status = st;
+    status =
+            Status::Cancelled("cancel group_commit, label=" + label + ", status=" + st.to_string());
     while (!_block_queue.empty()) {
         const BlockData& block_data = _block_queue.front().block;
         int before_block_queues_bytes = _all_block_queues_bytes->load();
