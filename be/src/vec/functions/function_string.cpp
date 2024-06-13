@@ -1018,6 +1018,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringDigestSHA1>();
     factory.register_function<FunctionStringDigestSHA2>();
     factory.register_function<FunctionReplace>();
+    factory.register_function<FunctionReplaceEmpty>();
     factory.register_function<FunctionMask>();
     factory.register_function<FunctionMaskPartial<true>>();
     factory.register_function<FunctionMaskPartial<false>>();
