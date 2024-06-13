@@ -103,15 +103,20 @@ public class BindSink implements AnalysisRuleFactory {
                             }
 
                             try {
-                                // For Unique Key table with sequence column (which default value is not CURRENT_TIMESTAMP),
+                                // For Unique Key table with sequence column
+                                // (which default value is not CURRENT_TIMESTAMP),
                                 // user MUST specify the sequence column while inserting data
                                 //
                                 // case1: create table by `function_column.sequence_col`
-                                //        a) insert with column list, must include the sequence map column
-                                //        b) insert without column list, already contains the column, don't need to check
+                                //        a) insert with column list, must include the
+                                //        sequence map column
+                                //        b) insert without column list, already contains the column,
+                                //        don't need to check
                                 // case2: create table by `function_column.sequence_type`
-                                //        a) insert with column list, must include the hidden column __DORIS_SEQUENCE_COL__
-                                //        b) insert without column list, don't include the hidden column __DORIS_SEQUENCE_COL__
+                                //        a) insert with column list, must include the hidden column
+                                //        __DORIS_SEQUENCE_COL__
+                                //        b) insert without column list, don't include the hidden column
+                                //        __DORIS_SEQUENCE_COL__
                                 //           by default, will fail.
                                 if (table.hasSequenceCol()) {
                                     boolean haveInputSeqCol = false;
@@ -125,7 +130,8 @@ public class BindSink implements AnalysisRuleFactory {
                                             haveInputSeqCol = true; // case1.b
                                         }
                                         seqColInTable = table.getFullSchema().stream()
-                                                .filter(col -> col.getName().equals(table.getSequenceMapCol())).findFirst();
+                                                .filter(col -> col.getName().equals(table.getSequenceMapCol()))
+                                                .findFirst();
                                     } else {
                                         if (!sink.getColNames().isEmpty()) {
                                             if (sink.getColNames().contains(Column.SEQUENCE_COL)) {
@@ -134,12 +140,14 @@ public class BindSink implements AnalysisRuleFactory {
                                         }
                                     }
 
-                                    if (!haveInputSeqCol && !isPartialUpdate) {
+                                    if (!haveInputSeqCol && !sink.isPartialUpdate()) {
                                         if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                                                 || !seqColInTable.get().getDefaultValue()
                                                 .equals(DefaultValue.CURRENT_TIMESTAMP)) {
-                                            throw new org.apache.doris.common.AnalysisException("Table " + table.getName()
-                                                    + " has sequence column, need to specify the sequence column");
+                                            throw new org.apache.doris.common.AnalysisException(
+                                                    "Table " + table.getName()
+                                                            + " has sequence column, "
+                                                            + "need to specify the sequence column");
                                         }
                                     }
                                 }
