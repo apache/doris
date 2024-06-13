@@ -689,7 +689,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             scanNode.setCardinality((long) fileScan.getStats().getRowCount());
         }
         Utils.execWithUncheckedException(scanNode::init);
-        context.addScanNode(scanNode);
+        context.addScanNode(scanNode, fileScan);
         ScanNode finalScanNode = scanNode;
         context.getRuntimeTranslator().ifPresent(
                 runtimeFilterGenerator -> runtimeFilterGenerator.getContext().getTargetListByScan(fileScan).forEach(
