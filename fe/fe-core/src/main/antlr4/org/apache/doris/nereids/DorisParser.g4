@@ -172,7 +172,7 @@ partitionSpec
     ;
 
 partitionRange
-    : (PARTITION | PARTITIONS) START start=STRING_LITERAL END end=STRING_LITERAL
+    : (PARTITION | PARTITIONS) LEFT_BRACKET lower=constantSeq COMMA upper=constantSeq RIGHT_PAREN
     ;
 
 partitionTable
