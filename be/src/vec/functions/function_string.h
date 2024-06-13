@@ -586,11 +586,11 @@ public:
             const auto& col = *block.get_by_position(arguments[1]).column;
             // the 2nd arg is const. checked in fe.
             if (col.get_int(0) < 0) [[unlikely]] {
-                    return Status::InvalidArgument(
-                            "function {} only accept non-negative input for 2nd argument but got "
-                            "{}",
-                            name, col.get_int(0));
-                }
+                return Status::InvalidArgument(
+                        "function {} only accept non-negative input for 2nd argument but got "
+                        "{}",
+                        name, col.get_int(0));
+            }
             n = col.get_int(0);
         }
 
@@ -2475,10 +2475,9 @@ public:
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (length_col->get_element(i) < 0) [[unlikely]] {
-                    return Status::InvalidArgument(
-                            "argument {} of function {} at row {} was invalid.",
-                            length_col->get_element(i), name, i);
-                }
+                return Status::InvalidArgument("argument {} of function {} at row {} was invalid.",
+                                               length_col->get_element(i), name, i);
+            }
             random_bytes.resize(length_col->get_element(i));
 
             std::uniform_int_distribution<uint8_t> distribution(0, 255);
