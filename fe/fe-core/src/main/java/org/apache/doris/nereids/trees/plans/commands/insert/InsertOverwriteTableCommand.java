@@ -77,14 +77,17 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
 
     private LogicalPlan logicalQuery;
     private Optional<String> labelName;
+    private final Optional<LogicalPlan> cte;
 
     /**
      * constructor
      */
-    public InsertOverwriteTableCommand(LogicalPlan logicalQuery, Optional<String> labelName) {
+    public InsertOverwriteTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
+            Optional<LogicalPlan> cte) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
+        this.cte = cte;
     }
 
     public void setLabelName(Optional<String> labelName) {
@@ -116,6 +119,10 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             throw new AnalysisException("Not allowed to perform current operation on async materialized view");
         }
         this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
+        if (cte.isPresent()) {
+            this.logicalQuery = (LogicalPlan) logicalQuery.withChildren(cte.get().withChildren(
+                    this.logicalQuery.child(0)));
+        }
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
@@ -186,7 +193,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
                                   ConnectContext ctx, StmtExecutor executor) throws Exception {
         InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(logicalQuery, labelName,
-                Optional.of(insertCtx));
+                Optional.of(insertCtx), Optional.empty());
         insertCommand.run(ctx, executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());

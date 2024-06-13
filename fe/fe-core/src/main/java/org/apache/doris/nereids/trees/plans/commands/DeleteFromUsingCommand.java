@@ -52,8 +52,8 @@ public class DeleteFromUsingCommand extends DeleteFromCommand {
                     + " Please check the following session variables: "
                     + String.join(", ", SessionVariable.DEBUG_VARIABLES));
         }
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty()).run(ctx,
-                executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
+                Optional.empty()).run(ctx, executor);
     }
 
     @Override
