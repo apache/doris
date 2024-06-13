@@ -37,7 +37,9 @@ std::shared_ptr<DeltaWriterV2> DeltaWriterV2Map::get_or_create(
         return _map.at(tablet_id);
     }
     std::shared_ptr<DeltaWriterV2> writer = creator();
-    _map[tablet_id] = writer;
+    if (writer != nullptr) {
+        _map[tablet_id] = writer;
+    }
     return writer;
 }
 
