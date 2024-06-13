@@ -464,8 +464,8 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         }
     }
 
-    private List<NamedExpression> getExprIdUnchangedNormalizedAggOutput(List<NamedExpression> normalizedAggOutput,
-            List<NamedExpression> originalAggOutput) {
+    private static List<NamedExpression> getExprIdUnchangedNormalizedAggOutput(
+            List<NamedExpression> normalizedAggOutput, List<NamedExpression> originalAggOutput) {
         Builder<NamedExpression> builder = new ImmutableList.Builder<>();
         for (int i = 0; i < originalAggOutput.size(); i++) {
             NamedExpression e = normalizedAggOutput.get(i);
