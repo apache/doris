@@ -24,7 +24,8 @@ suite("normalize_aggregate") {
         - ( NULLIF ( 61, 83 + 88 ) ) ) * 94; 
     """
     sql "drop table if exists normalize_aggregate_tab"
-    sql "CREATE TABLE normalize_aggregate_tab(col0 INTEGER, col1 INTEGER, col2 INTEGER);"
+    sql """CREATE TABLE normalize_aggregate_tab(col0 INTEGER, col1 INTEGER, col2 INTEGER) distributed by hash(col0) buckets 10
+        properties('replication_num' = '1'); """
     qt_test_upper_project_projections_rewrite2 """
     SELECT - + AVG ( DISTINCT - col0 ) * - col0 FROM
     normalize_aggregate_tab WHERE + - col0 IS NULL GROUP BY col0 HAVING NULL IS NULL;"""
