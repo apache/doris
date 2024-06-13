@@ -87,4 +87,12 @@ public class MTMVRefreshPartitionRange {
     public Range<DateV2Literal> getRange() {
         return Range.closedOpen(new DateV2Literal(lowerValue), new DateV2Literal(upperValue));
     }
+
+    @Override
+    public String toString() {
+        return "MTMVRefreshPartitionRange{"
+                + "lowerValue='" + lowerValue + '\''
+                + ", upperValue='" + upperValue + '\''
+                + '}';
+    }
 }
