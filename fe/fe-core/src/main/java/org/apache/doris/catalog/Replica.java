@@ -255,22 +255,6 @@ public class Replica implements Writable {
         this.rowCount = rowCount;
     }
 
-    public long getSegmentCount() {
-        return segmentCount;
-    }
-
-    public void setSegmentCount(long segmentCount) {
-        this.segmentCount = segmentCount;
-    }
-
-    public long getRowsetCount() {
-        return rowsetCount;
-    }
-
-    public void setRowsetCount(long rowsetCount) {
-        this.rowsetCount = rowsetCount;
-    }
-
     public long getLastFailedVersion() {
         return lastFailedVersion;
     }
