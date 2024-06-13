@@ -20,29 +20,30 @@ package org.apache.doris.nereids.rules.implementation;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
 
 import java.util.Optional;
 
 /**
- * Implementation rule that convert logical FileScan to physical FileScan.
+ * Implementation rule that convert logical HudiScan to physical HudiScan.
  */
-public class LogicalFileScanToPhysicalFileScan extends OneImplementationRuleFactory {
+public class LogicalHudiScanToPhysicalHudiScan extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalFileScan().when(plan -> !(plan instanceof LogicalHudiScan)).then(fileScan ->
-            new PhysicalFileScan(
-                    fileScan.getRelationId(),
-                    fileScan.getTable(),
-                    fileScan.getQualifier(),
-                    DistributionSpecAny.INSTANCE,
-                    Optional.empty(),
-                    fileScan.getLogicalProperties(),
-                    fileScan.getConjuncts(),
-                    fileScan.getSelectedPartitions(),
-                    fileScan.getTableSample(),
-                    fileScan.getTableSnapshot())
-        ).toRule(RuleType.LOGICAL_FILE_SCAN_TO_PHYSICAL_FILE_SCAN_RULE);
+        return logicalHudiScan().then(fileScan ->
+                new PhysicalHudiScan(
+                        fileScan.getRelationId(),
+                        fileScan.getTable(),
+                        fileScan.getQualifier(),
+                        DistributionSpecAny.INSTANCE,
+                        Optional.empty(),
+                        fileScan.getLogicalProperties(),
+                        fileScan.getConjuncts(),
+                        fileScan.getSelectedPartitions(),
+                        fileScan.getTableSample(),
+                        fileScan.getTableSnapshot(),
+                        fileScan.getScanParams(),
+                        fileScan.getIncrementalRelation())
+        ).toRule(RuleType.LOGICAL_HUDI_SCAN_TO_PHYSICAL_HUDI_SCAN_RULE);
     }
 }
