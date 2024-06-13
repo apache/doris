@@ -351,13 +351,10 @@ std::string StreamLoadContext::brief(bool detail) const {
 }
 
 bool StreamLoadContext::is_mow_table() const {
-    if ((put_result.__isset.params && put_result.params.__isset.is_mow_table &&
-         put_result.params.is_mow_table) ||
-        (put_result.__isset.pipeline_params && put_result.pipeline_params.__isset.is_mow_table &&
-         put_result.pipeline_params.is_mow_table)) {
-        return true;
-    }
-    return false;
+    return (put_result.__isset.params && put_result.params.__isset.is_mow_table &&
+            put_result.params.is_mow_table) ||
+           (put_result.__isset.pipeline_params && put_result.pipeline_params.__isset.is_mow_table &&
+            put_result.pipeline_params.is_mow_table);
 }
 
 } // namespace doris
