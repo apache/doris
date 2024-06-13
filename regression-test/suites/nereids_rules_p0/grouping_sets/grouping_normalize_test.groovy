@@ -39,4 +39,19 @@ suite("grouping_normalize_test"){
     SELECT  ROUND( SUM(pk  +  1)  -  3)  col_alias1,  MAX( DISTINCT  col_int_undef_signed  -  5)   AS col_alias2, pk  +  1  AS col_alias3
     FROM grouping_normalize_test  GROUP BY  GROUPING SETS ((col_int_undef_signed,col_int_undef_signed2,pk),()) order by 1,2,3;
     """
+
+    explain {
+            sql("SELECT col_int_undef_signed, col_int_undef_signed2, SUM(pk) FROM grouping_normalize_test GROUP BY GROUPING SETS ((col_int_undef_signed, col_int_undef_signed2));")
+            notContains("VREPEAT_NODE")
+    }
+
+    explain {
+            sql("SELECT col_int_undef_signed, col_int_undef_signed2, SUM(pk), grouping_id(col_int_undef_signed2) FROM grouping_normalize_test GROUP BY GROUPING SETS ((col_int_undef_signed, col_int_undef_signed2),());")
+            contains("VREPEAT_NODE")
+    }
+
+    explain {
+            sql("SELECT col_int_undef_signed, col_int_undef_signed2, SUM(pk) FROM grouping_normalize_test GROUP BY GROUPING SETS ((col_int_undef_signed, col_int_undef_signed2));")
+            notContains("VREPEAT_NODE")
+    }
 }

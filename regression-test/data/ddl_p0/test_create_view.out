@@ -25,5 +25,5 @@
 3	[-1, 20, 0]	[0, 1, 0]
 
 -- !test_view_6 --
-v1	CREATE VIEW `v1` COMMENT 'VIEW' AS SELECT\n      error_code, \n      1, \n      'string', \n      now(), \n      dayofyear(op_time), \n      cast (source AS BIGINT), \n      min(`timestamp`) OVER (\n        ORDER BY \n          op_time DESC ROWS BETWEEN UNBOUNDED PRECEDING\n          AND 1 FOLLOWING\n      ), \n      1 > 2,\n      2 + 3,\n      1 IN (1, 2, 3, 4), \n      remark LIKE '%like', \n      CASE WHEN remark = 's' THEN 1 ELSE 2 END,\n      TRUE | FALSE \n    FROM \n      `internal`.`regression_test_ddl_p0`.`view_column_name_test`;
+v1	CREATE VIEW `v1` AS SELECT\n      error_code, \n      1, \n      'string', \n      now(), \n      dayofyear(op_time), \n      cast (source AS BIGINT), \n      min(`timestamp`) OVER (\n        ORDER BY \n          op_time DESC ROWS BETWEEN UNBOUNDED PRECEDING\n          AND 1 FOLLOWING\n      ), \n      1 > 2,\n      2 + 3,\n      1 IN (1, 2, 3, 4), \n      remark LIKE '%like', \n      CASE WHEN remark = 's' THEN 1 ELSE 2 END,\n      TRUE | FALSE \n    FROM \n      `internal`.`regression_test_ddl_p0`.`view_column_name_test`;
 

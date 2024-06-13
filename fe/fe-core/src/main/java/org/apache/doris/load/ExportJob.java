@@ -39,7 +39,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
@@ -541,11 +540,10 @@ public class ExportJob implements Writable {
                 if (!isPartitionConsistency()) {
                     partitionToVersion.put(partition.getName(), partition.getVisibleVersion());
                 }
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                    List<Long> tablets = index.getTabletIdsInOrder();
-                    tabletsAllNum += tablets.size();
-                    tabletIdList.add(tablets);
-                }
+                MaterializedIndex index = partition.getBaseIndex();
+                List<Long> tablets = index.getTabletIdsInOrder();
+                tabletsAllNum += tablets.size();
+                tabletIdList.add(tablets);
             }
         } finally {
             table.readUnlock();

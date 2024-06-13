@@ -60,7 +60,9 @@
 #include <aws/s3/model/PutObjectResult.h>
 #include <aws/s3/model/UploadPartRequest.h>
 #include <aws/s3/model/UploadPartResult.h>
-#include <bits/ranges_algo.h>
+
+#include <algorithm>
+#include <ranges>
 
 #include "common/logging.h"
 #include "common/status.h"

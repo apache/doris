@@ -593,16 +593,9 @@ public class StmtExecutor {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
-                    // FIXME: Force fallback for group commit because nereids does not support it
-                    boolean isInsertCommand = parsedStmt != null
-                            && parsedStmt instanceof LogicalPlanAdapter
-                            && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand;
-                    boolean isGroupCommit = (Config.wait_internal_group_commit_finish
-                            || context.sessionVariable.isEnableInsertGroupCommit()) && isInsertCommand;
                     if (e instanceof NereidsException
                             && !(((NereidsException) e).getException() instanceof MustFallbackException)
-                            && !context.getSessionVariable().enableFallbackToOriginalPlanner
-                            && !isGroupCommit) {
+                            && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         context.getState().setError(e.getMessage());
                         return;
@@ -810,7 +803,7 @@ public class StmtExecutor {
         // queue query here
         syncJournalIfNeeded();
         int retryTime = Config.max_query_retry_time;
-        for (int i = 0; i < retryTime; i++) {
+        for (int i = 0; i <= retryTime; i++) {
             try {
                 // reset query id for each retry
                 if (i > 0) {
@@ -896,6 +889,7 @@ public class StmtExecutor {
                 if (context.isReturnResultFromLocal()) {
                     finalizeQuery();
                 }
+                LOG.debug("Finalize query {}", DebugUtil.printId(context.queryId()));
             }
         }
     }
@@ -1769,7 +1763,7 @@ public class StmtExecutor {
                 planner.plan(newSelectStmt, context.getSessionVariable().toThrift());
             }
         }
-        sendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
+        executeAndSendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
     }
 
     // Process a select statement.
@@ -1851,11 +1845,12 @@ public class StmtExecutor {
             }
         }
 
-        sendResult(isOutfileQuery, false, queryStmt, channel, null, null);
+        executeAndSendResult(isOutfileQuery, false, queryStmt, channel, null, null);
         LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
     }
 
-    private void sendResult(boolean isOutfileQuery, boolean isSendFields, Queriable queryStmt, MysqlChannel channel,
+    public void executeAndSendResult(boolean isOutfileQuery, boolean isSendFields,
+            Queriable queryStmt, MysqlChannel channel,
             CacheAnalyzer cacheAnalyzer, InternalService.PFetchCacheResult cacheResult) throws Exception {
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
@@ -1866,7 +1861,15 @@ public class StmtExecutor {
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
         CoordInterface coordBase = null;
-        if (queryStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).isPointQueryShortCircuit()) {
+        if (statementContext.isShortCircuitQuery()) {
+            ShortCircuitQueryContext shortCircuitQueryContext =
+                        statementContext.getShortCircuitQueryContext() != null
+                                ? statementContext.getShortCircuitQueryContext()
+                                : new ShortCircuitQueryContext(planner, (Queriable) parsedStmt);
+            coordBase = new PointQueryExecutor(shortCircuitQueryContext,
+                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+        } else if (queryStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).isPointQueryShortCircuit()) {
+            // this branch is for legacy planner, to be removed
             coordBase = new PointQueryExec(planner, analyzer,
                     context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
         } else {
@@ -2071,7 +2074,8 @@ public class StmtExecutor {
             context.getTxnEntry()
                     .setTxnConf(new TTxnParams().setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
                             .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("")
-                            .setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0 : 1.0));
+                            .setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0
+                                    : context.getSessionVariable().getInsertMaxFilterRatio()));
             StringBuilder sb = new StringBuilder();
             sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
                     .append(TransactionStatus.PREPARE.name());
@@ -2389,6 +2393,15 @@ public class StmtExecutor {
                     if (filteredRows > 0) {
                         context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
                                 "Insert has filtered data in strict mode, tracking_url=" + coord.getTrackingUrl());
+                        return;
+                    }
+                } else {
+                    if (filteredRows > context.getSessionVariable().getInsertMaxFilterRatio()
+                            * (filteredRows + loadedRows)) {
+                        context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
+                                String.format("Insert has too many filtered data %d/%d insert_max_filter_ratio is %f",
+                                        filteredRows, filteredRows + loadedRows,
+                                        context.getSessionVariable().getInsertMaxFilterRatio()));
                         return;
                     }
                 }
@@ -3395,7 +3408,7 @@ public class StmtExecutor {
                 if (!Config.wait_internal_group_commit_finish && insert.getLabelName().isPresent()) {
                     throw new AnalysisException("label and group_commit can't be set at the same time");
                 }
-                context.setGroupCommitStreamLoadSql(true);
+                context.setGroupCommit(true);
             }
             OlapInsertExecutor insertExecutor = (OlapInsertExecutor) insert.initPlan(context, this);
             httpStreamParams.setTxnId(insertExecutor.getTxnId());

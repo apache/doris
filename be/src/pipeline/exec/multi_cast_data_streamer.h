@@ -50,7 +50,7 @@ public:
 
     ~MultiCastDataStreamer() = default;
 
-    void pull(int sender_idx, vectorized::Block* block, bool* eos);
+    Status pull(int sender_idx, vectorized::Block* block, bool* eos);
 
     void close_sender(int sender_idx);
 

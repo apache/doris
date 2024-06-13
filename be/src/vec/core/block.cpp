@@ -86,7 +86,7 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
 Status Block::deserialize(const PBlock& pblock) {
     swap(Block());
     int be_exec_version = pblock.has_be_exec_version() ? pblock.be_exec_version() : 0;
-    CHECK(BeExecVersionManager::check_be_exec_version(be_exec_version));
+    RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(be_exec_version));
 
     const char* buf = nullptr;
     std::string compression_scratch;
@@ -885,6 +885,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
                         /*std::string* compressed_buffer,*/ size_t* uncompressed_bytes,
                         size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                         bool allow_transfer_large_data) const {
+    RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(be_exec_version));
     pblock->set_be_exec_version(be_exec_version);
 
     // calc uncompressed size for allocation

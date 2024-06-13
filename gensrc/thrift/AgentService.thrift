@@ -61,6 +61,16 @@ enum TTabletType {
     TABLET_TYPE_MEMORY = 1
 }
 
+enum TObjStorageType {
+    UNKNOWN = 0,
+    AWS = 1,
+    AZURE = 2,
+    BOS = 3,
+    COS = 4,
+    OBS = 5,
+    OSS = 6,
+    GCP = 7
+}
 
 struct TS3StorageParam {
     1: optional string endpoint
@@ -74,6 +84,7 @@ struct TS3StorageParam {
     9: optional string bucket
     10: optional bool use_path_style = false
     11: optional string token
+    12: optional TObjStorageType provider
 }
 
 struct TStoragePolicy {
@@ -273,6 +284,7 @@ struct TPushReq {
     15: optional Descriptors.TDescriptorTable desc_tbl
     16: optional list<Descriptors.TColumn> columns_desc
     17: optional string storage_vault_id
+    18: optional i32 schema_version
 }
 
 struct TCloneReq {

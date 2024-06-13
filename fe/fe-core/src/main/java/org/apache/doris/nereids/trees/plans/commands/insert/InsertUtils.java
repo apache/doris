@@ -140,7 +140,10 @@ public class InsertUtils {
         ctx.updateReturnRows(effectRows);
     }
 
-    private static InternalService.PDataRow getRowStringValue(List<NamedExpression> cols) {
+    /**
+     * literal expr in insert operation
+     */
+    public static InternalService.PDataRow getRowStringValue(List<NamedExpression> cols) {
         if (cols.isEmpty()) {
             return null;
         }

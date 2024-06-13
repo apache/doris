@@ -371,6 +371,13 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             } else if (probeStats.getWidthInJoinCluster() < buildStats.getWidthInJoinCluster()) {
                 leftRowCount += 1;
             }
+            if (probeStats.getWidthInJoinCluster() == buildStats.getWidthInJoinCluster()
+                    && probeStats.computeTupleSize() < buildStats.computeTupleSize()) {
+                // When the number of rows and the width on both sides of the join are the same,
+                // we need to consider the cost of materializing the output.
+                // When there is more data on the build side, a greater penalty will be given.
+                leftRowCount += 1e-3;
+            }
         }
 
         /*

@@ -37,7 +37,6 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/runtime/vdata_stream_recvr.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class DataSink;
@@ -114,6 +113,7 @@ public:
 
     virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
+    OperatorXPtr child_x() { return _child_x; }
 
 protected:
     OperatorXPtr _child_x = nullptr;

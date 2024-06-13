@@ -21,6 +21,7 @@
 #include <string>
 
 #include "pipeline/exec/operator.h"
+#include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
 

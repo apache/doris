@@ -32,7 +32,6 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
-#include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_system.h"
@@ -738,7 +737,7 @@ SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
         // This is because the schema change for a variant needs to ignore the extracted columns.
         // Otherwise, the schema types in different rowsets might be inconsistent. When performing a schema change,
         // the complete variant is constructed by reading all the sub-columns of the variant.
-        _new_tablet_schema = _new_tablet->tablet_schema()->copy_without_extracted_columns();
+        _new_tablet_schema = _new_tablet->tablet_schema()->copy_without_variant_extracted_columns();
     }
     _job_id = job_id;
 }

@@ -26,14 +26,12 @@
 
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr.h"
-
-namespace doris {
-class DataSink;
-} // namespace doris
 
 namespace doris::pipeline {
 
@@ -298,7 +296,8 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _tablet_sink_partition(sink.tablet_sink_partition),
           _tablet_sink_location(sink.tablet_sink_location),
           _tablet_sink_tuple_id(sink.tablet_sink_tuple_id),
-          _tablet_sink_txn_id(sink.tablet_sink_txn_id) {
+          _tablet_sink_txn_id(sink.tablet_sink_txn_id),
+          _enable_local_merge_sort(state->enable_local_merge_sort()) {
     DCHECK_GT(destinations.size(), 0);
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
            sink.output_partition.type == TPartitionType::HASH_PARTITIONED ||
@@ -382,11 +381,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 if (serialized) {
                     auto cur_block = local_state._serializer.get_block()->to_block();
                     if (!cur_block.empty()) {
-                        static_cast<void>(local_state._serializer.serialize_block(
+                        RETURN_IF_ERROR(local_state._serializer.serialize_block(
                                 &cur_block, block_holder->get_block(),
                                 local_state.channels.size()));
                     } else {
-                        block_holder->get_block()->Clear();
+                        block_holder->reset_block();
                     }
 
                     local_state._broadcast_pb_mem_limiter->acquire(*block_holder);
@@ -650,6 +649,19 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
         _sink_buffer->close();
     }
     return Base::close(state, exec_status);
+}
+
+DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
+    if (_child_x && _enable_local_merge_sort) {
+        // SORT_OPERATOR -> DATA_STREAM_SINK_OPERATOR
+        // SORT_OPERATOR -> LOCAL_MERGE_SORT -> DATA_STREAM_SINK_OPERATOR
+        if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child_x);
+            sort_source && sort_source->use_local_merge()) {
+            // Sort the data local
+            return ExchangeType::LOCAL_MERGE_SORT;
+        }
+    }
+    return DataSinkOperatorX<ExchangeSinkLocalState>::required_data_distribution();
 }
 
 } // namespace doris::pipeline

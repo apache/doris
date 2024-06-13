@@ -243,6 +243,7 @@ RuntimeState::RuntimeState()
           _unreported_error_idx(0),
           _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
+    _query_options.be_exec_version = BeExecVersionManager::get_newest_version();
     _timezone = TimezoneUtils::default_time_zone;
     _timestamp_ms = 0;
     _nano_seconds = 0;
