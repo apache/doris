@@ -3032,24 +3032,45 @@ struct SubReplaceImpl {
 
 private:
     static void vector(const ColumnString* data_column, const ColumnString* mask_column,
-                       const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& length,
-                       NullMap& args_null_map, ColumnString* result_column,
-                       size_t input_rows_count) {
+                       const PaddedPODArray<Int32>& args_start,
+                       const PaddedPODArray<Int32>& args_length, NullMap& args_null_map,
+                       ColumnString* result_column, size_t input_rows_count) {
         ColumnString::Chars& res_chars = result_column->get_chars();
         ColumnString::Offsets& res_offsets = result_column->get_offsets();
+        PaddedPODArray<size_t> index;
+
         for (size_t row = 0; row < input_rows_count; ++row) {
             StringRef origin_str = data_column->get_data_at(row);
             StringRef new_str = mask_column->get_data_at(row);
             size_t origin_str_len = origin_str.size;
+            const auto start = args_start[row];
+            const auto length = args_length[row];
             //input is null, start < 0, len < 0, str_size <= start. return NULL
-            if (args_null_map[row] || start[row] < 0 || length[row] < 0 ||
-                origin_str_len <= start[row]) {
+            if (args_null_map[row] || start < 0 || length < 0 || origin_str_len <= start) {
                 res_offsets.push_back(res_chars.size());
                 args_null_map[row] = 1;
             } else {
                 std::string_view replace_str = new_str.to_string_view();
                 std::string result = origin_str.to_string();
-                result.replace(start[row], length[row], replace_str);
+                index.clear();
+                size_t j = 0, char_size = 0;
+                while (j < origin_str_len) {
+                    char_size = get_utf8_byte_length(result[j]);
+                    index.push_back(j);
+                    j += char_size;
+                }
+                const auto utf8_total_len = index.size();
+                index.push_back(j);
+
+                if (start >= utf8_total_len) {
+                    res_offsets.push_back(res_chars.size());
+                    args_null_map[row] = 1;
+                    continue;
+                }
+                const auto utf8_start = index[start];
+                const auto utf8_length =
+                        index[std::min((int)index.size() - 1, start + length)] - utf8_start;
+                result.replace(utf8_start, utf8_length, replace_str);
                 result_column->insert_data(result.data(), result.length());
             }
         }
@@ -3070,13 +3091,16 @@ struct SubReplaceThreeImpl {
 
         auto str_col =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
+        if (const auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
             str_col = nullable->get_nested_column_ptr();
         }
-        auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
-
+        const auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
+        const auto& str_data = assert_cast<const ColumnString*>(str_col.get())->get_chars();
+        // use utf8 len
         for (int i = 0; i < input_rows_count; ++i) {
-            strlen_data[i] = str_offset[i] - str_offset[i - 1];
+            const char* raw_str = reinterpret_cast<const char*>(&str_data[str_offset[i - 1]]);
+            int str_size = str_offset[i] - str_offset[i - 1];
+            strlen_data[i] = simd::VStringFunctions::get_char_len(raw_str, str_size);
         }
 
         block.insert({std::move(params), std::make_shared<DataTypeInt32>(), "strlen"});

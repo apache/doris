@@ -191,4 +191,14 @@ suite("test_string_function") {
 
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
+
+    qt_sql " select sub_replace('你好世界','a',1);"
+    qt_sql " select sub_replace('你好世界','ab',1);"
+    qt_sql " select sub_replace('你好世界','ab',1,20);"
+    qt_sql " select sub_replace('你好世界','a',6);"
+    qt_sql " select sub_replace('你好世界','大家',0);"
+    qt_sql " select sub_replace('你好世界','大家114514',1,20);"
+    qt_sql " select sub_replace('你好世界','大家114514',6,20);"
+    qt_sql " select sub_replace('你好世界','大家',4);"
+
 }
