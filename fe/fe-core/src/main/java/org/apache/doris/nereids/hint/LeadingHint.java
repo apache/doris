@@ -88,7 +88,7 @@ public class LeadingHint extends Hint {
         super(hintName);
         this.originalString = originalString;
         addJoinParameters = insertJoinIntoParameters(parameters);
-        normalizedParameters = parseIntoPolandNotation(addJoinParameters);
+        normalizedParameters = parseIntoReversePolishNotation(addJoinParameters);
     }
 
     /**
@@ -120,11 +120,11 @@ public class LeadingHint extends Hint {
     }
 
     /**
-     * parse list string of original leading string with join string to poland notation
+     * parse list string of original leading string with join string to Reverse Polish notation
      * @param list of leading with join string
-     * @return poland notation which can be used directly changed into logical join
+     * @return Reverse Polish notation which can be used directly changed into logical join
      */
-    public List<String> parseIntoPolandNotation(List<String> list) {
+    public List<String> parseIntoReversePolishNotation(List<String> list) {
         Stack<String> s1 = new Stack<>();
         List<String> s2 = new ArrayList<>();
 
