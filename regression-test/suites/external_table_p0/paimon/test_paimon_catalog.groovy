@@ -176,6 +176,9 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
 
             def c104= """select * from deletion_vector_orc;"""
             def c105= """select * from deletion_vector_parquet;"""
+            def c106= """select * from deletion_vector_orc;"""
+            def c107= """select * from deletion_vector_parquet;"""
+            def c108= """ select * from tb_with_upper_case """
 
             String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
             String catalog_name = "ctl_test_paimon_catalog"
