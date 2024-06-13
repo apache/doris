@@ -70,6 +70,7 @@ public class CloudClusterChecker extends MasterDaemon {
             return;
         }
 
+        // TODO(gavin): Consider VPC
         // vpc:ip:port -> Nodes
         Map<String, T> currentMap = supplierCurrentMapFunc.get();
         Map<String, T> nodeMap = supplierNodeMapFunc.get();

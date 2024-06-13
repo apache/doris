@@ -219,16 +219,16 @@ Status HttpService::start() {
             new ReportAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_TASK"));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/task", report_task_action);
 
+    // shrink memory for starting co-exist process during upgrade
+    ShrinkMemAction* shrink_mem_action = _pool.add(new ShrinkMemAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/shrink_mem", shrink_mem_action);
+
     auto& engine = _env->storage_engine();
     if (config::is_cloud_mode()) {
         register_cloud_handler(engine.to_cloud());
     } else {
         register_local_handler(engine.to_local());
     }
-
-    // shrink memory for starting co-exist process during upgrade
-    ShrinkMemAction* shrink_mem_action = _pool.add(new ShrinkMemAction());
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/shrink_mem", shrink_mem_action);
 
     _ev_http_server->start();
     return Status::OK();
