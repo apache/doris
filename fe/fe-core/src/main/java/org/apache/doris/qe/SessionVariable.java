@@ -84,7 +84,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String ANALYZE_TIMEOUT = "analyze_timeout";
 
-    public static final String INTERNAL_CACHE_HOT_SPOT_TIMEOUT = "cache_hot_spot_timeout";
+    public static final String INTERNAL_CACHE_HOT_SPOT_TIMEOUT = "cache_hot_spot_insert_timeout_second";
 
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
