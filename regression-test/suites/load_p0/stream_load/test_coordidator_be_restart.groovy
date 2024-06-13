@@ -24,10 +24,25 @@ suite('test_coordidator_be_restart') {
     options.enableDebugPoints()
 
     docker(options) {
-        def tableName = 'tbl_test_coordidator_be_restart'
+        def db = context.config.getDbNameByFile(context.file)
+        def tableName1 = 'tbl_test_coordidator_be_restart_t1'
         setFeConfig('abort_txn_after_lost_heartbeat_time_second', 3600)
-        GetDebugPoint().enableDebugPointForAllBEs('StreamLoadExecutor.commit_txn.block')
+
         def dbId = getDbId()
+
+        def tableName2 = 'tbl_test_coordidator_be_restart_t2'
+
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName2} (
+                id int,
+                name CHAR(10),
+                dt_1 DATETIME DEFAULT CURRENT_TIMESTAMP,
+                dt_2 DATETIMEV2 DEFAULT CURRENT_TIMESTAMP,
+                dt_3 DATETIMEV2(3) DEFAULT CURRENT_TIMESTAMP,
+                dt_4 DATETIMEV2(6) DEFAULT CURRENT_TIMESTAMP
+            )
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+        """
 
         def txns = sql_return_maparray "show proc '/transactions/${dbId}/running'"
         assertEquals(0, txns.size())
@@ -37,19 +52,39 @@ suite('test_coordidator_be_restart') {
         def coordinatorBe = cluster.getAllBackends().get(0)
         def coordinatorBeHost = coordinatorBe.host
 
-        def future = thread {
+        GetDebugPoint().enableDebugPointForAllFEs('LoadAction.selectRedirectBackend.backendId', [value: coordinatorBe.backendId])
+        GetDebugPoint().enableDebugPointForAllBEs('StreamLoadExecutor.commit_txn.block')
+
+        thread {
             try {
-                runStreamLoadExample(tableName, coordinatorBe.host + ':' + coordinatorBe.httpPort)
+                runStreamLoadExample(tableName1, coordinatorBe.host + ':' + coordinatorBe.httpPort)
             } catch (NoHttpResponseException t) {
             // be down  will raise NoHttpResponseException
             }
         }
 
+        thread {
+            try {
+                streamLoad {
+                    set 'version', '1'
+                    set 'sql', """
+                            insert into ${db}.${tableName2} (id, name) select c1, c2 from http_stream("format"="csv")
+                            """
+                    time 120 * 1000
+                    file context.config.dataPath + '/load_p0/http_stream/test_http_stream.csv'
+                }
+            } catch (Exception e) {
+                logger.info('http stream: ' + e)
+            }
+        }
+
         sleep(5000)
         txns = sql_return_maparray "show proc '/transactions/${dbId}/running'"
-        assertEquals(1, txns.size())
-        assertEquals('PREPARE', txns.get(0).TransactionStatus)
-        def txnId = txns.get(0).TransactionId
+        logger.info('running txns: ' + txns)
+        assertEquals(2, txns.size())
+        for (def txn : txns) {
+            assertEquals('PREPARE', txn.TransactionStatus)
+        }
 
         txns = sql_return_maparray "show proc '/transactions/${dbId}/finished'"
         assertEquals(0, txns.size())
@@ -68,9 +103,11 @@ suite('test_coordidator_be_restart') {
         assertTrue(isDead)
         sleep 5000
         txns = sql_return_maparray "show proc '/transactions/${dbId}/running'"
-        assertEquals(1, txns.size())
-        assertEquals(txnId, txns.get(0).TransactionId)
-        assertEquals('PREPARE', txns.get(0).TransactionStatus)
+        logger.info('running txns: ' + txns)
+        assertEquals(2, txns.size())
+        for (def txn : txns) {
+            assertEquals('PREPARE', txn.TransactionStatus)
+        }
 
         // coordinatorBe restart, abort txn on it
         cluster.startBackends(coordinatorBe.index)
@@ -86,15 +123,13 @@ suite('test_coordidator_be_restart') {
         assertTrue(isAlive)
         sleep 5000
         txns = sql_return_maparray "show proc '/transactions/${dbId}/running'"
+        logger.info('running txns: ' + txns)
         assertEquals(0, txns.size())
         txns = sql_return_maparray "show proc '/transactions/${dbId}/finished'"
-        assertEquals(1, txns.size())
-        assertEquals(txnId, txns.get(0).TransactionId)
-        assertEquals('ABORTED', txns.get(0).TransactionStatus)
-
-        try {
-            future.get()
-        } catch (Throwable t) {
+        logger.info('finished txns: ' + txns)
+        assertEquals(2, txns.size())
+        for (def txn : txns) {
+            assertEquals('ABORTED', txn.TransactionStatus)
         }
     }
 }

@@ -2109,6 +2109,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             httpStreamParams.getParams().setLoadStreamPerNode(loadStreamPerNode);
             httpStreamParams.getParams().setTotalLoadStreams(loadStreamPerNode);
             httpStreamParams.getParams().setNumLocalSink(1);
+
+            TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(
+                    httpStreamParams.getDb().getId(), httpStreamParams.getTxnId());
+            if (txnState == null) {
+                LOG.warn("Not found http stream related txn, txn id = {}", httpStreamParams.getTxnId());
+            } else {
+                TxnCoordinator txnCoord = txnState.getCoordinator();
+                Backend backend = Env.getCurrentSystemInfo().getBackend(request.getBackendId());
+                if (backend != null) {
+                    // only modify txnCoord in memory, not write editlog yet.
+                    txnCoord.sourceType = TxnSourceType.BE;
+                    txnCoord.id = backend.getId();
+                    txnCoord.ip = backend.getHost();
+                    txnCoord.startTime = backend.getLastStartTime();
+                    LOG.info("Change http stream related txn {} to coordinator {}",
+                            httpStreamParams.getTxnId(), txnCoord);
+                }
+            }
+
             result.setPipelineParams(httpStreamParams.getParams());
             result.getPipelineParams().setDbName(httpStreamParams.getDb().getFullName());
             result.getPipelineParams().setTableName(httpStreamParams.getTable().getName());

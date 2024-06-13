@@ -172,7 +172,7 @@ public class TransactionState implements Writable {
         @SerializedName(value = "ip")
         public String ip;
         // frontend/backend start time
-        @SerializedName(value = "startTime")
+        @SerializedName(value = "st")
         public long startTime = 0;
         // True if this txn if created by system(such as writing data to audit table)
         @SerializedName(value = "ii")
