@@ -656,7 +656,8 @@ public class Coordinator implements CoordInterface {
                         throw new UserException("could not find query queue");
                     }
                     queueToken = queryQueue.getToken();
-                    queueToken.get(this.queryOptions.getExecutionTimeout() * 1000);
+                    queueToken.get(DebugUtil.printId(queryId),
+                            this.queryOptions.getExecutionTimeout() * 1000);
                 }
             } else {
                 context.setWorkloadGroupName("");

@@ -24,7 +24,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
@@ -66,22 +65,16 @@ public class QueueToken implements Comparable<QueueToken> {
         this.queueWaitTimeout = queueWaitTimeout;
         this.queue = queryQueue;
         this.queueStartTime = System.currentTimeMillis();
-        this.future = new CompletableFuture();
+        this.future = new CompletableFuture<>();
     }
 
-    public void get(int queryTimeout) throws UserException {
+    public void get(String queryId, int queryTimeout) throws UserException {
         if (isReadyToRun()) {
             return;
         }
         long waitTimeout = Math.min(queueWaitTimeout, queryTimeout);
         try {
             future.get(waitTimeout, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            queue.removeToken(this);
-            throw new RuntimeException("InterruptedException when query queue", e);
-        } catch (ExecutionException e) {
-            queue.removeToken(this);
-            throw new RuntimeException("ExecutionException when query queue", e);
         } catch (TimeoutException e) {
             queue.removeToken(this);
             throw new UserException("query queue timeout, timeout: " + waitTimeout + " ms ");
@@ -90,8 +83,9 @@ public class QueueToken implements Comparable<QueueToken> {
             throw new UserException("query is cancelled");
         } catch (Throwable t) {
             queue.removeToken(this);
-            LOG.warn("error happens when query queue", t);
-            throw new RuntimeException("error happens when query queue", t);
+            String errMsg = String.format("error happens when query {} queue", queryId);
+            LOG.error(errMsg, t);
+            throw new RuntimeException(errMsg, t);
         }
     }
 
