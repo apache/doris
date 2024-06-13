@@ -95,10 +95,11 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
         }
         OlapTable targetTable = physicalOlapTableSink.getTargetTable();
         return ctx.getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
-                && !ctx.isTxnModel() && isGroupCommitAvailablePlan(physicalOlapTableSink, planner)
-                && physicalOlapTableSink.getPartitionIds().isEmpty() && targetTable.getTableProperty()
-                .getUseSchemaLightChange() && !targetTable.getQualifiedDbName()
-                .equalsIgnoreCase(FeConstants.INTERNAL_DB_NAME);
+                && !ctx.isTxnModel()
+                && physicalOlapTableSink.getPartitionIds().isEmpty()
+                && targetTable.getTableProperty().getUseSchemaLightChange()
+                && !targetTable.getQualifiedDbName().equalsIgnoreCase(FeConstants.INTERNAL_DB_NAME)
+                && isGroupCommitAvailablePlan(physicalOlapTableSink, planner);
     }
 
     private static boolean literalExpr(NereidsPlanner planner) {
