@@ -1039,6 +1039,10 @@ DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
 DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 
+DECLARE_Bool(enable_file_cache_prefetch);
+DECLARE_Int64(file_cache_prefetch_size);
+DECLARE_Int64(file_cache_prefetch_thread_num);
+
 // inverted index searcher cache
 // cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);

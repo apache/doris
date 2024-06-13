@@ -39,10 +39,17 @@
 #include "util/bit_util.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
+#include "runtime/exec_env.h"
+#include "olap/storage_engine.h"
+#include "cloud/cloud_storage_engine.h"
 
 namespace doris::io {
 
 bvar::Adder<uint64_t> s3_read_counter("cached_remote_reader_s3_read");
+
+bvar::Adder<uint64_t> cached_file_reader_read_bytes("cached_file_reader_read_bytes");
+bvar::PerSecond<bvar::Adder<uint64_t>> cached_file_reader_read_read_througthput(
+        "cached_file_reader_read_throughput", &cached_file_reader_read_bytes);
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -165,6 +172,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             if (need_read_size == 0) {
                 *bytes_read = bytes_req;
                 stats.hit_cache = true;
+                cached_file_reader_read_bytes << *bytes_read;
                 return Status::OK();
             }
         }
@@ -197,6 +205,72 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             break;
         }
     }
+
+    if (!io_ctx->is_index_data // no need prefetch index, TODO: better unify into prefetch policy
+            && config::enable_file_cache_prefetch && ((align_left + align_size) < size())) {  // non-EOF
+        size_t prefetch_size = std::min((size_t)(size() - (align_left + align_size)), (size_t)config::file_cache_prefetch_size); // TODO(zhengyu): adaptive size
+
+        FileBlocksHolder prefetch_holder =
+                _cache->get_or_set(_cache_hash, align_left + align_size, prefetch_size,
+                                   cache_context);
+        FileBlocks fblocks = std::move(prefetch_holder.file_blocks);
+
+        auto f = [file_reader = _remote_file_reader, file_blocks = std::move(fblocks),
+                  ctx = io_ctx]() -> doris::Status {
+            std::vector<FileBlockSPtr> empty_blocks;
+            for (auto& block : file_blocks) {
+                switch (block->state()) {
+                case FileBlock::State::EMPTY:
+                    block->get_or_set_downloader();
+                    if (block->is_downloader()) {
+                        empty_blocks.push_back(block);
+                        TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::EMPTY");
+                    }
+                    break;
+                case FileBlock::State::SKIP_CACHE:
+                    empty_blocks.push_back(block);
+                    break;
+                case FileBlock::State::DOWNLOADING:
+                    break;
+                case FileBlock::State::DOWNLOADED:
+                    break;
+                }
+            }
+
+            size_t empty_start = 0;
+            size_t empty_end = 0;
+            if (!empty_blocks.empty()) {
+                empty_start = empty_blocks.front()->range().left;
+                empty_end = empty_blocks.back()->range().right;
+                size_t size = empty_end - empty_start + 1;
+                std::unique_ptr<char[]> buffer(new char[size]);
+                {
+                    s3_read_counter << 1;
+                    RETURN_IF_ERROR(file_reader->read_at(empty_start, Slice(buffer.get(), size),&size, ctx));
+                }
+                for (auto& block : empty_blocks) {
+                    if (block->state() == FileBlock::State::SKIP_CACHE) {
+                        continue;
+                    }
+                    char* cur_ptr = buffer.get() + block->range().left - empty_start;
+                    size_t block_size = block->range().size();
+                    Status st = block->append(Slice(cur_ptr, block_size));
+                    if (st.ok()) {
+                        st = block->finalize();
+                    }
+                    if (!st.ok()) {
+                        LOG_WARNING("Write data to file cache failed").error(st);
+                    } else {
+                        // TODO(zhengyu): insert file reader
+                    }
+                }
+            }
+            return Status::OK();
+        };
+        static_cast<void>(ExecEnv::GetInstance()->storage_engine().to_cloud().
+                          prefetch_thread_pool().submit_func(std::move(f)));
+    }
+
     size_t empty_start = 0;
     size_t empty_end = 0;
     if (!empty_blocks.empty()) {
@@ -303,6 +377,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         *bytes_read += read_size;
         current_offset = right + 1;
     }
+    cached_file_reader_read_bytes << *bytes_read;
     DCHECK(*bytes_read == bytes_req);
     return Status::OK();
 }

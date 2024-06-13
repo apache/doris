@@ -24,7 +24,7 @@ namespace doris::io {
 
 class BlockFileCache;
 
-// The interface is for organizing datas in disk
+// The interface is for organizing data in disk
 class FileCacheStorage {
 public:
     FileCacheStorage() = default;

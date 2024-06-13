@@ -74,6 +74,20 @@ struct PageReadOptions {
     }
 };
 
+// infos that show page reading continuation
+struct ContInfo {
+    uint64_t last_data_page = 0;
+    uint64_t data_page_continue_num = 0;
+    uint64_t last_index_page = 0;
+    uint64_t index_page_continue_num = 0;
+    uint64_t last_dict_page = 0;
+    uint64_t dict_page_continue_num = 0;
+    uint64_t last_short_key_page = 0;
+    uint64_t short_key_page_continue_num = 0;
+    uint64_t last_primary_key_index_page = 0;
+    uint64_t primary_key_index_page_continue_num = 0;
+};
+
 inline ostream& operator<<(ostream& os, const PageReadOptions& opt) {
     return os << "PageReadOptions { verify_checksum=" << opt.verify_checksum
               << " use_page_cache=" << opt.use_page_cache

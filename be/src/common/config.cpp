@@ -995,6 +995,10 @@ DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "false");
 DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not checking
 
+DEFINE_Bool(enable_file_cache_prefetch, "false");
+DEFINE_Int64(file_cache_prefetch_size, "1048576");
+DEFINE_mInt64(file_cache_prefetch_thread_num, "4");
+
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
 // inverted index searcher cache size

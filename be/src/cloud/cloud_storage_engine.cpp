@@ -287,6 +287,12 @@ Status CloudStorageEngine::start_bg_threads() {
 
     LOG(INFO) << "lease compaction thread started";
 
+    RETURN_IF_ERROR(ThreadPoolBuilder("PrefetchThreadPool")
+                            .set_min_threads(config::file_cache_prefetch_thread_num)
+                            .set_max_threads(config::file_cache_prefetch_thread_num)
+                            .build(&_prefetch_thread_pool));
+    LOG(INFO) << "prefetch thread pool started";
+
     return Status::OK();
 }
 

@@ -130,6 +130,10 @@ public:
         return *_sync_load_for_tablets_thread_pool;
     }
 
+    ThreadPool& prefetch_thread_pool() const {
+        return *_prefetch_thread_pool;
+    }
+
 private:
     void _refresh_storage_vault_info_thread_callback();
     void _vacuum_stale_rowsets_thread_callback();
@@ -156,6 +160,7 @@ private:
     std::unique_ptr<CloudWarmUpManager> _cloud_warm_up_manager;
     std::unique_ptr<TabletHotspot> _tablet_hotspot;
     std::unique_ptr<ThreadPool> _sync_load_for_tablets_thread_pool;
+    std::unique_ptr<ThreadPool> _prefetch_thread_pool;
 
     // FileSystem with latest shared storage info, new data will be written to this fs.
     mutable std::mutex _latest_fs_mtx;

@@ -487,7 +487,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
 
 void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, const FileCacheKey& key,
                                                        std::lock_guard<std::mutex>& cache_lock) {
-    // async load, can't find key, need to check exist.
+    // async load, can't find key, need to check existence.
     auto key_path = get_path_in_local_cache(key.hash, key.meta.expiration_time);
     bool exists = false;
     auto st = fs->exists(key_path, &exists);

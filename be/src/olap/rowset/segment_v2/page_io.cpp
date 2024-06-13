@@ -27,6 +27,7 @@
 #include <string>
 #include <utility>
 
+#include "bvar/latency_recorder.h"
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
@@ -43,6 +44,16 @@
 
 namespace doris {
 namespace segment_v2 {
+
+bvar::LatencyRecorder g_data_page_cont_num("data_page_continue_num");
+bvar::LatencyRecorder g_index_page_cont_num("index_page_continue_num");
+bvar::LatencyRecorder g_dict_page_cont_num("dict_page_continue_num");
+bvar::LatencyRecorder g_short_key_page_cont_num("short_key_page_continue_num");
+bvar::LatencyRecorder g_primary_key_index_page_cont_num("primary_key_index_page_continue_num");
+
+bvar::Adder<uint64_t> page_io_read_bytes("page_io_read_bytes");
+bvar::PerSecond<bvar::Adder<uint64_t>> page_io_read_throughput(
+        "page_io_read_throughput", &page_io_read_bytes);
 
 using strings::Substitute;
 
@@ -116,6 +127,92 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     opts.sanity_check();
     opts.stats->total_pages_num++;
 
+#if 0
+    static std::map<uint64_t, std::shared_ptr<ContInfo>> cont_info_map;
+    uint64_t hash = std::hash<std::string> {}(opts.file_reader->path().native());
+    // if map has no key == hash, build new one
+    if (cont_info_map.find(hash) == cont_info_map.end()) {
+        cont_info_map[hash] = std::make_shared<ContInfo>();
+    }
+    switch (opts.type) {
+    case DATA_PAGE:
+        if (cont_info_map[hash]->last_data_page != 0 &&
+            (cont_info_map[hash]->last_data_page + 4096) != opts.page_pointer.offset) {
+            LOG(INFO) << "Data page is not continuous, file=" << opts.file_reader->path().native()
+                      << ", last_page=" << cont_info_map[hash]->last_data_page
+                      << ", current_page=" << opts.page_pointer.offset << ", diff="
+                      << (opts.page_pointer.offset - cont_info_map[hash]->last_data_page)
+                      << ", continue=" << cont_info_map[hash]->data_page_continue_num;
+            g_data_page_cont_num << cont_info_map[hash]->data_page_continue_num;
+            cont_info_map[hash]->data_page_continue_num = 0;
+        }
+        cont_info_map[hash]->last_data_page = opts.page_pointer.offset;
+        ++(cont_info_map[hash]->data_page_continue_num);
+        break;
+    case INDEX_PAGE:
+        if (cont_info_map[hash]->last_index_page != 0 &&
+            (cont_info_map[hash]->last_index_page + 4096) != opts.page_pointer.offset) {
+            LOG(INFO) << "Index page is not continuous, file=" << opts.file_reader->path().native()
+                      << ", last_page=" << cont_info_map[hash]->last_index_page
+                      << ", current_page=" << opts.page_pointer.offset << ", diff="
+                      << (opts.page_pointer.offset - cont_info_map[hash]->last_index_page)
+                      << ", continue=" << cont_info_map[hash]->index_page_continue_num;
+            g_index_page_cont_num << cont_info_map[hash]->index_page_continue_num;
+            cont_info_map[hash]->index_page_continue_num = 0;
+        }
+        cont_info_map[hash]->last_index_page = opts.page_pointer.offset;
+        ++(cont_info_map[hash]->index_page_continue_num);
+        break;
+    case DICTIONARY_PAGE:
+        if (cont_info_map[hash]->last_dict_page != 0 &&
+            (cont_info_map[hash]->last_dict_page + 4096) != opts.page_pointer.offset) {
+            LOG(INFO) << "Dict page is not continuous, file=" << opts.file_reader->path().native()
+                      << ", last_page=" << cont_info_map[hash]->last_dict_page
+                      << ", current_page=" << opts.page_pointer.offset << ", diff="
+                      << (opts.page_pointer.offset - cont_info_map[hash]->last_dict_page)
+                      << ", continue=" << cont_info_map[hash]->dict_page_continue_num;
+            g_dict_page_cont_num << cont_info_map[hash]->dict_page_continue_num;
+            cont_info_map[hash]->dict_page_continue_num = 0;
+        }
+        cont_info_map[hash]->last_dict_page = opts.page_pointer.offset;
+        ++(cont_info_map[hash]->dict_page_continue_num);
+        break;
+    case SHORT_KEY_PAGE:
+        if (cont_info_map[hash]->last_short_key_page != 0 &&
+            (cont_info_map[hash]->last_short_key_page + 4096) != opts.page_pointer.offset) {
+            LOG(INFO) << "ShortKey page is not continuous, file="
+                      << opts.file_reader->path().native()
+                      << ", last_page=" << cont_info_map[hash]->last_short_key_page
+                      << ", current_page=" << opts.page_pointer.offset << ", diff="
+                      << (opts.page_pointer.offset - cont_info_map[hash]->last_short_key_page)
+                      << ", continue=" << cont_info_map[hash]->short_key_page_continue_num;
+            g_short_key_page_cont_num << cont_info_map[hash]->short_key_page_continue_num;
+            cont_info_map[hash]->short_key_page_continue_num = 0;
+        }
+        cont_info_map[hash]->last_short_key_page = opts.page_pointer.offset;
+        ++(cont_info_map[hash]->short_key_page_continue_num);
+        break;
+    case PRIMARY_KEY_INDEX_PAGE:
+        if (cont_info_map[hash]->last_primary_key_index_page != 0 &&
+            (cont_info_map[hash]->last_primary_key_index_page + 4096) != opts.page_pointer.offset) {
+            LOG(INFO) << "PrimaryKeyIndex page is not continuous, file="
+                      << opts.file_reader->path().native()
+                      << ", last_page=" << cont_info_map[hash]->last_primary_key_index_page
+                      << ", current_page=" << opts.page_pointer.offset << ", diff="
+                      << (opts.page_pointer.offset -
+                          cont_info_map[hash]->last_primary_key_index_page)
+                      << ", continue=" << cont_info_map[hash]->primary_key_index_page_continue_num;
+            g_short_key_page_cont_num << cont_info_map[hash]->primary_key_index_page_continue_num;
+            cont_info_map[hash]->primary_key_index_page_continue_num = 0;
+        }
+        cont_info_map[hash]->last_primary_key_index_page = opts.page_pointer.offset;
+        ++(cont_info_map[hash]->primary_key_index_page_continue_num);
+        break;
+    default:
+        DCHECK(false) << "Invalid page type: " << opts.type;
+    }
+#endif
+
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
     StoragePageCache::CacheKey cache_key(opts.file_reader->path().native(),
@@ -133,6 +230,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
                                       footer_size, opts.file_reader->path().native());
         }
         *body = Slice(page_slice.data, page_slice.size - 4 - footer_size);
+        page_io_read_bytes << page_slice.size;
         return Status::OK();
     }
 
@@ -232,6 +330,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         *handle = PageHandle(page.get());
     }
     page.release(); // memory now managed by handle
+    page_io_read_bytes << page_slice.size;
     return Status::OK();
 }
 
