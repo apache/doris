@@ -604,8 +604,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
     // update delete bitmap info, in order to avoid recalculation when trying again
-    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(txn_id, tablet_id(), delete_bitmap,
-                                                             cur_rowset_ids);
+    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(
+            txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::PREPARE);
 
     if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update &&
         rowset_writer->num_rows() > 0) {
@@ -613,29 +613,21 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
         RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta));
     }
 
-    RowsetSharedPtr tmp_rowset;
-    DeleteBitmapPtr tmp_delete_bitmap;
-    RowsetIdUnorderedSet tmp_rowset_ids;
-    std::shared_ptr<PartialUpdateInfo> tmp_partial_update_info;
-    int64_t tmp_txn_expiration;
-    RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().get_tablet_txn_info(
-            txn_id, tablet_id(), &tmp_rowset, &tmp_delete_bitmap, &tmp_rowset_ids,
-            &tmp_txn_expiration, &tmp_partial_update_info));
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
         // skip sentinel mark, which is used for delete bitmap correctness check
         if (std::get<1>(iter->first) != DeleteBitmap::INVALID_SEGMENT_ID) {
-            DeleteBitmap::BitmapKey key = {std::get<0>(iter->first), std::get<1>(iter->first),
-                                           cur_version};
-            tmp_delete_bitmap->status_map.insert(
-                    std::make_pair(key, DeleteBitmap::PublishStatus::FINALIZED));
-            new_delete_bitmap->merge(key, iter->second);
+            new_delete_bitmap->merge(
+                    {std::get<0>(iter->first), std::get<1>(iter->first), cur_version},
+                    iter->second);
         }
     }
 
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *this, txn_id, COMPACTION_DELETE_BITMAP_LOCK_ID, new_delete_bitmap.get()));
+    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(
+            txn_id, tablet_id(), new_delete_bitmap, cur_rowset_ids, PublishStatus::SUCCEED);
 
     return Status::OK();
 }

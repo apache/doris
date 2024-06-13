@@ -548,6 +548,38 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
     }
 }
 
+bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(Tablet* tablet, int64_t old_max_version,
+                                                      std::ranges::range auto&& rs_metas,
+                                                      DeleteBitmap* delete_bitmap) {
+    std::set<int64_t> txn_processed;
+    for (auto& rs_meta : rs_metas) {
+        auto txn_id = rs_meta.txn_id();
+        if (txn_processed.find(txn_id) != txn_processed.end()) {
+            continue;
+        }
+        txn_processed.insert(txn_id);
+        DeleteBitmapPtr tmp_delete_bitmap;
+        RowsetIdUnorderedSet tmp_rowset_ids;
+        std::shared_ptr<PublishStatus> publish_status =
+                std::make_shared<PublishStatus>(PublishStatus::INIT);
+        //        Status status = StorageEngine::instance()->delete_bitmap_txn_manager()->get_delete_bitmap(
+        //                txn_id, tablet->tablet_id(), &tmp_delete_bitmap, &tmp_rowset_ids, &publish_status);
+        CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+        Status status = engine.txn_delete_bitmap_cache().get_delete_bitmap(
+                txn_id, tablet->tablet_id(), &tmp_delete_bitmap, &tmp_rowset_ids, &publish_status);
+        if (status.ok() && *(publish_status.get()) == PublishStatus::SUCCEED) {
+            delete_bitmap->merge(*tmp_delete_bitmap);
+            engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id,
+                                                                           tablet->tablet_id());
+        } else {
+            LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << tablet->tablet_id()
+                         << ", txn_id=" << txn_id << ", status=" << status;
+            return false;
+        }
+    }
+    return true;
+}
+
 Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                                std::ranges::range auto&& rs_metas,
                                                const TabletStatsPB& stats, const TabletIndexPB& idx,
@@ -556,37 +588,46 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
         return Status::OK();
     }
 
-    {
-        auto txn_id = rs_metas.rbegin()->txn_id();
-        RowsetSharedPtr rowset;
-        DeleteBitmapPtr tmp_delete_bitmap;
-        RowsetIdUnorderedSet rowset_ids;
-        std::shared_ptr<PartialUpdateInfo> partial_update_info;
-        int64_t txn_expiration;
-        CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
-        Status status = engine.txn_delete_bitmap_cache().get_tablet_txn_info(
-                txn_id, tablet->tablet_id(), &rowset, &tmp_delete_bitmap, &rowset_ids,
-                &txn_expiration, &partial_update_info);
-        if (status.ok()) {
-            DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
-            for (auto iter = tmp_delete_bitmap->delete_bitmap.begin();
-                 iter != tmp_delete_bitmap->delete_bitmap.end(); ++iter) {
-                DeleteBitmap::BitmapKey key = {std::get<0>(iter->first), std::get<1>(iter->first),
-                                               old_max_version + 1};
-                auto it = tmp_delete_bitmap->status_map.find(key);
-                if (it != tmp_delete_bitmap->status_map.end() &&
-                    it->second == DeleteBitmap::PublishStatus::FINALIZED) {
-                    new_delete_bitmap->merge(key, iter->second);
-                }
-            }
-            *delete_bitmap = *new_delete_bitmap;
-            engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id,
-                                                                           tablet->tablet_id());
-            return Status::OK();
-        } else {
-            LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << tablet->tablet_id()
-                         << ", txn_id=" << txn_id << ", status=" << status;
-        }
+//    {
+//        auto txn_id = rs_metas.rbegin()->txn_id();
+//        RowsetSharedPtr rowset;
+//        DeleteBitmapPtr tmp_delete_bitmap;
+//        RowsetIdUnorderedSet rowset_ids;
+//        std::shared_ptr<PartialUpdateInfo> partial_update_info;
+//        int64_t txn_expiration;
+//        CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+//        Status status = engine.txn_delete_bitmap_cache().get_tablet_txn_info(
+//                txn_id, tablet->tablet_id(), &rowset, &tmp_delete_bitmap, &rowset_ids,
+//                &txn_expiration, &partial_update_info);
+//        if (status.ok()) {
+//            DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
+//            for (auto iter = tmp_delete_bitmap->delete_bitmap.begin();
+//                 iter != tmp_delete_bitmap->delete_bitmap.end(); ++iter) {
+//                DeleteBitmap::BitmapKey key = {std::get<0>(iter->first), std::get<1>(iter->first),
+//                                               old_max_version + 1};
+//                auto it = tmp_delete_bitmap->status_map.find(key);
+//                if (it != tmp_delete_bitmap->status_map.end() &&
+//                    it->second == DeleteBitmap::PublishStatus::FINALIZED) {
+//                    new_delete_bitmap->merge(key, iter->second);
+//                }
+//            }
+//            *delete_bitmap = *new_delete_bitmap;
+//            engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id,
+//                                                                           tablet->tablet_id());
+//            return Status::OK();
+//        } else {
+//            LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << tablet->tablet_id()
+//                         << ", txn_id=" << txn_id << ", status=" << status;
+//        }
+//    }
+
+    if (sync_tablet_delete_bitmap_by_cache(tablet, old_max_version, rs_metas, delete_bitmap)) {
+        return Status::OK();
+    } else {
+        LOG(WARNING) << "failed to sync delete bitmap by txn info. tablet_id="
+                     << tablet->tablet_id();
+        DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
+        *delete_bitmap = *new_delete_bitmap;
     }
 
     std::shared_ptr<MetaService_Stub> stub;

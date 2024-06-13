@@ -61,6 +61,7 @@ enum class TxnState {
     ABORTED = 4,
     DELETED = 5,
 };
+enum class PublishStatus { INIT = 0, PREPARE = 1, SUCCEED = 2 };
 
 struct TabletTxnInfo {
     PUniqueId load_id;
@@ -73,6 +74,7 @@ struct TabletTxnInfo {
     int64_t creation_time;
     bool ingest {false};
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
+    std::shared_ptr<PublishStatus> publish_status;
     TxnState state {TxnState::PREPARED};
 
     TabletTxnInfo() = default;
