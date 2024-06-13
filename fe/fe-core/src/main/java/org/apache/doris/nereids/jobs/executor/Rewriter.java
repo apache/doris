@@ -84,6 +84,7 @@ import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
+import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
 import org.apache.doris.nereids.rules.rewrite.MergeAggregate;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
@@ -400,6 +401,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("topn optimize",
                     topDown(new DeferMaterializeTopNResult())
             ),
+            topic("Point query short circuit",
+                    topDown(new LogicalResultSinkToShortCircuitPointQuery())),
             topic("eliminate",
                     // SORT_PRUNING should be applied after mergeLimit
                     custom(RuleType.ELIMINATE_SORT, EliminateSort::new),

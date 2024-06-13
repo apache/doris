@@ -2647,7 +2647,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
     @Override
     public void addAlterJobV2(AlterJobV2 alterJob) throws AnalysisException {
-        alterJob = AlterJobV2Factory.rebuildAlterJobV2(alterJob);
         super.addAlterJobV2(alterJob);
         runnableSchemaChangeJobV2.put(alterJob.getJobId(), alterJob);
     }
@@ -2698,7 +2697,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
     @Override
     public void replayAlterJobV2(AlterJobV2 alterJob) throws AnalysisException {
-        alterJob = AlterJobV2Factory.rebuildAlterJobV2(alterJob);
         if (!alterJob.isDone() && !runnableSchemaChangeJobV2.containsKey(alterJob.getJobId())) {
             runnableSchemaChangeJobV2.put(alterJob.getJobId(), alterJob);
         }

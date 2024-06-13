@@ -539,7 +539,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
                 microsecond = data.getInt();
             }
             if (Config.enable_date_conversion) {
-                return new DateTimeV2Literal(year, month, day, hour, minute, second, microsecond);
+                return new DateTimeV2Literal(DateTimeV2Type.MAX, year, month, day, hour, minute, second, microsecond);
             }
             return new DateTimeLiteral(DateTimeType.INSTANCE, year, month, day, hour, minute, second, microsecond);
         } else {

@@ -280,7 +280,7 @@ Status EngineCloneTask::_do_clone() {
             return exists_st;
         }
         if (exists) {
-            LOG(WARNING) << "before clone dest path=" << tablet_dir << " exist, remote it first";
+            LOG(WARNING) << "before clone dest path=" << tablet_dir << " exist, remove it first";
             RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_dir));
         }
 

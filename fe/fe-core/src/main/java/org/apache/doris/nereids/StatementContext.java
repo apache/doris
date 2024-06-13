@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.Statistics;
 
@@ -123,8 +124,8 @@ public class StatementContext implements Closeable {
 
     // generate for next id for prepared statement's placeholders, which is connection level
     private final IdGenerator<PlaceholderId> placeHolderIdGenerator = PlaceholderId.createGenerator();
-    // relation id to placeholders for prepared statement
-    private final Map<PlaceholderId, Expression> idToPlaceholderRealExpr = new HashMap<>();
+    // relation id to placeholders for prepared statement, ordered by placeholder id
+    private final Map<PlaceholderId, Expression> idToPlaceholderRealExpr = new TreeMap<>();
 
     // collect all hash join conditions to compute node connectivity in join graph
     private final List<Expression> joinFilters = new ArrayList<>();
@@ -166,6 +167,12 @@ public class StatementContext implements Closeable {
     // Maybe return null, which means the id according statistics should calc normally rather than getting
     // form this map
     private final Map<RelationId, Statistics> relationIdToStatisticsMap = new LinkedHashMap<>();
+
+    // Indicates the query is short-circuited in both plan and execution phase, typically
+    // for high speed/concurrency point queries
+    private boolean isShortCircuitQuery;
+
+    private ShortCircuitQueryContext shortCircuitQueryContext;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -236,6 +243,22 @@ public class StatementContext implements Closeable {
         if (joinCount > this.joinCount) {
             this.joinCount = joinCount;
         }
+    }
+
+    public boolean isShortCircuitQuery() {
+        return isShortCircuitQuery;
+    }
+
+    public void setShortCircuitQuery(boolean shortCircuitQuery) {
+        isShortCircuitQuery = shortCircuitQuery;
+    }
+
+    public ShortCircuitQueryContext getShortCircuitQueryContext() {
+        return shortCircuitQueryContext;
+    }
+
+    public void setShortCircuitQueryContext(ShortCircuitQueryContext shortCircuitQueryContext) {
+        this.shortCircuitQueryContext = shortCircuitQueryContext;
     }
 
     public Optional<SqlCacheContext> getSqlCacheContext() {

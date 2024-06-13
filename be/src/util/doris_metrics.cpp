@@ -338,7 +338,7 @@ void DorisMetrics::_update_process_thread_num() {
     int64_t count =
             std::count_if(dict_iter, std::filesystem::end(dict_iter), [](const auto& entry) {
                 std::error_code error_code;
-                return entry.is_regular_file(error_code) && !error_code;
+                return entry.is_directory(error_code) && !error_code;
             });
 
     process_thread_num->set_value(count);

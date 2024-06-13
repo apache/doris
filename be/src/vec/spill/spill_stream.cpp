@@ -27,6 +27,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 #include "vec/core/block.h"
 #include "vec/spill/spill_reader.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -46,15 +47,31 @@ SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* d
           profile_(profile) {}
 
 SpillStream::~SpillStream() {
+    gc();
+}
+
+void SpillStream::gc() {
     bool exists = false;
     auto status = io::global_local_filesystem()->exists(spill_dir_, &exists);
     if (status.ok() && exists) {
-        auto query_dir = fmt::format("{}/{}/{}", get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
-                                     print_id(query_id_));
-        (void)io::global_local_filesystem()->create_directory(query_dir);
-        auto gc_dir = fmt::format("{}/{}", query_dir,
-                                  std::filesystem::path(spill_dir_).filename().string());
-        (void)io::global_local_filesystem()->rename(spill_dir_, gc_dir);
+        auto query_gc_dir = data_dir_->get_spill_data_gc_path(print_id(query_id_));
+        status = io::global_local_filesystem()->create_directory(query_gc_dir);
+        DBUG_EXECUTE_IF("fault_inject::spill_stream::gc", {
+            status = Status::Error<INTERNAL_ERROR>("fault_inject spill_stream gc failed");
+        });
+        if (status.ok()) {
+            auto gc_dir = fmt::format("{}/{}", query_gc_dir,
+                                      std::filesystem::path(spill_dir_).filename().string());
+            status = io::global_local_filesystem()->rename(spill_dir_, gc_dir);
+        }
+        if (!status.ok()) {
+            LOG_EVERY_T(WARNING, 1) << fmt::format("failed to gc spill data, dir {}, error: {}",
+                                                   query_gc_dir, status.to_string());
+        }
+        // decrease spill data usage anyway, since in ~QueryContext() spill data of the query will be
+        // clean up as a last resort
+        data_dir_->update_spill_data_usage(-total_written_bytes_);
+        total_written_bytes_ = 0;
     }
 }
 
@@ -73,11 +90,17 @@ const std::string& SpillStream::get_spill_root_dir() const {
     return data_dir_->path();
 }
 Status SpillStream::prepare_spill() {
+    DBUG_EXECUTE_IF("fault_inject::spill_stream::prepare_spill", {
+        return Status::Error<INTERNAL_ERROR>("fault_inject spill_stream prepare_spill failed");
+    });
     return writer_->open();
 }
 
 Status SpillStream::spill_block(RuntimeState* state, const Block& block, bool eof) {
     size_t written_bytes = 0;
+    DBUG_EXECUTE_IF("fault_inject::spill_stream::spill_block", {
+        return Status::Error<INTERNAL_ERROR>("fault_inject spill_stream spill_block failed");
+    });
     RETURN_IF_ERROR(writer_->write(state, block, written_bytes));
     if (eof) {
         RETURN_IF_ERROR(writer_->close());
@@ -90,6 +113,9 @@ Status SpillStream::spill_block(RuntimeState* state, const Block& block, bool eo
 }
 
 Status SpillStream::spill_eof() {
+    DBUG_EXECUTE_IF("fault_inject::spill_stream::spill_eof", {
+        return Status::Error<INTERNAL_ERROR>("fault_inject spill_stream spill_eof failed");
+    });
     RETURN_IF_ERROR(writer_->close());
     total_written_bytes_ = writer_->get_written_bytes();
     writer_.reset();
@@ -102,12 +128,11 @@ Status SpillStream::read_next_block_sync(Block* block, bool* eos) {
     _is_reading = true;
     Defer defer([this] { _is_reading = false; });
 
+    DBUG_EXECUTE_IF("fault_inject::spill_stream::read_next_block", {
+        return Status::Error<INTERNAL_ERROR>("fault_inject spill_stream read_next_block failed");
+    });
     RETURN_IF_ERROR(reader_->open());
     return reader_->read(block, eos);
-}
-
-void SpillStream::decrease_spill_data_usage() {
-    data_dir_->update_spill_data_usage(-total_written_bytes_);
 }
 
 } // namespace doris::vectorized

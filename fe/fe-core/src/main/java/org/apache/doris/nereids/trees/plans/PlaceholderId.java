@@ -23,7 +23,7 @@ import org.apache.doris.common.IdGenerator;
 /**
  * placeholder id for prepared statement parameters
  */
-public class PlaceholderId extends Id<PlaceholderId> {
+public class PlaceholderId extends Id<PlaceholderId> implements Comparable<PlaceholderId> {
 
     public PlaceholderId(int id) {
         super(id);
@@ -54,5 +54,10 @@ public class PlaceholderId extends Id<PlaceholderId> {
     @Override
     public int hashCode() {
         return super.hashCode();
+    }
+
+    @Override
+    public int compareTo(PlaceholderId o) {
+        return this.id - o.id;
     }
 }

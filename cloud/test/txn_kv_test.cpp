@@ -587,9 +587,9 @@ TEST(TxnKvTest, FullRangeGetIterator) {
             auto [k, v] = *kvp;
             EXPECT_EQ(v, std::to_string(cnt));
             ++cnt;
-            // Total cost: 60ms * 100 = 6s > fdb txn timeout 5s, however we create a new transaction
+            // Total cost: 100ms * 100 = 10s > fdb txn timeout 5s, however we create a new transaction
             // in each inner range get
-            std::this_thread::sleep_for(60ms);
+            std::this_thread::sleep_for(100ms);
         }
         ASSERT_TRUE(it->is_valid());
         EXPECT_EQ(cnt, 100);
@@ -700,8 +700,8 @@ TEST(TxnKvTest, FullRangeGetIterator) {
             auto [k, v] = *kvp;
             EXPECT_EQ(v, std::to_string(cnt));
             ++cnt;
-            // Total cost: 60ms * 100 = 6s > fdb txn timeout 5s
-            std::this_thread::sleep_for(60ms);
+            // Total cost: 100ms * 100 = 10s > fdb txn timeout 5s
+            std::this_thread::sleep_for(100ms);
         }
         // Txn timeout
         ASSERT_FALSE(it->is_valid());

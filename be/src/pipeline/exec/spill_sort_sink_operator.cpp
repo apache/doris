@@ -18,6 +18,7 @@
 #include "spill_sort_sink_operator.h"
 
 #include "pipeline/exec/sort_sink_operator.h"
+#include "runtime/fragment_mgr.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -169,6 +170,8 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
         local_state._shared_state->update_spill_block_batch_row_count(in_block);
     }
     local_state._eos = eos;
+    DBUG_EXECUTE_IF("fault_inject::spill_sort_sink::sink",
+                    { return Status::InternalError("fault_inject spill_sort_sink sink failed"); });
     RETURN_IF_ERROR(_sort_sink_operator->sink(local_state._runtime_state.get(), in_block, false));
     local_state._mem_tracker->set_consumption(
             local_state._shared_state->in_mem_shared_state->sorter->data_size());
@@ -310,14 +313,28 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
                       << " execution_context released, maybe query was cancelled.";
             return;
         }
+        DBUG_EXECUTE_IF("fault_inject::spill_sort_sink::revoke_memory_cancel", {
+            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
+                    query_id, Status::InternalError("fault_inject spill_sort_sink "
+                                                    "revoke_memory canceled"));
+            return;
+        });
 
         _shared_state->sink_status = [&]() {
             RETURN_IF_CATCH_EXCEPTION({ return spill_func(); });
         }();
     };
 
-    status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
-            exception_catch_func);
+    DBUG_EXECUTE_IF("fault_inject::spill_sort_sink::revoke_memory_submit_func", {
+        status = Status::Error<INTERNAL_ERROR>(
+                "fault_inject spill_sort_sink "
+                "revoke_memory submit_func failed");
+    });
+    if (status.ok()) {
+        status =
+                ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
+                        exception_catch_func);
+    }
     if (!status.ok()) {
         if (!_eos) {
             Base::_dependency->Dependency::set_ready();

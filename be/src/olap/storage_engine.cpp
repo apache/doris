@@ -1225,7 +1225,7 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int
     root_path_stream << (*store)->path() << "/" << DATA_PREFIX << "/" << shard;
     *shard_path = root_path_stream.str();
 
-    LOG(INFO) << "success to process obtain root path. path=" << shard_path;
+    LOG(INFO) << "success to process obtain root path. path=" << *shard_path;
     return Status::OK();
 }
 

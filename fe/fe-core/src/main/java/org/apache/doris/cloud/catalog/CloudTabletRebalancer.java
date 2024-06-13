@@ -167,6 +167,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
         // 1 build cluster to backend info
         for (Long beId : cloudSystemInfoService.getAllBackendIds()) {
             Backend be = cloudSystemInfoService.getBackend(beId);
+            if (be == null) {
+                LOG.info("backend {} not found", beId);
+                continue;
+            }
             clusterToBes.putIfAbsent(be.getCloudClusterId(), new ArrayList<Long>());
             clusterToBes.get(be.getCloudClusterId()).add(beId);
             allBes.add(beId);
@@ -358,6 +362,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
             for (long beId : beList) {
                 tabletNum = beToTabletsGlobal.get(beId) == null ? 0 : beToTabletsGlobal.get(beId).size();
                 Backend backend = cloudSystemInfoService.getBackend(beId);
+                if (backend == null) {
+                    LOG.info("backend {} not found", beId);
+                    continue;
+                }
                 if ((backend.isDecommissioned() && tabletNum == 0 && !backend.isActive())
                         || (backend.isDecommissioned() && beList.size() == 1)) {
                     LOG.info("check decommission be {} state {} tabletNum {} isActive {} beList {}",
@@ -680,6 +688,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
 
             Backend backend = cloudSystemInfoService.getBackend(be);
+            if (backend == null) {
+                LOG.info("backend {} not found", be);
+                continue;
+            }
             if (tabletNum < minTabletsNum && backend.isAlive() && !backend.isDecommissioned()
                     && !backend.isSmoothUpgradeSrc()) {
                 destBe = be;
@@ -690,6 +702,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
         for (Long be : bes) {
             long tabletNum = beToTablets.get(be) == null ? 0 : beToTablets.get(be).size();
             Backend backend = cloudSystemInfoService.getBackend(be);
+            if (backend == null) {
+                LOG.info("backend {} not found", be);
+                continue;
+            }
             if (backend.isDecommissioned() && tabletNum > 0) {
                 srcBe = be;
                 srcDecommissioned = true;
@@ -869,8 +885,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
         for (Tablet tablet : tablets) {
             // get replica
             CloudReplica cloudReplica = (CloudReplica) tablet.getReplicas().get(0);
-            String clusterId = cloudSystemInfoService.getBackend(srcBe).getCloudClusterId();
-            String clusterName = cloudSystemInfoService.getBackend(srcBe).getCloudClusterName();
+            Backend be = cloudSystemInfoService.getBackend(srcBe);
+            if (be == null) {
+                LOG.info("backend {} not found", be);
+                continue;
+            }
+            String clusterId = be.getCloudClusterId();
+            String clusterName = be.getCloudClusterName();
             // update replica location info
             cloudReplica.updateClusterToBe(clusterId, dstBe);
             LOG.info("cloud be migrate tablet {} from srcBe={} to dstBe={}, clusterId={}, clusterName={}",

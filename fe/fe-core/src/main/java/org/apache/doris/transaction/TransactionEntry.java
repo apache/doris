@@ -60,6 +60,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class TransactionEntry {
@@ -229,7 +230,7 @@ public class TransactionEntry {
             if (Config.isCloudMode()) {
                 TUniqueId queryId = ConnectContext.get().queryId();
                 String label = String.format("tl_%x_%x", queryId.hi, queryId.lo);
-                List<Long> tableIds = getTableIds();
+                Set<Long> tableIds = getTableIds();
                 tableIds.add(table.getId());
                 Pair<Long, TransactionState> pair
                         = ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr()).beginSubTxn(
@@ -369,7 +370,7 @@ public class TransactionEntry {
         if (isTransactionBegan) {
             if (Config.isCloudMode()) {
                 try {
-                    List<Long> tableIds = getTableIds();
+                    Set<Long> tableIds = getTableIds();
                     this.transactionState
                             = ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr()).abortSubTxn(
                             transactionId, subTransactionId, table.getDatabase().getId(), tableIds, allSubTxnNum);
@@ -393,11 +394,6 @@ public class TransactionEntry {
                 : transactionState.getSubTransactionStates();
         subTransactionStatesPtr
                 .add(new SubTransactionState(subTxnId, table, commitInfos, subTransactionType));
-        Preconditions.checkState(transactionState.getTableIdList().size() == subTransactionStatesPtr.size(),
-                "txn_id=" + transactionId
-                        + ", expect table_list="
-                        + subTransactionStatesPtr.stream().map(s -> s.getTable().getId()).collect(Collectors.toList())
-                        + ", real table_list=" + transactionState.getTableIdList());
     }
 
     public boolean isTransactionBegan() {
@@ -494,9 +490,9 @@ public class TransactionEntry {
                 label, transactionId, dbId, timeoutTimestamp);
     }
 
-    private List<Long> getTableIds() {
+    private Set<Long> getTableIds() {
         List<SubTransactionState> subTransactionStatesPtr = Config.isCloudMode() ? subTransactionStates
                 : transactionState.getSubTransactionStates();
-        return subTransactionStatesPtr.stream().map(s -> s.getTable().getId()).collect(Collectors.toList());
+        return subTransactionStatesPtr.stream().map(s -> s.getTable().getId()).collect(Collectors.toSet());
     }
 }
