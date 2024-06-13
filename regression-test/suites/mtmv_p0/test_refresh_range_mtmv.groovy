@@ -49,7 +49,7 @@ suite("test_refresh_range_mtmv","mtmv") {
     // test self manage
     test {
          sql """
-            REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-02-01' end '2017-02-02';
+            REFRESH MATERIALIZED VIEW ${mvName} partition [('2017-02-01'), ('2017-02-02'));
             """
          exception "SELF_MANAGE"
     }
@@ -86,14 +86,14 @@ suite("test_refresh_range_mtmv","mtmv") {
         """
 
      sql """
-        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-02-01' end '2017-02-02';
+        REFRESH MATERIALIZED VIEW ${mvName} partition [('2017-02-01'), ('2017-02-02'));
         """
      waitingMTMVTaskFinishedByMvNameNotNeedSuccess(mvName)
      order_qt_int_error "select Status,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime DESC limit 1"
 
     test {
          sql """
-            REFRESH MATERIALIZED VIEW ${mvName} partition start '2' end '3';
+            REFRESH MATERIALIZED VIEW ${mvName} [('2'), ('3'));
             """
          exception "cannot convert to date type"
     }
@@ -134,14 +134,14 @@ suite("test_refresh_range_mtmv","mtmv") {
     // test start = end
     test {
          sql """
-            REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-02-01' end '2017-02-01';
+            REFRESH MATERIALIZED VIEW ${mvName} partition [('2017-02-01'), ('2017-02-01'));;
             """
          exception "should be greater than"
     }
 
     // test refresh 0201
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-02-01' end '2017-02-02';
+        REFRESH MATERIALIZED VIEW ${mvName} partition [('2017-02-01'), ('2017-02-02'));;
         """
      waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_0201 "select * from ${mvName}"
@@ -183,14 +183,14 @@ suite("test_refresh_range_mtmv","mtmv") {
 
     // test refresh 0101
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-01-01' end '2017-01-02';
+        REFRESH MATERIALIZED VIEW ${mvName} partition [('2017-01-01'), ('2017-01-02'));
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_0101 "select * from ${mvName}"
 
     // test refresh 0102
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-01-02' end '2017-01-03';
+        REFRESH MATERIALIZED VIEW ${mvName} partition [('2017-01-02'), ('2017-01-03'));
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_0102 "select * from ${mvName}"
