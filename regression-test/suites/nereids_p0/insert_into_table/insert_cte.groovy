@@ -46,22 +46,25 @@ suite("insert_cte") {
     sql """ insert into $t2 values (1), (2), (3), (4), (5), (6); """
 
     // test for InsertIntoTableCommand
-    // 1. insert into select
-    sql """ with cte1 as (select * from $t2 where k < 4) insert into $t1 select * from cte1; """
+    // 1. insert into values
+    sql """ with cte1 as (select * from $t2 where k < 4) insert into $t1 values (4); """
     order_qt_select1 """ select * from $t1; """
-    // 2. insert into partition select
-    sql """ with cte1 as (select * from $t2 where k >= 4) insert into $t1 partition(p2) select * from cte1; """
+    // 2. insert into select
+    sql """ with cte1 as (select * from $t2 where k < 4) insert into $t1 select * from cte1; """
     order_qt_select2 """ select * from $t1; """
+    // 3. insert into partition select
+    sql """ with cte1 as (select * from $t2 where k >= 4) insert into $t1 partition(p2) select * from cte1; """
+    order_qt_select3 """ select * from $t1; """
 
     // test for InsertOverwriteTableCommand
     // 1. insert overwrite table select
     sql """ with cte1 as (select * from $t2 where k < 4) insert overwrite table $t1 select * from cte1; """
-    order_qt_select3 """ select * from $t1; """
+    order_qt_select4 """ select * from $t1; """
     // 2. insert overwrite table partition select
     sql """ with cte1 as (select 4) insert overwrite table $t1 partition(p2) select * from cte1; """
-    order_qt_select4 """ select * from $t1; """
+    order_qt_select5 """ select * from $t1; """
     // 3. overwrite auto detect partition
     sql """ with cte1 as (select 1) insert overwrite table $t1 partition(*) select * from cte1; """
-    order_qt_select5 """ select * from $t1; """
+    order_qt_select6 """ select * from $t1; """
 
 }
