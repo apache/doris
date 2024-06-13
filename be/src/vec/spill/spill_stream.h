@@ -44,6 +44,8 @@ public:
 
     ~SpillStream();
 
+    void gc();
+
     int64_t id() const { return stream_id_; }
 
     SpillDataDir* get_data_dir() const { return data_dir_; }
@@ -80,8 +82,6 @@ public:
     }
 
     const TUniqueId& query_id() const;
-
-    void decrease_spill_data_usage();
 
 private:
     friend class SpillStreamManager;
