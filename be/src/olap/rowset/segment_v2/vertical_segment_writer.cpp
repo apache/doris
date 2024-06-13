@@ -677,7 +677,6 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                     pos_in_old_block);
         }
     }
-    _opts.rowset_ctx->partial_update_info->default_value_block = default_value_block;
     return Status::OK();
 }
 
