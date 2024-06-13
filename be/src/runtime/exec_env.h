@@ -81,7 +81,6 @@ class LoadStreamMapPool;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
-class BlockSpillManager;
 class BackendServiceClient;
 class TPaloBrokerServiceClient;
 class PBackendService_Stub;
@@ -218,7 +217,6 @@ public:
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
     std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
-    BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
     doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
 
@@ -395,7 +393,6 @@ private:
     HeartbeatFlags* _heartbeat_flags = nullptr;
     vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 
-    BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
