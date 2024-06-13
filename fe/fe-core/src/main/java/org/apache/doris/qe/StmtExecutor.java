@@ -803,7 +803,7 @@ public class StmtExecutor {
         // queue query here
         syncJournalIfNeeded();
         int retryTime = Config.max_query_retry_time;
-        for (int i = 0; i < retryTime; i++) {
+        for (int i = 0; i <= retryTime; i++) {
             try {
                 // reset query id for each retry
                 if (i > 0) {

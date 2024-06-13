@@ -480,8 +480,30 @@ public class ColumnDef {
         ScalarType scalarType = (ScalarType) type;
 
         // check if default value is valid.
-        // if not, some literal constructor will throw AnalysisException
+        // first, check if the type of defaultValue matches primitiveType.
+        // if not check it first, some literal constructor will throw AnalysisException,
+        // and it is not intuitive to users.
         PrimitiveType primitiveType = scalarType.getPrimitiveType();
+        if (null != defaultValueExprDef && defaultValueExprDef.getExprName().equalsIgnoreCase("now")) {
+            switch (primitiveType) {
+                case DATETIME:
+                case DATETIMEV2:
+                    break;
+                default:
+                    throw new AnalysisException("Types other than DATETIME and DATETIMEV2 "
+                            + "cannot use current_timestamp as the default value");
+            }
+        } else if (null != defaultValueExprDef
+                && defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.CURRENT_DATE)) {
+            switch (primitiveType) {
+                case DATE:
+                case DATEV2:
+                    break;
+                default:
+                    throw new AnalysisException("Types other than DATE and DATEV2 "
+                            + "cannot use current_date as the default value");
+            }
+        }
         switch (primitiveType) {
             case TINYINT:
             case SMALLINT:
@@ -566,26 +588,6 @@ public class ColumnDef {
                 break;
             default:
                 throw new AnalysisException("Unsupported type: " + type);
-        }
-        if (null != defaultValueExprDef && defaultValueExprDef.getExprName().equals("now")) {
-            switch (primitiveType) {
-                case DATETIME:
-                case DATETIMEV2:
-                    break;
-                default:
-                    throw new AnalysisException("Types other than DATETIME and DATETIMEV2 "
-                            + "cannot use current_timestamp as the default value");
-            }
-        } else if (null != defaultValueExprDef
-                && defaultValueExprDef.getExprName().equals(DefaultValue.CURRENT_DATE.toLowerCase())) {
-            switch (primitiveType) {
-                case DATE:
-                case DATEV2:
-                    break;
-                default:
-                    throw new AnalysisException("Types other than DATE and DATEV2 "
-                            + "cannot use current_date as the default value");
-            }
         }
     }
 

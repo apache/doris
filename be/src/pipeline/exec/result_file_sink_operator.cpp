@@ -37,10 +37,7 @@ ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                                  const std::vector<TExpr>& t_output_expr)
-        : DataSinkOperatorX(operator_id, 0),
-          _row_desc(row_desc),
-          _t_output_expr(t_output_expr),
-          _is_top_sink(true) {}
+        : DataSinkOperatorX(operator_id, 0), _row_desc(row_desc), _t_output_expr(t_output_expr) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(
         int operator_id, const RowDescriptor& row_desc, const TResultFileSink& sink,
@@ -59,9 +56,9 @@ ResultFileSinkLocalState::~ResultFileSinkLocalState() = default;
 
 Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
     RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::init(tsink));
-    auto& sink = tsink.result_file_sink;
+    const auto& sink = tsink.result_file_sink;
     CHECK(sink.__isset.file_options);
-    _file_opts.reset(new ResultFileOptions(sink.file_options));
+    _file_opts = std::make_unique<ResultFileOptions>(sink.file_options);
     CHECK(sink.__isset.storage_backend_type);
     _storage_type = sink.storage_backend_type;
 
@@ -186,7 +183,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
     } else {
         if (final_status.ok()) {
             bool all_receiver_eof = true;
-            for (auto channel : _channels) {
+            for (auto* channel : _channels) {
                 if (!channel->is_receiver_eof()) {
                     all_receiver_eof = false;
                     break;
@@ -201,7 +198,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
             if (_only_local_exchange) {
                 if (!_output_block->empty()) {
                     Status status;
-                    for (auto channel : _channels) {
+                    for (auto* channel : _channels) {
                         if (!channel->is_receiver_eof()) {
                             status = channel->send_local_block(_output_block.get());
                             HANDLE_CHANNEL_STATUS(state, channel, status);
@@ -221,10 +218,10 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                             RETURN_IF_ERROR(_serializer->serialize_block(
                                     &cur_block, _block_holder->get_block(), _channels.size()));
                         } else {
-                            _block_holder->get_block()->Clear();
+                            _block_holder->reset_block();
                         }
                         Status status;
-                        for (auto channel : _channels) {
+                        for (auto* channel : _channels) {
                             if (!channel->is_receiver_eof()) {
                                 if (channel->is_local()) {
                                     status = channel->send_local_block(&cur_block);

@@ -172,6 +172,8 @@ public class CreateMTMVInfo {
             properties = Maps.newHashMap();
         }
 
+        CreateTableInfo.maybeRewriteByAutoBucket(distribution, properties);
+
         // analyze distribute
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         columns.forEach(c -> columnMap.put(c.getName(), c));

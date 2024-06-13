@@ -510,6 +510,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
     public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
+    public static final String HUGE_PARTITION_LOWER_BOUND_ROWS = "huge_partition_lower_bound_rows";
+
 
     // for spill to disk
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
@@ -1690,6 +1692,12 @@ public class SessionVariable implements Serializable, Writable {
                             + "statistics through sampling"})
     public long hugeTableLowerBoundSizeInBytes = 0;
 
+    @VariableMgr.VarAttr(name = HUGE_PARTITION_LOWER_BOUND_ROWS, flag = VariableMgr.GLOBAL,
+            description = {
+                "行数超过该值的分区将跳过自动分区收集",
+                "This defines the lower size bound for large partitions, which will skip auto partition analyze."})
+    public long hugePartitionLowerBoundRows = 100000000L;
+
     @VariableMgr.VarAttr(name = HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
             description = {"控制对大表的自动ANALYZE的最小时间间隔，"
                     + "在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes的表仅ANALYZE一次",
@@ -1716,7 +1724,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE, needForward = true,
             description = {"是否开启基于结构信息的物化视图透明改写",
                     "Whether to enable materialized view rewriting based on struct info"})
-    public boolean enableMaterializedViewRewrite = false;
+    public boolean enableMaterializedViewRewrite = true;
 
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE, needForward = true,
             description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
@@ -1738,7 +1746,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"当物化视图不足以提供查询的全部数据时，是否允许基表和物化视图 union 来响应查询",
                     "When the materialized view is not enough to provide all the data for the query, "
                             + "whether to allow the union of the base table and the materialized view to "
-                            + "respond to the query"})
+                            + "respond to the query"}, varType = VariableAnnotation.REMOVED)
     public boolean enableMaterializedViewUnionRewrite = true;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_NEST_REWRITE, needForward = true,
@@ -3606,6 +3614,7 @@ public class SessionVariable implements Serializable, Writable {
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setInsertTimeout(insertTimeoutS);
         queryOptions.setAnalyzeTimeout(analyzeTimeoutS);
+        queryOptions.setBeExecVersion(Config.be_exec_version);
         return queryOptions;
     }
 
@@ -3883,6 +3892,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableMaterializedViewRewrite() {
         return enableMaterializedViewRewrite;
+    }
+
+    public void setEnableMaterializedViewRewrite(boolean enableMaterializedViewRewrite) {
+        this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
     }
 
     public boolean isMaterializedViewRewriteEnableContainExternalTable() {
