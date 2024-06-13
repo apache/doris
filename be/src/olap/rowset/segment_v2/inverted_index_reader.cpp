@@ -239,6 +239,8 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
     if (std::string(dir->getObjectName()) == "DorisCompoundReader") {
         static_cast<DorisCompoundReader*>(dir)->getDorisIndexInput()->setIdxFileCache(false);
     }
+    // NOTE: before mem_tracker hook becomes active, we caculate reader memory size by hand.
+    mem_tracker->consume(index_searcher_builder->get_reader_size());
     return Status::OK();
 };
 
@@ -266,8 +268,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
     SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
 
     std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
-    LOG(INFO) << column_name << " begin to search the fulltext index from clucene, query_str ["
-              << search_str << "]";
+    VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
+               << search_str << "]";
 
     try {
         InvertedIndexQueryInfo query_info;

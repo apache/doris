@@ -393,6 +393,7 @@ suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docke
 
         logger.info("hive sql: " + """ truncate table all_types_${format_compression}; """)
         hive_docker """ truncate table all_types_${format_compression}; """
+        sql """refresh catalog ${catalog_name};"""
         order_qt_q06 """ select * from all_types_${format_compression};
         """
     }
@@ -444,6 +445,7 @@ suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docke
 
         logger.info("hive sql: " + """ truncate table all_types_${format_compression}; """)
         hive_docker """ truncate table all_types_${format_compression}; """
+        sql """refresh catalog ${catalog_name};"""
         order_qt_q05 """
         select * from all_types_${format_compression};
         """

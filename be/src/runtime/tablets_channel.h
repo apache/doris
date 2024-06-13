@@ -21,6 +21,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
+#include <map>
 #include <mutex>
 #include <ostream>
 #include <shared_mutex>
@@ -111,11 +113,6 @@ public:
 
     size_t num_rows_filtered() const { return _num_rows_filtered; }
 
-    // means this tablets in this BE is incremental opened partitions.
-    bool is_incremental_channel() const { return _open_by_incremental; }
-
-    bool is_finished() const { return _state == kFinished; }
-
 protected:
     Status _get_current_seq(int64_t& cur_seq, const PTabletWriterAddBlockRequest& request);
 
@@ -154,8 +151,8 @@ protected:
     int64_t _txn_id = -1;
     int64_t _index_id = -1;
     std::shared_ptr<OlapTableSchemaParam> _schema;
+
     TupleDescriptor* _tuple_desc = nullptr;
-    bool _open_by_incremental = false;
 
     // next sequence we expect
     int _num_remaining_senders = 0;

@@ -44,7 +44,7 @@ protected:
     void SetUp() override {
         const std::string dir_path = "ut_dir/single_compact_test";
         _engine = new StorageEngine({});
-        _data_dir = new DataDir(*_engine, dir_path);
+        _data_dir = new DataDir(dir_path);
         engine_ref = _engine;
     }
 
@@ -80,8 +80,7 @@ private:
 TEST_F(SingleCompactionTest, test_single) {
     TabletSharedPtr tablet = create_tablet(10001);
 
-    SingleReplicaCompaction single_compaction(*engine_ref, tablet,
-                                              CompactionType::CUMULATIVE_COMPACTION);
+    SingleReplicaCompaction single_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
     auto st = tablet->init();
     ASSERT_TRUE(st.ok()) << st;
     // load 30 rowsets
@@ -119,8 +118,7 @@ TEST_F(SingleCompactionTest, test_single) {
 TEST_F(SingleCompactionTest, test_unmatch) {
     TabletSharedPtr tablet = create_tablet(10000);
 
-    SingleReplicaCompaction single_compaction(*engine_ref, tablet,
-                                              CompactionType::CUMULATIVE_COMPACTION);
+    SingleReplicaCompaction single_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
     auto st = tablet->init();
     ASSERT_TRUE(st.ok()) << st;
     // local rowset [4-6]

@@ -140,7 +140,8 @@ suite("test_auto_range_partition") {
     logger.info("${result2}")
     assertEquals(result2.size(), 2)
 
-    // insert into select have multi sender in load
+     // partition expr extraction
+
     sql " drop table if exists isit "
     sql " drop table if exists isit_src "
     sql """

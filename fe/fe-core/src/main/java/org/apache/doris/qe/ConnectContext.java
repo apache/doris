@@ -246,7 +246,12 @@ public class ConnectContext {
     }
 
     private StatementContext statementContext;
+
+    // legacy planner
     private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
+
+    // new planner
+    private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
 
     private List<TableIf> tables = null;
 
@@ -384,12 +389,20 @@ public class ConnectContext {
         this.preparedStmtCtxs.put(stmtName, ctx);
     }
 
+    public void addPreparedStatementContext(String stmtName, PreparedStatementContext ctx) {
+        this.preparedStatementContextMap.put(stmtName, ctx);
+    }
+
     public void removePrepareStmt(String stmtName) {
         this.preparedStmtCtxs.remove(stmtName);
     }
 
     public PrepareStmtContext getPreparedStmt(String stmtName) {
         return this.preparedStmtCtxs.get(stmtName);
+    }
+
+    public PreparedStatementContext getPreparedStementContext(String stmtName) {
+        return this.preparedStatementContextMap.get(stmtName);
     }
 
     public List<TableIf> getTables() {

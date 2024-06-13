@@ -288,7 +288,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             if (this.storageFormat != null) {
                                 createReplicaTask.setStorageFormat(this.storageFormat);
                             }
-
+                            createReplicaTask.setInvertedIndexStorageFormat(tbl.getInvertedIndexStorageFormat());
                             batchTask.addTask(createReplicaTask);
                         } // end for rollupReplicas
                     } // end for rollupTablets
