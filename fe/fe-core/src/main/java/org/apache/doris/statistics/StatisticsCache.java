@@ -142,13 +142,21 @@ public class StatisticsCache {
         return Optional.empty();
     }
 
-    public void invalidate(long ctlId, long dbId, long tblId, long idxId, String partId, String colName) {
+    public void invalidateColumnStatsCache(long ctlId, long dbId, long tblId, long idxId, String colName) {
+        columnStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
+    }
+
+    public void invalidatePartitionColumnStatsCache(long ctlId, long dbId, long tblId, long idxId,
+                                                    String partId, String colName) {
         if (partId == null) {
-            columnStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
-        } else {
-            partitionColumnStatisticCache.synchronous().invalidate(
-                new PartitionColumnStatisticCacheKey(ctlId, dbId, tblId, idxId, partId, colName));
+            return;
         }
+        partitionColumnStatisticCache.synchronous().invalidate(
+            new PartitionColumnStatisticCacheKey(ctlId, dbId, tblId, idxId, partId, colName));
+    }
+
+    public void invalidateAllPartitionStatsCache() {
+        partitionColumnStatisticCache.synchronous().invalidateAll();
     }
 
     public void updateColStatsCache(long ctlId, long dbId, long tblId, long idxId, String colName,
@@ -229,7 +237,7 @@ public class StatisticsCache {
                 statsId.idxId, statsId.colId);
         ColumnStatistic columnStatistic = data.toColumnStatistic();
         if (columnStatistic == ColumnStatistic.UNKNOWN) {
-            invalidate(k.catalogId, k.dbId, k.tableId, k.idxId, null, k.colName);
+            invalidateColumnStatsCache(k.catalogId, k.dbId, k.tableId, k.idxId, k.colName);
         } else {
             putCache(k, columnStatistic);
         }
