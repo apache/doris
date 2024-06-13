@@ -44,6 +44,7 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -56,7 +57,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -345,16 +345,16 @@ public class MTMVTask extends AbstractTask {
                 (super.getFinishTimeMs() == null || super.getFinishTimeMs() == 0) ? FeConstants.null_string
                         : String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs())));
         trow.addToColumnValue(new TCell()
-                .setStringVal(taskContext == null ? FeConstants.null_string : new Gson().toJson(taskContext)));
+                .setStringVal(taskContext == null ? FeConstants.null_string : GsonUtils.GSON.toJson(taskContext)));
         trow.addToColumnValue(
                 new TCell().setStringVal(refreshMode == null ? FeConstants.null_string : refreshMode.toString()));
         trow.addToColumnValue(
                 new TCell().setStringVal(
-                        needRefreshPartitions == null ? FeConstants.null_string : new Gson().toJson(
+                        needRefreshPartitions == null ? FeConstants.null_string : GsonUtils.GSON.toJson(
                                 needRefreshPartitions)));
         trow.addToColumnValue(
                 new TCell().setStringVal(
-                        completedPartitions == null ? FeConstants.null_string : new Gson().toJson(
+                        completedPartitions == null ? FeConstants.null_string : GsonUtils.GSON.toJson(
                                 completedPartitions)));
         trow.addToColumnValue(
                 new TCell().setStringVal(getProgress()));
