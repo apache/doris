@@ -537,15 +537,17 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
                                ? _sparse_column_tree.find_exact(*tablet_column.path_info_ptr())
                                : nullptr;
 
-    auto is_compaction = [](ReaderType type) {
+    // Currently only compaction and checksum need to read flat leaves
+    // They both use tablet_schema_with_merged_max_schema_version as read schema
+    auto type_to_read_flat_leaves = [](ReaderType type) {
         return type == ReaderType::READER_BASE_COMPACTION ||
                type == ReaderType::READER_CUMULATIVE_COMPACTION ||
                type == ReaderType::READER_COLD_DATA_COMPACTION ||
                type == ReaderType::READER_SEGMENT_COMPACTION ||
-               type == ReaderType::READER_FULL_COMPACTION;
+               type == ReaderType::READER_FULL_COMPACTION || type == ReaderType::READER_CHECKSUM;
     };
 
-    if (opt != nullptr && is_compaction(opt->io_ctx.reader_type)) {
+    if (opt != nullptr && type_to_read_flat_leaves(opt->io_ctx.reader_type)) {
         // compaction need to read flat leaves nodes data to prevent from amplification
         const auto* node = tablet_column.has_path_info()
                                    ? _sub_column_tree.find_leaf(*tablet_column.path_info_ptr())
