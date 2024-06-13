@@ -842,6 +842,7 @@ public:
                                    "TimestampYearPartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
         }
     }
+    
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
         if (value.has_value()) {
@@ -1150,7 +1151,6 @@ public:
     }
 
     std::string get_partition_value(const TypeDescriptor& type, const std::any& value) const  override{
-       
         if (value.has_value()) {
             return PartitionColumnTransformUtils::human_day(std::any_cast<Int32>(value));
         } else {

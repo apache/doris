@@ -329,7 +329,7 @@ std::vector<std::string> VIcebergTableWriter::_partition_values(
         TypeDescriptor result_type =
                 iceberg_partition_column.partition_column_transform().get_result_type();
         partition_values.emplace_back(
-                iceberg_partition_column.partition_column_transform().to_human_string(result_type,
+                iceberg_partition_column.partition_column_transform().get_partition_value(result_type,
                                                                                       data.get(i)));
     }
 
