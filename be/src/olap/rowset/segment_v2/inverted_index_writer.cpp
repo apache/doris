@@ -248,7 +248,7 @@ public:
             // array's inverted index do need create field first
             _doc->setNeedResetFieldData(true);
         }
-         auto ignore_above_value =
+        auto ignore_above_value =
                 get_parser_ignore_above_value_from_properties(_index_meta->properties());
         _ignore_above = std::stoi(ignore_above_value);
         return Status::OK();
