@@ -69,6 +69,20 @@ suite("test_build_mtmv") {
     sql """drop materialized view if exists ${mvName};"""
     sql """drop materialized view if exists ${mvNameRenamed};"""
 
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+        (aa comment "aaa",bb)
+        BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+        COMMENT "comment1"
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+        'replication_num' = '1',
+        "grace_period"="333"
+        )
+        AS
+        SELECT id, username FROM ${tableName};
+        """
+
     // desc
     def descTableAllResult = sql """desc ${mvName} all"""
     logger.info("descTableAllResult: " + descTableAllResult.toString())
