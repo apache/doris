@@ -93,7 +93,7 @@ suite("test_refresh_range_mtmv","mtmv") {
 
     test {
          sql """
-            REFRESH MATERIALIZED VIEW ${mvName} [('2'), ('3'));
+            REFRESH MATERIALIZED VIEW ${mvName} partition [('2'), ('3'));
             """
          exception "cannot convert to date type"
     }
