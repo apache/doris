@@ -114,6 +114,56 @@ suite("push_topn_to_agg") {
         sql "select sum(ps_availqty), ps_partkey, ps_suppkey from partsupp group by ps_partkey, ps_suppkey order by ps_suppkey limit 20;"
         contains("sortByGroupKey:false")
     }
-    
 
+    multi_sql """
+    drop table if exists t1;
+    CREATE TABLE IF NOT EXISTS t1
+        (
+        k1 TINYINT
+        )
+        ENGINE=olap
+        AGGREGATE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+
+    insert into t1 values (0),(1);
+
+    drop table if exists t2;
+    CREATE TABLE IF NOT EXISTS t2
+        (
+        k1 TINYINT
+        )
+        ENGINE=olap
+        AGGREGATE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    insert into t2 values(5),(6);
+    """
+
+    // the result of following sql may be unstable, run 3 times
+    qt_stable_1 """
+    select * from (
+        select k1 from t1
+        UNION
+        select k1 from t2
+    ) as b order by k1  limit 2;
+    """
+    qt_stable_2 """
+    select * from (
+        select k1 from t1
+        UNION
+        select k1 from t2
+    ) as b order by k1  limit 2;
+    """
+    qt_stable_3 """
+    select * from (
+        select k1 from t1
+        UNION
+        select k1 from t2
+    ) as b order by k1  limit 2;
+    """
 }
