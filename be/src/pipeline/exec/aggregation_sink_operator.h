@@ -96,6 +96,8 @@ protected:
     Status _create_agg_status(vectorized::AggregateDataPtr data);
     size_t _memory_usage() const;
 
+    int64_t estimate_memory(vectorized::Block* block);
+
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_limit_compute_timer = nullptr;
@@ -161,6 +163,8 @@ public:
     }
 
     Status reset_hash_table(RuntimeState* state);
+
+    int64_t estimate_memory_for_block(RuntimeState* state, vectorized::Block* block);
 
     using DataSinkOperatorX<AggSinkLocalState>::node_id;
     using DataSinkOperatorX<AggSinkLocalState>::operator_id;

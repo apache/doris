@@ -211,6 +211,14 @@ public:
         return capacity * sizeof(typename HashMapImpl::slot_type);
     }
 
+    size_t estimate_for_expanding(const size_t rows) const {
+        const size_t new_size = rows + _hash_map.size();
+        auto growth = phmap::priv::GrowthToLowerboundCapacity(new_size);
+        auto new_capacity = phmap::priv::NormalizeCapacity(growth);
+
+        return new_capacity * sizeof(typename HashMapImpl::slot_type);
+    }
+
     size_t get_buffer_size_in_cells() const { return _hash_map.capacity(); }
 
     bool add_elem_size_overflow(size_t row) const {

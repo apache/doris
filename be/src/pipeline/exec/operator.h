@@ -115,6 +115,10 @@ public:
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
     OperatorXPtr child_x() { return _child_x; }
 
+    virtual bool try_reserve_memory(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+        return true;
+    };
+
 protected:
     OperatorXPtr _child_x = nullptr;
 

@@ -218,6 +218,19 @@ public:
         return aggregate_data;
     }
 
+    size_t estimate_for_expanding(const size_t rows) const {
+        auto new_size = _index_in_sub_container + rows;
+        if (new_size <= SUB_CONTAINER_CAPACITY) {
+            return 0;
+        }
+
+        const size_t count = (new_size + SUB_CONTAINER_CAPACITY - 1) / SUB_CONTAINER_CAPACITY - 1;
+        DCHECK_GE(count, 1);
+        size_t estimated_size =
+                count * SUB_CONTAINER_CAPACITY * (_size_of_key + _size_of_aggregate_states);
+        return estimated_size;
+    }
+
     template <typename Derived, bool IsConst>
     class IteratorBase {
         using Container =
