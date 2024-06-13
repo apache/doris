@@ -1230,6 +1230,9 @@ DEFINE_mBool(skip_loading_stale_rowset_meta, "false");
 
 DEFINE_Bool(enable_file_logger, "true");
 
+// The minimum row group size when exporting Parquet files. default 128MB
+DEFINE_Int64(min_row_group_size, "134217728");
+
 // The time out milliseconds for remote fetch schema RPC, default 60s
 DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
 

@@ -1316,6 +1316,9 @@ DECLARE_Bool(enable_file_logger);
 // The time out milliseconds for remote fetch schema RPC
 DECLARE_mInt64(fetch_remote_schema_rpc_timeout_ms);
 
+// The minimum row group size when exporting Parquet files.
+DECLARE_Int64(min_row_group_size);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
