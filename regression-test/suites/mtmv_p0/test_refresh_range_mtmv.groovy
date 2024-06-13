@@ -95,7 +95,7 @@ suite("test_refresh_range_mtmv","mtmv") {
          sql """
             REFRESH MATERIALIZED VIEW ${mvName} partition start '2' end '3';
             """
-         exception "invalid"
+         exception "cannot convert to date type"
     }
 
     sql """drop table if exists `${tableName}`"""
@@ -131,12 +131,13 @@ suite("test_refresh_range_mtmv","mtmv") {
             SELECT * FROM ${tableName};
     """
 
-    // test start < end
-    sql """
-        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-02-01' end '2017-01-01';
-        """
-     waitingMTMVTaskFinishedByMvNameNotNeedSuccess(mvName)
-     order_qt_int_error "select Status,RefreshMode from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime DESC limit 1"
+    // test start = end
+    test {
+         sql """
+            REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-02-01' end '2017-02-01';
+            """
+         exception "should be greater than"
+    }
 
     // test refresh 0201
     sql """
@@ -182,14 +183,14 @@ suite("test_refresh_range_mtmv","mtmv") {
 
     // test refresh 0101
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-01-01' end '2017-01-01';
+        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-01-01' end '2017-01-02';
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_0101 "select * from ${mvName}"
 
     // test refresh 0102
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-01-02' end '2017-01-02';
+        REFRESH MATERIALIZED VIEW ${mvName} partition start '2017-01-02' end '2017-01-03';
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_0102 "select * from ${mvName}"

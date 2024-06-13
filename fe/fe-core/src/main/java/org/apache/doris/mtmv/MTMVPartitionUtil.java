@@ -512,7 +512,8 @@ public class MTMVPartitionUtil {
         throw new AnalysisException("can not getPartitionColumnType by:" + col);
     }
 
-    public static List<String> getPartitionsByRange(MTMV mtmv, MTMVRefreshPartitionRange range) {
+    public static List<String> getPartitionsByRange(MTMV mtmv, MTMVRefreshPartitionRange range)
+            throws AnalysisException {
         List<String> res = Lists.newArrayList();
         Collection<Partition> partitions = mtmv.getPartitions();
         for (Partition partition : partitions) {
@@ -524,32 +525,38 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    private static boolean ifPartitionItemInRange(PartitionItem item, MTMVRefreshPartitionRange range) {
+    public static boolean ifPartitionItemInRange(PartitionItem item, MTMVRefreshPartitionRange refreshPartitionRange)
+            throws AnalysisException {
+        Range<DateV2Literal> range = refreshPartitionRange.getRange();
         if (item instanceof ListPartitionItem) {
             ListPartitionItem listPartitionItem = (ListPartitionItem) item;
             List<PartitionKey> keys = listPartitionItem.getItems();
             for (PartitionKey key : keys) {
-                if (ifPartitionKeyInRange(key, range, false)) {
+                if (range.contains(transferPartitionKeyToDate(key))) {
                     return true;
                 }
             }
         } else if (item instanceof RangePartitionItem) {
             RangePartitionItem rangePartitionItem = (RangePartitionItem) item;
             Range<PartitionKey> items = rangePartitionItem.getItems();
-            return ifPartitionKeyInRange(items.lowerEndpoint(), range, false) || ifPartitionKeyInRange(
-                    items.lowerEndpoint(), range, true);
+            DateV2Literal lowerDate = transferPartitionKeyToDate(items.lowerEndpoint());
+            DateV2Literal upperDate = transferPartitionKeyToDate(items.upperEndpoint());
+            Range<DateV2Literal> partitionRange = Range.closedOpen(lowerDate, upperDate);
+            return range.isConnected(partitionRange) && !range.intersection(partitionRange).isEmpty();
         }
         return false;
     }
 
-    private static boolean ifPartitionKeyInRange(PartitionKey partitionKey, MTMVRefreshPartitionRange range,
-            boolean isUpper) {
+    private static DateV2Literal transferPartitionKeyToDate(PartitionKey partitionKey) throws AnalysisException {
         Preconditions.checkState(partitionKey.getKeys().size() == 1,
                 "only support one partition column");
         String stringValue = partitionKey.getKeys().get(0).getStringValue();
-        DateV2Literal dateV2Literal = new DateV2Literal(stringValue);
-        Long value = dateV2Literal.getValue();
-        return value <= range.getEndDate().getValue() && (isUpper ? value > range.getStartDate().getValue()
-                : value >= range.getStartDate().getValue());
+        DateV2Literal dateV2Literal;
+        try {
+            dateV2Literal = new DateV2Literal(stringValue);
+        } catch (Exception e) {
+            throw new AnalysisException("cannot convert to date type: " + stringValue);
+        }
+        return dateV2Literal;
     }
 }

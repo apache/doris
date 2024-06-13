@@ -794,13 +794,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitions = visitIdentifierList(ctx.partitionSpec().partitions);
             }
         }
+
         Optional<MTMVRefreshPartitionRange> range = ctx.partitionRange() == null ? Optional.empty()
-                : Optional.of(new MTMVRefreshPartitionRange(LogicalPlanBuilderAssistant.escapeBackSlash(
-                        ctx.partitionRange().start.getText()
-                                .substring(1, ctx.partitionRange().start.getText().length() - 1)),
-                        LogicalPlanBuilderAssistant.escapeBackSlash(
-                                ctx.partitionRange().end.getText()
-                                        .substring(1, ctx.partitionRange().end.getText().length() - 1))));
+                : Optional.of(new MTMVRefreshPartitionRange(visitConstantSeq(ctx.partitionRange().lower),
+                        visitConstantSeq(ctx.partitionRange().upper)));
         return new RefreshMTMVCommand(new RefreshMTMVInfo(new TableNameInfo(nameParts),
                 partitions, ctx.COMPLETE() != null, range));
     }

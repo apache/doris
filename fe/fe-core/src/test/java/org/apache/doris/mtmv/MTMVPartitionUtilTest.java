@@ -19,13 +19,22 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mocked;
@@ -189,5 +198,65 @@ public class MTMVPartitionUtilTest {
         );
         String rangeName = MTMVPartitionUtil.generatePartitionName(rangeDesc);
         Assert.assertEquals("p_1_2", rangeName);
+    }
+
+    @Test
+    public void testIfPartitionItemInRange() throws AnalysisException {
+        // test range partition
+        PartitionItem item = getRangePartitionItem("2020-01-01", "2020-02-01");
+        MTMVRefreshPartitionRange refreshRange = getTestRange("2020-01-01", "2020-02-01");
+        // equals
+        Assert.assertTrue(MTMVPartitionUtil.ifPartitionItemInRange(item, refreshRange));
+        refreshRange = getTestRange("2020-01-01", "2020-01-02");
+        // only contain lower value
+        Assert.assertTrue(MTMVPartitionUtil.ifPartitionItemInRange(item, refreshRange));
+        refreshRange = getTestRange("2020-02-01", "2020-02-02");
+        // upper is open
+        Assert.assertFalse(MTMVPartitionUtil.ifPartitionItemInRange(item, refreshRange));
+        refreshRange = getTestRange("2020-01-15", "2020-02-15");
+        // intersect
+        Assert.assertTrue(MTMVPartitionUtil.ifPartitionItemInRange(item, refreshRange));
+
+        // test list partition
+        item = getListPartitionItem("2020-01-02", "2020-01-04");
+        refreshRange = getTestRange("2020-01-01", "2020-01-10");
+        // contain all value
+        Assert.assertTrue(MTMVPartitionUtil.ifPartitionItemInRange(item, refreshRange));
+        refreshRange = getTestRange("2020-01-04", "2020-01-10");
+        // contain one value
+        Assert.assertTrue(MTMVPartitionUtil.ifPartitionItemInRange(item, refreshRange));
+        refreshRange = getTestRange("2020-01-01", "2020-01-02");
+        // upper is open
+        Assert.assertFalse(MTMVPartitionUtil.ifPartitionItemInRange(item, refreshRange));
+    }
+
+    private MTMVRefreshPartitionRange getTestRange(String lower, String upper) {
+        MTMVRefreshPartitionRange refreshPartitionRange = new MTMVRefreshPartitionRange(
+                Lists.newArrayList(Literal.of(lower)), Lists.newArrayList(Literal.of(upper)));
+        refreshPartitionRange.analyze();
+        return refreshPartitionRange;
+    }
+
+    private PartitionItem getRangePartitionItem(String lower, String upper) throws AnalysisException {
+        Column k1 = new Column("k1", ScalarType.createType(PrimitiveType.DATEV2), true, null, "", "key1");
+        PartitionKey rangeP1Lower = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue(lower)),
+                Lists.newArrayList(k1));
+        PartitionKey rangeP1Upper = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue(upper)),
+                Lists.newArrayList(k1));
+        Range<PartitionKey> rangeP1 = Range.closedOpen(rangeP1Lower, rangeP1Upper);
+        return new RangePartitionItem(rangeP1);
+    }
+
+    private PartitionItem getListPartitionItem(String value1, String value2) throws AnalysisException {
+        Column k1 = new Column("k1", ScalarType.createType(PrimitiveType.VARCHAR), true, null, "", "key1");
+        PartitionKey partitionKey1 = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue(value1)),
+                Lists.newArrayList(k1));
+        PartitionKey partitionKey2 = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue(value2)),
+                Lists.newArrayList(k1));
+        return new ListPartitionItem(Lists.newArrayList(partitionKey1, partitionKey2));
     }
 }

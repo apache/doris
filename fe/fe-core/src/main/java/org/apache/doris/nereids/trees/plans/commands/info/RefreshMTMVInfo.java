@@ -81,8 +81,7 @@ public class RefreshMTMVInfo {
                             "The partitioning method: SELF_MANAGE of async materialized views "
                                     + "does not support refreshing by partition range");
                 }
-                rangeOptional.get().getStartDate();
-                rangeOptional.get().getEndDate();
+                rangeOptional.get().analyze();
             }
         } catch (org.apache.doris.common.AnalysisException | MetaNotFoundException | DdlException e) {
             throw new AnalysisException(e.getMessage());
