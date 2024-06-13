@@ -1189,7 +1189,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         if (tnode.agg_node.aggregate_functions.empty() && !_runtime_state->enable_agg_spill() &&
             request.query_options.__isset.enable_distinct_streaming_aggregation &&
             request.query_options.enable_distinct_streaming_aggregation &&
-            !tnode.agg_node.grouping_exprs.empty()) {
+            !tnode.agg_node.grouping_exprs.empty() &&
+            !tnode.agg_node.__isset.agg_sort_info_by_group_key) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs,
                                                        _require_bucket_distribution));
             _require_bucket_distribution =
