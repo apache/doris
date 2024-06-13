@@ -587,8 +587,7 @@ public:
             // the 2nd arg is const. checked in fe.
             if (col.get_int(0) < 0) [[unlikely]] {
                 return Status::InvalidArgument(
-                        "function {} only accept non-negative input for 2nd argument but got "
-                        "{}",
+                        "function {} only accept non-negative input for 2nd argument but got {}",
                         name, col.get_int(0));
             }
             n = col.get_int(0);
