@@ -65,13 +65,6 @@ import java.util.List;
 import java.util.Set;
 
 class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
-
-    // for a join, skew = leftRowCount/rightRowCount
-    // the higher skew is, the more we prefer broadcast join than shuffle join
-    // if skew < BROADCAST_JOIN_SKEW_RATIO, broadcast join will be punished,
-    // the penalty factor is no more than BROADCAST_JOIN_SKEW_PENALTY_LIMIT
-    static final double BROADCAST_JOIN_SKEW_RATIO = 30.0;
-    static final double BROADCAST_JOIN_SKEW_PENALTY_LIMIT = 2.0;
     static final double RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR = 0.1;
     private final int beNumber;
     private final int parallelInstance;
@@ -338,17 +331,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     inputStatistics.getRowCount(), 0);
         }
     }
-    //
-    // private double broadCastJoinBalancePenalty(Statistics probeStats, Statistics buildStats) {
-    //     // if build side is small enough (<1M), broadcast is also good, no penalty
-    //     if (buildStats.computeSize() < 1024 * 1024) {
-    //         return 1;
-    //     }
-    //     double broadcastJoinPenalty = (BROADCAST_JOIN_SKEW_RATIO * buildStats.getRowCount()) / probeStats.getRowCount();
-    //     broadcastJoinPenalty = Math.max(1, broadcastJoinPenalty);
-    //     broadcastJoinPenalty = Math.min(BROADCAST_JOIN_SKEW_PENALTY_LIMIT, broadcastJoinPenalty);
-    //     return broadcastJoinPenalty;
-    // }
 
     @Override
     public Cost visitPhysicalHashJoin(

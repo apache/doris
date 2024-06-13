@@ -139,8 +139,9 @@ public class Statistics {
     }
 
     public List<Slot> getAllSlotsFromColumnStatsMap() {
-        return expressionToColumnStats.keySet().stream().filter(Slot.class::isInstance).map(expr -> (Slot) expr).collect(
-                Collectors.toList());
+        return expressionToColumnStats.keySet().stream()
+                .filter(Slot.class::isInstance).map(expr -> (Slot) expr)
+                .collect(Collectors.toList());
     }
 
     public double computeSize(List<Slot> slots) {
