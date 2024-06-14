@@ -39,10 +39,9 @@ constexpr size_t MIN_HTTP_BRPC_SIZE = (1ULL << 31);
 // Embed column_values and brpc request serialization string in controller attachment.
 template <typename Params, typename Closure>
 Status request_embed_attachment_contain_block(Params* brpc_request, Closure* closure) {
-    auto block = brpc_request->block();
-    Status st = request_embed_attachment(brpc_request, block.column_values(), closure);
-    block.set_column_values("");
-    return st;
+    std::string column_values = std::move(*brpc_request->mutable_block()->mutable_column_values());
+    brpc_request->mutable_block()->mutable_column_values()->clear();
+    return request_embed_attachment(brpc_request, column_values, closure);
 }
 
 inline bool enable_http_send_block(const PTransmitDataParams& request) {
@@ -90,7 +89,9 @@ Status request_embed_attachment(Params* brpc_request, const std::string& data, C
 
     // step1: serialize brpc_request to string, and append to attachment.
     std::string req_str;
-    brpc_request->SerializeToString(&req_str);
+    if (!brpc_request->SerializeToString(&req_str)) {
+        return Status::InternalError("failed to serialize the request");
+    }
     int64_t req_str_size = req_str.size();
     attachment.append(&req_str_size, sizeof(req_str_size));
     attachment.append(req_str);

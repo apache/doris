@@ -72,7 +72,7 @@ struct ColumnPredicateInfo {
     std::string debug_string() const {
         std::stringstream ss;
         ss << "column_name=" << column_name << ", query_op=" << query_op
-           << ", query_value=" << join(query_values, ",");
+           << ", query_value=" << boost::join(query_values, ",");
         return ss.str();
     }
 
@@ -97,7 +97,7 @@ struct ColumnPredicateInfo {
     }
 
     std::string column_name;
-    std::vector<std::string> query_values;
+    std::set<std::string> query_values;
     std::string query_op;
 };
 

@@ -594,7 +594,8 @@ public:
     bool can_fast_execute() const override {
         auto function_name = function->get_name();
         return function_name == "eq" || function_name == "ne" || function_name == "lt" ||
-               function_name == "gt" || function_name == "le" || function_name == "ge";
+               function_name == "gt" || function_name == "le" || function_name == "ge" ||
+               function_name == "in";
     }
 
     bool is_deterministic_in_scope_of_query() const override {
