@@ -109,7 +109,8 @@ public:
             // Remove the just processed part from the input so that we can exit early if there
             // is nothing left to process.
             value >>= 8;
-            if (value == 0 && value_to_save >= 0) break;
+            if (value == 0 && value_to_save >= 0) { break;
+}
             if (value == -1 && value_to_save < 0) break;
         }
         std::reverse(buffer.begin(), buffer.end());
