@@ -86,16 +86,11 @@ Status GroupCommitBlockSinkLocalState::close(RuntimeState* state, Status close_s
         _load_block_queue->remove_load_id(p._load_id);
     }
     // wait to wal
-    auto st = Status::OK();
     if (_load_block_queue && (_load_block_queue->wait_internal_group_commit_finish ||
                               _group_commit_mode == TGroupCommitMode::SYNC_MODE)) {
-        std::unique_lock l(_load_block_queue->mutex);
-        if (!_load_block_queue->process_finish) {
-            return Status::InternalError("_load_block_queue is not finished!");
-        }
-        st = _load_block_queue->status;
+        return _load_block_queue->status;
     }
-    return st;
+    return Status::OK();
 }
 
 Status GroupCommitBlockSinkLocalState::_add_block(RuntimeState* state,
