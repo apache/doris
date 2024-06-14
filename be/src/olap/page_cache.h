@@ -105,34 +105,28 @@ public:
         }
     };
 
-    class DataPageCache : public LRUCachePolicy {
+    class DataPageCache : public LRUCachePolicyTrackingAllocator {
     public:
         DataPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicy(CachePolicy::CacheType::DATA_PAGE_CACHE, capacity,
-                                 LRUCacheType::SIZE, config::data_page_cache_stale_sweep_time_sec,
-                                 num_shards) {
-            init_mem_tracker_by_allocator(lru_cache_type_string(LRUCacheType::SIZE));
-        }
+                : LRUCachePolicyTrackingAllocator(
+                          CachePolicy::CacheType::DATA_PAGE_CACHE, capacity, LRUCacheType::SIZE,
+                          config::data_page_cache_stale_sweep_time_sec, num_shards) {}
     };
 
-    class IndexPageCache : public LRUCachePolicy {
+    class IndexPageCache : public LRUCachePolicyTrackingAllocator {
     public:
         IndexPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicy(CachePolicy::CacheType::INDEXPAGE_CACHE, capacity,
-                                 LRUCacheType::SIZE, config::index_page_cache_stale_sweep_time_sec,
-                                 num_shards) {
-            init_mem_tracker_by_allocator(lru_cache_type_string(LRUCacheType::SIZE));
-        }
+                : LRUCachePolicyTrackingAllocator(
+                          CachePolicy::CacheType::INDEXPAGE_CACHE, capacity, LRUCacheType::SIZE,
+                          config::index_page_cache_stale_sweep_time_sec, num_shards) {}
     };
 
-    class PKIndexPageCache : public LRUCachePolicy {
+    class PKIndexPageCache : public LRUCachePolicyTrackingAllocator {
     public:
         PKIndexPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicy(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE, capacity,
-                                 LRUCacheType::SIZE,
-                                 config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {
-            init_mem_tracker_by_allocator(lru_cache_type_string(LRUCacheType::SIZE));
-        }
+                : LRUCachePolicyTrackingAllocator(
+                          CachePolicy::CacheType::PK_INDEX_PAGE_CACHE, capacity, LRUCacheType::SIZE,
+                          config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {}
     };
 
     static constexpr uint32_t kDefaultNumShards = 16;
@@ -169,7 +163,7 @@ public:
                 segment_v2::PageTypePB page_type, bool in_memory = false);
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker(segment_v2::PageTypePB page_type) {
-        return _get_page_cache(page_type)->mem_tracker_by_allocator();
+        return _get_page_cache(page_type)->mem_tracker();
     }
 
 private:
@@ -183,7 +177,7 @@ private:
     // delete bitmap in unique key with mow
     std::unique_ptr<PKIndexPageCache> _pk_index_page_cache;
 
-    LRUCachePolicy* _get_page_cache(segment_v2::PageTypePB page_type) {
+    LRUCachePolicyTrackingAllocator* _get_page_cache(segment_v2::PageTypePB page_type) {
         switch (page_type) {
         case segment_v2::DATA_PAGE: {
             return _data_page_cache.get();
