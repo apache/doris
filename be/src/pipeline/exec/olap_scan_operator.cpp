@@ -287,8 +287,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         }
 
         ParallelScannerBuilder<OlapScanLocalState> scanner_builder(
-                this, tablets, _scanner_profile, key_ranges, state(), p._limit_per_scanner,
-                is_dup_mow_key, p._olap_scan_node.is_preaggregation);
+                this, tablets, _scanner_profile, key_ranges, state(), p._limit_per_scanner, true,
+                p._olap_scan_node.is_preaggregation);
 
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 
