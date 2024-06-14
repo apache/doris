@@ -183,8 +183,8 @@ public:
 
     static std::string debug_string();
 
-    static bool process_minor_gc(const std::string& mem_info);
-    static bool process_full_gc(const std::string& mem_info);
+    static bool process_minor_gc(std::string mem_info = std::string());
+    static bool process_full_gc(std::string mem_info = std::string());
 
     static int64_t tg_disable_overcommit_group_gc();
     static int64_t tg_enable_overcommit_group_gc(int64_t request_free_memory,

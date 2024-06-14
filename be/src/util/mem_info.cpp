@@ -116,7 +116,10 @@ void MemInfo::refresh_allocator_mem() {
 // step2: free resource groups memory that enable overcommit
 // step3: free global top overcommit query, if enable query memory overcommit
 // TODO Now, the meaning is different from java minor gc + full gc, more like small gc + large gc.
-bool MemInfo::process_minor_gc(const std::string& mem_info) {
+bool MemInfo::process_minor_gc(std::string mem_info) {
+    if (mem_info.empty()) {
+        mem_info = doris::GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str();
+    }
     MonotonicStopWatch watch;
     watch.start();
     int64_t freed_mem = 0;
@@ -167,7 +170,10 @@ bool MemInfo::process_minor_gc(const std::string& mem_info) {
 // step3: free global top memory query
 // step4: free top overcommit load, load retries are more expensive, So cancel at the end.
 // step5: free top memory load
-bool MemInfo::process_full_gc(const std::string& mem_info) {
+bool MemInfo::process_full_gc(std::string mem_info) {
+    if (mem_info.empty()) {
+        mem_info = doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str();
+    }
     MonotonicStopWatch watch;
     watch.start();
     int64_t freed_mem = 0;
