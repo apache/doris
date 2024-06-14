@@ -114,8 +114,7 @@ public:
         }
         std::reverse(buffer.begin(), buffer.end());
         return buffer;
-     }
-
+    }
 
     // Returns ceil(log2(x)).
     // TODO: this could be faster if we use __builtin_clz.  Fix this if this ever shows up
