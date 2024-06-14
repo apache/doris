@@ -315,6 +315,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
     public void processOnce() throws IOException {
         // set status of query to OK.
         ctx.getState().reset();
+        ctx.setGroupCommit(false);
         executor = null;
 
         // reset sequence id of MySQL protocol

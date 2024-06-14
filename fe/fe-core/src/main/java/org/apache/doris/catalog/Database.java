@@ -748,14 +748,18 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
         Function udfFunction = null;
-        if (ifExists) {
-            try {
-                // here we must first getFunction, as dropFunctionImpl will remove it
-                udfFunction = getFunction(function);
-            } catch (AnalysisException e) {
+        try {
+            // here we must first getFunction, as dropFunctionImpl will remove it
+            udfFunction = getFunction(function);
+        } catch (AnalysisException e) {
+            if (!ifExists) {
+                throw new UserException(e);
+            } else {
                 // ignore it, as drop it if exist, so can't sure it must exist
+                return;
             }
         }
+
         dropFunctionImpl(function, ifExists);
         if (udfFunction != null && udfFunction.isUDTFunction()) {
             // all of the table function in doris will have two function

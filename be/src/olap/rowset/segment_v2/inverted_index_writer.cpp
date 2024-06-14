@@ -385,13 +385,6 @@ public:
                     if (null_map[j] == 1) {
                         continue;
                     }
-                    // now we temp create field . later make a pool
-                    if (Status st = create_field(&new_field); st != Status::OK()) {
-                        LOG(ERROR)
-                                << "create field " << string(_field_name.begin(), _field_name.end())
-                                << " error:" << st;
-                        return st;
-                    }
                     auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
                     if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
                          v->get_size() > _ignore_above) ||
@@ -400,16 +393,26 @@ public:
                         // TODO. Maybe here has performance problem for large size string.
                         continue;
                     } else {
+                        // now we temp create field . later make a pool
+                        if (Status st = create_field(&new_field); st != Status::OK()) {
+                            LOG(ERROR) << "create field "
+                                       << string(_field_name.begin(), _field_name.end())
+                                       << " error:" << st;
+                            return st;
+                        }
                         if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
                             _parser_type != InvertedIndexParserType::PARSER_NONE) {
                             // in this case stream need to delete after add_document, because the
                             // stream can not reuse for different field
+                            bool own_token_stream = true;
+                            bool own_reader = true;
                             std::unique_ptr<lucene::util::Reader> char_string_reader = nullptr;
                             RETURN_IF_ERROR(create_char_string_reader(char_string_reader));
                             char_string_reader->init(v->get_data(), v->get_size(), false);
+                            _analyzer->set_ownReader(own_reader);
                             ts = _analyzer->tokenStream(new_field->name(),
                                                         char_string_reader.release());
-                            new_field->setValue(ts);
+                            new_field->setValue(ts, own_token_stream);
                         } else {
                             new_field_char_value(v->get_data(), v->get_size(), new_field);
                         }
@@ -421,7 +424,6 @@ public:
                     // if this array is null, we just ignore to write inverted index
                     RETURN_IF_ERROR(add_document());
                     _doc->clear();
-                    _CLDELETE(ts);
                 } else {
                     // avoid to add doc which without any field which may make threadState init skip
                     // init fieldDataArray, then will make error with next doc with fields in
@@ -435,7 +437,6 @@ public:
                     _doc->add(*new_field);
                     RETURN_IF_ERROR(add_null_document());
                     _doc->clear();
-                    _CLDELETE(ts);
                 }
                 _rid++;
             }

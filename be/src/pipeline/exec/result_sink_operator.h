@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include "operator.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/result_writer.h"
@@ -159,6 +157,8 @@ private:
 
     // for fetch data by rowids
     TFetchOption _fetch_option;
+
+    std::shared_ptr<BufferControlBlock> _sender = nullptr;
 };
 
 } // namespace pipeline

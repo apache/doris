@@ -91,6 +91,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * 2. estimate partition stats
      * 3. insert col stats and partition stats
      */
+    @Override
     protected void doSample() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do sample collection for column {}", col.getName());
