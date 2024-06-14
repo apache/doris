@@ -114,6 +114,8 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
     int num_rows = result->result_batch.rows.size();
 
     while ((!_fe_result_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
+        LOG(WARNING) << "add_batch blocked coz buffer filled, _buffer_rows:" << _buffer_rows
+                     << " ,_buffer_limit" << _buffer_limit;
         _data_removal.wait_for(l, std::chrono::seconds(1));
     }
 
