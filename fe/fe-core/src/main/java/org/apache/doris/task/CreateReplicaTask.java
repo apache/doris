@@ -266,9 +266,9 @@ public class CreateReplicaTask extends AgentTask {
         int sequenceCol = -1;
         int versionCol = -1;
         List<TColumn> tColumns = null;
-        Object value = objectPool.get(columns);
-        if (value != null) {
-            tColumns = (List<TColumn>) value;
+        Object tCols = objectPool.get(columns);
+        if (tCols != null) {
+            tColumns = (List<TColumn>) tCols;
         } else {
             tColumns = new ArrayList<>();
             for (int i = 0; i < columns.size(); i++) {
