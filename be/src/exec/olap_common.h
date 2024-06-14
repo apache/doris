@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <iterator>
 #include <memory>
+#include <queue>
 #include <set>
 #include <sstream>
 #include <string>
@@ -132,7 +133,9 @@ public:
 
     void convert_to_fixed_value();
 
-    void convert_to_range_value();
+    void convert_to_range_value(std::vector<OlapTuple>& begin_scan_keys,
+                                std::vector<OlapTuple>& end_scan_keys, int32_t max_scan_key_num,
+                                bool* split);
 
     bool convert_to_avg_range_value(std::vector<OlapTuple>& begin_scan_keys,
                                     std::vector<OlapTuple>& end_scan_keys, bool& begin_include,
@@ -802,16 +805,92 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
 }
 
 template <PrimitiveType primitive_type>
-void ColumnValueRange<primitive_type>::convert_to_range_value() {
-    if (!is_range_value_convertible()) {
+void ColumnValueRange<primitive_type>::convert_to_range_value(
+        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
+        int32_t max_scan_key_num, bool* split) {
+    if (!is_range_value_convertible() || _fixed_values.empty()) {
         return;
     }
 
-    if (!_fixed_values.empty()) {
-        _low_value = *_fixed_values.begin();
-        _low_op = FILTER_LARGER_OR_EQUAL;
-        _high_value = *_fixed_values.rbegin();
-        _high_op = FILTER_LESS_OR_EQUAL;
+    _low_value = *_fixed_values.begin();
+    _low_op = FILTER_LARGER_OR_EQUAL;
+    _high_value = *_fixed_values.rbegin();
+    _high_op = FILTER_LESS_OR_EQUAL;
+
+    if (max_scan_key_num == 1) {
+        _fixed_values.clear();
+        return;
+    }
+
+    // Splitting whe _fixed_values to max_scan_key_num subranges there instread of a whole
+    // scan range: [_low_value, _high_value]. We generate subranges according to the values in _fixed_values,
+    // the main perpose is to filter as much data as possible.
+    // Example:
+    //      values in _fixed_values is (1, 3, 14, 58, 60)
+    //      max_scan_key_num = 3, which is less than _fixed_values.size()==5
+    //      subranges we can get: [1, 3], [14, 14], [58, 60]
+    if constexpr (!_is_reject_split_type) {
+        CppType min_value = _low_value;
+        CppType max_value = _high_value;
+        if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
+            min_value.set_type(TimeType::TIME_DATE);
+            max_value.set_type(TimeType::TIME_DATE);
+        }
+
+        // When CppType is date, we can not convert it to integer number and calculate distance.
+        // In other case, we convert element to int128 to avoit overflow.
+        auto cast = [](const CppType& value) {
+            if constexpr (primitive_type == PrimitiveType::TYPE_DATE ||
+                          primitive_type == PrimitiveType::TYPE_DATEV2) {
+                return value;
+            } else {
+                return (int128_t)value;
+            }
+        };
+
+        // In the priority_queue we save pairs, and in each pair, the first item is the distance (d)
+        // between two adjacent elements ( a and b, a <= b ) in _fixed_values, the second item is a pair
+        // which keeps the two elements (a, b)
+        std::priority_queue<std::pair<size_t, std::pair<CppType, CppType>>> dist_of_value;
+
+        // calculating the distance of every two adjacent elements in _fixed_values
+        auto it = _fixed_values.begin();
+        auto pre_it = it;
+        while (++it != _fixed_values.end()) {
+            auto dist = (cast)(*it) - *pre_it;
+            std::pair<CppType, CppType> inner_pair(*pre_it, *it);
+            std::pair<size_t, std::pair<CppType, CppType>> outer_pair(dist, inner_pair);
+            dist_of_value.push(outer_pair);
+            pre_it = it;
+        }
+
+        // Getting the top max_scan_key_num-1 element pairs in dist_of_value according to
+        // the distance (d) of (a, b), which means filtering the data in range (a,b).
+        // larger the d is, more data we can filter
+        std::set<std::pair<CppType, CppType>> split_value_pair;
+        for (int i = 1; i < max_scan_key_num; ++i) {
+            split_value_pair.insert(dist_of_value.top().second);
+            dist_of_value.pop();
+        }
+
+        begin_scan_keys.emplace_back();
+        begin_scan_keys.back().add_value(
+                cast_to_string<primitive_type, CppType>(min_value, scale()));
+        // pair.first is the right border of the scan range
+        // pair.second is the left border of next scan range
+        for (auto pair : split_value_pair) {
+            end_scan_keys.emplace_back();
+            end_scan_keys.back().add_value(
+                    cast_to_string<primitive_type, CppType>(pair.first, scale()));
+            begin_scan_keys.emplace_back();
+            begin_scan_keys.back().add_value(
+                    cast_to_string<primitive_type, CppType>(pair.second, scale()));
+        }
+        end_scan_keys.emplace_back();
+        end_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(max_value, scale()));
+
+        *split = true;
+    } else {
         _fixed_values.clear();
     }
 }
@@ -1118,7 +1197,16 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
     if (range.is_fixed_value_range()) {
         if (range.get_fixed_value_size() > max_scan_key_num / scan_keys_size) {
             if (range.is_range_value_convertible()) {
-                range.convert_to_range_value();
+                bool split = false;
+                range.convert_to_range_value(_begin_scan_keys, _end_scan_keys, max_scan_key_num,
+                                             &split);
+                if (split) {
+                    _has_range_value = true;
+                    _begin_include = true;
+                    _end_include = true;
+                    *exact_value = false;
+                    return Status::OK();
+                }
                 *exact_value = false;
             } else {
                 return Status::OK();
