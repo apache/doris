@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_build_index_with_clone_fault_injection", "nonConcurrent"){
-    if (isCloudMode()) {
-        return 
-    }
     def backends = sql_return_maparray('show backends')
     // if backens is less than 2, skip this case
     if (backends.size() < 2) {
