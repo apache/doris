@@ -346,17 +346,17 @@ public class MTMVTask extends AbstractTask {
                         : String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs())));
         trow.addToColumnValue(new TCell()
                 .setStringVal(taskContext == null ? FeConstants.null_string
-                        : GsonUtils.GSON.toJson(taskContext).replaceAll("\n", "")));
+                        : GsonUtils.GSON.toJson(taskContext).replaceAll("\n", "").replaceAll(" ", "")));
         trow.addToColumnValue(
                 new TCell().setStringVal(refreshMode == null ? FeConstants.null_string : refreshMode.toString()));
         trow.addToColumnValue(
                 new TCell().setStringVal(
                         needRefreshPartitions == null ? FeConstants.null_string : GsonUtils.GSON.toJson(
-                                needRefreshPartitions).replaceAll("\n", "")));
+                                needRefreshPartitions).replaceAll("\n", "").replaceAll(" ", "")));
         trow.addToColumnValue(
                 new TCell().setStringVal(
                         completedPartitions == null ? FeConstants.null_string : GsonUtils.GSON.toJson(
-                                completedPartitions).replaceAll("\n", "")));
+                                completedPartitions).replaceAll("\n", "").replaceAll(" ", "")));
         trow.addToColumnValue(
                 new TCell().setStringVal(getProgress()));
         trow.addToColumnValue(
