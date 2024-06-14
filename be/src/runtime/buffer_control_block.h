@@ -31,6 +31,7 @@
 
 #include "common/status.h"
 #include "runtime/query_statistics.h"
+#include "runtime/runtime_state.h"
 #include "util/hash_util.hpp"
 
 namespace google::protobuf {
@@ -75,7 +76,7 @@ public:
     ~BufferControlBlock();
 
     Status init();
-    Status add_batch(std::unique_ptr<TFetchDataResult>& result);
+    Status add_batch(RuntimeState* state, std::unique_ptr<TFetchDataResult>& result);
     Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result);
 
     void get_batch(GetResultBatchCtx* ctx);
@@ -135,6 +136,8 @@ protected:
     std::unordered_map<TUniqueId, std::shared_ptr<pipeline::Dependency>> _result_sink_dependencys;
 
     int _batch_size;
+    int _waiting_size = 0;
+    TUniqueId _last_ready_id {};
 };
 
 } // namespace doris

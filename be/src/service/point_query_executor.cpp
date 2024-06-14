@@ -487,10 +487,10 @@ Status PointQueryExecutor::_lookup_row_data() {
 }
 
 template <typename MysqlWriter>
-Status _serialize_block(MysqlWriter& mysql_writer, vectorized::Block& block,
-                        PTabletKeyLookupResponse* response) {
+Status serialize_block(RuntimeState* state, MysqlWriter& mysql_writer, vectorized::Block& block,
+                       PTabletKeyLookupResponse* response) {
     block.clear_names();
-    RETURN_IF_ERROR(mysql_writer.write(block));
+    RETURN_IF_ERROR(mysql_writer.write(state, block));
     assert(mysql_writer.results().size() == 1);
     uint8_t* buf = nullptr;
     uint32_t len = 0;
@@ -508,11 +508,13 @@ Status PointQueryExecutor::_output_data() {
         if (_binary_row_format) {
             vectorized::VMysqlResultWriter<true> mysql_writer(nullptr, _reusable->output_exprs(),
                                                               nullptr);
-            RETURN_IF_ERROR(_serialize_block(mysql_writer, *_result_block, _response));
+            RETURN_IF_ERROR(serialize_block(_reusable->runtime_state(), mysql_writer,
+                                            *_result_block, _response));
         } else {
             vectorized::VMysqlResultWriter<false> mysql_writer(nullptr, _reusable->output_exprs(),
                                                                nullptr);
-            RETURN_IF_ERROR(_serialize_block(mysql_writer, *_result_block, _response));
+            RETURN_IF_ERROR(serialize_block(_reusable->runtime_state(), mysql_writer,
+                                            *_result_block, _response));
         }
         VLOG_DEBUG << "dump block " << _result_block->dump_data();
     } else {

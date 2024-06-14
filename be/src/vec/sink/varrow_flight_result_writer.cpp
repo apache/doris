@@ -53,7 +53,7 @@ void VArrowFlightResultWriter::_init_profile() {
     _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
 }
 
-Status VArrowFlightResultWriter::write(Block& input_block) {
+Status VArrowFlightResultWriter::write(RuntimeState* state, Block& input_block) {
     SCOPED_TIMER(_append_row_batch_timer);
     Status status = Status::OK();
     if (UNLIKELY(input_block.rows() == 0)) {
