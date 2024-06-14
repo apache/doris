@@ -625,6 +625,7 @@ public class OlapTableSink extends DataSink {
         Multimap<Long, Long> allBePathsMap = HashMultimap.create();
         for (Long partitionId : partitionIds) {
             Partition partition = table.getPartition(partitionId);
+            long visibleVersion = partition.getVisibleVersion();
             int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 // we should ensure the replica backend is alive
@@ -635,14 +636,14 @@ public class OlapTableSink extends DataSink {
                         String errMsg = "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
                                 + " < load required replica num " + loadRequiredReplicaNum
                                 + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]"
-                                + ", detail: " + tablet.getDetailsStatusForQuery(partition.getVisibleVersion());
+                                + ", detail: " + tablet.getDetailsStatusForQuery(visibleVersion);
                         if (Config.isCloudMode()) {
                             errMsg += ConnectContext.cloudNoBackendsReason();
                         }
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
                     }
 
-                    debugWriteRandomChooseSink(tablet, partition.getVisibleVersion(), bePathsMap);
+                    debugWriteRandomChooseSink(tablet, visibleVersion, bePathsMap);
                     if (bePathsMap.keySet().isEmpty()) {
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
                                 "tablet " + tablet.getId() + " no available replica");

@@ -183,6 +183,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo()
                                 .getReplicaAllocation(partition.getId());
+                        long visibleVersion = partition.getVisibleVersion();
                         for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(
                                 MaterializedIndex.IndexExtState.VISIBLE)) {
                             List<Tablet> tablets = materializedIndex.getTablets();
@@ -196,12 +197,11 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                         replicaAlloc = groupSchema.getReplicaAlloc();
                                     }
                                     Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, i);
-                                    res = tablet.getColocateHealthStatus(partition.getVisibleVersion(), replicaAlloc,
-                                            backendsSet);
+                                    res = tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, backendsSet);
                                 } else {
                                     Pair<Tablet.TabletStatus, TabletSchedCtx.Priority> pair
                                             = tablet.getHealthStatusWithPriority(infoService,
-                                            partition.getVisibleVersion(), replicaAlloc, aliveBeIds);
+                                            visibleVersion, replicaAlloc, aliveBeIds);
                                     res = pair.first;
                                 }
                                 switch (res) { // CHECKSTYLE IGNORE THIS LINE: missing switch default

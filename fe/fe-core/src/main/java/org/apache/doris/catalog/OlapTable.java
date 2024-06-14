@@ -675,6 +675,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         Map<Tag, Integer> nextIndexes = Maps.newHashMap();
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             Partition partition = entry.getValue();
+            long visibleVersion = partition.getVisibleVersion();
             // entry.getKey() is the new partition id, use it to get the restore specified
             // replica allocation
             ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(entry.getKey());
@@ -717,7 +718,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
                                 Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                                        partition.getVisibleVersion(), schemaHash);
+                                        visibleVersion, schemaHash);
                                 newTablet.addReplica(replica, true /* is restore */);
                             }
                         }
