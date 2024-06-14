@@ -41,6 +41,7 @@
 #include "gutil/strings/split.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_manager.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
@@ -54,18 +55,13 @@
 
 namespace doris {
 
-bvar::PassiveStatus<int64_t> g_sys_mem_avail(
-        "meminfo_sys_mem_avail", [](void*) { return MemInfo::sys_mem_available(); }, nullptr);
-
 bool MemInfo::_s_initialized = false;
 std::atomic<int64_t> MemInfo::_s_physical_mem = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_mem_limit = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_soft_mem_limit = std::numeric_limits<int64_t>::max();
 
 std::atomic<int64_t> MemInfo::_s_allocator_cache_mem = 0;
-std::string MemInfo::_s_allocator_cache_mem_str = "";
 std::atomic<int64_t> MemInfo::_s_virtual_memory_used = 0;
-std::atomic<int64_t> MemInfo::refresh_interval_memory_growth = 0;
 
 int64_t MemInfo::_s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
 int64_t MemInfo::_s_cgroup_mem_usage = std::numeric_limits<int64_t>::min();
@@ -103,9 +99,6 @@ void MemInfo::refresh_allocator_mem() {
                                          get_je_metrics("stats.metadata") +
                                          get_je_all_arena_metrics("pdirty") * get_page_size(),
                                  std::memory_order_relaxed);
-    _s_allocator_cache_mem_str = PrettyPrinter::print(
-            static_cast<uint64_t>(_s_allocator_cache_mem.load(std::memory_order_relaxed)),
-            TUnit::BYTES);
     _s_virtual_memory_used.store(get_je_metrics("stats.mapped"), std::memory_order_relaxed);
 #else
     _s_allocator_cache_mem.store(get_tc_metrics("tcmalloc.pageheap_free_bytes") +
@@ -113,9 +106,6 @@ void MemInfo::refresh_allocator_mem() {
                                          get_tc_metrics("tcmalloc.transfer_cache_free_bytes") +
                                          get_tc_metrics("tcmalloc.thread_cache_free_bytes"),
                                  std::memory_order_relaxed);
-    _s_allocator_cache_mem_str = PrettyPrinter::print(
-            static_cast<uint64_t>(_s_allocator_cache_mem.load(std::memory_order_relaxed)),
-            TUnit::BYTES);
     _s_virtual_memory_used.store(get_tc_metrics("generic.total_physical_bytes") +
                                          get_tc_metrics("tcmalloc.pageheap_unmapped_bytes"),
                                  std::memory_order_relaxed);
@@ -126,13 +116,11 @@ void MemInfo::refresh_allocator_mem() {
 // step2: free resource groups memory that enable overcommit
 // step3: free global top overcommit query, if enable query memory overcommit
 // TODO Now, the meaning is different from java minor gc + full gc, more like small gc + large gc.
-bool MemInfo::process_minor_gc() {
+bool MemInfo::process_minor_gc(const std::string& mem_info) {
     MonotonicStopWatch watch;
     watch.start();
     int64_t freed_mem = 0;
     std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
-    std::string pre_vm_rss = PerfCounters::get_vm_rss_str();
-    std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
         MemInfo::notify_je_purge_dirty_pages();
@@ -166,8 +154,7 @@ bool MemInfo::process_minor_gc() {
         RuntimeProfile* toq_profile =
                 profile->create_child("FreeTopOvercommitMemoryQuery", true, true);
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
-                MemInfo::process_minor_gc_size() - freed_mem, pre_vm_rss, pre_sys_mem_available,
-                toq_profile);
+                MemInfo::process_minor_gc_size() - freed_mem, mem_info, toq_profile);
         if (freed_mem > MemInfo::process_minor_gc_size()) {
             return true;
         }
@@ -180,13 +167,11 @@ bool MemInfo::process_minor_gc() {
 // step3: free global top memory query
 // step4: free top overcommit load, load retries are more expensive, So cancel at the end.
 // step5: free top memory load
-bool MemInfo::process_full_gc() {
+bool MemInfo::process_full_gc(const std::string& mem_info) {
     MonotonicStopWatch watch;
     watch.start();
     int64_t freed_mem = 0;
     std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
-    std::string pre_vm_rss = PerfCounters::get_vm_rss_str();
-    std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
         MemInfo::notify_je_purge_dirty_pages();
@@ -217,8 +202,7 @@ bool MemInfo::process_full_gc() {
             "[MemoryGC] before free top memory query in full GC", MemTrackerLimiter::Type::QUERY);
     RuntimeProfile* tmq_profile = profile->create_child("FreeTopMemoryQuery", true, true);
     freed_mem += MemTrackerLimiter::free_top_memory_query(
-            MemInfo::process_full_gc_size() - freed_mem, pre_vm_rss, pre_sys_mem_available,
-            tmq_profile);
+            MemInfo::process_full_gc_size() - freed_mem, mem_info, tmq_profile);
     if (freed_mem > MemInfo::process_full_gc_size()) {
         return true;
     }
@@ -230,8 +214,7 @@ bool MemInfo::process_full_gc() {
         RuntimeProfile* tol_profile =
                 profile->create_child("FreeTopMemoryOvercommitLoad", true, true);
         freed_mem += MemTrackerLimiter::free_top_overcommit_load(
-                MemInfo::process_full_gc_size() - freed_mem, pre_vm_rss, pre_sys_mem_available,
-                tol_profile);
+                MemInfo::process_full_gc_size() - freed_mem, mem_info, tol_profile);
         if (freed_mem > MemInfo::process_full_gc_size()) {
             return true;
         }
@@ -240,9 +223,8 @@ bool MemInfo::process_full_gc() {
     VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
             "[MemoryGC] before free top memory load in full GC", MemTrackerLimiter::Type::LOAD);
     RuntimeProfile* tml_profile = profile->create_child("FreeTopMemoryLoad", true, true);
-    freed_mem +=
-            MemTrackerLimiter::free_top_memory_load(MemInfo::process_full_gc_size() - freed_mem,
-                                                    pre_vm_rss, pre_sys_mem_available, tml_profile);
+    freed_mem += MemTrackerLimiter::free_top_memory_load(
+            MemInfo::process_full_gc_size() - freed_mem, mem_info, tml_profile);
     return freed_mem > MemInfo::process_full_gc_size();
 }
 
@@ -550,13 +532,15 @@ void MemInfo::init() {
         getline(vminfo, line);
         boost::algorithm::trim(line);
         StringParser::ParseResult result;
-        int64_t mem_value = StringParser::string_to_int<int64_t>(line.data(), line.size(), &result);
+        auto mem_value = StringParser::string_to_int<int64_t>(line.data(), line.size(), &result);
 
         if (result == StringParser::PARSE_SUCCESS) {
             _s_vm_min_free_kbytes = mem_value * 1024L;
         }
     }
-    if (vminfo.is_open()) vminfo.close();
+    if (vminfo.is_open()) {
+        vminfo.close();
+    }
 
     // Redhat 4.x OS, `/proc/meminfo` has no `MemAvailable`.
     if (_mem_info_bytes.find("MemAvailable") != _mem_info_bytes.end()) {
@@ -580,7 +564,9 @@ void MemInfo::init() {
     std::string hugepage_enable;
     // If file not exist, getline returns an empty string.
     getline(sys_transparent_hugepage, hugepage_enable);
-    if (sys_transparent_hugepage.is_open()) sys_transparent_hugepage.close();
+    if (sys_transparent_hugepage.is_open()) {
+        sys_transparent_hugepage.close();
+    }
     if (hugepage_enable == "[always] madvise never") {
         std::cout << "[WARNING!] /sys/kernel/mm/transparent_hugepage/enabled: " << hugepage_enable
                   << ", Doris not recommend turning on THP, which may cause the BE process to use "
@@ -595,7 +581,9 @@ void MemInfo::init() {
     std::ifstream sys_vm("/proc/sys/vm/overcommit_memory", std::ios::in);
     std::string vm_overcommit;
     getline(sys_vm, vm_overcommit);
-    if (sys_vm.is_open()) sys_vm.close();
+    if (sys_vm.is_open()) {
+        sys_vm.close();
+    }
     if (!vm_overcommit.empty() && std::stoi(vm_overcommit) == 2) {
         std::cout << "[WARNING!] /proc/sys/vm/overcommit_memory: " << vm_overcommit
                   << ", expect is 1, memory limit check is handed over to Doris Allocator, "
@@ -636,12 +624,11 @@ void MemInfo::init() {
 
 std::string MemInfo::debug_string() {
     DCHECK(_s_initialized);
-    CGroupUtil util;
     std::stringstream stream;
     stream << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
            << std::endl;
     stream << "Memory Limt: " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES) << std::endl;
-    stream << "CGroup Info: " << util.debug_string() << std::endl;
+    stream << "CGroup Info: " << doris::CGroupUtil::debug_string() << std::endl;
     return stream.str();
 }
 

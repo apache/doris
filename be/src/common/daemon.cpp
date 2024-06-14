@@ -210,7 +210,7 @@ void Daemon::memory_maintenance_thread() {
         // Refresh process memory metrics.
         doris::PerfCounters::refresh_proc_status();
         doris::MemInfo::refresh_proc_meminfo();
-        doris::GlobalMemoryArbitrator::refresh_vm_rss_sub_allocator_cache();
+        doris::GlobalMemoryArbitrator::reset_refresh_interval_memory_growth();
 
         // Update and print memory stat when the memory changes by 256M.
         if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
@@ -247,7 +247,7 @@ void Daemon::memory_gc_thread() {
         if (config::disable_memory_gc) {
             continue;
         }
-        auto sys_mem_available = doris::MemInfo::sys_mem_available();
+        auto sys_mem_available = doris::GlobalMemoryArbitrator::sys_mem_available();
         auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
 
         // GC excess memory for resource groups that not enable overcommit
@@ -259,13 +259,13 @@ void Daemon::memory_gc_thread() {
             (sys_mem_available < doris::MemInfo::sys_mem_available_low_water_mark() ||
              process_memory_usage >= doris::MemInfo::mem_limit())) {
             // No longer full gc and minor gc during sleep.
+            std::string mem_info =
+                    doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str();
             memory_full_gc_sleep_time_ms = memory_gc_sleep_time_ms;
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
-            LOG(INFO) << fmt::format(
-                    "[MemoryGC] start full GC, {}.",
-                    doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
+            LOG(INFO) << fmt::format("[MemoryGC] start full GC, {}.", mem_info);
             doris::MemTrackerLimiter::print_log_process_usage();
-            if (doris::MemInfo::process_full_gc()) {
+            if (doris::MemInfo::process_full_gc(mem_info)) {
                 // If there is not enough memory to be gc, the process memory usage will not be printed in the next continuous gc.
                 doris::MemTrackerLimiter::enable_print_log_process_usage();
             }
@@ -273,12 +273,12 @@ void Daemon::memory_gc_thread() {
                    (sys_mem_available < doris::MemInfo::sys_mem_available_warning_water_mark() ||
                     process_memory_usage >= doris::MemInfo::soft_mem_limit())) {
             // No minor gc during sleep, but full gc is possible.
+            std::string mem_info =
+                    doris::GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str();
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
-            LOG(INFO) << fmt::format(
-                    "[MemoryGC] start minor GC, {}.",
-                    doris::GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str());
+            LOG(INFO) << fmt::format("[MemoryGC] start minor GC, {}.", mem_info);
             doris::MemTrackerLimiter::print_log_process_usage();
-            if (doris::MemInfo::process_minor_gc()) {
+            if (doris::MemInfo::process_minor_gc(mem_info)) {
                 doris::MemTrackerLimiter::enable_print_log_process_usage();
             }
         } else {
