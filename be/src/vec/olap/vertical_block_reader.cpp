@@ -300,7 +300,7 @@ void VerticalBlockReader::_update_agg_data(MutableColumns& columns) {
 
 void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
                                             bool is_close) {
-    if (!_arena) {
+    if (!_arena) [[unlikely]] {
         return;
     }
     for (size_t idx = 0; idx < _return_columns.size(); ++idx) {
