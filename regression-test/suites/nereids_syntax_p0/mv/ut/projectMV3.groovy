@@ -65,4 +65,19 @@ suite ("projectMV3") {
         contains "(projectMV3_mv)"
     }
     order_qt_select_mv2 "select name from projectMV3 where deptno -1 = 0 order by empid;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from projectMV3 order by empid;")
+        contains "(projectMV3)"
+    }
+
+    explain {
+        sql("select empid + 1, name from projectMV3 where deptno = 1 order by empid;")
+        contains "(projectMV3_mv)"
+    }
+    explain {
+        sql("select name from projectMV3 where deptno = 0 order by empid;")
+        contains "(projectMV3_mv)"
+    }
 }

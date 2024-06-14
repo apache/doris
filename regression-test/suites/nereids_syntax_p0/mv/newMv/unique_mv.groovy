@@ -48,4 +48,10 @@ suite ("unique_mv") {
         sql("SELECT * FROM c5816_t WHERE call_uuid='adc';")
         contains "(mv_1)"
     }
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("SELECT * FROM c5816_t WHERE call_uuid='adc';")
+        contains "(mv_1)"
+    }
 }

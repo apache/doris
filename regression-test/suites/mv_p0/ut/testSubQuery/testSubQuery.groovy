@@ -53,4 +53,10 @@ suite ("testSubQuery") {
     qt_select_star "select * from emps order by empid;"
 
     qt_select_mv "select empid, deptno, salary from emps e1 where empid = (select max(empid) from emps where deptno = e1.deptno) order by deptno;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from emps order by empid;")
+        contains "(emps)"
+    }
 }

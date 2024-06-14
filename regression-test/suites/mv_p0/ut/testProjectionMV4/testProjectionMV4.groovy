@@ -57,4 +57,15 @@ suite ("testProjectionMV4") {
         contains "(emps)"
     }
     qt_select_base "select empid from emps where deptno > 1 and empid > 1 order by empid;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from emps order by empid;")
+        contains "(emps)"
+    }
+
+    explain {
+        sql("select empid from emps where deptno > 1 and empid > 1 order by empid;")
+        contains "(emps)"
+    }
 }

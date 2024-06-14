@@ -71,6 +71,11 @@ suite ("test_agg_state_max_by") {
         sql("select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;")
         contains "(k1mb)"
     }
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;")
+        contains "(k1mb)"
+    }
     qt_select_mv "select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;"
 
     createMV("create materialized view k1mbcp1 as select k1,max_by(k2+k3,abs(k3)) from d_table group by k1;")
@@ -122,4 +127,18 @@ suite ("test_agg_state_max_by") {
         contains "(k1mbcp3)"
     }
     qt_select_mv "select k1,max_by(k2,abs(k3)) from d_table group by k1 order by 1,2;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,max_by(k2+k3,abs(k3)) from d_table group by k1 order by 1,2;")
+        contains "(k1mbcp1)"
+    }
+    explain {
+        sql("select k1,max_by(k2+k3,k3) from d_table group by k1 order by 1,2;")
+        contains "(k1mbcp2)"
+    }
+    explain {
+        sql("select k1,max_by(k2,abs(k3)) from d_table group by k1 order by 1,2;")
+        contains "(k1mbcp3)"
+    }
 }

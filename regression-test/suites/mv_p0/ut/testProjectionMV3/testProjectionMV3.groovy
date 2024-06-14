@@ -61,4 +61,19 @@ suite ("testProjectionMV3") {
         contains "(emps_mv)"
     }
     qt_select_mv2 "select name from emps where deptno = 1 order by empid;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from emps order by empid;")
+        contains "(emps)"
+    }
+    explain {
+        sql("select empid + 1, name from emps where deptno = 1 order by empid;")
+        contains "(emps_mv)"
+    }
+
+    explain {
+        sql("select name from emps where deptno = 1 order by empid;")
+        contains "(emps_mv)"
+    }
 }

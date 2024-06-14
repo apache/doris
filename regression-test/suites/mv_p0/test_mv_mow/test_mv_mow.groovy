@@ -52,4 +52,9 @@ suite ("test_mv_mow") {
     qt_select_mv "select * from `u_table` index `k123p` order by 1,2;"
     qt_select_mv "select mv_k1 from `u_table` index `k123p` order by 1;"
     qt_select_mv "select `mv_(k2 + k3)` from `u_table` index `k123p` order by 1;"
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,k2+k3 from u_table order by k1;")
+        contains "(k123p)"
+    }
 }

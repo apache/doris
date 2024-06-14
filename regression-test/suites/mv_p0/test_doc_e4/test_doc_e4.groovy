@@ -67,4 +67,25 @@ suite ("test_doc_e4") {
         contains "(kymd)"
     }
     qt_select_mv "select year(k4)+month(k4) from d_table where year(k4) = 2020 order by 1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by 1,2;")
+        contains "(k1a2p2ap3ps)"
+    }
+
+    explain {
+        sql("select bin(abs(k1)+k2+1),sum(abs(k2+2)+k3+3) from d_table group by bin(abs(k1)+k2+1);")
+        contains "(k1a2p2ap3ps)"
+    }
+
+    explain {
+        sql("select year(k4),month(k4) from d_table;")
+        contains "(d_table)"
+    }
+
+    explain {
+        sql("select year(k4)+month(k4) from d_table where year(k4) = 2020;")
+        contains "(kymd)"
+    }
 }

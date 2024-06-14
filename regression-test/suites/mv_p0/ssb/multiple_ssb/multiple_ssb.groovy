@@ -259,4 +259,67 @@ suite ("multiple_ssb") {
         contains "(count_LO_ORDERPRIORITY_3)"
     }
     qt_select_count_3 "select LO_ORDERPRIORITY, count(1) from lineorder_flat where LO_ORDERPRIORITY in ('1','2','3') group by LO_ORDERPRIORITY order by 1,2;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
+                FROM lineorder_flat
+                WHERE
+                    LO_ORDERDATE >= 19930101
+                    AND LO_ORDERDATE <= 19931231
+                    AND LO_DISCOUNT >= 1 AND LO_DISCOUNT <= 3
+                    AND LO_QUANTITY < 25;""")
+        contains "(lineorder_q_1_1)"
+    }
+
+    explain {
+        sql("""SELECT
+                SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,
+                P_BRAND
+            FROM lineorder_flat
+            WHERE P_CATEGORY = 'MFGR#12' AND S_REGION = 'AMERICA'
+            GROUP BY (LO_ORDERDATE DIV 10000), P_BRAND
+            ORDER BY YEAR, P_BRAND;""")
+        contains "(lineorder_q_2_1)"
+    }
+
+    explain {
+        sql("""SELECT
+                C_NATION,
+                S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR,
+                SUM(LO_REVENUE) AS revenue
+            FROM lineorder_flat
+            WHERE
+                C_REGION = 'ASIA'
+                AND S_REGION = 'ASIA'
+                AND LO_ORDERDATE >= 19920101
+                AND LO_ORDERDATE <= 19971231
+            GROUP BY C_NATION, S_NATION, YEAR
+            ORDER BY YEAR ASC, revenue DESC;""")
+        contains "(lineorder_q_3_1)"
+    }
+
+    explain {
+        sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+                C_NATION,
+                SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
+                FROM lineorder_flat
+                WHERE
+                C_REGION = 'AMERICA'
+                AND S_REGION = 'AMERICA'
+                AND P_MFGR IN ('MFGR#1', 'MFGR#2')
+                GROUP BY YEAR, C_NATION
+                ORDER BY YEAR ASC, C_NATION ASC;""")
+        contains "(lineorder_q_4_1)"
+    }
+
+    explain {
+        sql("""select LO_ORDERDATE, sum(LO_ORDERDATE) from lineorder_flat where LO_ORDERDATE in (1,2,3) group by LO_ORDERDATE;""")
+        contains "(count_LO_ORDERPRIORITY_1)"
+    }
+    
+    explain {
+        sql("""select LO_ORDERPRIORITY, count(1) from lineorder_flat where LO_ORDERPRIORITY in ('1','2','3') group by LO_ORDERPRIORITY;""")
+        contains "(count_LO_ORDERPRIORITY_3)"
+    }
 }

@@ -61,4 +61,11 @@ suite ("subQuery") {
     }
     qt_select_mv "select empid, deptno, salary from subQuery e1 where empid = (select max(empid) from subQuery where deptno = e1.deptno) order by deptno;"
      */
+
+     sql """set enable_stats=true;"""
+
+     explain {
+        sql("select * from subQuery order by empid;")
+        contains "(subQuery)"
+    }
 }

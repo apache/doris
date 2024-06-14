@@ -55,4 +55,16 @@ suite ("distinctQuery") {
         sql("select deptno, count(distinct empid) from distinctQuery group by deptno;")
         contains "(distinctQuery_mv2)"
     }
+
+    sql """set enable_stats=true;"""
+
+    explain {
+        sql("select distinct deptno from distinctQuery;")
+        contains "(distinctQuery_mv)"
+    }
+
+    explain {
+        sql("select deptno, count(distinct empid) from distinctQuery group by deptno;")
+        contains "(distinctQuery_mv2)"
+    }
 }

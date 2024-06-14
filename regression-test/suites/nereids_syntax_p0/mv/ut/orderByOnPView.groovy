@@ -60,5 +60,13 @@ suite ("orderByOnPView") {
     }
     order_qt_select_mv "select empid from orderByOnPView order by deptno;"
 
-
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from orderByOnPView where time_col='2020-01-01' order by empid;")
+        contains "(orderByOnPView)"
+    }
+    explain {
+        sql("select empid from orderByOnPView where deptno = 0 order by deptno;")
+        contains "(orderByOnPView_mv)"
+    }
 }

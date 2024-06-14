@@ -41,4 +41,10 @@ suite ("testAggTableCountDistinctInBitmapType") {
     }
     qt_select_mv "select k1, count(distinct v1) from test_tb group by k1 order by k1;"
 
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1, count(distinct v1) from test_tb group by k1;")
+        contains "bitmap_union_count"
+    }
+
 }

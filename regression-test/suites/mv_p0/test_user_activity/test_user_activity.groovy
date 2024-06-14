@@ -53,4 +53,10 @@ suite ("test_user_activity") {
         contains "(session_distribution_2)"
     }
     qt_select_group_mv "select n_dx, percentile_approx(n_duration, 0.5) as p50, percentile_approx(n_duration, 0.90) as p90 FROM u_axx GROUP BY n_dx;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select n_dx, percentile_approx(n_duration, 0.5) as p50, percentile_approx(n_duration, 0.90) as p90 FROM u_axx GROUP BY n_dx;")
+        contains "(session_distribution_2)"
+    }
 }

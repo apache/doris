@@ -57,4 +57,15 @@ suite ("aggOnAggMV11") {
         contains "(aggOnAggMV11)"
     }
     order_qt_select_mv "select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno order by 1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from aggOnAggMV11 order by empid;")
+        contains "(aggOnAggMV11)"
+    }
+
+    explain {
+        sql("select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno;")
+        contains "(aggOnAggMV11)"
+    }
 }

@@ -50,4 +50,15 @@ suite ("testSelectMVWithTableAlias") {
         contains "(user_tags_mv)"
     }
     qt_select_mv "select count(tag_id) from user_tags t;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from user_tags order by time_col;")
+        contains "(user_tags)"
+    }
+
+    explain {
+        sql("select count(tag_id) from user_tags t;")
+        contains "(user_tags_mv)"
+    }
 }

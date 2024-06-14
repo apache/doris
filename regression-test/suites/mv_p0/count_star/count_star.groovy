@@ -78,4 +78,30 @@ suite ("count_star") {
         contains "(d_table)"
     }
     qt_select_mv "select count(*) from d_table where k3=1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,k4,count(*) from d_table group by k1,k4;")
+        contains "(kstar)"
+    }
+
+    explain {
+        sql("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;")
+        contains "(kstar)"
+    }
+
+    explain {
+        sql("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;")
+        contains "(d_table)"
+    }
+
+    explain {
+        sql("select count(*) from d_table;")
+        contains "(kstar)"
+    }
+
+    explain {
+        sql("select count(*) from d_table where k3=1;")
+        contains "(d_table)"
+    }
 }

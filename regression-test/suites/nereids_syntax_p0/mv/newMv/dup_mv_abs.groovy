@@ -85,4 +85,35 @@ suite ("dup_mv_abs") {
         contains "(dup_mv_abs)"
     }
     order_qt_select_group_mv_not "select sum(abs(k2)) from dup_mv_abs group by k3 order by k3;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,abs(k2) from dup_mv_abs order by k1;")
+        contains "(k12a)"
+    }
+
+    explain {
+        sql("select abs(k2) from dup_mv_abs order by k1;")
+        contains "(k12a)"
+    }
+
+    explain {
+        sql("select abs(k2)+1 from dup_mv_abs order by k1;")
+        contains "(k12a)"
+    }
+
+    explain {
+        sql("select sum(abs(k2)) from dup_mv_abs group by k1 order by k1;")
+        contains "(k12a)"
+    }
+
+    explain {
+        sql("select sum(abs(k2)+1) from dup_mv_abs group by k1 order by k1;")
+        contains "(k12a)"
+    }
+
+    explain {
+        sql("select sum(abs(k2)) from dup_mv_abs group by k3;")
+        contains "(dup_mv_abs)"
+    }
 }

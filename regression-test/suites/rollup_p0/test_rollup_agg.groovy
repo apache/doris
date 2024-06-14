@@ -83,6 +83,11 @@ suite("test_rollup_agg") {
         sql("SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode")
         contains("(rollup_city)")
     }
+    sql """set enable_stats=true;"""
+    explain {
+        sql("SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode")
+        contains("(rollup_city)")
+    }
     qt_sql "SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode"
     sql "ALTER TABLE ${tbName} DROP ROLLUP rollup_city;"
     sql "DROP TABLE ${tbName} FORCE;"

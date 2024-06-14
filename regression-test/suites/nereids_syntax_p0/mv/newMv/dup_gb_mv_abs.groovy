@@ -61,4 +61,15 @@ suite ("dup_gb_mv_abs") {
         contains "(k12sa)"
     }
     order_qt_select_mv_sub "select sum(abs(k2)) from dup_gb_mv_abs group by k1 order by k1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,sum(abs(k2)) from dup_gb_mv_abs group by k1;")
+        contains "(k12sa)"
+    }
+
+    explain {
+        sql("select sum(abs(k2)) from dup_gb_mv_abs group by k1;")
+        contains "(k12sa)"
+    }
 }

@@ -53,4 +53,15 @@ suite ("bitmapUnionIn") {
         contains "(bitmapUnionIn_mv)"
     }
     order_qt_select_mv "select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from bitmapUnionIn order by time_col;")
+        contains "(bitmapUnionIn)"
+    }
+
+    explain {
+        sql("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;")
+        contains "(bitmapUnionIn_mv)"
+    }
 }

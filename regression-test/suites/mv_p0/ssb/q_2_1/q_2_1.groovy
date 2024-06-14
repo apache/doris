@@ -112,6 +112,18 @@ suite ("mv_ssb_q_2_1") {
             ORDER BY YEAR, P_BRAND;""")
         contains "(lineorder_q_2_1)"
     }
+    sql """set enable_stats=true;"""
+    explain {
+        sql("""SELECT
+                SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,
+                P_BRAND
+            FROM lineorder_flat
+            WHERE P_CATEGORY = 'MFGR#12' AND S_REGION = 'AMERICA'
+            GROUP BY YEAR, P_BRAND
+            ORDER BY YEAR, P_BRAND;""")
+        contains "(lineorder_q_2_1)"
+    }
+
     qt_select_mv """SELECT
                     SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,
                     P_BRAND

@@ -39,4 +39,10 @@ suite ("test_insert_multi") {
         contains "(store_amt)"
     }
     qt_select_mv " SELECT store_id, sum(sale_amt) FROM sales_records GROUP BY store_id order by 1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql(" SELECT store_id, sum(sale_amt) FROM sales_records GROUP BY store_id order by 1;")
+        contains "(store_amt)"
+    }
 }

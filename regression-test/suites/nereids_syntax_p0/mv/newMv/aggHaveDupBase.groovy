@@ -81,4 +81,26 @@ suite ("agg_have_dup_base") {
         contains "(k12s3m)"
     }
     order_qt_select_mv "select unix_timestamp(k1) tmp,sum(k2) from agg_have_dup_base group by tmp order by tmp;"
+
+    sql """set enable_stats=true;"""
+
+    explain {
+        sql("select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;")
+        contains "(k12s3m)"
+    }
+
+    explain {
+        sql("select k1,sum(k2) from agg_have_dup_base group by k1;")
+        contains "(k12s3m)"
+    }
+
+    explain {
+        sql("select k1,max(k2) from agg_have_dup_base group by k1;")
+        contains "(k12s3m)"
+    }
+
+    explain {
+        sql("select unix_timestamp(k1) tmp,sum(k2) from agg_have_dup_base group by tmp;")
+        contains "(k12s3m)"
+    }
 }

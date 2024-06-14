@@ -47,4 +47,10 @@ suite ("test_dup_mv_repeat") {
         contains "(dbviwe)"
     }
     qt_select_mv "SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;")
+        contains "(dbviwe)"
+    }
 }

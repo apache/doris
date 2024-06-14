@@ -60,4 +60,15 @@ suite ("mv_ignore_predicate") {
         contains "(kign)"
     }
     qt_select_mv "select count(k2) from d_table where k2 is not null;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select count(k2) from d_table;")
+        contains "(kign)"
+    }
+
+    explain {
+        sql("select count(k2) from d_table where k2 is not null;")
+        contains "(kign)"
+    }
 }

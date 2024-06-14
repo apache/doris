@@ -57,4 +57,15 @@ suite ("aggOnAggMV5") {
         contains "(aggOnAggMV5_mv)"
     }
     order_qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV5 group by deptno) a where sum_salary>10 order by 1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from aggOnAggMV5 order by empid;")
+        contains "(aggOnAggMV5)"
+    }
+
+    explain {
+        sql("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV5 group by deptno) a where sum_salary>10;")
+        contains "(aggOnAggMV5_mv)"
+    }
 }

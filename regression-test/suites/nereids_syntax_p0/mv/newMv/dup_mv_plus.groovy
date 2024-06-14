@@ -102,4 +102,36 @@ suite ("dup_mv_plus") {
         contains "(dup_mv_plus)"
     }
     order_qt_select_mv "select k1,k2+1 from dup_mv_plus order by k2;"
+
+    sql """set enable_stats=true;"""
+
+    explain {
+        sql("select k1,k2+1 from dup_mv_plus order by k1;")
+        contains "(k12p)"
+    }
+
+    explain {
+        sql("select k2+1 from dup_mv_plus order by k1;")
+        contains "(k12p)"
+    }
+
+    explain {
+        sql("select sum(k2+1) from dup_mv_plus group by k1 order by k1;")
+        contains "(k12p)"
+    }
+
+    explain {
+        sql("select sum(k1) from dup_mv_plus group by k2+1 order by k2+1;")
+        contains "(k12p)"
+    }
+
+    explain {
+        sql("select sum(k2) from dup_mv_plus group by k3;")
+        contains "(dup_mv_plus)"
+    }
+
+    explain {
+        sql("select k1,k2+1 from dup_mv_plus order by k2;")
+        contains "(dup_mv_plus)"
+    }
 }

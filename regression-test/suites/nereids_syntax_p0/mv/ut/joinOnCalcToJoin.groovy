@@ -63,4 +63,11 @@ suite ("joinOnCalcToJoin") {
         contains "(joinOnLeftPToJoin_mv)"
         contains "(joinOnLeftPToJoin_1_mv)"
     }
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from (select empid, deptno from joinOnCalcToJoin where empid = 0) A join (select deptno, cost from joinOnCalcToJoin_1 where deptno > 0) B on A.deptno = B.deptno;")
+        contains "(joinOnLeftPToJoin_mv)"
+        contains "(joinOnLeftPToJoin_1_mv)"
+    }
 }

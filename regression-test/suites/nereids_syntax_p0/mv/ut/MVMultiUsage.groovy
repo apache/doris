@@ -60,4 +60,15 @@ suite ("MVMultiUsage") {
     }
     order_qt_select_mv "select * from (select deptno, empid from MVMultiUsage where deptno>100) A join (select deptno, empid from MVMultiUsage where deptno >200) B using (deptno) order by 1;"
 
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from MVMultiUsage order by empid;")
+        contains "(MVMultiUsage)"
+    }
+    explain {
+        sql("select * from (select deptno, empid from MVMultiUsage where deptno>100) A join (select deptno, empid from MVMultiUsage where deptno >200) B using (deptno);")
+        contains "(MVMultiUsage_mv)"
+        notContains "(MVMultiUsage)"
+    }
+
 }

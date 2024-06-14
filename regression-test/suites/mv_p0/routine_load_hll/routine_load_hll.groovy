@@ -59,4 +59,10 @@ suite ("routine_load_hll") {
         contains "(m_view)"
     }
     qt_select_mv "select time_stamp, hll_union_agg(device_id) from test group by time_stamp order by 1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select time_stamp, hll_union_agg(device_id) from test group by time_stamp order by 1;")
+        contains "(m_view)"
+    }
 }

@@ -48,6 +48,11 @@ suite ("test_dup_mv_bitmap_hash") {
         contains "(k1g2bm)"
     }
     qt_select_mv "select bitmap_union_count(to_bitmap(k2)) from d_table group by k1 order by k1;"
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select bitmap_union_count(to_bitmap(k2)) from d_table group by k1 order by k1;")
+        contains "(k1g2bm)"
+    }
 
     createMV "create materialized view k1g3bm as select k1,bitmap_union(bitmap_hash(k3)) from d_table group by k1;"
 
@@ -67,4 +72,9 @@ suite ("test_dup_mv_bitmap_hash") {
         contains "(k1g3bm)"
     }
     qt_select_mv_sub "select k1,bitmap_union_count(bitmap_hash(k3)) from d_table group by k1 order by k1;"
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,bitmap_union_count(bitmap_hash(k3)) from d_table group by k1;")
+        contains "(k1g3bm)"
+    }
 }

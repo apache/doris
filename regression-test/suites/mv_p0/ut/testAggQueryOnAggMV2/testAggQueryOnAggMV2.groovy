@@ -57,5 +57,14 @@ suite ("testAggQueryOnAggMV2") {
     }
     qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where (sum_salary * 2) > 3 order by deptno ;"
 
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from emps order by empid;")
+        contains "(emps)"
+    }
 
+    explain {
+        sql("select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where (sum_salary * 2) > 3 order by deptno ;")
+        contains "(emps_mv)"
+    }
 }

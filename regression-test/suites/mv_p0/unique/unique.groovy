@@ -75,5 +75,11 @@ suite ("unique") {
 
     qt_select_star "select * from u_table order by k1;"
 
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k3,length(k1),k2 from u_table order by 1,2,3;")
+        contains "(k31l42)"
+    }
+
     // todo: support match query
 }

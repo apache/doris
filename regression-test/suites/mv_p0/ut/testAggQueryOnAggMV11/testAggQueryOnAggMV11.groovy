@@ -54,4 +54,15 @@ suite ("testAggQueryOnAggMV11") {
         contains "(emps)"
     }
     qt_select_mv "select deptno, count(salary) + count(1) from emps group by deptno order by 1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from emps order by empid;")
+        contains "(emps)"
+    }
+
+    explain {
+        sql("select deptno, count(salary) + count(1) from emps group by deptno;")
+        contains "(emps)"
+    }
 }

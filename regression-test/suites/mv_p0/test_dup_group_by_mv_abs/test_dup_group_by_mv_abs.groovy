@@ -57,4 +57,15 @@ suite ("test_dup_group_by_mv_abs") {
         contains "(k12sa)"
     }
     qt_select_mv_sub "select sum(abs(k2)) from d_table group by k1 order by k1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,sum(abs(k2)) from d_table group by k1;")
+        contains "(k12sa)"
+    }
+
+    explain {
+        sql("select sum(abs(k2)) from d_table group by k1;")
+        contains "(k12sa)"
+    }
 }

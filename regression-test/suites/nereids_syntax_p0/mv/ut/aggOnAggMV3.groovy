@@ -61,4 +61,15 @@ suite ("aggOnAggMV3") {
     }
     order_qt_select_mv "select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;"
 
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from aggOnAggMV3 order by empid;")
+        contains "(aggOnAggMV3)"
+    }
+
+    explain {
+        sql("select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;")
+        contains "(aggOnAggMV3_mv)"
+    }
+
 }

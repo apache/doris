@@ -71,4 +71,23 @@ suite ("test_tbl_name") {
         from functionality_olap
         group by id order by 1,2;
         """
+    sql """set enable_stats=true;"""
+    explain {
+        sql("""select 
+            functionality_olap.id as id,
+            sum(functionality_olap.score) as score_max
+            from functionality_olap
+            group by functionality_olap.id order by 1,2; """)
+        contains "(MV_OLAP_SUM)"
+    }
+
+    explain {
+        sql("""select 
+            id,
+            sum(score) as score_max
+            from functionality_olap
+            group by id order by 1,2;
+            """)
+        contains "(MV_OLAP_SUM)"
+    }
 }

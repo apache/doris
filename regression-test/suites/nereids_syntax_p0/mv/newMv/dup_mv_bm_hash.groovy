@@ -47,6 +47,12 @@ suite ("dup_mv_bm_hash") {
     }
     order_qt_select_mv "select bitmap_union_count(to_bitmap(k2)) from dup_mv_bm_hash group by k1 order by k1;"
 
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select bitmap_union_count(to_bitmap(k2)) from dup_mv_bm_hash group by k1 order by k1;")
+        contains "(dup_mv_bm_hash_mv1)"
+    }
+
     createMV("create materialized view dup_mv_bm_hash_mv2 as select k1,bitmap_union(bitmap_hash(k3)) from dup_mv_bm_hash group by k1;")
 
     sql "insert into dup_mv_bm_hash select 2,2,'bb';"
@@ -61,4 +67,10 @@ suite ("dup_mv_bm_hash") {
         contains "(dup_mv_bm_hash_mv2)"
     }
     order_qt_select_mv_sub "select k1,bitmap_union_count(bitmap_hash(k3)) from dup_mv_bm_hash group by k1 order by k1;"
+
+    sql """set enable_stats=false;"""
+    explain {
+        sql("select k1,bitmap_union_count(bitmap_hash(k3)) from dup_mv_bm_hash group by k1;")
+        contains "(dup_mv_bm_hash_mv2)"
+    }
 }

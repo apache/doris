@@ -60,4 +60,16 @@ suite ("unionDis") {
     }
     order_qt_select_mv "select * from (select empid, deptno from unionDis where empid >1 union select empid, deptno from unionDis where empid <0) t order by 1;"
 
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from unionDis order by empid;")
+        contains "(unionDis)"
+    }
+
+    explain {
+        sql("select empid, deptno from unionDis where empid >1 union select empid, deptno from unionDis where empid <0 order by empid;")
+        contains "(unionDis_mv)"
+        notContains "(unionDis)"
+    }
+
 }

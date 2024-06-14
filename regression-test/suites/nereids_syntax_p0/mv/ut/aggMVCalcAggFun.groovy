@@ -60,4 +60,14 @@ suite ("aggMVCalcAggFun") {
         notContains "(aggMVCalcAggFunMv)"
     }
     order_qt_select_mv "select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno order by deptno;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from aggMVCalcAggFun order by empid;")
+        contains "(aggMVCalcAggFun)"
+    }
+    explain {
+        sql("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;")
+        notContains "(aggMVCalcAggFunMv)"
+    }
 }

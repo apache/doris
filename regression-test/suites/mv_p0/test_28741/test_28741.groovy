@@ -73,4 +73,10 @@ suite ("test_28741") {
         contains "(test)"
     }
     qt_select "select b1 from test where t >= '2023-12-20 17:21:00'"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select b1 from test where t >= '2023-12-20 17:21:00'")
+        contains "(test)"
+    }
 }

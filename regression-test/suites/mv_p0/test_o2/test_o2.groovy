@@ -60,4 +60,10 @@ suite ("test_o2") {
         contains "(o2_order_events_mv)"
     }
     qt_select_mv "select ts,metric_name,platform,sum(count_value) from o2_order_events group by ts,metric_name,platform;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select ts,metric_name,platform,sum(count_value) from o2_order_events group by ts,metric_name,platform;")
+        contains "(o2_order_events_mv)"
+    }
 }

@@ -59,4 +59,11 @@ suite ("testJoinOnLeftProjectToJoin") {
         contains "(depts_mv)"
     }
     qt_select_mv "select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno order by A.deptno;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno;")
+        contains "(emps_mv)"
+        contains "(depts_mv)"
+    }
 }

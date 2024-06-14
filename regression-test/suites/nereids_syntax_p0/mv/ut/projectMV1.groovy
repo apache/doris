@@ -57,4 +57,15 @@ suite ("projectMV1") {
         contains "(projectMV1_mv)"
     }
     order_qt_select_mv "select empid, deptno from projectMV1 order by empid;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from projectMV1 where time_col='2020-01-01' order by empid;")
+        contains "(projectMV1)"
+    }
+
+    explain {
+        sql("select empid, deptno from projectMV1 where deptno=0 order by empid;")
+        contains "(projectMV1_mv)"
+    }
 }

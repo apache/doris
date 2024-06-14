@@ -48,4 +48,10 @@ suite ("onlyGroupBy") {
         sql("select deptno from onlyGroupBy group by deptno;")
         contains "(onlyGroupBy_mv)"
     }
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select deptno from onlyGroupBy group by deptno;")
+        contains "(onlyGroupBy_mv)"
+    }
 }
