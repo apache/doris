@@ -529,6 +529,9 @@ public class StmtExecutor {
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         TUniqueId firstQueryId = queryId;
+        if (Config.enable_print_request_before_execution) {
+            LOG.info("begin to execute query {} {}", queryId, originStmt == null ? "null" : originStmt.originStmt);
+        }
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
         for (int i = 1; i <= retryTime; i++) {
