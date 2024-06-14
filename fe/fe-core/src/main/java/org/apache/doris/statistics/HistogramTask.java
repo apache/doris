@@ -75,6 +75,10 @@ public class HistogramTask extends BaseAnalysisTask {
     }
 
     @Override
+    protected void doSample() {
+    }
+
+    @Override
     protected void deleteNotExistPartitionStats() throws DdlException {
     }
 

@@ -1585,6 +1585,11 @@ public class Env {
                                 SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
                     }
                 }
+                if (journalVersion <= FeMetaVersion.VERSION_133) {
+                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                            SessionVariable.ENABLE_MATERIALIZED_VIEW_REWRITE,
+                            "true");
+                }
             }
 
             getPolicyMgr().createDefaultStoragePolicy();
@@ -1726,6 +1731,8 @@ public class Env {
             getConsistencyChecker().start();
             // Backup handler
             getBackupHandler().start();
+            // start daemon thread to update global partition version and in memory information periodically
+            partitionInfoCollector.start();
         }
         jobManager.start();
         // transient task manager
@@ -1752,8 +1759,6 @@ public class Env {
         dynamicPartitionScheduler.start();
         // start daemon thread to update db used data quota for db txn manager periodically
         dbUsedDataQuotaInfoCollector.start();
-        // start daemon thread to update global partition in memory information periodically
-        partitionInfoCollector.start();
         if (Config.enable_storage_policy) {
             cooldownConfHandler.start();
         }

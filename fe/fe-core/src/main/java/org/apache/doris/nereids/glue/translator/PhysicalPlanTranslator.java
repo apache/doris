@@ -593,6 +593,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         } else if (table instanceof IcebergExternalTable) {
             scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+            if (fileScan.getTableSnapshot().isPresent()) {
+                ((IcebergScanNode) scanNode).setTableSnapshot(fileScan.getTableSnapshot().get());
+            }
         } else if (table instanceof PaimonExternalTable) {
             scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else if (table instanceof TrinoConnectorExternalTable) {

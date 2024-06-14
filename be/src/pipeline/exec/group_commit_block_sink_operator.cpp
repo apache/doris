@@ -245,6 +245,8 @@ Status GroupCommitBlockSinkOperatorX::init(const TDataSink& t_sink) {
     _group_commit_mode = table_sink.group_commit_mode;
     _load_id = table_sink.load_id;
     _max_filter_ratio = table_sink.max_filter_ratio;
+    // From the thrift expressions create the real exprs.
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     return Status::OK();
 }
 

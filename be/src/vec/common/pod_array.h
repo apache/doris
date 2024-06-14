@@ -445,7 +445,8 @@ public:
       */
     template <typename... Args>
     void emplace_back(Args&&... args) {
-        if (UNLIKELY(this->c_end + sizeof(T) > this->c_end_of_storage)) {
+        if (UNLIKELY(this->c_end == nullptr ||
+                     (this->c_end + sizeof(T) > this->c_end_of_storage))) {
             this->reserve_for_next_size();
         }
 

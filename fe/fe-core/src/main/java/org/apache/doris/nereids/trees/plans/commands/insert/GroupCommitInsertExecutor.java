@@ -25,6 +25,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -175,9 +176,8 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
         TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
         // TODO: in legacy, there is a retry, we need to implement
         if (code != TStatusCode.OK) {
-            String errMsg = "group commit insert failed. backend id: "
-                    + groupCommitPlanner.getBackend().getId() + ", status: "
-                    + response.getStatus();
+            String errMsg = "group commit insert failed. query_id: " + DebugUtil.printId(ConnectContext.get().queryId())
+                    + ", backend id: " + groupCommitPlanner.getBackend().getId() + ", status: " + response.getStatus();
             ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
         }
         txnStatus = TransactionStatus.PREPARE;

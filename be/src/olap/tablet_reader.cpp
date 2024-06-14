@@ -491,10 +491,11 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         RETURN_IF_ERROR(_tablet_schema->have_column(tmp_cond.column_name));
         // The "column" parameter might represent a column resulting from the decomposition of a variant column.
         // Instead of using a "unique_id" for identification, we are utilizing a "path" to denote this column.
-        const auto& column = materialize_column(_tablet_schema->column(tmp_cond.column_name));
+        const auto& column = *DORIS_TRY(_tablet_schema->column(tmp_cond.column_name));
+        const auto& mcolumn = materialize_column(column);
         uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
         ColumnPredicate* predicate =
-                parse_to_predicate(column, index, tmp_cond, _predicate_arena.get());
+                parse_to_predicate(mcolumn, index, tmp_cond, _predicate_arena.get());
         // record condition value into predicate_params in order to pushdown segment_iterator,
         // _gen_predicate_result_sign will build predicate result unique sign with condition value
         auto predicate_params = predicate->predicate_params();
@@ -566,10 +567,11 @@ Status TabletReader::_init_conditions_param_except_leafnode_of_andnode(
         const ReaderParams& read_params) {
     for (const auto& condition : read_params.conditions_except_leafnode_of_andnode) {
         TCondition tmp_cond = condition;
-        const auto& column = materialize_column(_tablet_schema->column(tmp_cond.column_name));
+        const auto& column = *DORIS_TRY(_tablet_schema->column(tmp_cond.column_name));
+        const auto& mcolumn = materialize_column(column);
         uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
         ColumnPredicate* predicate =
-                parse_to_predicate(column, index, tmp_cond, _predicate_arena.get());
+                parse_to_predicate(mcolumn, index, tmp_cond, _predicate_arena.get());
         if (predicate != nullptr) {
             auto predicate_params = predicate->predicate_params();
             predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
