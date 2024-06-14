@@ -49,11 +49,6 @@ public:
         _init_profile();
     }
 
-    bool has_dependency() {
-        std::lock_guard l(_depend_mutex);
-        return !_dependencies.empty();
-    }
-
     // Add operators for pipelineX
     Status add_operator(OperatorXPtr& op);
     // prepare operators for pipelineX
@@ -65,15 +60,11 @@ public:
     OperatorXs& operator_xs() { return operatorXs; }
     DataSinkOperatorXPtr sink_shared_pointer() { return _sink_x; }
 
-    RuntimeProfile* pipeline_profile() { return _pipeline_profile.get(); }
-
     [[nodiscard]] const RowDescriptor& output_row_desc() const {
         return operatorXs.back()->row_desc();
     }
 
     [[nodiscard]] PipelineId id() const { return _pipeline_id; }
-    void set_is_root_pipeline() { _is_root_pipeline = true; }
-    bool is_root_pipeline() const { return _is_root_pipeline; }
 
     static bool is_hash_exchange(ExchangeType idx) {
         return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE;
@@ -138,7 +129,6 @@ public:
 private:
     void _init_profile();
 
-    std::mutex _depend_mutex;
     std::vector<std::pair<int, std::weak_ptr<Pipeline>>> _parents;
     std::vector<std::pair<int, std::shared_ptr<Pipeline>>> _dependencies;
 
@@ -162,31 +152,6 @@ private:
     std::shared_ptr<ObjectPool> _obj_pool;
 
     Operators _operators;
-    /**
-     * Consider the query plan below:
-     *
-     *      ExchangeSource     JoinBuild1
-     *            \              /
-     *         JoinProbe1 (Right Outer)    JoinBuild2
-     *                   \                   /
-     *                 JoinProbe2 (Right Outer)
-     *                          |
-     *                        Sink
-     *
-     * Assume JoinBuild1/JoinBuild2 outputs 0 rows, this pipeline task should not be blocked by ExchangeSource
-     * because we have a determined conclusion that JoinProbe1/JoinProbe2 will also output 0 rows.
-     *
-     * Assume JoinBuild2 outputs > 0 rows, this pipeline task may be blocked by Sink because JoinProbe2 will
-     * produce more data.
-     *
-     * Assume both JoinBuild2 outputs 0 rows this pipeline task should not be blocked by ExchangeSource
-     * and Sink because JoinProbe2 will always produce 0 rows and terminate early.
-     *
-     * In a nutshell, we should follow the rules:
-     * 1. if any operator in pipeline can terminate early, this task should never be blocked by source operator.
-     * 2. if the last operator (except sink) can terminate early, this task should never be blocked by sink operator.
-     */
-    bool _is_root_pipeline = false;
 
     // Input data distribution of this pipeline. We do local exchange when input data distribution
     // does not match the target data distribution.
