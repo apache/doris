@@ -154,7 +154,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink, PlanContext context) {
-        addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        if (context.getSessionVariable().enableParallelResultSink()
+                && !context.getStatementContext().isShortCircuitQuery()) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        }
         return null;
     }
 

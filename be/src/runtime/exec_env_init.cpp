@@ -57,7 +57,6 @@
 #include "pipeline/pipeline_tracing.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
-#include "runtime/block_spill_manager.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/client_cache.h"
@@ -293,7 +292,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     RETURN_IF_ERROR(_routine_load_task_executor->init());
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
-    _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
@@ -571,8 +569,6 @@ Status ExecEnv::_init_mem_env() {
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
-    RETURN_IF_ERROR(_block_spill_mgr->init());
-
     return Status::OK();
 }
 
@@ -676,7 +672,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_load_channel_mgr);
 
     SAFE_DELETE(_spill_stream_mgr);
-    SAFE_DELETE(_block_spill_mgr);
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
     SAFE_DELETE(_lookup_connection_cache);

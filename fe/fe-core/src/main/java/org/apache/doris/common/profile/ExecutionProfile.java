@@ -218,9 +218,17 @@ public class ExecutionProfile {
             List<TDetailedReportParams> fragmentProfile = entry.getValue();
             int pipelineIdx = 0;
             List<RuntimeProfile> taskProfile = Lists.newArrayList();
+            // The naming rule must be same with the one in updateProfile(TReportExecStatusParams params)
+            // Because we relay on the name of RuntimeProfile to eliminate the duplicate profile
+            String suffix = " (host=" + backendHBAddress + ")";
             for (TDetailedReportParams pipelineProfile : fragmentProfile) {
-                String name = "Pipeline :" + pipelineIdx + " "
-                        + " (host=" + backendHBAddress + ")";
+                String name = "";
+                if (pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level) {
+                    name = "Fragment Level Profile: " + suffix;
+                } else {
+                    name = "Pipeline :" + pipelineIdx + " " + suffix;
+                    pipelineIdx++;
+                }
                 RuntimeProfile profileNode = new RuntimeProfile(name);
                 taskProfile.add(profileNode);
                 if (!pipelineProfile.isSetProfile()) {
@@ -261,9 +269,15 @@ public class ExecutionProfile {
         int pipelineIdx = 0;
         List<RuntimeProfile> taskProfile = Lists.newArrayList();
         String suffix = " (host=" + backend.getHeartbeatAddress() + ")";
+        // Each datailed report params is a fragment level profile or a pipeline profile
         for (TDetailedReportParams param : params.detailed_report) {
-            String name = param.isSetIsFragmentLevel() && param.is_fragment_level ? "Fragment Level Profile: "
-                    + suffix : "Pipeline :" + pipelineIdx + " " + suffix;
+            String name = "";
+            if (param.isSetIsFragmentLevel() && param.is_fragment_level) {
+                name = "Fragment Level Profile: " + suffix;
+            } else {
+                name = "Pipeline :" + pipelineIdx + " " + suffix;
+                pipelineIdx++;
+            }
             RuntimeProfile profile = new RuntimeProfile(name);
             taskProfile.add(profile);
             if (param.isSetProfile()) {

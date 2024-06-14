@@ -62,6 +62,15 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
     return Base::close(state);
 }
 
+std::vector<Dependency*> LocalExchangeSourceLocalState::dependencies() const {
+    auto deps = Base::dependencies();
+    auto exchanger_deps = _exchanger->local_state_dependency(_channel_id);
+    for (auto* dep : exchanger_deps) {
+        deps.push_back(dep);
+    }
+    return deps;
+}
+
 std::string LocalExchangeSourceLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,

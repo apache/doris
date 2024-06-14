@@ -218,6 +218,12 @@ int64_t MemTxnKv::get_last_read_version() {
     return read_version_;
 }
 
+std::unique_ptr<FullRangeGetIterator> MemTxnKv::full_range_get(std::string begin, std::string end,
+                                                               FullRangeGetIteratorOptions opts) {
+    return std::make_unique<memkv::FullRangeGetIterator>(std::move(begin), std::move(end),
+                                                         std::move(opts));
+}
+
 } // namespace doris::cloud
 
 namespace doris::cloud::memkv {
@@ -475,6 +481,49 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
         ret == TxnErrorCode::TXN_OK ? res->push_back(val) : res->push_back(std::nullopt);
     }
     return TxnErrorCode::TXN_OK;
+}
+
+FullRangeGetIterator::FullRangeGetIterator(std::string begin, std::string end,
+                                           FullRangeGetIteratorOptions opts)
+        : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)) {}
+
+FullRangeGetIterator::~FullRangeGetIterator() = default;
+
+bool FullRangeGetIterator::has_next() {
+    if (!is_valid_) {
+        return false;
+    }
+
+    if (!inner_iter_) {
+        auto* txn = opts_.txn;
+        if (!txn) {
+            // Create a new txn for each inner range get
+            std::unique_ptr<cloud::Transaction> txn1;
+            TxnErrorCode err = opts_.txn_kv->create_txn(&txn_);
+            if (err != TxnErrorCode::TXN_OK) {
+                is_valid_ = false;
+                return false;
+            }
+
+            txn = txn_.get();
+        }
+
+        TxnErrorCode err = txn->get(begin_, end_, &inner_iter_, opts_.snapshot, 0);
+        if (err != TxnErrorCode::TXN_OK) {
+            is_valid_ = false;
+            return false;
+        }
+    }
+
+    return inner_iter_->has_next();
+}
+
+std::optional<std::pair<std::string_view, std::string_view>> FullRangeGetIterator::next() {
+    if (!has_next()) {
+        return std::nullopt;
+    }
+
+    return inner_iter_->next();
 }
 
 } // namespace doris::cloud::memkv

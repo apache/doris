@@ -157,6 +157,10 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
             _rpc_channel_is_idle[ins_id] = false;
             _busy_channels++;
         }
+        if (request.block) {
+            RETURN_IF_ERROR(
+                    BeExecVersionManager::check_be_exec_version(request.block->be_exec_version()));
+        }
         _instance_to_package_queue[ins_id].emplace(std::move(request));
         _total_queue_size++;
         if (_queue_dependency && _total_queue_size > _queue_capacity) {
@@ -187,6 +191,10 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
             _rpc_channel_is_idle[ins_id] = false;
             _busy_channels++;
         }
+        if (request.block_holder->get_block()) {
+            RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(
+                    request.block_holder->get_block()->be_exec_version()));
+        }
         _instance_to_broadcast_package_queue[ins_id].emplace(request);
     }
     if (send_now) {
@@ -216,7 +224,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
-        if (request.block) {
+        if (request.block && !request.block->column_metas().empty()) {
             brpc_request->set_allocated_block(request.block.get());
         }
         if (!request.exec_status.ok()) {
@@ -295,7 +303,8 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
-        if (request.block_holder->get_block()) {
+        if (request.block_holder->get_block() &&
+            !request.block_holder->get_block()->column_metas().empty()) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
         }
         auto send_callback = request.channel->get_send_callback(id, request.eos);

@@ -140,4 +140,11 @@ Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
     return Status::OK();
 }
 
+void Rowset::merge_rowset_meta(const RowsetMeta& other) {
+    _rowset_meta->merge_rowset_meta(other);
+    // rowset->meta_meta()->tablet_schema() maybe updated so make sure _schema is
+    // consistent with rowset meta
+    _schema = _rowset_meta->tablet_schema();
+}
+
 } // namespace doris

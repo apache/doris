@@ -1166,7 +1166,38 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public TransactionStatus getLabelState(long dbId, String label) throws AnalysisException {
-        throw new AnalysisException(NOT_SUPPORTED_MSG);
+        GetTxnRequest.Builder builder = GetTxnRequest.newBuilder();
+        builder.setDbId(dbId).setCloudUniqueId(Config.cloud_unique_id).setLabel(label);
+        final GetTxnRequest getTxnRequest = builder.build();
+        GetTxnResponse getTxnResponse = null;
+        int retryTime = 0;
+
+        try {
+            while (retryTime < 3) {
+                getTxnResponse = MetaServiceProxy.getInstance().getTxn(getTxnRequest);
+                if (getTxnResponse.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+                LOG.info("getLabelState KV_TXN_CONFLICT, dbId:{}, label:{}, retryTime:{}", dbId, label, retryTime);
+                backoff();
+                retryTime++;
+                continue;
+            }
+
+            Preconditions.checkNotNull(getTxnResponse);
+            Preconditions.checkNotNull(getTxnResponse.getStatus());
+        } catch (Exception e) {
+            LOG.warn("getLabelState failed, dbId:{}, exception:", dbId, e);
+            throw new AnalysisException("getLabelState failed, errMsg:" + e.getMessage());
+        }
+
+        if (getTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            LOG.warn("getLabelState failed, dbId:{} label:{} retryTime:{} getTxnResponse:{}",
+                    dbId, label, retryTime, getTxnResponse);
+            throw new AnalysisException("getLabelState failed, errMsg:" + getTxnResponse.getStatus().getMsg());
+        }
+
+        return TxnUtil.transactionStateFromPb(getTxnResponse.getTxnInfo()).getTransactionStatus();
     }
 
     @Override
@@ -1417,7 +1448,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    public Pair<Long, TransactionState> beginSubTxn(long txnId, long dbId, List<Long> tableIds, String label,
+    public Pair<Long, TransactionState> beginSubTxn(long txnId, long dbId, Set<Long> tableIds, String label,
             long subTxnNum) throws UserException {
         LOG.info("try to begin sub transaction, txnId: {}, dbId: {}, tableIds: {}, label: {}, subTxnNum: {}", txnId,
                 dbId, tableIds, label, subTxnNum);
@@ -1457,7 +1488,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 TxnUtil.transactionStateFromPb(response.getTxnInfo()));
     }
 
-    public TransactionState abortSubTxn(long txnId, long subTxnId, long dbId, List<Long> tableIds, long subTxnNum)
+    public TransactionState abortSubTxn(long txnId, long subTxnId, long dbId, Set<Long> tableIds, long subTxnNum)
             throws UserException {
         LOG.info("try to abort sub transaction, txnId: {}, subTxnId: {}, dbId: {}, tableIds: {}, subTxnNum: {}", txnId,
                 subTxnId, dbId, tableIds, subTxnNum);

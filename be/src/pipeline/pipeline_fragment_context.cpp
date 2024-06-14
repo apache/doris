@@ -306,18 +306,17 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         SCOPED_TIMER(_build_pipelines_timer);
         // 2. Build pipelines with operators in this fragment.
         auto root_pipeline = add_pipeline();
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_pipelines(_runtime_state->obj_pool(), request,
-                                                            *_query_ctx->desc_tbl, &_root_op,
-                                                            root_pipeline));
+        RETURN_IF_ERROR(_build_pipelines(_runtime_state->obj_pool(), request, *_query_ctx->desc_tbl,
+                                         &_root_op, root_pipeline));
 
         // 3. Create sink operator
         if (!request.fragment.__isset.output_sink) {
             return Status::InternalError("No output sink in this fragment!");
         }
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_data_sink(
-                _runtime_state->obj_pool(), request.fragment.output_sink,
-                request.fragment.output_exprs, request, root_pipeline->output_row_desc(),
-                _runtime_state.get(), *_desc_tbl, root_pipeline->id()));
+        RETURN_IF_ERROR(_create_data_sink(_runtime_state->obj_pool(), request.fragment.output_sink,
+                                          request.fragment.output_exprs, request,
+                                          root_pipeline->output_row_desc(), _runtime_state.get(),
+                                          *_desc_tbl, root_pipeline->id()));
         RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
         RETURN_IF_ERROR(root_pipeline->set_sink(_sink));
 
@@ -981,7 +980,8 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     }
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        _sink.reset(new GroupCommitBlockSinkOperatorX(next_sink_operator_id(), row_desc));
+        _sink.reset(
+                new GroupCommitBlockSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs));
         break;
     }
     case TDataSinkType::HIVE_TABLE_SINK: {
