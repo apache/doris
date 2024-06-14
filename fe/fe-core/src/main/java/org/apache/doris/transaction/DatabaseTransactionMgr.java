@@ -1828,13 +1828,16 @@ public class DatabaseTransactionMgr {
         return null;
     }
 
-    public List<Pair<Long, Long>> getTransactionIdByCoordinateBe(String coordinateHost, int limit) {
+    public List<Pair<Long, Long>> getPrepareTransactionIdByCoordinateBe(long coordinateBeId,
+            String coordinateHost, int limit) {
         ArrayList<Pair<Long, Long>> txnInfos = new ArrayList<>();
         readLock();
         try {
             idToRunningTransactionState.values().stream()
                     .filter(t -> (t.getCoordinator().sourceType == TransactionState.TxnSourceType.BE
-                            && t.getCoordinator().ip.equals(coordinateHost)))
+                            && t.getTransactionStatus() == TransactionStatus.PREPARE
+                            && t.getCoordinator().ip.equals(coordinateHost)
+                            && (t.getCoordinator().id == 0 || t.getCoordinator().id == coordinateBeId)))
                     .limit(limit)
                     .forEach(t -> txnInfos.add(Pair.of(t.getDbId(), t.getTransactionId())));
         } finally {

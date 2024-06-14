@@ -50,6 +50,7 @@ import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPruner;
 import org.apache.doris.planner.RangePartitionPrunerV2;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -283,8 +284,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
     public long beginTxn() throws Exception {
         long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(deleteInfo.getDbId(),
                 Lists.newArrayList(deleteInfo.getTableId()), label, null,
-                new TransactionState.TxnCoordinator(
-                        TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
+                        FrontendOptions.getLocalHostAddress(),
+                        ExecuteEnv.getInstance().getStartupTime()),
                 TransactionState.LoadJobSourceType.FRONTEND, id, Config.stream_load_default_timeout_second);
         this.signature = txnId;
         Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(this);

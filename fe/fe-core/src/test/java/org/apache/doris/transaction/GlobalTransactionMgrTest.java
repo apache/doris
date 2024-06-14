@@ -77,7 +77,8 @@ public class GlobalTransactionMgrTest {
     private static Env masterEnv;
     private static Env slaveEnv;
 
-    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
+    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(
+            TransactionState.TxnSourceType.FE, 0, "localfe", System.currentTimeMillis());
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
@@ -323,7 +324,9 @@ public class GlobalTransactionMgrTest {
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, Lists.newArrayList(1L), 1L, "label", null,
-                LoadJobSourceType.ROUTINE_LOAD_TASK, new TxnCoordinator(TxnSourceType.BE, "be1"), routineLoadJob.getId(),
+                LoadJobSourceType.ROUTINE_LOAD_TASK,
+                new TxnCoordinator(TxnSourceType.BE, 0, "be1", System.currentTimeMillis()),
+                routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
         masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
@@ -395,7 +398,9 @@ public class GlobalTransactionMgrTest {
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, Lists.newArrayList(1L), 1L, "label", null,
-                LoadJobSourceType.ROUTINE_LOAD_TASK, new TxnCoordinator(TxnSourceType.BE, "be1"), routineLoadJob.getId(),
+                LoadJobSourceType.ROUTINE_LOAD_TASK,
+                new TxnCoordinator(TxnSourceType.BE, 0, "be1", System.currentTimeMillis()),
+                routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
         masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
