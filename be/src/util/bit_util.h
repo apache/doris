@@ -111,7 +111,8 @@ public:
             value >>= 8;
             if (value == 0 && value_to_save >= 0) { break;
 }
-            if (value == -1 && value_to_save < 0) break;
+            if (value == -1 && value_to_save < 0) { break;
+}
         }
         std::reverse(buffer.begin(), buffer.end());
         return buffer;
