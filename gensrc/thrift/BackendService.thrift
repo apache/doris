@@ -72,6 +72,7 @@ struct TRoutineLoadTask {
     17: optional bool memtable_on_sink_node;
     18: optional string qualified_user
     19: optional string cloud_cluster
+    20: optional i32 consumer_number_per_task
 }
 
 struct TKafkaMetaProxyRequest {

@@ -1177,6 +1177,12 @@ public class Config extends ConfigBase {
     public static int max_routine_load_task_concurrent_num = 256;
 
     /**
+     * the consumer num of a single routine load task
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int consumer_num_per_task = 3;
+
+    /**
      * the max concurrent routine load task num per BE.
      * This is to limit the num of routine load tasks sending to a BE, and it should also less
      * than BE config 'max_routine_load_thread_pool_size'(default 1024),
