@@ -64,33 +64,22 @@ Status GroupCommitBlockSinkLocalState::close(RuntimeState* state, Status close_s
     SCOPED_TIMER(_close_timer);
     RETURN_IF_ERROR(Base::close(state, close_status));
     RETURN_IF_ERROR(close_status);
-    int64_t total_rows = state->num_rows_load_total();
-    int64_t loaded_rows = state->num_rows_load_total();
-    state->set_num_rows_load_total(loaded_rows + state->num_rows_load_unselected() +
-                                   state->num_rows_load_filtered());
-    state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() + total_rows -
-                                         loaded_rows);
-    auto& p = _parent->cast<GroupCommitBlockSinkOperatorX>();
-    if (!_is_block_appended) {
-        // if not meet the max_filter_ratio, we should return error status directly
-        int64_t num_selected_rows =
-                state->num_rows_load_total() - state->num_rows_load_unselected();
-        if (num_selected_rows > 0 &&
-            (double)state->num_rows_load_filtered() / num_selected_rows > p._max_filter_ratio) {
-            return Status::DataQualityError("too many filtered rows");
-        }
-        RETURN_IF_ERROR(_add_blocks(state, true));
-    }
+
     if (_load_block_queue) {
         _remove_estimated_wal_bytes();
-        _load_block_queue->remove_load_id(p._load_id);
+        _load_block_queue->remove_load_id(_parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
     }
     // wait to wal
+    auto st = Status::OK();
     if (_load_block_queue && (_load_block_queue->wait_internal_group_commit_finish ||
                               _group_commit_mode == TGroupCommitMode::SYNC_MODE)) {
-        return _load_block_queue->status;
+        std::unique_lock l(_load_block_queue->mutex);
+        if (!_load_block_queue->process_finish) {
+            return Status::InternalError("_load_block_queue is not finished!");
+        }
+        st = _load_block_queue->status;
     }
-    return Status::OK();
+    return st;
 }
 
 Status GroupCommitBlockSinkLocalState::_add_block(RuntimeState* state,
@@ -320,7 +309,27 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
         block->swap(res_block.to_block());
     }
     // add block into block queue
-    return local_state._add_block(state, block);
+    RETURN_IF_ERROR(local_state._add_block(state, block));
+    if (eos) {
+        int64_t total_rows = state->num_rows_load_total();
+        int64_t loaded_rows = state->num_rows_load_total();
+        state->set_num_rows_load_total(loaded_rows + state->num_rows_load_unselected() +
+                                       state->num_rows_load_filtered());
+        state->update_num_rows_load_filtered(local_state._block_convertor->num_filtered_rows() +
+                                             total_rows - loaded_rows);
+        if (!local_state._is_block_appended) {
+            // if not meet the max_filter_ratio, we should return error status directly
+            int64_t num_selected_rows =
+                    state->num_rows_load_total() - state->num_rows_load_unselected();
+            if (num_selected_rows > 0 &&
+                (double)state->num_rows_load_filtered() / num_selected_rows > _max_filter_ratio) {
+                return Status::DataQualityError("too many filtered rows");
+            }
+            RETURN_IF_ERROR(local_state._add_blocks(state, true));
+        }
+    }
+
+    return Status::OK();
 }
 
 } // namespace doris::pipeline
