@@ -218,7 +218,7 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                          []() { return config::brpc_heavy_work_pool_threads; });
     REGISTER_HOOK_METRIC(light_work_max_threads,
                          []() { return config::brpc_light_work_pool_threads; });
-    
+
     _exec_env->load_stream_mgr()->set_heavy_work_pool(&_heavy_work_pool);
     _exec_env->load_stream_mgr()->set_light_work_pool(&_light_work_pool);
 
