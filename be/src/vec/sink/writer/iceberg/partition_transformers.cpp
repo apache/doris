@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/sink/writer/iceberg/partition_transformers.h"
+
 #include <any>
 
 #include "vec/core/types.h"
 #include "vec/exec/format/table/iceberg/partition_spec.h"
-#include "vec/sink/writer/iceberg/partition_transformers.h"
 
 namespace doris::vectorized {
 
