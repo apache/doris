@@ -358,6 +358,15 @@ public class ColumnStatistic {
             default:
                 throw new RuntimeException(String.format("Min value does not get anytype"));
         }
+        String lastUpdatedTime = "";
+        try {
+            lastUpdatedTime = stat.getString("LastUpdatedTime");
+        } catch (Exception e) {
+            LOG.warn("lastUpdateTimeIsEmpty", e.getMessage());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(e);
+            }
+        }
         return new ColumnStatistic(
             stat.getDouble("Count"),
             stat.getDouble("Ndv"),
@@ -370,7 +379,7 @@ public class ColumnStatistic {
             null,
             null,
             stat.getBoolean("IsUnKnown"),
-            stat.getString("LastUpdatedTime")
+            lastUpdatedTime
         );
     }
 

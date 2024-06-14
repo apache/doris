@@ -196,6 +196,8 @@ public class MinidumpUtils {
         }
         setConnectContext(minidump);
 
+        Env env = Env.getCurrentEnv();
+        ConnectContext.get().setEnv(env);
         ConnectContext.get().getSessionVariable().setEnableNereidsTrace(false);
         ConnectContext.get().getSessionVariable().setNereidsTraceEventMode("all");
         return minidump;
@@ -276,11 +278,11 @@ public class MinidumpUtils {
                 Histogram histogram = getColumnHistogram(table, colName);
                 if (histogram != null) {
                     JSONObject oneHistogram = new JSONObject();
-                    oneHistogram.put(colName, Histogram.serializeToJson(histogram));
+                    oneHistogram.put(table.getName() + colName, Histogram.serializeToJson(histogram));
                     histograms.put(oneHistogram);
                 }
                 JSONObject oneColumnStats = new JSONObject();
-                oneColumnStats.put(colName, cache.toJson());
+                oneColumnStats.put(table.getName() + colName, cache.toJson());
                 columnStatistics.put(oneColumnStats);
             }
         }
@@ -386,10 +388,39 @@ public class MinidumpUtils {
         return differences;
     }
 
+    private static String getValue(Object obj, Field field) {
+        try {
+            switch (field.getType().getSimpleName()) {
+                case "boolean":
+                    return Boolean.toString(field.getBoolean(obj));
+                case "byte":
+                    return Byte.toString(field.getByte(obj));
+                case "short":
+                    return Short.toString(field.getShort(obj));
+                case "int":
+                    return Integer.toString(field.getInt(obj));
+                case "long":
+                    return Long.toString(field.getLong(obj));
+                case "float":
+                    return Float.toString(field.getFloat(obj));
+                case "double":
+                    return Double.toString(field.getDouble(obj));
+                case "String":
+                    return (String) field.get(obj);
+                default:
+                    return "";
+            }
+        } catch (IllegalAccessException e) {
+            LOG.warn("Access failed.", e);
+        }
+        return "";
+    }
+
     /**
      * serialize sessionVariables different than default
      */
-    private static JSONObject serializeChangedSessionVariable(SessionVariable sessionVariable) throws IOException {
+    private static JSONObject serializeChangedSessionVariable(SessionVariable sessionVariable,
+                                                              SessionVariable newVar) throws IOException {
         JSONObject root = new JSONObject();
         try {
             for (Field field : SessionVariable.class.getDeclaredFields()) {
@@ -398,7 +429,7 @@ public class MinidumpUtils {
                     continue;
                 }
                 field.setAccessible(true);
-                if (field.get(sessionVariable).equals(field.get(VariableMgr.getDefaultSessionVariable()))) {
+                if (getValue(sessionVariable, field).equals(getValue(newVar, field))) {
                     continue;
                 }
                 switch (field.getType().getSimpleName()) {
@@ -442,7 +473,8 @@ public class MinidumpUtils {
         // add session variable
         int beNumber = connectContext.getEnv().getClusterInfo().getBackendsNumber(true);
         connectContext.getSessionVariable().setBeNumberForTest(beNumber);
-        jsonObj.put("SessionVariable", serializeChangedSessionVariable(connectContext.getSessionVariable()));
+        SessionVariable newVar = new SessionVariable();
+        jsonObj.put("SessionVariable", serializeChangedSessionVariable(connectContext.getSessionVariable(), newVar));
         // add tables
         jsonObj.put("DbName", connectContext.getDatabase());
         JSONArray tablesJson = serializeTables(tables);

@@ -66,6 +66,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     ///////////////////////////////////////////////////////////////////////////
 
     /**
+    /**
      * The select materialized index id to read data from.
      */
     private final long selectedIndexId;
