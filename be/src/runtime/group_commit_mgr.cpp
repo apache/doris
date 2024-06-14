@@ -621,10 +621,9 @@ Status LoadBlockQueue::close_wal() {
 
 void LoadBlockQueue::append_dependency(std::shared_ptr<pipeline::Dependency> finish_dep) {
     std::lock_guard<std::mutex> lock(mutex);
-    // If finished, dependencies should be ready.
-    if (process_finish) {
-        finish_dep->set_always_ready();
-    } else {
+    // If not finished, dependencies should be blocked.
+    if (!process_finish) {
+        finish_dep->block();
         dependencies.push_back(finish_dep);
     }
 }
