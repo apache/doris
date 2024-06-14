@@ -44,6 +44,15 @@ Status Pipeline::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(operatorXs.back()->open(state));
     RETURN_IF_ERROR(_sink_x->prepare(state));
     RETURN_IF_ERROR(_sink_x->open(state));
+    _name.append(std::to_string(id()));
+    _name.push_back('-');
+    for (auto& op : operatorXs) {
+        _name.append(std::to_string(op->node_id()));
+        _name.append(op->get_name());
+    }
+    _name.push_back('-');
+    _name.append(std::to_string(_sink_x->node_id()));
+    _name.append(_sink_x->get_name());
     return Status::OK();
 }
 

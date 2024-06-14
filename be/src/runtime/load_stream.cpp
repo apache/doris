@@ -335,10 +335,8 @@ LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool e
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
     TUniqueId load_tid = ((UniqueId)load_id).to_thrift();
 #ifndef BE_TEST
-    std::shared_ptr<QueryContext> query_context = nullptr;
-    WARN_IF_ERROR(
-            ExecEnv::GetInstance()->fragment_mgr()->get_query_context(load_tid, &query_context),
-            "");
+    std::shared_ptr<QueryContext> query_context =
+            ExecEnv::GetInstance()->fragment_mgr()->get_or_erase_query_ctx_with_lock(load_tid);
     if (query_context != nullptr) {
         _query_thread_context = {load_tid, query_context->query_mem_tracker};
     } else {
@@ -362,7 +360,7 @@ LoadStream::~LoadStream() {
 Status LoadStream::init(const POpenLoadStreamRequest* request) {
     _txn_id = request->txn_id();
     _total_streams = request->total_streams();
-    DCHECK(_total_streams > 0) << "total streams should be greator than 0";
+    _is_incremental = (_total_streams == 0);
 
     _schema = std::make_shared<OlapTableSchemaParam>();
     RETURN_IF_ERROR(_schema->init(request->schema()));

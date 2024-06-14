@@ -390,6 +390,30 @@ public class SchemaChangeJobV2Test {
     }
 
     @Test
+    public void testModifyDynamicPartitionWithInvalidProperty() throws UserException {
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        Map<String, String> properties = new HashMap<>();
+        properties.put(DynamicPartitionProperty.ENABLE, "true");
+        properties.put(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX + "time_uint", "day");
+        properties.put(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX + "edn", "3");
+        properties.put(DynamicPartitionProperty.PREFIX, "p");
+        properties.put(DynamicPartitionProperty.BUCKETS, "30");
+        properties.put("invalid_property", "invalid_value");
+        alterClauses.add(new ModifyTablePropertiesClause(properties));
+
+        Database db = CatalogMocker.mockDb();
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
+        expectedEx.expect(DdlException.class);
+        expectedEx.expectMessage("errCode = 2,"
+                + " detailMessage = Invalid dynamic partition properties: dynamic_partition.time_uint, dynamic_partition.edn");
+        schemaChangeHandler.process(alterClauses, db, olapTable);
+    }
+
+    @Test
     public void testSerializeOfSchemaChangeJob() throws IOException {
         // prepare file
         File file = new File(fileName);

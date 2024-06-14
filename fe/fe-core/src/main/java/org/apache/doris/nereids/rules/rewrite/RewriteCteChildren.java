@@ -42,6 +42,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 import java.util.HashSet;
 import java.util.List;
@@ -86,14 +87,18 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             outer = (LogicalPlan) cteAnchor.child(1).accept(this, outerCascadesCtx);
             cascadesContext.getStatementContext().getRewrittenCteConsumer().put(cteAnchor.getCteId(), outer);
         }
-        boolean reserveAnchor = outer.anyMatch(p -> {
+        Set<LogicalCTEConsumer> cteConsumers = Sets.newHashSet();
+        outer.foreach(p -> {
             if (p instanceof LogicalCTEConsumer) {
                 LogicalCTEConsumer logicalCTEConsumer = (LogicalCTEConsumer) p;
-                return logicalCTEConsumer.getCteId().equals(cteAnchor.getCteId());
+                if (logicalCTEConsumer.getCteId().equals(cteAnchor.getCteId())) {
+                    cteConsumers.add(logicalCTEConsumer);
+                }
             }
             return false;
         });
-        if (!reserveAnchor) {
+        cascadesContext.getCteIdToConsumers().put(cteAnchor.getCteId(), cteConsumers);
+        if (cteConsumers.isEmpty()) {
             return outer;
         }
         Plan producer = cteAnchor.child(0).accept(this, cascadesContext);

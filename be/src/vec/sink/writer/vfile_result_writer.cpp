@@ -37,6 +37,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
+#include "pipeline/exec/result_sink_operator.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
@@ -56,14 +57,13 @@
 #include "vec/runtime/vcsv_transformer.h"
 #include "vec/runtime/vorc_transformer.h"
 #include "vec/runtime/vparquet_transformer.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris::vectorized {
 
 VFileResultWriter::VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
         : AsyncResultWriter(output_exprs) {}
 
-VFileResultWriter::VFileResultWriter(const ResultFileOptions* file_opts,
+VFileResultWriter::VFileResultWriter(const pipeline::ResultFileOptions* file_opts,
                                      const TStorageBackendType::type storage_type,
                                      const TUniqueId fragment_instance_id,
                                      const VExprContextSPtrs& output_vexpr_ctxs,

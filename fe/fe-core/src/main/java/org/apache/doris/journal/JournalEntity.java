@@ -224,8 +224,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_DB:
             case OperationType.OP_RENAME_DB: {
-                data = new DatabaseInfo();
-                ((DatabaseInfo) data).readFields(in);
+                data = DatabaseInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -293,8 +292,7 @@ public class JournalEntity implements Writable {
             case OperationType.OP_RENAME_TABLE:
             case OperationType.OP_RENAME_ROLLUP:
             case OperationType.OP_RENAME_PARTITION: {
-                data = new TableInfo();
-                ((TableInfo) data).readFields(in);
+                data = TableInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -319,8 +317,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_FINISH_CONSISTENCY_CHECK: {
-                data = new ConsistencyCheckInfo();
-                ((ConsistencyCheckInfo) data).readFields(in);
+                data = ConsistencyCheckInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -373,8 +370,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_SET_LOAD_ERROR_HUB: {
-                data = new LoadErrorHub.Param();
-                ((LoadErrorHub.Param) data).readFields(in);
+                data = LoadErrorHub.Param.read(in);
                 isRead = true;
                 break;
             }
@@ -410,8 +406,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_TIMESTAMP: {
-                data = new Timestamp();
-                ((Timestamp) data).readFields(in);
+                data = Timestamp.read(in);
                 isRead = true;
                 break;
             }
@@ -428,8 +423,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_BROKER:
             case OperationType.OP_DROP_BROKER: {
-                data = new BrokerMgr.ModifyBrokerInfo();
-                ((BrokerMgr.ModifyBrokerInfo) data).readFields(in);
+                data = BrokerMgr.ModifyBrokerInfo.read(in);
                 isRead = true;
                 break;
             }

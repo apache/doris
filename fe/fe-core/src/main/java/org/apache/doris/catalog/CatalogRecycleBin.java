@@ -907,6 +907,122 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
     }
 
+    // erase database in catalog recycle bin instantly
+    public synchronized void eraseDatabaseInstantly(long dbId) throws DdlException {
+        // 1. find dbInfo and erase db
+        RecycleDatabaseInfo dbInfo = idToDatabase.get(dbId);
+        if (dbInfo != null) {
+            // erase db
+            Env.getCurrentEnv().eraseDatabase(dbId, true);
+
+            // erase db from idToDatabase and idToRecycleTime
+            idToDatabase.remove(dbId);
+            idToRecycleTime.remove(dbId);
+
+            // log for erase db
+            String dbName = dbInfo.getDb().getName();
+            LOG.info("erase db[{}]: {}", dbId, dbName);
+        }
+
+        // 2. remove all tables with the same dbId
+        List<Long> tableIdToErase = Lists.newArrayList();
+        Iterator<Map.Entry<Long, RecycleTableInfo>> tableIterator = idToTable.entrySet().iterator();
+        while (tableIterator.hasNext()) {
+            Map.Entry<Long, RecycleTableInfo> entry = tableIterator.next();
+            RecycleTableInfo tableInfo = entry.getValue();
+            if (tableInfo.getDbId() == dbId) {
+                tableIdToErase.add(entry.getKey());
+            }
+        }
+        for (Long tableId : tableIdToErase) {
+            eraseTableInstantly(tableId);
+        }
+
+        // 3. remove all partitions with the same dbId
+        List<Long> partitionIdToErase = Lists.newArrayList();
+        Iterator<Map.Entry<Long, RecyclePartitionInfo>> partitionIterator = idToPartition.entrySet().iterator();
+        while (partitionIterator.hasNext()) {
+            Map.Entry<Long, RecyclePartitionInfo> entry = partitionIterator.next();
+            RecyclePartitionInfo partitionInfo = entry.getValue();
+            if (partitionInfo.getDbId() == dbId) {
+                partitionIdToErase.add(entry.getKey());
+            }
+        }
+        for (Long partitionId : partitionIdToErase) {
+            erasePartitionInstantly(partitionId);
+        }
+
+        // 4. determine if nothing is deleted
+        if (dbInfo == null && tableIdToErase.isEmpty() && partitionIdToErase.isEmpty()) {
+            throw new DdlException("Unknown database id '" + dbId + "'");
+        }
+    }
+
+    // erase table in catalog recycle bin instantly
+    public synchronized void eraseTableInstantly(long tableId) throws DdlException {
+        // 1. find tableInfo and erase table
+        RecycleTableInfo tableInfo = idToTable.get(tableId);
+        if (tableInfo != null) {
+            // erase table
+            long dbId = tableInfo.getDbId();
+            Table table = tableInfo.getTable();
+            if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
+                Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+            }
+
+            // erase table from idToTable and idToRecycleTime
+            idToTable.remove(tableId);
+            idToRecycleTime.remove(tableId);
+
+            // log for erase table
+            String tableName = table.getName();
+            Env.getCurrentEnv().getEditLog().logEraseTable(tableId);
+            LOG.info("erase db[{}]'s table[{}]: {}", dbId, tableId, tableName);
+        }
+
+        // 2. erase all partitions with the same tableId
+        List<Long> partitionIdToErase = Lists.newArrayList();
+        Iterator<Map.Entry<Long, RecyclePartitionInfo>> partitionIterator = idToPartition.entrySet().iterator();
+        while (partitionIterator.hasNext()) {
+            Map.Entry<Long, RecyclePartitionInfo> entry = partitionIterator.next();
+            RecyclePartitionInfo partitionInfo = entry.getValue();
+            if (partitionInfo.getTableId() == tableId) {
+                partitionIdToErase.add(entry.getKey());
+            }
+        }
+        for (Long partitionId : partitionIdToErase) {
+            erasePartitionInstantly(partitionId);
+        }
+
+        // 3. determine if nothing is deleted
+        if (tableInfo == null && partitionIdToErase.isEmpty()) {
+            throw new DdlException("Unknown table id '" + tableId + "'");
+        }
+    }
+
+    // erase partition in catalog recycle bin instantly
+    public synchronized void erasePartitionInstantly(long partitionId) throws DdlException {
+        // 1. find partitionInfo to erase
+        RecyclePartitionInfo partitionInfo = idToPartition.get(partitionId);
+        if (partitionInfo == null) {
+            throw new DdlException("No partition id '" + partitionId + "'");
+        }
+
+        // 2. erase partition
+        Partition partition = partitionInfo.getPartition();
+        Env.getCurrentEnv().onErasePartition(partition);
+
+        // 3. erase partition in idToPartition and idToRecycleTime
+        idToPartition.remove(partitionId);
+        idToRecycleTime.remove(partitionId);
+
+        // 4. log for erase partition
+        long tableId = partitionInfo.getTableId();
+        String partitionName = partition.getName();
+        Env.getCurrentEnv().getEditLog().logErasePartition(partitionId);
+        LOG.info("erase table[{}]'s partition[{}]: {}", tableId, partitionId, partitionName);
+    }
+
     // no need to use synchronized.
     // only called when loading image
     public void addTabletToInvertedIndex() {
@@ -1005,9 +1121,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         eraseDatabase(currentTimeMs, keepNum);
     }
 
-    public List<List<String>> getInfo() {
+    public synchronized List<List<String>> getInfo() {
         Map<Long, Pair<Long, Long>> dbToDataSize = new HashMap<>();
-
         List<List<String>> tableInfos = Lists.newArrayList();
         for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
             List<String> info = Lists.newArrayList();

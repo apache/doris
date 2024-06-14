@@ -17,8 +17,13 @@
 
 #pragma once
 
+#include "exec/tablet_info.h"
 #include "operator.h"
-#include "vec/sink/group_commit_block_sink.h"
+#include "runtime/group_commit_mgr.h"
+
+namespace doris::vectorized {
+class OlapTableBlockConvertor;
+}
 
 namespace doris::pipeline {
 
@@ -68,8 +73,9 @@ class GroupCommitBlockSinkOperatorX final
     using Base = DataSinkOperatorX<GroupCommitBlockSinkLocalState>;
 
 public:
-    GroupCommitBlockSinkOperatorX(int operator_id, const RowDescriptor& row_desc)
-            : Base(operator_id, 0), _row_desc(row_desc) {}
+    GroupCommitBlockSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+                                  const std::vector<TExpr>& t_output_expr)
+            : Base(operator_id, 0), _row_desc(row_desc), _t_output_expr(t_output_expr) {}
 
     ~GroupCommitBlockSinkOperatorX() override = default;
 
@@ -85,6 +91,7 @@ private:
     friend class GroupCommitBlockSinkLocalState;
 
     const RowDescriptor& _row_desc;
+    const std::vector<TExpr>& _t_output_expr;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     int _tuple_desc_id = -1;

@@ -884,6 +884,8 @@ public class ReportHandler extends Daemon {
                                             binlogConfig);
 
                                     createReplicaTask.setIsRecoverTask(true);
+                                    createReplicaTask.setInvertedIndexStorageFormat(olapTable
+                                                                .getInvertedIndexStorageFormat());
                                     createReplicaBatchTask.addTask(createReplicaTask);
                                 } else {
                                     // just set this replica as bad

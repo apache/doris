@@ -147,6 +147,8 @@ private:
 
     void _calc_tablets_to_commit();
 
+    Status _close_wait(bool incremental);
+
     Status _cancel(Status status);
 
     std::shared_ptr<MemTracker> _mem_tracker;

@@ -134,27 +134,6 @@ void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_
     }
 }
 
-void ColumnConst::get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                                  size_t limit) const {
-    if (!data->is_default_at(0)) {
-        size_t to = limit && from + limit < size() ? from + limit : size();
-        indices.reserve(indices.size() + to - from);
-        for (size_t i = from; i < to; ++i) {
-            indices.push_back(i);
-        }
-    }
-}
-
-ColumnPtr ColumnConst::index(const IColumn& indexes, size_t limit) const {
-    if (limit == 0) {
-        limit = indexes.size();
-    }
-    if (indexes.size() < limit) {
-        LOG(FATAL) << "Size of indexes  is less than required " << std::to_string(limit);
-    }
-    return ColumnConst::create(data, limit);
-}
-
 std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
                                                                 size_t row_num) noexcept {
     std::pair<ColumnPtr, size_t> result;

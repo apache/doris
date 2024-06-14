@@ -103,6 +103,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.LogUtils;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsSqlCacheManager;
 import org.apache.doris.common.Pair;
@@ -141,6 +142,8 @@ import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
+import org.apache.doris.event.EventProcessor;
+import org.apache.doris.event.ReplacePartitionEvent;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
@@ -189,6 +192,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -303,6 +307,7 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -537,6 +542,7 @@ public class Env {
     private TopicPublisherThread topicPublisherThread;
 
     private MTMVService mtmvService;
+    private EventProcessor eventProcessor;
 
     private InsertOverwriteManager insertOverwriteManager;
 
@@ -545,6 +551,8 @@ public class Env {
     private final NereidsSqlCacheManager sqlCacheManager;
 
     private final SplitSourceManager splitSourceManager;
+
+    private final List<String> forceSkipJournalIds = Arrays.asList(Config.force_skip_journal_ids);
 
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
@@ -782,6 +790,7 @@ public class Env {
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
+        this.eventProcessor = new EventProcessor(mtmvService);
         this.insertOverwriteManager = new InsertOverwriteManager();
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
@@ -851,6 +860,10 @@ public class Env {
 
     public MTMVService getMtmvService() {
         return mtmvService;
+    }
+
+    public EventProcessor getEventProcessor() {
+        return eventProcessor;
     }
 
     public InsertOverwriteManager getInsertOverwriteManager() {
@@ -953,6 +966,10 @@ public class Env {
         return dnsCache;
     }
 
+    public List<String> getForceSkipJournalIds() {
+        return forceSkipJournalIds;
+    }
+
     // Use tryLock to avoid potential dead lock
     private boolean tryLock(boolean mustLock) {
         while (true) {
@@ -1036,6 +1053,7 @@ public class Env {
         if (!Config.enable_check_compatibility_mode) {
             getClusterIdAndRole();
         } else {
+            isElectable = true;
             role = FrontendNodeType.FOLLOWER;
             nodeName = genFeNodeName(selfNode.getHost(),
                     selfNode.getPort(), false /* new style */);
@@ -1494,10 +1512,12 @@ public class Env {
             long replayEndTime = System.currentTimeMillis();
             LOG.info("finish replay in " + (replayEndTime - replayStartTime) + " msec");
 
+            removeDroppedFrontends(removedFrontends);
+
             if (Config.enable_check_compatibility_mode) {
                 String msg = "check metadata compatibility successfully";
                 LOG.info(msg);
-                System.out.println(msg);
+                LogUtils.stdout(msg);
                 System.exit(0);
             }
 
@@ -1565,6 +1585,11 @@ public class Env {
                                 SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
                     }
                 }
+                if (journalVersion <= FeMetaVersion.VERSION_133) {
+                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                            SessionVariable.ENABLE_MATERIALIZED_VIEW_REWRITE,
+                            "true");
+                }
             }
 
             getPolicyMgr().createDefaultStoragePolicy();
@@ -1601,7 +1626,7 @@ public class Env {
             checkLowerCaseTableNames();
 
             String msg = "master finished to replay journal, can write now.";
-            Util.stdoutWithTime(msg);
+            LogUtils.stdout(msg);
             LOG.info(msg);
             // for master, there are some new thread pools need to register metric
             ThreadPoolManager.registerAllThreadPoolMetric();
@@ -1706,6 +1731,8 @@ public class Env {
             getConsistencyChecker().start();
             // Backup handler
             getBackupHandler().start();
+            // start daemon thread to update global partition version and in memory information periodically
+            partitionInfoCollector.start();
         }
         jobManager.start();
         // transient task manager
@@ -1732,8 +1759,6 @@ public class Env {
         dynamicPartitionScheduler.start();
         // start daemon thread to update db used data quota for db txn manager periodically
         dbUsedDataQuotaInfoCollector.start();
-        // start daemon thread to update global partition in memory information periodically
-        partitionInfoCollector.start();
         if (Config.enable_storage_policy) {
             cooldownConfHandler.start();
         }
@@ -2710,7 +2735,7 @@ public class Env {
         try {
             String msg = "notify new FE type transfer: " + newType;
             LOG.warn(msg);
-            Util.stdoutWithTime(msg);
+            LogUtils.stdout(msg);
             this.typeTransferQueue.put(newType);
         } catch (InterruptedException e) {
             LOG.error("failed to put new FE type: {}", newType, e);
@@ -2728,7 +2753,7 @@ public class Env {
                         newType = typeTransferQueue.take();
                     } catch (InterruptedException e) {
                         LOG.error("got exception when take FE type from queue", e);
-                        Util.stdoutWithTime("got exception when take FE type from queue. " + e.getMessage());
+                        LogUtils.stdout("got exception when take FE type from queue. " + e.getMessage());
                         System.exit(-1);
                     }
                     Preconditions.checkNotNull(newType);
@@ -2810,7 +2835,7 @@ public class Env {
                             // exit if master changed to any other type
                             String msg = "transfer FE type from MASTER to " + newType.name() + ". exit";
                             LOG.error(msg);
-                            Util.stdoutWithTime(msg);
+                            LogUtils.stdout(msg);
                             System.exit(-1);
                             break;
                         }
@@ -2855,7 +2880,19 @@ public class Env {
             Long logId = kv.first;
             JournalEntity entity = kv.second;
             if (entity == null) {
-                break;
+                if (logId != null && forceSkipJournalIds.contains(String.valueOf(logId))) {
+                    replayedJournalId.incrementAndGet();
+                    String msg = "journal " + replayedJournalId + " has skipped by config force_skip_journal_id";
+                    LOG.info(msg);
+                    LogUtils.stdout(msg);
+                    if (MetricRepo.isInit) {
+                        // Metric repo may not init after this replay thread start
+                        MetricRepo.COUNTER_EDIT_LOG_READ.increase(1L);
+                    }
+                    continue;
+                } else {
+                    break;
+                }
             }
             hasLog = true;
             EditLog.loadJournal(this, logId, entity);
@@ -2998,6 +3035,9 @@ public class Env {
                 ensureSafeToDropAliveFollower();
             }
 
+            editLog.logRemoveFrontend(fe);
+            LOG.info("remove frontend: {}", fe);
+
             int targetFollowerCount = getFollowerCount() - 1;
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                 haProtocol.removeElectableNode(fe.getNodeName());
@@ -3006,16 +3046,20 @@ public class Env {
                 ha.removeUnReadyElectableNode(fe.getNodeName(), targetFollowerCount);
             }
 
-            LOG.info("remove frontend: {}", fe);
-
             // Only remove frontend after removing the electable node success, to ensure the
             // exception safety.
             frontends.remove(fe.getNodeName());
             removedFrontends.add(fe.getNodeName());
 
-            editLog.logRemoveFrontend(fe);
         } finally {
             unlock();
+        }
+    }
+
+    private void removeDroppedFrontends(ConcurrentLinkedQueue<String> removedFrontends) {
+        if (haProtocol != null && haProtocol instanceof BDBHA) {
+            BDBHA bdbha = (BDBHA) haProtocol;
+            bdbha.removeDroppedMember(removedFrontends);
         }
     }
 
@@ -3114,6 +3158,10 @@ public class Env {
 
     public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
         getInternalCatalog().recoverPartition(recoverStmt);
+    }
+
+    public void dropCatalogRecycleBin(IdType idType, long id) throws DdlException {
+        getInternalCatalog().dropCatalogRecycleBin(idType, id);
     }
 
     public void replayEraseDatabase(long dbId) throws DdlException {
@@ -3926,6 +3974,7 @@ public class Env {
             }
 
             removedFrontends.add(removedFe.getNodeName());
+
         } finally {
             unlock();
         }
@@ -5669,6 +5718,18 @@ public class Env {
         } else {
             version = olapTable.getVisibleVersion();
         }
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of replace the partition
+        try {
+            Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new ReplacePartitionEvent(db.getCatalog().getId(), db.getId(),
+                            olapTable.getId()));
+        } catch (Throwable t) {
+            // According to normal logic, no exceptions will be thrown,
+            // but in order to avoid bugs affecting the original logic, all exceptions are caught
+            LOG.warn("produceEvent failed: ", t);
+        }
         // write log
         ReplacePartitionOperationLog info =
                 new ReplacePartitionOperationLog(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
@@ -6285,13 +6346,13 @@ public class Env {
     private void replayJournalsAndExit() {
         replayJournal(-1);
         LOG.info("check metadata compatibility successfully");
-        System.out.println("check metadata compatibility successfully");
+        LogUtils.stdout("check metadata compatibility successfully");
 
         if (Config.checkpoint_after_check_compatibility) {
             String imagePath = dumpImage();
             String msg = "the new image file path is: " + imagePath;
             LOG.info(msg);
-            System.out.println(msg);
+            LogUtils.stdout(msg);
         }
 
         System.exit(0);

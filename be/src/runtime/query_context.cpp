@@ -213,6 +213,10 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
     }
 
     set_ready_to_execute(new_status);
+    cancel_all_pipeline_context(new_status, fragment_id);
+}
+
+void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
     {
         std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
@@ -223,28 +227,38 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
             ctx_to_cancel.push_back(f_context);
         }
     }
-    // Must not add lock here. There maybe dead lock because it will call fragment
-    // ctx cancel and fragment ctx will call query ctx cancel.
-    for (auto& f_context : ctx_to_cancel) {
-        if (auto pipeline_ctx = f_context.lock()) {
-            pipeline_ctx->cancel(new_status);
-        }
-    }
-}
-
-void QueryContext::cancel_all_pipeline_context(const Status& reason) {
-    std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
-    {
-        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-        for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
-            ctx_to_cancel.push_back(f_context);
-        }
-    }
     for (auto& f_context : ctx_to_cancel) {
         if (auto pipeline_ctx = f_context.lock()) {
             pipeline_ctx->cancel(reason);
         }
     }
+}
+
+std::string QueryContext::print_all_pipeline_context() {
+    std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_print;
+    fmt::memory_buffer debug_string_buffer;
+    size_t i = 0;
+    {
+        fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts in query {}. \n",
+                       _fragment_id_to_pipeline_ctx.size(), print_id(_query_id));
+
+        {
+            std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+            for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
+                ctx_to_print.push_back(f_context);
+            }
+        }
+        for (auto& f_context : ctx_to_print) {
+            if (auto pipeline_ctx = f_context.lock()) {
+                auto elapsed = pipeline_ctx->elapsed_time() / 1000000000.0;
+                fmt::format_to(debug_string_buffer,
+                               "No.{} (elapse_second={}s, fragment_id={}) : {}\n", i, elapsed,
+                               pipeline_ctx->get_fragment_id(), pipeline_ctx->debug_string());
+                i++;
+            }
+        }
+    }
+    return fmt::to_string(debug_string_buffer);
 }
 
 Status QueryContext::cancel_pipeline_context(const int fragment_id, const Status& reason) {
@@ -326,7 +340,7 @@ Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
     return Status::OK();
 }
 
-void QueryContext::add_fragment_profile_x(
+void QueryContext::add_fragment_profile(
         int fragment_id, const std::vector<std::shared_ptr<TRuntimeProfileTree>>& pipeline_profiles,
         std::shared_ptr<TRuntimeProfileTree> load_channel_profile) {
     if (pipeline_profiles.empty()) {
@@ -348,70 +362,27 @@ void QueryContext::add_fragment_profile_x(
     LOG_INFO("Query X add fragment profile, query {}, fragment {}, pipeline profile count {} ",
              print_id(this->_query_id), fragment_id, pipeline_profiles.size());
 
-    _profile_map_x.insert(std::make_pair(fragment_id, pipeline_profiles));
+    _profile_map.insert(std::make_pair(fragment_id, pipeline_profiles));
 
     if (load_channel_profile != nullptr) {
-        _load_channel_profile_map_x.insert(std::make_pair(fragment_id, load_channel_profile));
-    }
-}
-
-void QueryContext::add_instance_profile(const TUniqueId& instance_id,
-                                        std::shared_ptr<TRuntimeProfileTree> profile,
-                                        std::shared_ptr<TRuntimeProfileTree> load_channel_profile) {
-    DCHECK(profile != nullptr) << print_id(instance_id);
-
-    std::lock_guard<std::mutex> lg(_profile_mutex);
-    _profile_map.insert(std::make_pair(instance_id, profile));
-    if (load_channel_profile != nullptr) {
-        _load_channel_profile_map.insert(std::make_pair(instance_id, load_channel_profile));
+        _load_channel_profile_map.insert(std::make_pair(fragment_id, load_channel_profile));
     }
 }
 
 void QueryContext::_report_query_profile() {
-    _report_query_profile_x();
-    _report_query_profile_non_pipeline();
-}
-
-void QueryContext::_report_query_profile_non_pipeline() {
-    if (enable_pipeline_x_exec()) {
-        return;
-    }
-
-    std::lock_guard<std::mutex> lg(_profile_mutex);
-    LOG_INFO("Query {}, register query profile, instance profile count {}", print_id(_query_id),
-             _profile_map.size());
-
-    for (auto& [instance_id, instance_profile] : _profile_map) {
-        std::shared_ptr<TRuntimeProfileTree> load_channel_profile = nullptr;
-        if (_load_channel_profile_map.contains(instance_id)) {
-            load_channel_profile = _load_channel_profile_map[instance_id];
-        }
-
-        ExecEnv::GetInstance()->runtime_query_statistics_mgr()->register_instance_profile(
-                _query_id, this->coord_addr, instance_id, instance_profile, load_channel_profile);
-    }
-
-    ExecEnv::GetInstance()->runtime_query_statistics_mgr()->trigger_report_profile();
-}
-
-void QueryContext::_report_query_profile_x() {
-    if (!enable_pipeline_x_exec()) {
-        return;
-    }
-
     std::lock_guard<std::mutex> lg(_profile_mutex);
     LOG_INFO(
             "Pipeline x query context, register query profile, query {}, fragment profile count {}",
-            print_id(_query_id), _profile_map_x.size());
+            print_id(_query_id), _profile_map.size());
 
-    for (auto& [fragment_id, fragment_profile] : _profile_map_x) {
+    for (auto& [fragment_id, fragment_profile] : _profile_map) {
         std::shared_ptr<TRuntimeProfileTree> load_channel_profile = nullptr;
 
-        if (_load_channel_profile_map_x.contains(fragment_id)) {
-            load_channel_profile = _load_channel_profile_map_x[fragment_id];
+        if (_load_channel_profile_map.contains(fragment_id)) {
+            load_channel_profile = _load_channel_profile_map[fragment_id];
         }
 
-        ExecEnv::GetInstance()->runtime_query_statistics_mgr()->register_fragment_profile_x(
+        ExecEnv::GetInstance()->runtime_query_statistics_mgr()->register_fragment_profile(
                 _query_id, this->coord_addr, fragment_id, fragment_profile, load_channel_profile);
     }
 
@@ -419,12 +390,8 @@ void QueryContext::_report_query_profile_x() {
 }
 
 std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
-QueryContext::_collect_realtime_query_profile_x() const {
+QueryContext::_collect_realtime_query_profile() const {
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> res;
-
-    if (!enable_pipeline_x_exec()) {
-        return res;
-    }
 
     for (auto& [fragment_id, fragment_ctx_wptr] : _fragment_id_to_pipeline_ctx) {
         if (auto fragment_ctx = fragment_ctx_wptr.lock()) {
@@ -455,27 +422,21 @@ QueryContext::_collect_realtime_query_profile_x() const {
     return res;
 }
 
-TReportExecStatusParams QueryContext::get_realtime_exec_status_x() const {
+TReportExecStatusParams QueryContext::get_realtime_exec_status() const {
     TReportExecStatusParams exec_status;
 
-    if (enable_pipeline_x_exec()) {
-        auto realtime_query_profile = _collect_realtime_query_profile_x();
-        std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profiles;
+    auto realtime_query_profile = _collect_realtime_query_profile();
+    std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profiles;
 
-        for (auto load_channel_profile : _load_channel_profile_map_x) {
-            if (load_channel_profile.second != nullptr) {
-                load_channel_profiles.push_back(load_channel_profile.second);
-            }
+    for (auto load_channel_profile : _load_channel_profile_map) {
+        if (load_channel_profile.second != nullptr) {
+            load_channel_profiles.push_back(load_channel_profile.second);
         }
-
-        exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params_x(
-                this->_query_id, std::move(realtime_query_profile),
-                std::move(load_channel_profiles), /*is_done=*/false);
-    } else {
-        auto msg = fmt::format("Query {} is not pipelineX query", print_id(_query_id));
-        LOG_ERROR(msg);
-        DCHECK(false) << msg;
     }
+
+    exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params(
+            this->_query_id, std::move(realtime_query_profile), std::move(load_channel_profiles),
+            /*is_done=*/false);
 
     return exec_status;
 }

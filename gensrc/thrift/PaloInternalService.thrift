@@ -143,7 +143,7 @@ struct TQueryOptions {
   // whether enable spilling to disk
   31: optional bool enable_spilling = false;
   // whether enable parallel merge in exchange node
-  32: optional bool enable_enable_exchange_node_parallel_merge = false;
+  32: optional bool enable_enable_exchange_node_parallel_merge = false; // deprecated
 
   // Time in ms to wait until runtime filters are delivered.
   33: optional i32 runtime_filter_wait_time_ms = 1000
@@ -297,6 +297,12 @@ struct TQueryOptions {
 
   110: optional bool enable_parquet_filter_by_min_max = true
   111: optional bool enable_orc_filter_by_min_max = true
+
+  112: optional i32 max_column_reader_num = 0
+
+  113: optional bool enable_local_merge_sort = false;
+
+  114: optional bool enable_parallel_result_sink = false;
   
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
@@ -499,6 +505,7 @@ struct TExecPlanFragmentParams {
   // Otherwise, the fragment will start executing directly on the BE side.
   20: optional bool need_wait_execution_trigger = false;
 
+  // deprecated
   21: optional bool build_hash_table_for_broadcast_join = false;
 
   22: optional list<Types.TUniqueId> instances_sharing_hash_table;
@@ -703,6 +710,7 @@ struct TExportStatusResult {
 
 struct TPipelineInstanceParams {
   1: required Types.TUniqueId fragment_instance_id
+  // deprecated
   2: optional bool build_hash_table_for_broadcast_join = false;
   3: required map<Types.TPlanNodeId, list<TScanRangeParams>> per_node_scan_ranges
   4: optional i32 sender_id

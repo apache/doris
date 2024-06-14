@@ -18,6 +18,7 @@ suite("merge_aggregate") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+    sql "set enable_parallel_result_sink=false;"
 
     sql """
           DROP TABLE IF EXISTS mal_test1
@@ -255,5 +256,11 @@ suite("merge_aggregate") {
     qt_test_sum_empty_table_shape """
         explain shape plan
         select sum(col1),min(col2),max(col3) from (select sum(a) col1, min(b) col2, max(pk) col3 from mal_test2 group by a) t;
+    """
+
+    qt_agg_project_agg_the_project_has_duplicate_slot_output """
+    select max(col1), col10, col11 from 
+        (select a,max(b) as col1, count(b) as col4, a as col10, a as col11 
+        from mal_test1 group by a) t group by col10, col11 order by 1,2,3;
     """
 }

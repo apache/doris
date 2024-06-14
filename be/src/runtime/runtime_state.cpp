@@ -93,14 +93,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                 fragment_exec_params.runtime_filter_params);
     }
-
-    if (_query_ctx) {
-        if (fragment_exec_params.__isset.topn_filter_source_node_ids) {
-            _query_ctx->init_runtime_predicates(fragment_exec_params.topn_filter_source_node_ids);
-        } else {
-            _query_ctx->init_runtime_predicates({0});
-        }
-    }
 }
 
 RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id,
@@ -251,6 +243,7 @@ RuntimeState::RuntimeState()
           _unreported_error_idx(0),
           _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
+    _query_options.be_exec_version = BeExecVersionManager::get_newest_version();
     _timezone = TimezoneUtils::default_time_zone;
     _timestamp_ms = 0;
     _nano_seconds = 0;

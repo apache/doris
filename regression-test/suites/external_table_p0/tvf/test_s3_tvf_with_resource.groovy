@@ -95,13 +95,14 @@ suite("test_s3_tvf_with_resource", "p0") {
 
     // test outfile to s3
     def outfile_url = outfile_to_S3()
+    // outfile_url like: s3://doris-build-hk-1308700295/est_s3_tvf/export_test/exp_f2cb650bbb94431a-ab0bc3e6f3e89f04_*
 
     // 1. normal
     try {
         order_qt_select_1 """ SELECT * FROM S3 (
-                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.orc",
+                            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.orc",
                             "format" = "orc",
-                            "use_path_style" = "true",
+                            "use_path_style" = "false", -- aliyun does not support path_style
                             "resource" = "${resource_name}"
                         );
                         """
@@ -112,7 +113,7 @@ suite("test_s3_tvf_with_resource", "p0") {
     // 2. test endpoint property
     try {
         order_qt_select_2 """ SELECT * FROM S3 (
-                            "uri" = "http://${outfile_url.substring(5)}0.orc",
+                            "uri" = "${outfile_url}0.orc",
                             "format" = "orc",
                             "resource" = "${resource_name}"
                         );
@@ -123,9 +124,9 @@ suite("test_s3_tvf_with_resource", "p0") {
     // 3.test use_path_style
     try {
         order_qt_select_3 """ SELECT * FROM S3 (
-                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.orc",
+                            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.orc",
                             "format" = "orc",
-                            "use_path_style" = "true",
+                            "use_path_style" = "false", -- aliyun does not support path_style
                             "resource" = "${resource_name}"
                         );
                         """

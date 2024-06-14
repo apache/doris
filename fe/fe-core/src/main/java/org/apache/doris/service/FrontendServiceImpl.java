@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.PartitionExprUtil;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.TableName;
@@ -138,7 +139,6 @@ import org.apache.doris.thrift.TDescribeTablesParams;
 import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
@@ -1957,7 +1957,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (Config.enable_pipeline_load) {
                     result.setPipelineParams((TPipelineFragmentParams) streamLoadHandler.getFragmentParams().get(0));
                 } else {
-                    result.setParams((TExecPlanFragmentParams) streamLoadHandler.getFragmentParams().get(0));
+                    throw new UserException("Pipeline load should be enabled");
                 }
             }
             if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
@@ -3178,7 +3178,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ColStatsData data = GsonUtils.GSON.fromJson(request.colStatsData, ColStatsData.class);
         ColumnStatistic c = data.toColumnStatistic();
         if (c == ColumnStatistic.UNKNOWN) {
-            Env.getCurrentEnv().getStatisticsCache().invalidate(k.catalogId, k.dbId, k.tableId, k.idxId, k.colName);
+            Env.getCurrentEnv().getStatisticsCache().invalidateColumnStatsCache(k.catalogId, k.dbId, k.tableId,
+                    k.idxId, k.colName);
         } else {
             Env.getCurrentEnv().getStatisticsCache().updateColStatsCache(
                     k.catalogId, k.dbId, k.tableId, k.idxId, k.colName, c);
@@ -3195,7 +3196,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (tableStats == null) {
             return new TStatus(TStatusCode.OK);
         }
-        analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId, target.columns, tableStats);
+        PartitionNames partitionNames = null;
+        if (target.partitions != null) {
+            partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
+        }
+        analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId,
+                target.columns, tableStats, partitionNames);
         return new TStatus(TStatusCode.OK);
     }
 
@@ -3380,7 +3386,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             errorStatus.setStatusCode(TStatusCode.NOT_MASTER);
             errorStatus.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.warn("failed to createPartition: {}", NOT_MASTER_ERR_MSG);
+            LOG.warn("failed to replace Partition: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
@@ -3415,10 +3421,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<String> allReqPartNames; // all request partitions
         try {
             taskLock.lock();
-            // we dont lock the table. other thread in this txn will be controled by
-            // taskLock.
-            // if we have already replaced. dont do it again, but acquire the recorded new
-            // partition directly.
+            // we dont lock the table. other thread in this txn will be controled by taskLock.
+            // if we have already replaced. dont do it again, but acquire the recorded new partition directly.
             // if not by this txn, just let it fail naturally is ok.
             List<Long> replacedPartIds = overwriteManager.tryReplacePartitionIds(taskGroupId, partitionIds);
             // here if replacedPartIds still have null. this will throw exception.
@@ -3428,8 +3432,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     .filter(i -> partitionIds.get(i) == replacedPartIds.get(i)) // equal means not replaced
                     .mapToObj(partitionIds::get)
                     .collect(Collectors.toList());
-            // from here we ONLY deal the pending partitions. not include the dealed(by
-            // others).
+            // from here we ONLY deal the pending partitions. not include the dealed(by others).
             if (!pendingPartitionIds.isEmpty()) {
                 // below two must have same order inner.
                 List<String> pendingPartitionNames = olapTable.uncheckedGetPartNamesById(pendingPartitionIds);
@@ -3440,8 +3443,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 overwriteManager.registerTaskInGroup(taskGroupId, taskId);
                 InsertOverwriteUtil.addTempPartitions(olapTable, pendingPartitionNames, tempPartitionNames);
                 InsertOverwriteUtil.replacePartition(olapTable, pendingPartitionNames, tempPartitionNames);
-                // now temp partitions are bumped up and use new names. we get their ids and
-                // record them.
+                // now temp partitions are bumped up and use new names. we get their ids and record them.
                 List<Long> newPartitionIds = new ArrayList<Long>();
                 for (String newPartName : pendingPartitionNames) {
                     newPartitionIds.add(olapTable.getPartition(newPartName).getId());

@@ -20,6 +20,7 @@
 #include <gen_cpp/DataSinks_types.h>
 
 #include "runtime/group_commit_mgr.h"
+#include "vec/sink/vtablet_block_convertor.h"
 
 namespace doris::pipeline {
 
@@ -118,7 +119,7 @@ Status GroupCommitBlockSinkLocalState::_add_block(RuntimeState* state,
         for (auto i = 0; i < block->rows(); i++) {
             selector.emplace_back(i);
         }
-        block->append_to_block_by_selector(cur_mutable_block.get(), selector);
+        RETURN_IF_ERROR(block->append_to_block_by_selector(cur_mutable_block.get(), selector));
     }
     std::shared_ptr<vectorized::Block> output_block = vectorized::Block::create_shared();
     output_block->swap(cur_mutable_block->to_block());
@@ -244,6 +245,8 @@ Status GroupCommitBlockSinkOperatorX::init(const TDataSink& t_sink) {
     _group_commit_mode = table_sink.group_commit_mode;
     _load_id = table_sink.load_id;
     _max_filter_ratio = table_sink.max_filter_ratio;
+    // From the thrift expressions create the real exprs.
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     return Status::OK();
 }
 

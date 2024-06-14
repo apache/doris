@@ -119,6 +119,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 root(Expression.class)
+                        .whenCtx(ctx -> !ctx.cascadesContext.getConnectContext().getSessionVariable()
+                                .isDebugSkipFoldConstant())
                         .whenCtx(FoldConstantRuleOnBE::isEnableFoldByBe)
                         .thenApply(FoldConstantRuleOnBE::foldByBE)
         );

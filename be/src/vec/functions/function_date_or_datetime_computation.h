@@ -889,13 +889,14 @@ struct CurrentDateTimeImpl {
             } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(
                                block.get_by_position(arguments[0]).column)) {
                 const auto& null_map = nullable_column->get_null_map_data();
-                const auto& nested_column = nullable_column->get_nested_column_ptr();
+                const auto& nested_column = assert_cast<const ColumnInt32*>(
+                        nullable_column->get_nested_column_ptr().get());
                 for (int i = 0; i < input_rows_count; i++) {
                     if (!null_map[i]) {
                         dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                           context->state()->nano_seconds(),
                                           context->state()->timezone_obj(),
-                                          nested_column->get64(i));
+                                          nested_column->get_element(i));
                         if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                             reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
                         }
@@ -911,11 +912,12 @@ struct CurrentDateTimeImpl {
                 }
                 use_const = false;
             } else {
-                auto& int_column = block.get_by_position(arguments[0]).column;
+                const auto* int_column = assert_cast<const ColumnInt32*>(
+                        block.get_by_position(arguments[0]).column.get());
                 for (int i = 0; i < input_rows_count; i++) {
                     dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                       context->state()->nano_seconds(),
-                                      context->state()->timezone_obj(), int_column->get64(i));
+                                      context->state()->timezone_obj(), int_column->get_element(i));
                     if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                         reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
                     }
@@ -944,41 +946,6 @@ struct CurrentDateTimeImpl {
             block.get_by_position(result).column = std::move(col_to);
         }
         return Status::OK();
-    }
-};
-
-template <typename FunctionImpl>
-class FunctionCurrentDateOrDateTimeOld : public IFunction {
-public:
-    static constexpr bool has_variadic_argument =
-            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<FunctionImpl>()))>;
-
-    static constexpr auto name = FunctionImpl::name;
-    static FunctionPtr create() { return std::make_shared<FunctionCurrentDateOrDateTimeOld>(); }
-
-    String get_name() const override { return name; }
-
-    size_t get_number_of_arguments() const override { return 0; }
-
-    // the only diff in old version is it's ALWAYS_NOT_NULLABLE
-    bool use_default_implementation_for_nulls() const override { return false; }
-
-    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return std::make_shared<typename FunctionImpl::ReturnType>();
-    }
-
-    bool is_variadic() const override { return true; }
-
-    DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (has_variadic_argument) {
-            return FunctionImpl::get_variadic_argument_types();
-        }
-        return {};
-    }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
-        return FunctionImpl::execute(context, block, arguments, result, input_rows_count);
     }
 };
 
@@ -1019,7 +986,7 @@ struct CurrentTimeImpl {
     static constexpr auto name = FunctionName::name;
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
-        auto col_to = ColumnVector<Float64>::create();
+        auto col_to = ColumnFloat64::create();
         VecDateTimeValue dtv;
         dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                           context->state()->timezone_obj());

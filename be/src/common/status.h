@@ -25,6 +25,14 @@
 
 namespace doris {
 
+namespace io {
+struct ObjectStorageStatus;
+}
+
+class Status;
+
+extern io::ObjectStorageStatus convert_to_obj_response(Status st);
+
 class PStatus;
 
 namespace ErrorCode {
@@ -41,7 +49,7 @@ namespace ErrorCode {
     TStatusError(IO_ERROR, true);                         \
     TStatusError(NOT_FOUND, true);                        \
     TStatusError(ALREADY_EXIST, true);                    \
-    TStatusError(NOT_IMPLEMENTED_ERROR, true);            \
+    TStatusError(NOT_IMPLEMENTED_ERROR, false);           \
     TStatusError(END_OF_FILE, false);                     \
     TStatusError(INTERNAL_ERROR, true);                   \
     TStatusError(RUNTIME_ERROR, true);                    \
@@ -55,7 +63,7 @@ namespace ErrorCode {
     TStatusError(UNINITIALIZED, false);                   \
     TStatusError(INCOMPLETE, false);                      \
     TStatusError(OLAP_ERR_VERSION_ALREADY_MERGED, false); \
-    TStatusError(ABORTED, true);                          \
+    TStatusError(ABORTED, false);                         \
     TStatusError(DATA_QUALITY_ERROR, false);              \
     TStatusError(LABEL_ALREADY_EXISTS, true);             \
     TStatusError(NOT_AUTHORIZED, true);                   \
@@ -352,11 +360,11 @@ public:
     Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
 
     // used to convert Exception to Status
-    Status(int code, std::string msg, std::string stack) : _code(code) {
+    Status(int code, std::string msg, std::string stack = "") : _code(code) {
         _err_msg = std::make_unique<ErrMsg>();
-        _err_msg->_msg = msg;
+        _err_msg->_msg = std::move(msg);
 #ifdef ENABLE_STACKTRACE
-        _err_msg->_stack = stack;
+        _err_msg->_stack = std::move(stack);
 #endif
     }
 
@@ -412,6 +420,7 @@ public:
         if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
             // Delete the first one frame pointers, which are inside the status.h
             status._err_msg->_stack = get_stack_trace(1);
+            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
         return status;
@@ -430,6 +439,7 @@ public:
 #ifdef ENABLE_STACKTRACE
         if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
             status._err_msg->_stack = get_stack_trace(1);
+            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
         return status;
@@ -527,6 +537,10 @@ public:
 
     std::string_view msg() const { return _err_msg ? _err_msg->_msg : std::string_view(""); }
 
+    std::pair<int, std::string> retrieve_error_msg() { return {_code, std::move(_err_msg->_msg)}; }
+
+    friend io::ObjectStorageStatus convert_to_obj_response(Status st);
+
 private:
     int _code;
     struct ErrMsg {
@@ -553,26 +567,24 @@ class AtomicStatus {
 public:
     AtomicStatus() : error_st_(Status::OK()) {}
 
-    bool ok() const { return error_code_.load() == 0; }
+    bool ok() const { return error_code_.load(std::memory_order_acquire) == 0; }
 
     bool update(const Status& new_status) {
         // If new status is normal, or the old status is abnormal, then not need update
-        if (new_status.ok() || error_code_.load() != 0) {
+        if (new_status.ok() || error_code_.load(std::memory_order_acquire) != 0) {
             return false;
         }
-        int16_t expected_error_code = 0;
-        if (error_code_.compare_exchange_strong(expected_error_code, new_status.code(),
-                                                std::memory_order_acq_rel)) {
-            // lock here for read status, to avoid core during return error_st_
-            std::lock_guard l(mutex_);
-            error_st_ = new_status;
-            return true;
-        } else {
+        std::lock_guard l(mutex_);
+        if (error_code_.load(std::memory_order_acquire) != 0) {
             return false;
         }
+        error_st_ = new_status;
+        error_code_.store(new_status.code(), std::memory_order_release);
+        return true;
     }
 
     // will copy a new status object to avoid concurrency
+    // This stauts could only be called when ok==false
     Status status() const {
         std::lock_guard l(mutex_);
         return error_st_;
