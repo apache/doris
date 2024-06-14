@@ -27,15 +27,15 @@
 #include <list>
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 
 #include "common/status.h"
 #include "runtime/query_statistics.h"
+#include "util/hash_util.hpp"
 
-namespace google {
-namespace protobuf {
+namespace google::protobuf {
 class Closure;
-}
-} // namespace google
+} // namespace google::protobuf
 
 namespace arrow {
 class RecordBatch;
@@ -71,7 +71,7 @@ struct GetResultBatchCtx {
 // buffer used for result customer and producer
 class BufferControlBlock {
 public:
-    BufferControlBlock(const TUniqueId& id, int buffer_size);
+    BufferControlBlock(const TUniqueId& id, int buffer_size, int batch_size);
     ~BufferControlBlock();
 
     Status init();
@@ -83,7 +83,7 @@ public:
 
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happened.
-    Status close(Status exec_status);
+    Status close(const TUniqueId& id, Status exec_status);
     // this is called by RPC, called from coordinator
     void cancel();
 
@@ -98,7 +98,8 @@ public:
         }
     }
 
-    void set_dependency(std::shared_ptr<pipeline::Dependency> result_sink_dependency);
+    void set_dependency(const TUniqueId& id,
+                        std::shared_ptr<pipeline::Dependency> result_sink_dependency);
 
 protected:
     void _update_dependency();
@@ -130,9 +131,10 @@ protected:
 
     // only used for FE using return rows to check limit
     std::unique_ptr<QueryStatistics> _query_statistics;
-    std::atomic_bool _batch_queue_empty = false;
-    std::vector<std::shared_ptr<pipeline::Dependency>> _result_sink_dependencys;
-    size_t close_cnt = 0;
+    // instance id to dependency
+    std::unordered_map<TUniqueId, std::shared_ptr<pipeline::Dependency>> _result_sink_dependencys;
+
+    int _batch_size;
 };
 
 } // namespace doris
