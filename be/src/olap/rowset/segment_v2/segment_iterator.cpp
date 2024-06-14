@@ -1004,9 +1004,9 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* pre
     if (column_desc->path() != nullptr) {
         const static std::string pattern = "(CAST {}(Nullable(Variant)) TO {})";
         // indicate a subcolumn access for variant, using the expression pattern as pred result sign name
-        col_name =
-                fmt::format(pattern, col_name,
-                            _storage_name_and_type[predicate_info->column_id].second->get_name());
+        col_name = fmt::format(pattern, col_name,
+                               _storage_name_and_type[_schema->column_id(predicate_info->column_id)]
+                                       .second->get_name());
     }
     std::string pred_result_sign;
     pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + col_name + "_" +
