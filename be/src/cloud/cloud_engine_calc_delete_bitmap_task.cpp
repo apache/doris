@@ -176,10 +176,11 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     txn_info.publish_status = publish_status;
     auto update_delete_bitmap_time_us = 0;
     if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED)) {
-        LOG(INFO) << "tablet=" <<  _tablet_id << ",txn=" << _transaction_id
+        LOG(INFO) << "tablet=" << _tablet_id << ",txn=" << _transaction_id
                   << ",publish_status=SUCCEED,not need to recalculate and update delete_bitmap.";
     } else {
-        status = CloudTablet::update_delete_bitmap(tablet, &txn_info, _transaction_id, txn_expiration);
+        status = CloudTablet::update_delete_bitmap(tablet, &txn_info, _transaction_id,
+                                                   txn_expiration);
         update_delete_bitmap_time_us = MonotonicMicros() - t3;
     }
     if (status != Status::OK()) {

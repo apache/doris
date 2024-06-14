@@ -74,10 +74,9 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
     return Status::OK();
 }
 
-Status CloudTxnDeleteBitmapCache::get_delete_bitmap(TTransactionId transaction_id, int64_t tablet_id,
-                                                 DeleteBitmapPtr* delete_bitmap,
-                                                 RowsetIdUnorderedSet* rowset_ids,
-                                                 std::shared_ptr<PublishStatus>* publish_status) {
+Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
+        TTransactionId transaction_id, int64_t tablet_id, DeleteBitmapPtr* delete_bitmap,
+        RowsetIdUnorderedSet* rowset_ids, std::shared_ptr<PublishStatus>* publish_status) {
     if (publish_status) {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         TxnKey txn_key(transaction_id, tablet_id);
