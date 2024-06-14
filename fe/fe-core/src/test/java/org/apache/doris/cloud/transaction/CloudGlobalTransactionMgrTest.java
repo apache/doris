@@ -61,7 +61,8 @@ public class CloudGlobalTransactionMgrTest {
     private static GlobalTransactionMgrIface masterTransMgr;
     private static Env masterEnv;
 
-    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
+    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(
+            TransactionState.TxnSourceType.FE, 0, "localfe", System.currentTimeMillis());
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
