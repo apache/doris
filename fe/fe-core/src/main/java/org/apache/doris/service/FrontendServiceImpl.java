@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.PartitionExprUtil;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.TableName;
@@ -3177,8 +3178,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ColStatsData data = GsonUtils.GSON.fromJson(request.colStatsData, ColStatsData.class);
         ColumnStatistic c = data.toColumnStatistic();
         if (c == ColumnStatistic.UNKNOWN) {
-            Env.getCurrentEnv().getStatisticsCache().invalidate(k.catalogId, k.dbId, k.tableId,
-                    k.idxId, null, k.colName);
+            Env.getCurrentEnv().getStatisticsCache().invalidateColumnStatsCache(k.catalogId, k.dbId, k.tableId,
+                    k.idxId, k.colName);
         } else {
             Env.getCurrentEnv().getStatisticsCache().updateColStatsCache(
                     k.catalogId, k.dbId, k.tableId, k.idxId, k.colName, c);
@@ -3195,7 +3196,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (tableStats == null) {
             return new TStatus(TStatusCode.OK);
         }
-        analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId, target.columns, tableStats);
+        PartitionNames partitionNames = null;
+        if (target.partitions != null) {
+            partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
+        }
+        analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId,
+                target.columns, tableStats, partitionNames);
         return new TStatus(TStatusCode.OK);
     }
 

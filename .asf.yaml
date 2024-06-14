@@ -96,8 +96,8 @@ github:
           - COMPILE (DORIS_COMPILE)
           - External Regression (Doris External Regression)
           - FE UT (Doris FE UT)
-          #- BE UT (Doris BE UT)
-          #- P0 Regression (Doris Regression)
+          - BE UT (Doris BE UT)
+          - P0 Regression (Doris Regression)
 
         required_pull_request_reviews:
           dismiss_stale_reviews: true

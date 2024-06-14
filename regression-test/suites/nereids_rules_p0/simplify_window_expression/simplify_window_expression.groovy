@@ -18,6 +18,7 @@
 suite("simplify_window_expression") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set enable_parallel_result_sink=false;"
     sql """
           DROP TABLE IF EXISTS mal_test_simplify_window
          """

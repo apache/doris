@@ -94,8 +94,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // NOTE: update command is executed as insert command, so txn insert can support it
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty()).run(ctx,
-                executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
+                Optional.empty()).run(ctx, executor);
     }
 
     /**
@@ -159,7 +159,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
         boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
                 && selectItems.size() < targetTable.getColumns().size()
-                && !targetTable.hasVariantColumns() && targetTable.getSequenceCol() == null
+                && targetTable.getSequenceCol() == null
                 && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10;
 
         List<String> partialUpdateColNames = new ArrayList<>();

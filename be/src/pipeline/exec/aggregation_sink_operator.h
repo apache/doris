@@ -20,7 +20,6 @@
 #include <stdint.h>
 
 #include "pipeline/exec/operator.h"
-#include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
 
 namespace doris::pipeline {
