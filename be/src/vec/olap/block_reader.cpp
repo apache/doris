@@ -209,6 +209,8 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
 Status BlockReader::init(const ReaderParams& read_params) {
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
+    _arena = std::make_unique<Arena>();
+
     int32_t return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size());
     for (int i = 0; i < return_column_size; ++i) {
@@ -511,6 +513,10 @@ size_t BlockReader::_copy_agg_data() {
 }
 
 void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end, bool is_close) {
+    if (!_arena) [[unlikely]] {
+        return;
+    }
+
     for (int i = 0; i < _agg_columns_idx.size(); i++) {
         auto idx = _agg_columns_idx[i];
 
@@ -520,7 +526,7 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
-                                      &_arena, _stored_has_null_tag[idx]);
+                                      _arena.get(), _stored_has_null_tag[idx]);
         }
 
         if (is_close) {
@@ -529,8 +535,9 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
             function->reset(place);
         }
     }
+
     if (is_close) {
-        _arena.clear();
+        _arena->clear();
     }
 }
 

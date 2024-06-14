@@ -92,29 +92,27 @@ suite("test_partition_stats") {
 
     // Test show cached partition stats.
     sql """analyze table part with sync;"""
-    result = sql """show column cached stats part(id) partition(p1)"""
-    assertEquals(1, result.size())
-    Thread.sleep(1000)
     for (int i = 0; i < 20; i++) {
-        result = sql """show column cached stats part(id) partition(p1)"""
-        if (result[0][3] == "6.0") {
+        result = sql """show column cached stats part partition(*)"""
+        if (result.size() == 27) {
             logger.info("cache is ready.")
-            assertEquals("id", result[0][0])
-            assertEquals("p1", result[0][1])
-            assertEquals("part", result[0][2])
-            assertEquals("6.0", result[0][3])
-            assertEquals("6", result[0][4])
-            assertEquals("0.0", result[0][5])
-            assertEquals("1.0", result[0][6])
-            assertEquals("6.0", result[0][7])
-            assertEquals("24.0", result[0][8])
-            assertEquals("N/A", result[0][10])
-            assertEquals("N/A", result[0][11])
             break;
         }
         logger.info("cache is not ready yet.")
         Thread.sleep(1000)
     }
+    result = sql """show column cached stats part(id) partition(p1)"""
+    assertEquals("id", result[0][0])
+    assertEquals("p1", result[0][1])
+    assertEquals("part", result[0][2])
+    assertEquals("6.0", result[0][3])
+    assertEquals("6", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("1.0", result[0][6])
+    assertEquals("6.0", result[0][7])
+    assertEquals("24.0", result[0][8])
+    assertEquals("N/A", result[0][10])
+    assertEquals("N/A", result[0][11])
     result = sql """show column cached stats part partition(p1)"""
     assertEquals(9, result.size())
     result = sql """show column cached stats part partition(*)"""
