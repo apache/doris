@@ -259,11 +259,11 @@ public class IndexChangeJob implements Writable {
      * should be called before executing the job.
      * return false if table is not stable.
      */
-    protected boolean checkTableStable(OlapTable tbl) throws AlterCancelException {
+    protected boolean checkTableStable(OlapTable tbl, String clusterName) throws AlterCancelException {
         tbl.writeLockOrAlterCancelException();
         try {
             boolean isStable = tbl.isStable(Env.getCurrentSystemInfo(),
-                    Env.getCurrentEnv().getTabletScheduler());
+                    Env.getCurrentEnv().getTabletScheduler(), clusterName);
 
             if (!isStable) {
                 errMsg = "table is unstable";
@@ -307,8 +307,7 @@ public class IndexChangeJob implements Writable {
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
-
-        if (!checkTableStable(olapTable)) {
+        if (!checkTableStable(olapTable, db.getClusterName())) {
             return;
         }
 
