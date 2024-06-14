@@ -1474,6 +1474,9 @@ public class PropertyAnalyzer {
     }
 
     public void rewriteForceProperties(Map<String, String> properties) {
+        if (properties == null) {
+            return;
+        }
         forceProperties.forEach(property -> property.rewrite(properties));
     }
 
