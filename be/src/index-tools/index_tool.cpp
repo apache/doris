@@ -563,7 +563,7 @@ int main(int argc, char** argv) {
         auto field_config = (int32_t)(lucene::document::Field::STORE_NO);
         field_config |= (int32_t)(lucene::document::Field::INDEX_NONORMS);
         field_config |= lucene::document::Field::INDEX_TOKENIZED;
-        auto field_name = std::wstring(name.begin(), name.end());
+        auto field_name = StringUtil::string_to_wstring(name);
         auto field = _CLNEW lucene::document::Field(field_name.c_str(), field_config);
         field->setOmitTermFreqAndPositions(false);
         doc->add(*field);
