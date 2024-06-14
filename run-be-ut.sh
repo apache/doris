@@ -220,10 +220,16 @@ echo "-- Make program: ${MAKE_PROGRAM}"
 echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
 echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
 
+if [[ "${CMAKE_BUILD_TYPE}" = "ASAN" ]]; then
+    BUILD_TYPE="ASAN_UT"
+else
+    BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+fi
+
 cd "${CMAKE_BUILD_DIR}"
 "${CMAKE_CMD}" -G "${GENERATOR}" \
     -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
-    -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+    -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
     -DMAKE_TEST=ON \
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
     -DUSE_LIBCPP="${USE_LIBCPP}" \
