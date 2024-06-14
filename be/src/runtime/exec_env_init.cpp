@@ -66,6 +66,7 @@
 #include "runtime/group_commit_mgr.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
+#include "runtime/load_stream_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
@@ -281,6 +282,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
+    auto num_flush_threads = std::min(_store_paths.size() * config::flush_thread_num_per_store,
+                                      static_cast<size_t>(CpuInfo::num_cores()) * config::max_flush_thread_num_per_cpu);
+    _load_stream_mgr = std::make_unique<LoadStreamMgr>(num_flush_threads);
     _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
