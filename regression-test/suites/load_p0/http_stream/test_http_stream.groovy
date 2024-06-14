@@ -861,10 +861,10 @@ suite("test_http_stream", "p0") {
     try {
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName19} (
-            type_id int null,
-            type_name varchar(10) null,
-            pv_hash hll hll_union null,
-            pv_base64 hll hll_union null
+            type_id int,
+            type_name varchar(10),
+            pv_hash hll hll_union not null,
+            pv_base64 hll hll_union not null
         )
         AGGREGATE KEY(type_id,type_name)
         DISTRIBUTED BY HASH(type_id) BUCKETS 1

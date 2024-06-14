@@ -547,9 +547,9 @@ suite("test_stream_load_new", "p0") {
     try {
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName13} (
-            type_id int null,
-            type_name varchar(10) null,
-            pv_hash hll hll_union null,
+            type_id int,
+            type_name varchar(10),
+            pv_hash hll hll_union not null,
             pv_base64 hll hll_union null
         )
         AGGREGATE KEY(type_id,type_name)
