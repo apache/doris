@@ -43,16 +43,16 @@ TEST(EqForNullFunctionTest, both_only_null) {
 
     auto left_i32 = ColumnInt32::create(input_rows_count, 1);
     auto right_i32 = ColumnInt32::create(input_rows_count, 1);
-    auto null_map_for_all_null = ColumnUInt8::create(1, 1);
+    auto null_map_for_all_null = ColumnUInt8::create(input_rows_count, 1);
 
     ColumnWithTypeAndName left {
-            ColumnNullable::create(left_i32->clone_resized(1),
-                                   null_map_for_all_null->clone_resized(1)),
+            ColumnNullable::create(left_i32->clone(),
+                                   null_map_for_all_null->clone()),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
 
     ColumnWithTypeAndName right {
-            ColumnNullable::create(right_i32->clone_resized(1),
-                                   null_map_for_all_null->clone_resized(1)),
+            ColumnNullable::create(right_i32->clone(),
+                                   null_map_for_all_null->clone()),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
 
     auto return_type = std::make_shared<DataTypeUInt8>();
@@ -121,7 +121,7 @@ TEST(EqForNullFunctionTest, left_only_null_right_const) {
     auto null_map_for_all_null = ColumnUInt8::create(input_rows_count, 1);
 
     ColumnWithTypeAndName left {
-            ColumnNullable::create(left_i32->clone_resized(1), ColumnUInt8::create(1, 1)),
+            ColumnNullable::create(left_i32->clone(), ColumnUInt8::create(input_rows_count, 1)),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
     std::cout << "left only null " << left.column->only_null() << std::endl;
     ColumnWithTypeAndName right {
@@ -166,7 +166,7 @@ TEST(EqForNullFunctionTest, left_const_right_only_null) {
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
 
     ColumnWithTypeAndName right {
-            ColumnNullable::create(right_i32->clone_resized(1), ColumnUInt8::create(1, 1)),
+            ColumnNullable::create(right_i32->clone(), ColumnUInt8::create(input_rows_count, 1)),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
 
     auto return_type = std::make_shared<DataTypeUInt8>();
@@ -208,7 +208,7 @@ TEST(EqForNullFunctionTest, left_only_null_right_nullable) {
     }
 
     ColumnWithTypeAndName left {
-            ColumnNullable::create(left_i32->clone_resized(1), ColumnUInt8::create(1, 1)),
+            ColumnNullable::create(left_i32->clone(), ColumnUInt8::create(input_rows_count, 1)),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
 
     ColumnWithTypeAndName right {
@@ -255,7 +255,7 @@ TEST(EqForNullFunctionTest, left_only_null_right_not_nullable) {
     }
 
     ColumnWithTypeAndName left {
-            ColumnNullable::create(left_i32->clone_resized(1), ColumnUInt8::create(1, 1)),
+            ColumnNullable::create(left_i32->clone(), ColumnUInt8::create(input_rows_count, 1)),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
 
     ColumnWithTypeAndName right {right_i32->clone(), std::make_shared<DataTypeInt32>(), "right"};
@@ -299,8 +299,8 @@ TEST(EqForNullFunctionTest, left_nullable_right_only_null) {
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
 
     ColumnWithTypeAndName right {
-            ColumnNullable::create(right_i32->clone_resized(1),
-                                   null_map_for_all_null->clone_resized(1)),
+            ColumnNullable::create(right_i32->clone(),
+                                   null_map_for_all_null->clone()),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
 
     auto return_type = std::make_shared<DataTypeUInt8>();
@@ -345,8 +345,8 @@ TEST(EqForNullFunctionTest, left_not_nullable_right_only_null) {
     ColumnWithTypeAndName left {left_i32->clone(), std::make_shared<DataTypeInt32>(), "left"};
 
     ColumnWithTypeAndName right {
-            ColumnNullable::create(right_i32->clone_resized(1),
-                                   null_map_for_all_null->clone_resized(1)),
+            ColumnNullable::create(right_i32->clone(),
+                                   null_map_for_all_null->clone()),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
 
     auto return_type = std::make_shared<DataTypeUInt8>();
