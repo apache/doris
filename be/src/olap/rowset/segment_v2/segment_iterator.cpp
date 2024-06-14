@@ -1816,6 +1816,8 @@ void SegmentIterator::_vec_init_char_column_id(vectorized::Block* block) {
         auto cid = _schema->column_id(i);
         const Field* column_desc = _schema->column(cid);
 
+        // The additional deleted filter condition will be in the materialized column at the end of the block.
+        // After _output_column_by_sel_idx, it will be erased, so we do not need to shrink it.
         if (i < block->columns()) {
             if (_has_char_type(*column_desc)) {
                 _char_type_idx.emplace_back(i);
