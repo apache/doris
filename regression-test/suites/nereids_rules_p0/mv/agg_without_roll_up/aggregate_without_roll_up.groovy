@@ -835,7 +835,7 @@ suite("aggregate_without_roll_up") {
     order_qt_query19_3_before "${query19_3}"
     check_mv_rewrite_success(db, mv19_3, query19_3, "mv19_3")
     order_qt_query19_3_after "${query19_3}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_3"""
 
 
     // without group, scalar aggregate
