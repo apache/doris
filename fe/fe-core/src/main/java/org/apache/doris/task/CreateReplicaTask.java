@@ -266,38 +266,37 @@ public class CreateReplicaTask extends AgentTask {
         int sequenceCol = -1;
         int versionCol = -1;
         List<TColumn> tColumns = null;
-        {
-            Object value = objectPool.get(columns);
-            if (value != null) {
-                tColumns = (List<TColumn>) value;
-            } else {
-                tColumns = new ArrayList<>();
-                for (int i = 0; i < columns.size(); i++) {
-                    Column column = columns.get(i);
-                    TColumn tColumn = column.toThrift();
-                    // is bloom filter column
-                    if (bfColumns != null && bfColumns.contains(column.getName())) {
-                        tColumn.setIsBloomFilterColumn(true);
-                    }
-                    // when doing schema change, some modified column has a prefix in name.
-                    // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-                    if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
-                        tColumn.setColumnName(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
-                    }
-                    tColumn.setVisible(column.isVisible());
-                    tColumns.add(tColumn);
-                    if (column.isDeleteSignColumn()) {
-                        deleteSign = i;
-                    }
-                    if (column.isSequenceColumn()) {
-                        sequenceCol = i;
-                    }
-                    if (column.isVersionColumn()) {
-                        versionCol = i;
-                    }
+        Object value = objectPool.get(columns);
+        if (value != null) {
+            tColumns = (List<TColumn>) value;
+        } else {
+            tColumns = new ArrayList<>();
+            for (int i = 0; i < columns.size(); i++) {
+                Column column = columns.get(i);
+                TColumn tColumn = column.toThrift();
+                // is bloom filter column
+                if (bfColumns != null && bfColumns.contains(column.getName())) {
+                    tColumn.setIsBloomFilterColumn(true);
                 }
-                objectPool.put(columns, tColumns);
+                // when doing schema change, some modified column has a prefix in name.
+                // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
+                if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                    tColumn.setColumnName(
+                            column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
+                }
+                tColumn.setVisible(column.isVisible());
+                tColumns.add(tColumn);
+                if (column.isDeleteSignColumn()) {
+                    deleteSign = i;
+                }
+                if (column.isSequenceColumn()) {
+                    sequenceCol = i;
+                }
+                if (column.isVersionColumn()) {
+                    versionCol = i;
+                }
             }
+            objectPool.put(columns, tColumns);
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
