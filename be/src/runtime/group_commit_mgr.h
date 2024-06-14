@@ -41,6 +41,10 @@ class ExecEnv;
 class TUniqueId;
 class RuntimeState;
 
+namespace pipeline {
+class Dependency;
+}
+
 struct BlockData {
     BlockData(const std::shared_ptr<vectorized::Block>& block)
             : block(block), block_bytes(block->bytes()) {};
@@ -79,6 +83,7 @@ public:
                       int be_exe_version);
     Status close_wal();
     bool has_enough_wal_disk_space(size_t estimated_wal_bytes);
+    void append_dependency(std::shared_ptr<pipeline::Dependency> finish_dep);
 
     UniqueId load_instance_id;
     std::string label;
@@ -92,9 +97,9 @@ public:
 
     // the execute status of this internal group commit
     std::mutex mutex;
-    std::condition_variable internal_group_commit_finish_cv;
     bool process_finish = false;
     Status status = Status::OK();
+    std::vector<std::shared_ptr<pipeline::Dependency>> dependencies;
 
 private:
     void _cancel_without_lock(const Status& st);
