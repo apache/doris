@@ -329,8 +329,8 @@ std::vector<std::string> VIcebergTableWriter::_partition_values(
         TypeDescriptor result_type =
                 iceberg_partition_column.partition_column_transform().get_result_type();
         partition_values.emplace_back(
-                iceberg_partition_column.partition_column_transform().get_partition_value(result_type,
-                                                                                      data.get(i)));
+                iceberg_partition_column.partition_column_transform().get_partition_value(
+                        result_type, data.get(i)));
     }
 
     return partition_values;

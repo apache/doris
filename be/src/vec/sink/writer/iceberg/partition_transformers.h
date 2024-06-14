@@ -74,31 +74,28 @@ public:
     }
 
     static std::string human_month(int month_ordinal) {
-        auto ymd = std::chrono::year_month_day(
-                            std::chrono::sys_days(std::chrono::floor<std::chrono::days>(
-                                    EPOCH + std::chrono::months(month_ordinal))));
-        return fmt::format("{:04d}-{:02d}", static_cast<int>(ymd.year()), static_cast<unsigned>(ymd.month()));
+        auto ymd = std::chrono::year_month_day(std::chrono::sys_days(
+                std::chrono::floor<std::chrono::days>(EPOCH + std::chrono::months(month_ordinal))));
+        return fmt::format("{:04d}-{:02d}", static_cast<int>(ymd.year()),
+                           static_cast<unsigned>(ymd.month()));
     }
 
     static std::string human_day(int day_ordinal) {
-        auto ymd = std::chrono::year_month_day(
-                            std::chrono::sys_days(std::chrono::floor<std::chrono::days>(
-                                    EPOCH + std::chrono::days(day_ordinal))));
-        return fmt::format("{:04d}-{:02d}-{:02d}", static_cast<int>(ymd.year()), static_cast<unsigned>(ymd.month()), 
-                            static_cast<unsigned>(ymd.day()));
+        auto ymd = std::chrono::year_month_day(std::chrono::sys_days(
+                std::chrono::floor<std::chrono::days>(EPOCH + std::chrono::days(day_ordinal))));
+        return fmt::format("{:04d}-{:02d}-{:02d}", static_cast<int>(ymd.year()),
+                           static_cast<unsigned>(ymd.month()), static_cast<unsigned>(ymd.day()));
     }
-
 
     static std::string human_hour(int hour_ordinal) {
         int day_value = hour_ordinal / 24;
         int housr_value = hour_ordinal % 24;
-        auto ymd = std::chrono::year_month_day(
-                            std::chrono::sys_days(std::chrono::floor<std::chrono::days>(
-                                    EPOCH + std::chrono::days(day_value))));
-        return fmt::format("{:04d}-{:02d}-{:02d}-{:02d}", static_cast<int>(ymd.year()), static_cast<unsigned>(ymd.month()), 
-                           static_cast<unsigned>(ymd.day()), housr_value);
+        auto ymd = std::chrono::year_month_day(std::chrono::sys_days(
+                std::chrono::floor<std::chrono::days>(EPOCH + std::chrono::days(day_value))));
+        return fmt::format("{:04d}-{:02d}-{:02d}-{:02d}", static_cast<int>(ymd.year()),
+                           static_cast<unsigned>(ymd.month()), static_cast<unsigned>(ymd.day()),
+                           housr_value);
     }
-
 
 private:
     static const std::chrono::time_point<std::chrono::system_clock> EPOCH;
@@ -119,7 +116,8 @@ public:
 
     virtual std::string to_human_string(const TypeDescriptor& type, const std::any& value) const;
 
-    virtual std::string get_partition_value(const TypeDescriptor& type, const std::any& value) const;
+    virtual std::string get_partition_value(const TypeDescriptor& type,
+                                            const std::any& value) const;
 };
 
 class IdentityPartitionColumnTransform : public PartitionColumnTransform {
@@ -251,11 +249,15 @@ public:
                         column_with_type_and_name.name};
             }
         } else if (auto col_right_const = check_and_get_column_const<ColumnInt32>(column_ptr)) {
-               throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "IntegerTruncatePartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "IntegerTruncatePartitionColumnTransform  transform partition "
+                                   "error use column_pos {} ",
+                                   column_pos);
         } else {
-           throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "IntegerTruncatePartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "IntegerTruncatePartitionColumnTransform  transform partition "
+                                   "error use column_pos {} ",
+                                   column_pos);
         }
     }
 
@@ -332,7 +334,7 @@ public:
             : _source_type(source_type), _bucket_num(bucket_num), _target_type(TYPE_INT) {}
 
     std::string name() const override { return "IntBucket"; }
-    
+
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
@@ -382,7 +384,9 @@ public:
         } else {
             //assert(0);
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "IntBucketPartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
+                                   "IntBucketPartitionColumnTransform  transform partition error "
+                                   "use column_pos {} ",
+                                   column_pos);
         }
     }
 
@@ -403,7 +407,6 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
 
         ColumnPtr column_ptr;
@@ -439,7 +442,8 @@ public:
 
                 uint32_t hash_value = HashUtil::murmur_hash3_32(buffer.data(), buffer.size(), 0);
 
-                *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;;
+                *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
+                ;
                 ++p_in;
                 ++p_out;
             }
@@ -454,59 +458,63 @@ public:
                         column_with_type_and_name.name};
             }
         } else {
-           // assert(0);
+            // assert(0);
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "DecimalBucketPartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
+                                   "DecimalBucketPartitionColumnTransform  transform partition "
+                                   "error use column_pos {} ",
+                                   column_pos);
         }
     }
 
-    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override{
-         return get_partition_value(type, value);
+    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
+        return get_partition_value(type, value);
     }
 
-    std::string get_partition_value(const TypeDescriptor& type,const std::any& value)  const override{
+    std::string get_partition_value(const TypeDescriptor& type,
+                                    const std::any& value) const override {
         if (value.has_value()) {
             int bucket_indx = 0;
-             try {
-               bucket_indx = std::any_cast<Int32>(value);
-	        } catch (std::bad_any_cast& e) {
-               std::cout << "DecimalBucketPartitionColumnTransform parse value  error. "<< e.what() << std::endl;
-	        }
+            try {
+                bucket_indx = std::any_cast<Int32>(value);
+            } catch (std::bad_any_cast& e) {
+                std::cout << "DecimalBucketPartitionColumnTransform parse value  error. "
+                          << e.what() << std::endl;
+            }
             return std::to_string(bucket_indx);
         } else {
             return "null";
         }
-     }
+    }
 
- private:
+private:
     TypeDescriptor _source_type;
     int _bucket_num;
     TypeDescriptor _target_type;
- };
+};
 
- class DateBucketPartitionColumnTransform : public PartitionColumnTransform {
- public:
-     DateBucketPartitionColumnTransform(const TypeDescriptor& source_type, int bucket_num)
+class DateBucketPartitionColumnTransform : public PartitionColumnTransform {
+public:
+    DateBucketPartitionColumnTransform(const TypeDescriptor& source_type, int bucket_num)
             : _source_type(source_type), _bucket_num(bucket_num), _target_type(TYPE_INT) {}
 
     std::string name() const override { return "DateBucket"; }
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-       const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
 
-         ColumnPtr column_ptr;
-         ColumnPtr null_map_column_ptr;
-         bool is_nullable = false;
+        ColumnPtr column_ptr;
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (auto* nullable_column =
                     check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
-             is_nullable = true;
-         } else {
-             column_ptr = column_with_type_and_name.column;
-             is_nullable = false;
+            is_nullable = true;
+        } else {
+            column_ptr = column_with_type_and_name.column;
+            is_nullable = false;
         }
         if (const ColumnDateV2* col = check_and_get_column<ColumnDateV2>(column_ptr)) {
             auto col_res = ColumnInt32::create();
@@ -544,7 +552,9 @@ public:
         } else {
             //assert(0);
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "DateBucketPartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
+                                   "DateBucketPartitionColumnTransform  transform partition error "
+                                   "use column_pos {} ",
+                                   column_pos);
         }
     }
 
@@ -595,7 +605,7 @@ public:
 
                 int64_t timestamp;
                 if (!value.unix_timestamp(&timestamp, "UTC")) {
-                    LOG(WARNING) <<"Failed to call unix_timestamp :" << value.debug_string();
+                    LOG(WARNING) << "Failed to call unix_timestamp :" << value.debug_string();
                     timestamp = 0;
                 }
                 Int64 long_value = static_cast<Int64>(timestamp) * 1000000;
@@ -618,8 +628,10 @@ public:
         } else {
             //assert(0);
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "TimestampBucketPartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
-      }
+                                   "TimestampBucketPartitionColumnTransform  transform partition "
+                                   "error use column_pos {} ",
+                                   column_pos);
+        }
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -644,12 +656,10 @@ public:
             : _source_type(source_type), _bucket_num(bucket_num), _target_type(TYPE_INT) {}
 
     std::string name() const override { return "StringBucket"; }
-    
+
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-    
-        
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
 
         ColumnPtr column_ptr;
@@ -698,7 +708,9 @@ public:
         } else {
             //assert(0);
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "StringBucketPartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
+                                   "StringBucketPartitionColumnTransform  transform partition "
+                                   "error use column_pos {} ",
+                                   column_pos);
         }
     }
 
@@ -714,7 +726,7 @@ public:
             : _source_type(source_type), _target_type(TYPE_INT) {}
 
     std::string name() const override { return "DateYear"; }
-    
+
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
@@ -765,7 +777,9 @@ public:
         } else {
             //assert(0);
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "DateYearPartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
+                                   "DateYearPartitionColumnTransform  transform partition error "
+                                   "use column_pos {} ",
+                                   column_pos);
         }
     }
 
@@ -788,7 +802,7 @@ public:
             : _source_type(source_type), _target_type(TYPE_INT) {}
 
     std::string name() const override { return "TimestampYear"; }
-    
+
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
@@ -839,10 +853,11 @@ public:
         } else {
             //assert(0);
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "TimestampYearPartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
+                                   "TimestampYearPartitionColumnTransform  transform partition "
+                                   "error use column_pos {} ",
+                                   column_pos);
         }
     }
-    
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
         if (value.has_value()) {
@@ -863,7 +878,7 @@ public:
             : _source_type(source_type), _target_type(TYPE_INT) {}
 
     std::string name() const override { return "DateMonth"; }
-    
+
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
@@ -913,7 +928,9 @@ public:
         } else {
             //assert(0);
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "DateMonthPartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
+                                   "DateMonthPartitionColumnTransform  transform partition error "
+                                   "use column_pos {} ",
+                                   column_pos);
         }
     }
 
@@ -936,7 +953,7 @@ public:
             : _source_type(source_type), _target_type(TYPE_INT) {}
 
     std::string name() const override { return "TimestampMonth"; }
-    
+
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
@@ -987,7 +1004,9 @@ public:
         } else {
             //assert(0);
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "TimestampMonthPartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
+                                   "TimestampMonthPartitionColumnTransform  transform partition "
+                                   "error use column_pos {} ",
+                                   column_pos);
         }
     }
 
@@ -1010,7 +1029,7 @@ public:
             : _source_type(source_type), _target_type(TYPE_INT) {}
 
     std::string name() const override { return "DateDay"; }
-    
+
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
@@ -1043,7 +1062,8 @@ public:
                 DateV2Value<DateV2ValueType> value =
                         binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
 
-                *p_out = datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_date(), value);;
+                *p_out = datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_date(), value);
+                ;
                 ++p_in;
                 ++p_out;
             }
@@ -1059,28 +1079,32 @@ public:
             }
         } else {
             //assert(0);
-              throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "DateDayPartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "DateDayPartitionColumnTransform  transform partition error use column_pos {} ",
+                    column_pos);
         }
     }
 
-    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override{
-         return get_partition_value(type, value);
+    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
+        return get_partition_value(type, value);
     }
 
-    std::string get_partition_value(const TypeDescriptor& type,const std::any& value)  const override{
+    std::string get_partition_value(const TypeDescriptor& type,
+                                    const std::any& value) const override {
         if (value.has_value()) {
             int day_value = 0;
-             try {
-               day_value = std::any_cast<Int32>(value);
-	        } catch (std::bad_any_cast& e) {
-               std::cout << "DateDayPartitionColumnTransform parse value  error. "<< e.what() << std::endl;
-	        }
+            try {
+                day_value = std::any_cast<Int32>(value);
+            } catch (std::bad_any_cast& e) {
+                std::cout << "DateDayPartitionColumnTransform parse value  error. " << e.what()
+                          << std::endl;
+            }
             return PartitionColumnTransformUtils::human_day(day_value);
         } else {
             return "null";
         }
-     }
+    }
 
 private:
     TypeDescriptor _source_type;
@@ -1093,7 +1117,7 @@ public:
             : _source_type(source_type), _target_type(TYPE_INT) {}
 
     std::string name() const override { return "TimestampDay"; }
-    
+
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
@@ -1142,21 +1166,24 @@ public:
             }
         } else {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "TimestampDayPartitionColumnTransform  transform partition error use clolumn_pos {} ", column_pos);
+                                   "TimestampDayPartitionColumnTransform  transform partition "
+                                   "error use clolumn_pos {} ",
+                                   column_pos);
         }
     }
 
-    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const  override{
-        return get_partition_value(type,value);
+    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
+        return get_partition_value(type, value);
     }
 
-    std::string get_partition_value(const TypeDescriptor& type, const std::any& value) const  override{
+    std::string get_partition_value(const TypeDescriptor& type,
+                                    const std::any& value) const override {
         if (value.has_value()) {
             return PartitionColumnTransformUtils::human_day(std::any_cast<Int32>(value));
         } else {
             return "null";
         }
-     }
+    }
 
 private:
     TypeDescriptor _source_type;
@@ -1169,7 +1196,7 @@ public:
             : _source_type(source_type), _target_type(TYPE_INT) {}
 
     std::string name() const override { return "TimestampHour"; }
-    
+
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
@@ -1219,7 +1246,9 @@ public:
             }
         } else {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "TimestampHourPartitionColumnTransform  transform partition error use column_pos {} ", column_pos);
+                                   "TimestampHourPartitionColumnTransform  transform partition "
+                                   "error use column_pos {} ",
+                                   column_pos);
         }
     }
 
@@ -1229,8 +1258,7 @@ public:
         } else {
             return "null";
         }
-     }
-
+    }
 
 private:
     TypeDescriptor _source_type;
@@ -1243,7 +1271,7 @@ public:
             : _source_type(source_type), _target_type(source_type) {}
 
     std::string name() const override { return "Void"; }
-    
+
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {

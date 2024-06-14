@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/writer/iceberg/partition_transformers.h"
-
 #include <any>
 
 #include "vec/core/types.h"
 #include "vec/exec/format/table/iceberg/partition_spec.h"
+#include "vec/sink/writer/iceberg/partition_transformers.h"
 
 namespace doris {
 namespace vectorized {
@@ -189,19 +188,17 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
     }
 }
 
-
-std::string PartitionColumnTransform::name() const{
+std::string PartitionColumnTransform::name() const {
     return "default";
 }
 
-
 std::string PartitionColumnTransform::to_human_string(const TypeDescriptor& type,
-                                                      const std::any& value) const{
-    return get_partition_value(type,value);
+                                                      const std::any& value) const {
+    return get_partition_value(type, value);
 }
 
 std::string PartitionColumnTransform::get_partition_value(const TypeDescriptor& type,
-                                                      const std::any& value)  const{
+                                                          const std::any& value) const {
     if (value.has_value()) {
         switch (type.type) {
         case TYPE_BOOLEAN: {
@@ -224,7 +221,7 @@ std::string PartitionColumnTransform::get_partition_value(const TypeDescriptor& 
         }
         case TYPE_DOUBLE: {
             return std::to_string(std::any_cast<Float64>(value));
-        } 
+        }
         case TYPE_VARCHAR:
         case TYPE_CHAR:
         case TYPE_STRING: {
@@ -274,8 +271,6 @@ std::string PartitionColumnTransform::get_partition_value(const TypeDescriptor& 
     }
     return "null";
 }
-
-
 
 } // namespace vectorized
 } // namespace doris
