@@ -131,6 +131,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
@@ -257,6 +258,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LocalTime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LocalTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log10;
@@ -570,6 +573,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(CurrentCatalog.class, "current_catalog"),
             scalar(CurrentDate.class, "curdate", "current_date"),
             scalar(CurrentTime.class, "curtime", "current_time"),
+            scalar(CurrentTimestamp.class, "current_timestamp"),
             scalar(CurrentUser.class, "current_user"),
             scalar(Database.class, "database", "schema"),
             scalar(Date.class, "date"),
@@ -721,6 +725,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Length.class, "length"),
             scalar(Like.class, "like"),
             scalar(Ln.class, "ln"),
+            scalar(LocalTime.class, "localtime"),
+            scalar(LocalTimestamp.class, "localtimestamp"),
             scalar(Locate.class, "locate"),
             scalar(Log.class, "log"),
             scalar(Log10.class, "log10"),
@@ -767,7 +773,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Negative.class, "negative"),
             scalar(NonNullable.class, "non_nullable"),
             scalar(NotNullOrEmpty.class, "not_null_or_empty"),
-            scalar(Now.class, "now", "current_timestamp", "localtime", "localtimestamp"),
+            scalar(Now.class, "now"),
             scalar(Nullable.class, "nullable"),
             scalar(NullIf.class, "nullif"),
             scalar(NullOrEmpty.class, "null_or_empty"),

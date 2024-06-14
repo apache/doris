@@ -138,6 +138,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
@@ -260,6 +261,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LocalTime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LocalTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log10;
@@ -906,8 +909,20 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(currentTime, context);
     }
 
+    default R visitCurrentTimestamp(CurrentTimestamp currentTimestamp, C context) {
+        return visitScalarFunction(currentTimestamp, context);
+    }
+
     default R visitCurrentUser(CurrentUser currentUser, C context) {
         return visitScalarFunction(currentUser, context);
+    }
+
+    default R visitLocalTime(LocalTime localTime, C context) {
+        return visitScalarFunction(localTime, context);
+    }
+
+    default R visitLocalTimestamp(LocalTimestamp localTimestamp, C context) {
+        return visitScalarFunction(localTimestamp, context);
     }
 
     default R visitDatabase(Database database, C context) {
