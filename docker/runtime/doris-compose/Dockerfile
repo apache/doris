@@ -57,7 +57,7 @@ RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/${JACOCO_VERSION}/j
     unzip jacoco.zip -d /jacoco
 
 # cloud
-COPY cloud/CMakeLists.txt cloud/output* /opt/apache-doris/cloud/
+COPY cloud/CMakeLists.txt cloud/output* output/ms* /opt/apache-doris/cloud/
 RUN <<EOF
     mkdir /opt/apache-doris/fdb
     if [ -d /opt/apache-doris/cloud/bin ]; then
