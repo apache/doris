@@ -491,7 +491,9 @@ public:
         Handler _handler;
     };
 
-    LoadStreamMgrTest() = default;
+    LoadStreamMgrTest()
+            : _heavy_work_pool(4, 32, "load_stream_test_heavy"),
+              _light_work_pool(4, 32, "load_stream_test_light") {}
 
     void close_load(MockSinkClient& client, uint32_t sender_id = NORMAL_SENDER_ID) {
         butil::IOBuf append_buf;
@@ -602,6 +604,8 @@ public:
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(zTestDir).ok());
 
         _load_stream_mgr = std::make_unique<LoadStreamMgr>(4);
+        _load_stream_mgr->set_heavy_work_pool(&_heavy_work_pool);
+        _load_stream_mgr->set_light_work_pool(&_light_work_pool);
         _stream_service = new StreamService(_load_stream_mgr.get());
         CHECK_EQ(0, _server->AddService(_stream_service, brpc::SERVER_OWNS_SERVICE));
         brpc::ServerOptions server_options;
@@ -659,6 +663,9 @@ public:
     ExecEnv* _env;
     brpc::Server* _server;
     StreamService* _stream_service;
+
+    FifoThreadPool _heavy_work_pool;
+    FifoThreadPool _light_work_pool;
 
     std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
 };
