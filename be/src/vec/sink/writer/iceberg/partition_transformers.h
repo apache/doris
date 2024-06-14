@@ -99,7 +99,7 @@ public:
 
 private:
     static const std::chrono::time_point<std::chrono::system_clock> EPOCH;
-    PartitionColumnTransformUtils() {}
+    PartitionColumnTransformUtils() = default;
 };
 
 class PartitionColumnTransform {
