@@ -614,6 +614,7 @@ struct TLoadTxnBeginRequest {
     12: optional string token
     13: optional string auth_code_uuid
     14: optional i64 table_id
+    15: optional i64 backend_id
 }
 
 struct TLoadTxnBeginResult {
@@ -636,6 +637,7 @@ struct TBeginTxnRequest {
     9: optional i64 timeout
     10: optional Types.TUniqueId request_id
     11: optional string token
+    12: optional i64 backend_id
 }
 
 struct TBeginTxnResult {
