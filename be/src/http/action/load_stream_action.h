@@ -16,23 +16,27 @@
 // under the License.
 
 #pragma once
-#include "runtime/stream_load/stream_load_executor.h"
+
+#include <string>
+
+#include "http/http_handler.h"
+#include "util/easy_json.h"
 
 namespace doris {
+class HttpRequest;
 
-class CloudStreamLoadExecutor final : public StreamLoadExecutor {
+class ExecEnv;
+
+// Get BE load stream info from http API.
+class LoadStreamAction final : public HttpHandler {
 public:
-    CloudStreamLoadExecutor(ExecEnv* exec_env);
+    LoadStreamAction() = default;
 
-    ~CloudStreamLoadExecutor() override;
+    ~LoadStreamAction() override = default;
 
-    Status pre_commit_txn(StreamLoadContext* ctx) override;
+    void handle(HttpRequest* req) override;
 
-    Status operate_txn_2pc(StreamLoadContext* ctx) override;
-
-    Status commit_txn(StreamLoadContext* ctx) override;
-
-    void rollback_txn(StreamLoadContext* ctx) override;
+private:
+    static EasyJson _get_load_streams();
 };
-
 } // namespace doris
