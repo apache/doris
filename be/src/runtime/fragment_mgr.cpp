@@ -116,7 +116,7 @@ uint64_t get_fragment_last_active_time() {
 }
 
 std::string to_load_error_http_path(const std::string& file_name) {
-    if (config::save_error_log_to_s3) {
+    if (config::save_load_error_log_to_s3 && config::is_cloud_mode()) {
         return file_name;
     }
     if (file_name.empty()) {

@@ -437,7 +437,8 @@ std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expir
                 _client->s3_client_conf().endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
                 LEN_OF_OSS_PRIVATE_SUFFIX);
     }
-    std::shared_ptr<Aws::S3::S3Client> client = S3ClientFactory::instance().create(new_s3_conf);
+    auto client = std::dynamic_pointer_cast<Aws::S3::S3Client>(
+            S3ClientFactory::instance().create(new_s3_conf));
     DCHECK(client != nullptr);
     return client->GeneratePresignedUrl(_bucket, key, Aws::Http::HttpMethod::HTTP_GET,
                                         expiration_secs);
