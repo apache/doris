@@ -25,6 +25,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 // IWYU pragma: no_include <bits/chrono.h>
 #include <aws/core/utils/threading/Executor.h>
+#include <aws/s3/S3Client.h>
 
 #include <chrono> // IWYU pragma: keep
 #include <filesystem>
@@ -51,6 +52,9 @@
 
 namespace doris::io {
 namespace {
+constexpr std::string_view OSS_PRIVATE_ENDPOINT_SUFFIX = "-internal.aliyuncs.com";
+constexpr int LEN_OF_OSS_PRIVATE_SUFFIX = 9; // length of "-internal"
+
 #ifndef CHECK_S3_CLIENT
 #define CHECK_S3_CLIENT(client)                               \
     if (!client) {                                            \
@@ -419,6 +423,24 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
     }
 
     return Status::OK();
+}
+
+// oss has public endpoint and private endpoint, is_public_endpoint determines
+// whether to return a public endpoint.
+std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,
+                                                 bool is_public_endpoint) const {
+    std::string key = fmt::format("{}/{}", _prefix, path.native());
+    auto new_s3_conf = _client->s3_client_conf();
+    if (is_public_endpoint &&
+        _client->s3_client_conf().endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
+        new_s3_conf.endpoint.erase(
+                _client->s3_client_conf().endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
+                LEN_OF_OSS_PRIVATE_SUFFIX);
+    }
+    std::shared_ptr<Aws::S3::S3Client> client = S3ClientFactory::instance().create(new_s3_conf);
+    DCHECK(client != nullptr);
+    return client->GeneratePresignedUrl(_bucket, key, Aws::Http::HttpMethod::HTTP_GET,
+                                        expiration_secs);
 }
 
 } // namespace doris::io

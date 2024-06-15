@@ -51,6 +51,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -115,6 +116,9 @@ uint64_t get_fragment_last_active_time() {
 }
 
 std::string to_load_error_http_path(const std::string& file_name) {
+    if (config::save_error_log_to_s3) {
+        return file_name;
+    }
     if (file_name.empty()) {
         return "";
     }
