@@ -55,6 +55,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
@@ -623,9 +624,17 @@ public class OlapTableSink extends DataSink {
         TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
         // BE id -> path hash
         Multimap<Long, Long> allBePathsMap = HashMultimap.create();
-        for (Long partitionId : partitionIds) {
-            Partition partition = table.getPartition(partitionId);
-            long visibleVersion = partition.getVisibleVersion();
+        List<Partition> partitions = partitionIds.stream().map(partitionId -> table.getPartition(partitionId))
+                .collect(Collectors.toList());
+        List<Long> visibleVersions = null;
+        try {
+            visibleVersions = Partition.getVisibleVersions(partitions);
+        } catch (RpcException e) {
+            throw new UserException("OlapTableSink get partition visible version failed", e);
+        }
+        for (int i = 0; i < partitions.size(); i++) {
+            Partition partition = partitions.get(i);
+            long visibleVersion = visibleVersions.get(i);
             int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 // we should ensure the replica backend is alive
