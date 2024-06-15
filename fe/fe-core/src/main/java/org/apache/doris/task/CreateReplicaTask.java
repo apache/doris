@@ -286,17 +286,20 @@ public class CreateReplicaTask extends AgentTask {
                 }
                 tColumn.setVisible(column.isVisible());
                 tColumns.add(tColumn);
-                if (column.isDeleteSignColumn()) {
-                    deleteSign = i;
-                }
-                if (column.isSequenceColumn()) {
-                    sequenceCol = i;
-                }
-                if (column.isVersionColumn()) {
-                    versionCol = i;
-                }
             }
             objectPool.put(columns, tColumns);
+        }
+        for (int i = 0; i < columns.size(); i++) {
+            Column column = columns.get(i);
+            if (column.isDeleteSignColumn()) {
+                deleteSign = i;
+            }
+            if (column.isSequenceColumn()) {
+                sequenceCol = i;
+            }
+            if (column.isVersionColumn()) {
+                versionCol = i;
+            }
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
