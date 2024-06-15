@@ -604,8 +604,7 @@ public class OlapTableSink extends DataSink {
                 slaveLocationParam.addToTablets(new TTabletLocation(fakeTabletId,
                         slaveBe));
             } else {
-                locationParam.addToTablets(new TTabletLocation(fakeTabletId,
-                        Arrays.asList(aliveBe.get(0)))); // just one fake location is enough
+                locationParam.addToTablets(new TTabletLocation(fakeTabletId, aliveBe));
 
                 LOG.info("created dummy location tablet_id={}, be_id={}", fakeTabletId, aliveBe.get(0));
             }
