@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TScalarFunction;
 
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,8 +49,11 @@ public class ScalarFunction extends Function {
     private static final Logger LOG = LogManager.getLogger(ScalarFunction.class);
     // The name inside the binary at location_ that contains this particular
     // function. e.g. org.example.MyUdf.class.
+    @SerializedName("sn")
     private String symbolName;
+    @SerializedName("pfs")
     private String prepareFnSymbol;
+    @SerializedName("cfs")
     private String closeFnSymbol;
 
     // Only used for serialization

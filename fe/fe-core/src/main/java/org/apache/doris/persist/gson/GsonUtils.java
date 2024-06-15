@@ -114,6 +114,8 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.load.CloudBrokerLoadJob;
+import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.util.RangeUtils;
@@ -168,9 +170,15 @@ import org.apache.doris.fs.remote.dfs.JFSFileSystem;
 import org.apache.doris.fs.remote.dfs.OFSFileSystem;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
+import org.apache.doris.load.loadv2.BrokerLoadJob;
+import org.apache.doris.load.loadv2.BulkLoadJob;
+import org.apache.doris.load.loadv2.InsertLoadJob;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
+import org.apache.doris.load.loadv2.MiniLoadJob;
 import org.apache.doris.load.loadv2.MiniLoadTxnCommitAttachment;
+import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.KafkaProgress;
@@ -569,6 +577,16 @@ public class GsonUtils {
                     .registerSubtype(NumericLiteralExpr.class, NumericLiteralExpr.class.getSimpleName())
                     .registerSubtype(PlaceHolderExpr.class, PlaceHolderExpr.class.getSimpleName());
 
+    private static RuntimeTypeAdapterFactory<LoadJob> loadJobTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(LoadJob.class, "clazz")
+            .registerSubtype(BrokerLoadJob.class, BrokerLoadJob.class.getSimpleName())
+            .registerSubtype(BulkLoadJob.class, BulkLoadJob.class.getSimpleName())
+            .registerSubtype(CloudBrokerLoadJob.class, CloudBrokerLoadJob.class.getSimpleName())
+            .registerSubtype(CopyJob.class, CopyJob.class.getSimpleName())
+            .registerSubtype(InsertLoadJob.class, InsertLoadJob.class.getSimpleName())
+            .registerSubtype(MiniLoadJob.class, MiniLoadJob.class.getSimpleName())
+            .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
@@ -603,6 +621,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(jobBackupTypeAdapterFactory)
             .registerTypeAdapterFactory(tableTypeAdapterFactory)
             .registerTypeAdapterFactory(literalExprAdapterFactory)
+            .registerTypeAdapterFactory(loadJobTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())

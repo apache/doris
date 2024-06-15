@@ -36,12 +36,12 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -108,6 +108,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     @SerializedName(value = "replicaQuotaSize")
     private volatile long replicaQuotaSize;
 
+    @SerializedName(value = "tq")
     private volatile long transactionQuotaSize;
 
     private volatile boolean isDropped;
@@ -124,6 +125,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     @SerializedName(value = "dbProperties")
     private DatabaseProperty dbProperties = new DatabaseProperty();
 
+    @SerializedName(value = "bc")
     private BinlogConfig binlogConfig = new BinlogConfig();
 
     public Database() {
@@ -587,9 +589,23 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public static Database read(DataInput in) throws IOException {
-        Database db = new Database();
-        db.readFields(in);
-        return db;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            Database db = new Database();
+            db.readFields(in);
+            return db;
+        } else {
+            Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+            db.fullQualifiedName = ClusterNamespace.getNameFromFullName(db.fullQualifiedName);
+            db.nameToTable.forEach((tn, tb) -> {
+                tb.setQualifiedDbName(db.fullQualifiedName);
+                if (tb instanceof MTMV) {
+                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) tb, db.id);
+                }
+                db.idToTable.put(tb.getId(), tb);
+                db.lowerCaseToTableName.put(tn.toLowerCase(), tn);
+            });
+            return db;
+        }
     }
 
     @Override
@@ -605,32 +621,15 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeLong(id);
-        Text.writeString(out, ClusterNamespace.getNameFromFullName(fullQualifiedName));
-        // write tables
         discardHudiTable();
-        int numTables = nameToTable.size();
-        out.writeInt(numTables);
-        for (Map.Entry<String, Table> entry : nameToTable.entrySet()) {
-            entry.getValue().write(out);
-        }
-
-        out.writeLong(dataQuotaBytes);
-        Text.writeString(out, SystemInfoService.DEFAULT_CLUSTER);
-        Text.writeString(out, dbState.name());
-        Text.writeString(out, attachDbName);
-
-        // write functions
-        FunctionUtil.write(out, name2Function);
-
-        // write encryptKeys
-        dbEncryptKey.write(out);
-
-        out.writeLong(replicaQuotaSize);
-        dbProperties.write(out);
+        String json = GsonUtils.GSON.toJson(this);
+        JsonObject jsonObject = GsonUtils.GSON.fromJson(json, JsonObject.class);
+        String fqn = ClusterNamespace.getNameFromFullName(jsonObject.get("fullQualifiedName").getAsString());
+        jsonObject.remove("fullQualifiedName");
+        jsonObject.addProperty("fullQualifiedName", fqn);
+        Text.writeString(out, GsonUtils.GSON.toJson(jsonObject));
     }
+
 
     private void discardHudiTable() {
         Iterator<Entry<String, Table>> iterator = nameToTable.entrySet().iterator();
@@ -650,6 +649,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

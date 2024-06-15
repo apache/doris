@@ -18,6 +18,8 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.cloud.proto.Cloud.RLTaskTxnCommitAttachmentPB;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
@@ -147,15 +149,10 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(filteredRows);
-        out.writeLong(loadedRows);
-        out.writeLong(unselectedRows);
-        out.writeLong(receivedBytes);
-        out.writeLong(taskExecutionTimeMs);
-        progress.write(out);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         filteredRows = in.readLong();

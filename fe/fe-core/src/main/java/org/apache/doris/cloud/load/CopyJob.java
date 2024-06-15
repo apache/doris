@@ -48,6 +48,7 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
@@ -81,10 +82,13 @@ public class CopyJob extends CloudBrokerLoadJob {
     @Getter
     private ObjectInfo objectInfo;
     @Getter
+    @SerializedName("cid")
     private String copyId;
     @Getter
     private boolean forceCopy;
+    @SerializedName("lfp")
     private String loadFilePaths = "";
+    @SerializedName("prop")
     private Map<String, String> properties = new HashMap<>();
     private volatile boolean abortedCopy = false;
     private boolean isReplay = false;

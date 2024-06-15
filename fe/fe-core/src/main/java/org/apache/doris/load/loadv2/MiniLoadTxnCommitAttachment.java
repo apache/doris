@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
@@ -54,18 +55,10 @@ public class MiniLoadTxnCommitAttachment extends TxnCommitAttachment {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(filteredRows);
-        out.writeLong(loadedRows);
-        if (errorLogUrl == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, errorLogUrl);
-        }
-
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         filteredRows = in.readLong();

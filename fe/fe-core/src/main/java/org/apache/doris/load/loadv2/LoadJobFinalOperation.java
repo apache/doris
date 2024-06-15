@@ -21,6 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
@@ -55,8 +56,11 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
     @SerializedName(value = "fm")
     private FailMsg failMsg;
     // only used for copy into
+    @SerializedName(value = "cid")
     private String copyId = "";
+    @SerializedName(value = "lfp")
     private String loadFilePaths = "";
+    @SerializedName(value = "prop")
     private Map<String, String> properties = new HashMap<>();
 
     public LoadJobFinalOperation() {
@@ -126,25 +130,14 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(id);
-        loadingStatus.write(out);
-        out.writeInt(progress);
-        out.writeLong(loadStartTimestamp);
-        out.writeLong(finishTimestamp);
-        Text.writeString(out, jobState.name());
-        if (failMsg == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            failMsg.write(out);
-        }
-        Text.writeString(out, copyId);
-        Text.writeString(out, loadFilePaths);
-        Gson gson = new Gson();
-        Text.writeString(out, properties == null ? "" : gson.toJson(properties));
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    public static LoadJobFinalOperation read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), LoadJobFinalOperation.class);
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         id = in.readLong();

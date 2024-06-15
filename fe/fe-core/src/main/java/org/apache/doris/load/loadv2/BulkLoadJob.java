@@ -58,6 +58,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -81,10 +82,12 @@ public abstract class BulkLoadJob extends LoadJob {
     private static final Logger LOG = LogManager.getLogger(BulkLoadJob.class);
 
     // input params
+    @SerializedName("bd")
     protected BrokerDesc brokerDesc;
     // this param is used to persist the expr of columns
     // the origin stmt is persisted instead of columns expr
     // the expr of columns will be reanalyzed when the log is replayed
+    @SerializedName("os")
     private OriginStatement originStmt;
 
     // include broker desc and data desc
@@ -93,6 +96,7 @@ public abstract class BulkLoadJob extends LoadJob {
 
     // sessionVariable's name -> sessionVariable's value
     // we persist these sessionVariables due to the session is not available when replaying the job.
+    @SerializedName("sv")
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
     public BulkLoadJob(EtlJobType jobType) {

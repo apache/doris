@@ -121,20 +121,26 @@ public class SparkLoadJob extends BulkLoadJob {
 
     // --- members below need persist ---
     // create from resourceDesc when job created
+    @SerializedName("sr")
     private SparkResource sparkResource;
     // members below updated when job state changed to etl
+    @SerializedName("est")
     private long etlStartTimestamp = -1;
     // for spark yarn
+    @SerializedName("appid")
     private String appId = "";
     // spark job outputPath
+    @SerializedName("eop")
     private String etlOutputPath = "";
     // members below updated when job state changed to loading
     // { tableId.partitionId.indexId.bucket.schemaHash -> (etlFilePath, etlFileSize) }
+    @SerializedName("tmf")
     private Map<String, Pair<String, Long>> tabletMetaToFileInfo = Maps.newHashMap();
 
     // --- members below not persist ---
     private ResourceDesc resourceDesc;
     // for spark standalone
+    @SerializedName("slah")
     private SparkLoadAppHandle sparkLoadAppHandle = new SparkLoadAppHandle();
     // for straggler wait long time to commit transaction
     private long quorumFinishTimestamp = -1;

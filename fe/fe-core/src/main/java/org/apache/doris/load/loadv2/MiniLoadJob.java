@@ -26,6 +26,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -38,6 +39,7 @@ import java.util.Set;
 public class MiniLoadJob extends LoadJob {
     private static final Logger LOG = LogManager.getLogger(MiniLoadJob.class);
 
+    @SerializedName("tn")
     private String tableName;
 
     private long tableId;

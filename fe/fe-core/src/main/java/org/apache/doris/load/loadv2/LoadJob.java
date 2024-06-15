@@ -90,28 +90,41 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public static final String DPP_ABNORMAL_ALL = "dpp.abnorm.ALL";
     public static final String UNSELECTED_ROWS = "unselected.rows";
 
+    @SerializedName("id")
     protected long id;
     // input params
+    @SerializedName("dbid")
     protected long dbId;
+    @SerializedName("l")
     protected String label;
+    @SerializedName("st")
     protected JobState state = JobState.PENDING;
+    @SerializedName("t")
     protected EtlJobType jobType;
     // the auth info could be null when load job is created before commit named 'Persist auth info in load job'
+    @SerializedName("ai")
     protected AuthorizationInfo authorizationInfo;
 
+    @SerializedName("ct")
     protected long createTimestamp = System.currentTimeMillis();
+    @SerializedName("lt")
     protected long loadStartTimestamp = -1;
+    @SerializedName("ft")
     protected long finishTimestamp = -1;
 
+    @SerializedName("tid")
     protected long transactionId;
+    @SerializedName("msg")
     protected FailMsg failMsg;
     protected Map<Long, LoadTask> idToTasks = Maps.newConcurrentMap();
     protected Set<Long> finishedTaskIds = Sets.newHashSet();
+    @SerializedName("lst")
     protected EtlStatus loadingStatus = new EtlStatus();
     // 0: the job status is pending
     // n/100: n is the number of task which has been finished
     // 99: all of tasks have been finished
     // 100: txn status is visible and load has been finished
+    @SerializedName("pg")
     protected int progress;
 
     // non-persistence
@@ -127,6 +140,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected LoadStatistic loadStatistic = new LoadStatistic();
 
     // This map is used to save job property.
+    @SerializedName("jp")
     private Map<String, Object> jobProperties = Maps.newHashMap();
 
     // only for persistence param. see readFields() for usage
@@ -134,8 +148,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected List<ErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
 
+    @SerializedName("ui")
     protected UserIdentity userInfo = UserIdentity.UNKNOWN;
 
+    @SerializedName("cm")
     protected String comment = "";
 
     protected List<TPipelineWorkloadGroup> tWorkloadGroups = null;

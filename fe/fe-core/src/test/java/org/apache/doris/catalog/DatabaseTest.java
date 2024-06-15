@@ -244,12 +244,18 @@ public class DatabaseTest {
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         Database rDb1 = new Database();
-        rDb1.readFields(dis);
+        rDb1 = Database.read(dis);
         Assert.assertEquals(rDb1, db1);
 
+        Assert.assertEquals(db1.getClass(), Database.class);
+        Assert.assertEquals(rDb1.getClass(), Database.class);
+
         Database rDb2 = new Database();
-        rDb2.readFields(dis);
+        rDb2 = Database.read(dis);
         Assert.assertEquals(rDb2, db2);
+
+        Assert.assertEquals(db2.getClass(), Database.class);
+        Assert.assertEquals(rDb2.getClass(), Database.class);
 
         // 3. delete files
         dis.close();

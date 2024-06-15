@@ -18,11 +18,15 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -34,8 +38,11 @@ import java.util.Map;
  */
 public abstract class PersistentFileSystem implements FileSystem, Writable {
     public static final String STORAGE_TYPE = "_DORIS_STORAGE_TYPE_";
+    @SerializedName("prop")
     protected Map<String, String> properties = Maps.newHashMap();
+    @SerializedName("n")
     protected String name;
+    @SerializedName("t")
     protected StorageBackend.StorageType type;
 
     public boolean needFullPath() {
@@ -67,30 +74,28 @@ public abstract class PersistentFileSystem implements FileSystem, Writable {
      * @return file systerm
      */
     public static RemoteFileSystem read(DataInput in) throws IOException {
-        String name = Text.readString(in);
-        Map<String, String> properties = Maps.newHashMap();
-        StorageBackend.StorageType type = StorageBackend.StorageType.BROKER;
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            properties.put(key, value);
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            String name = Text.readString(in);
+            Map<String, String> properties = Maps.newHashMap();
+            StorageBackend.StorageType type = StorageBackend.StorageType.BROKER;
+            int size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                String key = Text.readString(in);
+                String value = Text.readString(in);
+                properties.put(key, value);
+            }
+            if (properties.containsKey(STORAGE_TYPE)) {
+                type = StorageBackend.StorageType.valueOf(properties.get(STORAGE_TYPE));
+                properties.remove(STORAGE_TYPE);
+            }
+            return FileSystemFactory.get(name, type, properties);
+        } else {
+            PersistentFileSystem fs = GsonUtils.GSON.fromJson(Text.readString(in), PersistentFileSystem.class);
+            return FileSystemFactory.get(fs.name, fs.type, fs.properties);
         }
-        if (properties.containsKey(STORAGE_TYPE)) {
-            type = StorageBackend.StorageType.valueOf(properties.get(STORAGE_TYPE));
-            properties.remove(STORAGE_TYPE);
-        }
-        return FileSystemFactory.get(name, type, properties);
     }
 
     public void write(DataOutput out) throws IOException {
-        // must write type first
-        Text.writeString(out, name);
-        properties.put(STORAGE_TYPE, type.name());
-        out.writeInt(properties.size());
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 }
