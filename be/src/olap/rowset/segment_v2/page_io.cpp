@@ -151,6 +151,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     }
 
     // hold compressed page at first, reset to decompressed page later
+    // Potential mem alloc expcetion.
     std::unique_ptr<DataPage> page = std::make_unique<DataPage>(page_size, page_mem_tracker);
     Slice page_slice(page->data(), page_size);
     {
