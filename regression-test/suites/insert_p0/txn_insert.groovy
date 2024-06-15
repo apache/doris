@@ -142,7 +142,7 @@ suite("txn_insert") {
         if (use_nereids_planner) {
             sql """ insert into ${table}_0 select * from $table; """
             sql """ insert into ${table}_1 select * from $table; """
-            sql """ insert into ${table}_2 select * from ${table}_0; """
+            sql """ with cte1 as (select * from ${table}_0) insert into ${table}_2 select * from cte1; """
         } else {
             test {
                 sql """ insert into ${table}_0 select * from $table; """

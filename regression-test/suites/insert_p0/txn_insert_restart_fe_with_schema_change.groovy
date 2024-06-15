@@ -45,8 +45,9 @@ suite("txn_insert_restart_fe_with_schema_change") {
     options.setFeNum(2)
     options.enableDebugPoints()
     options.feConfigs.add('publish_wait_time_second=-1')
+    options.feConfigs.add('commit_timeout_second=10')
     options.feConfigs.add('sys_log_verbose_modules=org.apache.doris')
-    options.beConfigs.add('sys_log_verbose_modules=*')
+    // options.beConfigs.add('sys_log_verbose_modules=*')
     options.beConfigs.add('enable_java_support=false')
     docker(options) {
         // ---------- test restart fe ----------

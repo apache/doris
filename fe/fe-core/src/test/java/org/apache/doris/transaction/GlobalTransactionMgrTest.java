@@ -71,6 +71,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -916,13 +917,18 @@ public class GlobalTransactionMgrTest {
         checkTableVersion(table2, 1, 2);
 
         // finish transaction
-        DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState, allBackends);
-        List<PublishVersionTask> publishVersionTasks = transactionState.getPublishVersionTasks()
-                .get(CatalogTestUtil.testBackendId1).stream()
-                .filter(t -> t.getTransactionId() == subTransactionStates.get(2).getSubTransactionId())
-                .collect(Collectors.toList());
-        Assert.assertEquals(1, publishVersionTasks.size());
-        publishVersionTasks.get(0).getErrorTablets().add(CatalogTestUtil.testTabletId1);
+        Map<String, Map<Long, Long>> keyToSuccessTablets = new HashMap<>();
+        DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets, allBackends,
+                transactionState.getSubTransactionStates().get(0).getSubTransactionId(), CatalogTestUtil.testTabletId1,
+                14);
+        DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets, allBackends,
+                transactionState.getSubTransactionStates().get(1).getSubTransactionId(), CatalogTestUtil.testTabletId2,
+                13);
+        DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets,
+                Lists.newArrayList(CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3),
+                transactionState.getSubTransactionStates().get(2).getSubTransactionId(), CatalogTestUtil.testTabletId1,
+                15);
+        DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState, allBackends, keyToSuccessTablets);
         Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
         Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, partitionVisibleVersions,
@@ -1021,24 +1027,19 @@ public class GlobalTransactionMgrTest {
 
             // master finish the transaction failed
             FakeEnv.setEnv(masterEnv);
-            DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState, allBackends);
-
-            // backend2 publish failed
-            List<PublishVersionTask> publishVersionTasks = transactionState.getPublishVersionTasks()
-                    .get(CatalogTestUtil.testBackendId2).stream()
-                    .filter(t -> t.getTransactionId() == subTransactionStates.get(0).getSubTransactionId())
-                    .collect(Collectors.toList());
-            Assert.assertEquals(1, publishVersionTasks.size());
-            PublishVersionTask publishVersionTask = publishVersionTasks.get(0);
-            publishVersionTask.getErrorTablets().add(CatalogTestUtil.testTabletId1);
-            // backend3 publish failed
-            publishVersionTasks = transactionState.getPublishVersionTasks()
-                    .get(CatalogTestUtil.testBackendId3).stream()
-                    .filter(t -> t.getTransactionId() == subTransactionStates.get(0).getSubTransactionId())
-                    .collect(Collectors.toList());
-            Assert.assertEquals(1, publishVersionTasks.size());
-            PublishVersionTask publishVersionTask2 = publishVersionTasks.get(0);
-            publishVersionTask2.getErrorTablets().add(CatalogTestUtil.testTabletId1);
+            Map<String, Map<Long, Long>> keyToSuccessTablets = new HashMap<>();
+            // backend2, backend3 publish failed
+            DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1),
+                    transactionState.getSubTransactionStates().get(0).getSubTransactionId(),
+                    CatalogTestUtil.testTabletId1, 14);
+            DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets, allBackends,
+                    transactionState.getSubTransactionStates().get(1).getSubTransactionId(), CatalogTestUtil.testTabletId2,
+                    13);
+            DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets, allBackends,
+                    transactionState.getSubTransactionStates().get(2).getSubTransactionId(),
+                    CatalogTestUtil.testTabletId1, 15);
+            DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState, allBackends, keyToSuccessTablets);
             LOG.info("publish tasks: {}", transactionState.getPublishVersionTasks());
             // finish transaction
             Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
@@ -1057,10 +1058,13 @@ public class GlobalTransactionMgrTest {
             checkTableVersion(table2, 1, 2);
 
             // backend2 publish success (tabletId to version map)
-            Map<Long, Long> backend2SuccTablets = Maps.newHashMap();
-            backend2SuccTablets.put(CatalogTestUtil.testTabletId1, 0L);
-            publishVersionTask.setSuccTablets(backend2SuccTablets);
-            publishVersionTask.getErrorTablets().clear();
+            List<PublishVersionTask> publishVersionTasks = transactionState.getPublishVersionTasks()
+                    .get(CatalogTestUtil.testBackendId2).stream()
+                    .filter(t -> t.getTransactionId() == subTransactionStates.get(0).getSubTransactionId())
+                    .collect(Collectors.toList());
+            Assert.assertEquals(1, publishVersionTasks.size());
+            PublishVersionTask publishVersionTask = publishVersionTasks.get(0);
+            publishVersionTask.setSuccTablets(ImmutableMap.of(CatalogTestUtil.testTabletId1, 100L));
             masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, partitionVisibleVersions,
                     backendPartitions);
             Assert.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
