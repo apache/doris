@@ -1998,6 +1998,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         TStorageMedium realStorageMedium = null;
+        Map<Object, Object> objectPool = new HashMap<Object, Object>();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
             long indexId = entry.getKey();
             MaterializedIndex index = entry.getValue();
@@ -2046,7 +2047,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                             tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             tbl.getTimeSeriesCompactionLevelThreshold(),
-                            tbl.storeRowColumn(), binlogConfig);
+                            tbl.storeRowColumn(), binlogConfig, objectPool);
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexStorageFormat(tbl.getInvertedIndexStorageFormat());
