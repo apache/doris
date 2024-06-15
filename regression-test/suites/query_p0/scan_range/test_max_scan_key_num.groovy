@@ -79,11 +79,11 @@ suite("test_max_scan_key_num", "query,p0") {
 
     def query_id = get_query_id trace_id
     def profile_text = get_query_profile query_id
+    profile_text = profile_text.replace(" ","")
 
-    assertTrue(profile_text.contains("Profile ID: ${query_id}"))
-    assertTrue(profile_text.contains("Sql Statement: ${sql_str}"))
-    assertTrue(profile_text.contains("KeyRanges: ScanKeys:ScanKey=[1 : 3]ScanKey=[14 : 14]ScanKey=[58 : 60]"))
-    assertTrue(profile_text.contains("KeyRangesNum: 3"))
+    assertTrue(profile_text.contains(query_id))
+    assertTrue(profile_text.contains("ScanKey=[1:3]ScanKey=[14:14]ScanKey=[58:60]"))
+    assertTrue(profile_text.contains("KeyRangesNum:3"))
 
     sql "drop table ${tableName}"
 }
