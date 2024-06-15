@@ -2528,6 +2528,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             olapTable.setEstimatePartitionSize(estimatePartitionSize);
         }
 
+        String secondKey = PropertyAnalyzer.analyzeSecondKey(properties, "");
+        olapTable.setSecondKey(secondKey);
+
         // set in memory
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY,
                 false);

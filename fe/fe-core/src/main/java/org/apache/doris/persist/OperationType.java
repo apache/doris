@@ -413,6 +413,8 @@ public class OperationType {
 
     public static final short OP_ALTER_ROLE = 475;
 
+    public static final short OP_MODIFY_SECOND_KEY = 476;
+
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
     @Deprecated

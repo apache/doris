@@ -1492,6 +1492,7 @@ public class OlapScanNode extends ScanNode {
             keyColumnTypes.clear();
         }
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
+        msg.olap_scan_node.setSecondKey(olapTable.getSecondKeyList());
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
         msg.olap_scan_node.setIndexesDesc(indexDesc);
         if (selectedIndexId != -1) {

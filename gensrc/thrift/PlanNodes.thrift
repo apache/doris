@@ -748,6 +748,7 @@ struct TOlapScanNode {
   16: optional list<i32> distribute_column_ids
   17: optional i32 schema_version
   18: optional list<i32> topn_filter_source_node_ids //deprecated, move to TPlanNode.106
+  19: optional list<string> second_key
 }
 
 struct TEqJoinCondition {
@@ -1192,9 +1193,9 @@ enum TMinMaxRuntimeFilterType {
 
 struct TTopnFilterDesc {
   // topn node id
-  1: required i32 source_node_id 
+  1: required i32 source_node_id
   2: required bool is_asc
-  3: required bool null_first 
+  3: required bool null_first
   // scan node id -> expr on scan node
   4: required map<Types.TPlanNodeId, Exprs.TExpr> target_node_id_to_target_expr
 }

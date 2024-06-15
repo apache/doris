@@ -815,6 +815,7 @@ public class EditLog {
                 case OperationType.OP_DYNAMIC_PARTITION:
                 case OperationType.OP_MODIFY_TABLE_PROPERTIES:
                 case OperationType.OP_UPDATE_BINLOG_CONFIG:
+                case OperationType.OP_MODIFY_SECOND_KEY:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
                     env.replayModifyTableProperty(opCode, log);
@@ -2001,6 +2002,10 @@ public class EditLog {
 
     public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {
         logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES, info);
+    }
+
+    public void logModifySecondKey(ModifyTablePropertyOperationLog tableInfo) {
+        logEdit(OperationType.OP_MODIFY_SECOND_KEY, tableInfo);
     }
 
     public void logIndexChangeJob(IndexChangeJob indexChangeJob) {

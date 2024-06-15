@@ -288,6 +288,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return this.tableProperty;
     }
 
+    public void setSecondKey(String secondKey) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_SECOND_KEY, secondKey);
+        tableProperty.buildSecondKey();
+    }
+
+    public List<String> getSecondKeyList() {
+        if (tableProperty != null) {
+            return tableProperty.getSecondKeyList();
+        }
+        return Collections.emptyList();
+    }
+
     public boolean dynamicPartitionExists() {
         return tableProperty != null
                 && tableProperty.getDynamicPartitionProperty() != null

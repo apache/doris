@@ -452,6 +452,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Column does not exists: " + dropColName);
             }
         }
+        olapTable.getSecondKeyList().remove(dropColName);
         return lightSchemaChange;
     }
 
@@ -1909,6 +1910,10 @@ public class SchemaChangeHandler extends AlterHandler {
                         return;
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                         olapTable.setStoragePolicy(properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
+                        return;
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SECOND_KEY)
+                            && alterClause instanceof ModifyTablePropertiesClause) {
+                        Env.getCurrentEnv().modifySecondKey(db, olapTable, properties);
                         return;
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE)) {
                         lightSchemaChange = Boolean.parseBoolean(

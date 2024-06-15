@@ -150,6 +150,12 @@ Status OlapScanLocalState::_init_profile() {
 
 Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
     SCOPED_TIMER(_process_conjunct_timer);
+    auto& p = _parent->cast<OlapScanOperatorX>();
+    if (p._olap_scan_node.__isset.second_key && !p._olap_scan_node.second_key.empty()) {
+        for (const auto& key: p._olap_scan_node.second_key) {
+            _second_key.emplace(key);
+        }
+    }
     RETURN_IF_ERROR(ScanLocalState::_process_conjuncts(state));
     if (ScanLocalState::_eos) {
         return Status::OK();
@@ -168,7 +174,9 @@ bool OlapScanLocalState::_is_key_column(const std::string& key_name) {
          p._olap_scan_node.enable_unique_key_merge_on_write)) {
         return true;
     }
-
+    if (_second_key.find(key_name) != _second_key.end()) {
+        return true;
+    }
     auto res = std::find(p._olap_scan_node.key_column_name.begin(),
                          p._olap_scan_node.key_column_name.end(), key_name);
     return res != p._olap_scan_node.key_column_name.end();
