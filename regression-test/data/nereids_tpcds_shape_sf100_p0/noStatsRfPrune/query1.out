@@ -23,12 +23,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = ctr1.ctr_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ctr_store_sk]
 ------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashJoin[INNER_JOIN] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=()
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF2
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[customer]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=()
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF2
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[customer]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------filter((store.s_state = 'SD'))
@@ -37,6 +38,5 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------hashAgg[LOCAL]
 --------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

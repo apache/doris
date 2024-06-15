@@ -17,14 +17,21 @@
 
 suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
         def file_formats = ["parquet", "orc"]
+        setHivePrefix(hivePrefix)
         def generateSrcDDLForCTAS = { String file_format, String catalog_name ->
             sql """ switch `${catalog_name}` """
             sql """ create database if not exists `test_ctas` """;
             sql """ switch internal """
             sql """ create database if not exists test_ctas_olap """;
             sql """ use internal.test_ctas_olap """
+            sql """ DROP TABLE IF EXISTS internal.test_ctas_olap.unpart_ctas_olap_src """
             sql """
                 CREATE TABLE `unpart_ctas_olap_src` (
                     `col1` INT COMMENT 'col1',
@@ -42,7 +49,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 (2, 'another string value for col2'),
                 (3, 'yet another string value for col2'); 
             """
-
+            sql """ DROP TABLE IF EXISTS internal.test_ctas_olap.part_ctas_olap_src """
             sql """
                 CREATE TABLE `part_ctas_olap_src`(
                     `col1` INT COMMENT 'col1',
@@ -69,6 +76,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
             """
 
             sql """ use `${catalog_name}`.`test_ctas` """
+            sql """ DROP TABLE IF EXISTS `test_ctas`.unpart_ctas_src """
             sql """
                 CREATE TABLE `unpart_ctas_src`(
                   `col1` INT COMMENT 'col1',
@@ -85,6 +93,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 (3, 'yet another string value for col2'); 
             """
 
+            sql """ DROP TABLE IF EXISTS `test_ctas`.part_ctas_src """
             sql """
                 CREATE TABLE `part_ctas_src`(
                   `col1` INT COMMENT 'col1',
@@ -122,6 +131,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
             try {
                 sql """ switch `${catalog_name}` """
                 sql """ use test_ctas """
+                String db = "test_ctas"
                 // 1. external to external un-partitioned table
                 sql """ CREATE TABLE hive_ctas1 ENGINE=hive AS SELECT col1 FROM unpart_ctas_src; 
                 """
@@ -132,6 +142,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 """
 
                 order_qt_ctas_01 """ SELECT * FROM hive_ctas1 """
+                order_qt_hive_docker_ctas_01 """ SELECT * FROM ${db}.hive_ctas1 """
                 sql """ DROP TABLE hive_ctas1 """
 
                 // 2. external to external un-partitioned table with columns
@@ -143,6 +154,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """ INSERT OVERWRITE TABLE hive_ctas2 SELECT col1 FROM unpart_ctas_src WHERE col1 > 1;
                 """
                 order_qt_ctas_02 """ SELECT * FROM hive_ctas2  """
+                order_qt_hive_docker_ctas_02 """ SELECT * FROM ${db}.hive_ctas2 """
                 sql """ DROP TABLE hive_ctas2 """
 
                 // 3. external to external partitioned table
@@ -154,6 +166,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """ INSERT OVERWRITE TABLE hive_ctas3 SELECT col1,pt1,pt2 FROM part_ctas_src WHERE col1>=22;
                 """
                 order_qt_ctas_03 """ SELECT * FROM hive_ctas3  """
+                order_qt_hive_docker_ctas_03 """ SELECT * FROM ${db}.hive_ctas3 """
                 sql """ DROP TABLE hive_ctas3 """
 
                 sql """ CREATE TABLE hive_ctas4 AS SELECT * FROM part_ctas_src WHERE col1>0;
@@ -163,7 +176,8 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 """
                 sql """ INSERT OVERWRITE TABLE hive_ctas4 SELECT * FROM part_ctas_src WHERE col1>=22;
                 """
-                order_qt_ctas_04 """ SELECT * FROM ${catalog_name}.test_ctas.hive_ctas4  """
+                order_qt_ctas_04 """ SELECT * FROM ${catalog_name}.test_ctas.hive_ctas4 """
+                order_qt_hive_docker_ctas_04 """ SELECT * FROM ${db}.hive_ctas4 """
                 sql """ DROP TABLE hive_ctas4 """
 
                 // 4. external to external partitioned table with partitions and cols
@@ -176,6 +190,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """ INSERT OVERWRITE TABLE hive_ctas5 SELECT col1,pt1,pt2 FROM part_ctas_src WHERE col1>=22;
                 """
                 order_qt_ctas_05 """ SELECT * FROM hive_ctas5  """
+                order_qt_hive_docker_ctas_05 """ SELECT * FROM ${db}.hive_ctas5 """
                 sql """ DROP TABLE hive_ctas5 """
 
                 sql """ CREATE TABLE hive_ctas6 PARTITION BY LIST (pt1, pt2) ()
@@ -186,7 +201,8 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 """
                 sql """ INSERT OVERWRITE TABLE hive_ctas6 SELECT * FROM part_ctas_src WHERE col1>=22;
                 """
-                order_qt_ctas_06 """ SELECT * FROM ${catalog_name}.test_ctas.hive_ctas6  """
+                order_qt_ctas_06 """ SELECT * FROM ${catalog_name}.test_ctas.hive_ctas6 """
+                order_qt_hive_docker_ctas_06 """ SELECT * FROM ${db}.hive_ctas6 """
                 sql """ DROP TABLE hive_ctas6 """
 
             } finally {
@@ -212,6 +228,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                     )
                     """;
                 sql """ use `${catalog_name}`.`test_ctas_ex` """
+                String db = "test_ctas_ex"
 
                 // 1. external to external un-partitioned table
                 sql """ DROP TABLE IF EXISTS ${catalog_name}.test_ctas_ex.hive_ctas1 """
@@ -229,6 +246,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                         SELECT col1 FROM test_ctas.unpart_ctas_src WHERE col1 > 1;
                     """
                 order_qt_ctas_ex01 """ SELECT * FROM hive_ctas1 """
+                order_qt_hive_docker_ctas_ex01 """ SELECT * FROM ${db}.hive_ctas1 """
                 sql """ DROP TABLE hive_ctas1 """
 
                 // 2. external to external partitioned table
@@ -252,6 +270,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                         SELECT pt1,col1 FROM test_ctas.part_ctas_src WHERE col1>=22;
                     """
                 order_qt_ctas_ex02 """ SELECT * FROM hive_ctas2  """
+                order_qt_hive_docker_ctas_ex02 """ SELECT * FROM ${db}.hive_ctas2 """
                 sql """ DROP TABLE hive_ctas2 """
 
                 // 3. internal to external un-partitioned table
@@ -271,6 +290,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                         SELECT col2 FROM internal.test_ctas_olap.unpart_ctas_olap_src;
                 """
                 order_qt_ctas_03 """ SELECT * FROM ctas_o1  """
+                order_qt_hive_docker_ctas_ex03 """ SELECT * FROM ${db}.ctas_o1 """
                 sql """ DROP TABLE ctas_o1 """
 
                 // 4. internal to external partitioned table
@@ -294,6 +314,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                         SELECT pt1,col1 FROM internal.test_ctas_olap.part_ctas_olap_src;
                 """
                 order_qt_ctas_04 """ SELECT * FROM ctas_o2  """
+                order_qt_hive_docker_ctas_ex04 """ SELECT * FROM ${db}.ctas_o2 """
                 sql """ DROP TABLE ctas_o2 """
                 sql """ DROP DATABASE IF EXISTS test_ctas_ex """
             } finally {
@@ -385,6 +406,20 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                     exception "errCode = 2, detailMessage = insert into cols should be corresponding to the query output"
                 }
                 sql """ DROP TABLE IF EXISTS ${catalog_name}.test_no_err.ctas_o2  """
+
+                // test ctas with qualified table name
+                sql """drop table if exists ${catalog_name}.test_no_err.qualified_table1"""
+                sql """use internal.test_ctas_olap"""
+                sql """create table ${catalog_name}.test_no_err.qualified_table1 as SELECT col1,pt1 as col2 FROM ${catalog_name}.test_ctas.part_ctas_src WHERE col1>0;"""
+                order_qt_qualified_table1 """select * from ${catalog_name}.test_no_err.qualified_table1"""
+
+                sql """drop table if exists ${catalog_name}.test_no_err.qualified_table2"""
+                sql """switch ${catalog_name}"""
+                sql """create table test_no_err.qualified_table2 as SELECT col1,pt1 as col2 FROM ${catalog_name}.test_ctas.part_ctas_src WHERE col1>0;"""
+                order_qt_qualified_table2 """select * from ${catalog_name}.test_no_err.qualified_table2"""
+
+                sql """drop table if exists ${catalog_name}.test_no_err.qualified_table1"""
+                sql """drop table if exists ${catalog_name}.test_no_err.qualified_table2"""
                 sql """ DROP DATABASE IF EXISTS test_no_err """
 
             } finally {
@@ -396,6 +431,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
             sql """ switch `${catalog_name}` """
             sql """ CREATE DATABASE IF NOT EXISTS `test_ctas_all_type` """;
             sql """ use test_ctas_all_type """;
+            String db = "test_ctas_all_type"
             // TODO: work on hive3
             //            sql """
             //                CREATE TABLE IF NOT EXISTS all_types_ctas_${file_format}_with_dv(
@@ -481,6 +517,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                     INSERT OVERWRITE TABLE all_types_ctas1 SELECT * FROM all_types_ctas_${file_format}
                 """
             order_qt_ctas_types_01 """ SELECT * FROM all_types_ctas1 """
+            order_qt_hive_docker_ctas_types_01 """ SELECT * FROM ${db}.all_types_ctas1 """
             sql """
                     DROP TABLE all_types_ctas1
                 """
@@ -498,6 +535,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                     SELECT col1, col2, col3, col4, col6, col7, col8, col9, col11 FROM all_types_ctas_${file_format}
                 """
             order_qt_ctas_types_02 """ SELECT * FROM all_types_ctas2 """
+            order_qt_hive_docker_ctas_types_02 """ SELECT * FROM ${db}.all_types_ctas2 """
             sql """
                 DROP TABLE all_types_ctas2
                 """
@@ -508,16 +546,17 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
         }
 
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String hdfs_port = context.config.otherConfigs.get("hdfs_port")
-            String catalog_name = "test_hive_ctas"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
+            String catalog_name = "test_${hivePrefix}_ctas"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+                'use_meta_cache' = 'true'
             );"""
             sql """switch ${catalog_name}"""
 

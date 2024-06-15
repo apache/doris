@@ -51,6 +51,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
     private static final String HMS_CATALOG = "hms_ctl";
@@ -81,7 +82,6 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         FeConstants.runningUnitTest = true;
         Config.enable_query_hive_views = true;
         Config.cache_enable_sql_mode = true;
-        Config.cache_enable_partition_mode = true;
         connectContext.getSessionVariable().setEnableSqlCache(true);
 
         env = Env.getCurrentEnv();
@@ -109,6 +109,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
     private void init(HMSExternalCatalog hmsCatalog) {
         Deencapsulation.setField(hmsCatalog, "initialized", true);
         Deencapsulation.setField(hmsCatalog, "objectCreated", true);
+        Deencapsulation.setField(hmsCatalog, "useMetaCache", Optional.of(false));
 
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", PrimitiveType.INT));

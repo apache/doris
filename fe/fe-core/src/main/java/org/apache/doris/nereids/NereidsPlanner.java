@@ -23,11 +23,11 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -54,12 +54,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
+import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
@@ -92,6 +94,7 @@ public class NereidsPlanner extends Planner {
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
     private final List<ScanNode> scanNodeList = Lists.newArrayList();
+    private final List<PhysicalRelation> physicalRelations = Lists.newArrayList();
     private DescriptorTable descTable;
 
     private Plan parsedPlan;
@@ -331,6 +334,7 @@ public class NereidsPlanner extends Planner {
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
 
         scanNodeList.addAll(planTranslatorContext.getScanNodes());
+        physicalRelations.addAll(planTranslatorContext.getPhysicalRelations());
         descTable = planTranslatorContext.getDescTable();
         fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
         for (int seq = 0; seq < fragments.size(); seq++) {
@@ -362,6 +366,10 @@ public class NereidsPlanner extends Planner {
     @Override
     public List<ScanNode> getScanNodes() {
         return scanNodeList;
+    }
+
+    public List<PhysicalRelation> getPhysicalRelations() {
+        return physicalRelations;
     }
 
     public Group getRoot() {
@@ -471,11 +479,16 @@ public class NereidsPlanner extends Planner {
                 plan = optimizedPlan.shape("");
                 break;
             case MEMO_PLAN:
+                StringBuilder materializationStringBuilder = new StringBuilder();
+                materializationStringBuilder.append("materializationContexts:").append("\n");
+                for (MaterializationContext ctx : cascadesContext.getMaterializationContexts()) {
+                    materializationStringBuilder.append("\n").append(ctx).append("\n");
+                }
                 plan = cascadesContext.getMemo().toString()
                         + "\n\n========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString()
                         + "\n\n========== MATERIALIZATIONS ==========\n"
-                        + MaterializationContext.toDetailString(cascadesContext.getMaterializationContexts());
+                        + materializationStringBuilder;
                 break;
             case ALL_PLAN:
                 plan = "========== PARSED PLAN "
@@ -492,18 +505,20 @@ public class NereidsPlanner extends Planner {
                         + optimizedPlan.treeString();
                 break;
             default:
-                List<MTMV> materializationListChosenByCbo = this.getPhysicalPlan()
-                        .collectToList(node -> node instanceof PhysicalCatalogRelation
-                                && ((PhysicalCatalogRelation) node).getTable() instanceof MTMV).stream()
-                        .map(node -> (MTMV) ((PhysicalCatalogRelation) node).getTable())
-                        .collect(Collectors.toList());
                 plan = super.getExplainString(explainOptions)
                         + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
-                        materializationListChosenByCbo);
+                        this.getPhysicalPlan());
+                if (statementContext != null) {
+                    if (statementContext.isHasUnknownColStats()) {
+                        plan += "\n\nStatistics\n planed with unknown column statistics\n";
+                    }
+                }
         }
-        if (statementContext != null && !statementContext.getHints().isEmpty()) {
-            String hint = getHintExplainString(statementContext.getHints());
-            return plan + hint;
+        if (statementContext != null) {
+            if (!statementContext.getHints().isEmpty()) {
+                String hint = getHintExplainString(statementContext.getHints());
+                return plan + hint;
+            }
         }
         return plan;
     }
@@ -574,8 +589,7 @@ public class NereidsPlanner extends Planner {
             return Optional.of(resultSet);
         } else if (child instanceof PhysicalEmptyRelation) {
             List<Column> columns = Lists.newArrayList();
-            PhysicalEmptyRelation physicalEmptyRelation = (PhysicalEmptyRelation) physicalPlan.child(0);
-            for (int i = 0; i < physicalEmptyRelation.getProjects().size(); i++) {
+            for (int i = 0; i < physicalPlan.getOutput().size(); i++) {
                 NamedExpression output = physicalPlan.getOutput().get(i);
                 columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
             }
@@ -590,6 +604,19 @@ public class NereidsPlanner extends Planner {
                 );
             }
             return Optional.of(resultSet);
+        } else if (child instanceof PhysicalHashAggregate && getScanNodes().size() > 0
+                && getScanNodes().get(0) instanceof IcebergScanNode) {
+            List<Column> columns = Lists.newArrayList();
+            NamedExpression output = physicalPlan.getOutput().get(0);
+            columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
+            if (((IcebergScanNode) getScanNodes().get(0)).rowCount > 0) {
+                ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+                ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(
+                        Lists.newArrayList(String.valueOf(((IcebergScanNode) getScanNodes().get(0)).rowCount))));
+                // only support one iceberg scan node and one count, e.g. select count(*) from icetbl;
+                return Optional.of(resultSet);
+            }
+            return Optional.empty();
         } else {
             return Optional.empty();
         }
@@ -696,5 +723,10 @@ public class NereidsPlanner extends Planner {
         } else {
             task.run();
         }
+    }
+
+    @Override
+    public List<TopnFilter> getTopnFilters() {
+        return cascadesContext.getTopnFilterContext().getTopnFilters();
     }
 }

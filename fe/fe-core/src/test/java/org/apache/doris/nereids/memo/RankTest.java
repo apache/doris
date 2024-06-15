@@ -35,8 +35,10 @@ import java.util.HashSet;
 import java.util.Set;
 
 class RankTest extends TestWithFeService {
+
     @Test
-    void test() {
+    void test() throws Exception {
+        createDatabase("test");
         HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN));
         hyperGraphBuilder.init(0, 1, 2);
         Plan plan = hyperGraphBuilder
@@ -45,7 +47,7 @@ class RankTest extends TestWithFeService {
                 .buildPlan();
         plan = new LogicalProject(plan.getOutput(), plan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-        hyperGraphBuilder.initStats(cascadesContext);
+        hyperGraphBuilder.initStats("test", cascadesContext);
         PhysicalPlan bestPlan = PlanChecker.from(cascadesContext)
                 .optimize()
                 .getBestPlanTree();

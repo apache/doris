@@ -603,6 +603,26 @@ CREATE TABLE `unsupported_type_table`(
 
 set hive.stats.column.autogather=false;
 
+CREATE TABLE `test_hive_orc_add_column`(
+  id int,
+  col1 int
+)
+stored as orc;
+insert into  `test_hive_orc_add_column` values(1,2);
+insert into  `test_hive_orc_add_column` values(3,4),(4,6);
+alter table `test_hive_orc_add_column` ADD COLUMNS (col2 int);
+insert into  `test_hive_orc_add_column` values(7,8,9);
+insert into  `test_hive_orc_add_column` values(10,11,null);
+insert into  `test_hive_orc_add_column` values(12,13,null);
+insert into  `test_hive_orc_add_column` values(14,15,16);
+alter table `test_hive_orc_add_column` ADD COLUMNS (col3 int,col4 string);
+insert into  `test_hive_orc_add_column` values(17,18,19,20,"hello world");
+insert into  `test_hive_orc_add_column` values(21,22,23,24,"cywcywcyw");
+insert into  `test_hive_orc_add_column` values(25,26,null,null,null);
+insert into  `test_hive_orc_add_column` values(27,28,29,null,null);
+insert into  `test_hive_orc_add_column` values(30,31,32,33,null);
+
+
 CREATE TABLE `schema_evo_test_text`(
   id int,
   name string
@@ -1922,6 +1942,68 @@ TBLPROPERTIES (
 
 msck repair table fixed_length_byte_array_decimal_table;
 
+CREATE TABLE `string_col_dict_plain_mixed_orc`(
+  `col0` int,
+  `col1` string,
+  `col2` double,
+  `col3` boolean,
+  `col4` string,
+  `col5` int)
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.orc.OrcSerde'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/orc_table/string_col_dict_plain_mixed_orc'
+TBLPROPERTIES (
+  'orc.compress'='ZLIB');
+
+msck repair table string_col_dict_plain_mixed_orc;
+
+CREATE TABLE `test_string_dict_filter_parquet`(
+  `o_orderkey` int,
+  `o_custkey` int,
+  `o_orderstatus` string,
+  `o_totalprice` decimal(15,2),
+  `o_orderdate` date,
+  `o_orderpriority` string,
+  `o_clerk` string,
+  `o_shippriority` int,
+  `o_comment` string)
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/test_string_dict_filter_parquet';
+
+msck repair table test_string_dict_filter_parquet;
+
+CREATE TABLE `test_string_dict_filter_orc`(
+  `o_orderkey` int,
+  `o_custkey` int,
+  `o_orderstatus` string,
+  `o_totalprice` decimal(15,2),
+  `o_orderdate` date,
+  `o_orderpriority` string,
+  `o_clerk` string,
+  `o_shippriority` int,
+  `o_comment` string)
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.orc.OrcSerde'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/orc_table/test_string_dict_filter_orc';
+
+msck repair table test_string_dict_filter_orc;
+
 show tables;
 
 
@@ -2406,10 +2488,8 @@ CREATE TABLE `all_partition_types2_parquet_snappy_src`(
 PARTITIONED BY (
   `decimal_col` decimal(18,6),
   `string_col` string,
-  `binary_col` binary,
   `date_col` date,
-  `timestamp_col` timestamp,
-  `char_col` char(50),
+  `char_col` char(11),
   `varchar_col` varchar(50))
 stored as parquet
 LOCATION
@@ -2423,10 +2503,8 @@ CREATE TABLE `all_partition_types2_parquet_snappy`(
 PARTITIONED BY (
   `decimal_col` decimal(18,6),
   `string_col` string,
-  `binary_col` binary,
   `date_col` date,
-  `timestamp_col` timestamp,
-  `char_col` char(50),
+  `char_col` char(11),
   `varchar_col` varchar(50))
 stored as parquet
 TBLPROPERTIES('parquet.compression'='SNAPPY');
@@ -2437,10 +2515,8 @@ CREATE TABLE `all_partition_types2_orc_zlib`(
 PARTITIONED BY (
   `decimal_col` decimal(18,6),
   `string_col` string,
-  `binary_col` binary,
   `date_col` date,
-  `timestamp_col` timestamp,
-  `char_col` char(50),
+  `char_col` char(11),
   `varchar_col` varchar(50))
 stored as orc
 TBLPROPERTIES("orc.compress"="ZLIB");

@@ -118,13 +118,11 @@ suite("test_base_insert_job") {
      """
     
     Thread.sleep(2000)
-    def onceJob = sql """ select id,ExecuteSql from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='ONE_TIME' """
+    def onceJob = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='ONE_TIME' """
     assert onceJob.size() == 1
-    def onceJobId = onceJob.get(0).get(0);
-    def onceJobSql = onceJob.get(0).get(1);
-    println onceJobSql
-    // test cancel task
-    def datas = sql """select status,taskid from tasks("type"="insert") where jobid= ${onceJobId}"""
+    //check succeed task count
+    assert '1' == onceJob.get(0).get(0)
+    def datas = sql """select status,taskid from tasks("type"="insert") where jobName= '${jobName}'"""
     println datas
     assert datas.size() == 1
     assert datas.get(0).get(0) == "FINISHED"
@@ -154,7 +152,7 @@ suite("test_base_insert_job") {
         DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
     sql """
-          CREATE JOB ${jobName}  ON SCHEDULE every 1 second   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19',5, 1001);
+          CREATE JOB ${jobName}  ON SCHEDULE every 1 second starts current_timestamp  comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19',5, 1001);
      """
 
     Thread.sleep(2000)
@@ -162,15 +160,12 @@ suite("test_base_insert_job") {
     sql """
         PAUSE JOB where jobname =  '${jobName}'
     """
-    def job = sql """ select id,ExecuteSql from jobs("type"="insert") where Name like '%${jobName}%'  """
-    assert job.size() == 1
-    def jobId = job.get(0).get(0);
-    def tasks = sql """ select status from tasks("type"="insert") where jobid= ${jobId}  """
+    def tasks = sql """ select status from tasks("type"="insert") where JobName= '${jobName}'  """
     sql """
         RESUME JOB where jobname =  '${jobName}'
     """
     Thread.sleep(2500)
-    def afterResumeTasks = sql """ select status from tasks("type"="insert") where jobid= ${jobId}  """
+    def afterResumeTasks = sql """ select status from tasks("type"="insert") where JobName= '${jobName}'   """
     println afterResumeTasks
     assert afterResumeTasks.size() >tasks.size
     // assert same job name

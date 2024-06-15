@@ -17,6 +17,8 @@
 
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 
+#include <filesystem>
+
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -29,10 +31,8 @@
 
 namespace doris::segment_v2 {
 
-std::string InvertedIndexFileWriter::get_index_file_path(const TabletIndex* index_meta) const {
-    return InvertedIndexDescriptor::get_index_file_name(_index_file_dir / _segment_file_name,
-                                                        index_meta->index_id(),
-                                                        index_meta->get_index_suffix());
+std::string InvertedIndexFileWriter::get_index_file_path() const {
+    return InvertedIndexDescriptor::get_index_path_v2(_index_path_prefix);
 }
 
 Status InvertedIndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_dirs) {
@@ -41,33 +41,35 @@ Status InvertedIndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_di
 }
 
 Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index_meta) {
-    auto index_id = index_meta->index_id();
-    auto index_suffix = index_meta->get_index_suffix();
     auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
-    _lfs = io::global_local_filesystem();
-    auto lfs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
-            tmp_file_dir / _segment_file_name, index_meta->index_id(),
+    const auto& local_fs = io::global_local_filesystem();
+    auto local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
+            tmp_file_dir.native(), _rowset_id, _seg_id, index_meta->index_id(),
             index_meta->get_index_suffix());
-    auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
-            (_index_file_dir / _segment_file_name).native(), index_id, index_suffix);
+    auto index_path = InvertedIndexDescriptor::get_index_path_v1(
+            _index_path_prefix, index_meta->index_id(), index_meta->get_index_suffix());
+    // FIXME(plat1ko): hardcode
+    index_path =
+            index_path.substr(0, index_path.size() - InvertedIndexDescriptor::index_suffix.size());
 
     bool exists = false;
-    auto st = _fs->exists(lfs_index_path.c_str(), &exists);
+    auto st = local_fs->exists(local_fs_index_path, &exists);
     if (!st.ok()) {
-        LOG(ERROR) << "index_path:" << lfs_index_path << " exists error:" << st;
+        LOG(ERROR) << "index_path:" << local_fs_index_path << " exists error:" << st;
         return ResultError(st);
     }
+
     if (exists) {
-        LOG(ERROR) << "try to init a directory:" << lfs_index_path << " already exists";
+        LOG(ERROR) << "try to init a directory:" << local_fs_index_path << " already exists";
         return ResultError(Status::InternalError("init_fulltext_index directory already exists"));
     }
 
     bool can_use_ram_dir = true;
     bool use_compound_file_writer = false;
-    auto* dir = DorisFSDirectoryFactory::getDirectory(_lfs, lfs_index_path.c_str(),
+    auto* dir = DorisFSDirectoryFactory::getDirectory(local_fs, local_fs_index_path.c_str(),
                                                       use_compound_file_writer, can_use_ram_dir,
                                                       nullptr, _fs, index_path.c_str());
-    _indices_dirs.emplace(std::make_pair(index_id, index_suffix),
+    _indices_dirs.emplace(std::make_pair(index_meta->index_id(), index_meta->get_index_suffix()),
                           std::unique_ptr<DorisFSDirectory>(dir));
     return dir;
 }
@@ -78,7 +80,7 @@ Status InvertedIndexFileWriter::delete_index(const TabletIndex* index_meta) {
     }
 
     auto index_id = index_meta->index_id();
-    auto index_suffix = index_meta->get_index_suffix();
+    const auto& index_suffix = index_meta->get_index_suffix();
 
     // Check if the specified index exists
     auto index_it = _indices_dirs.find(std::make_pair(index_id, index_suffix));
@@ -97,22 +99,23 @@ Status InvertedIndexFileWriter::delete_index(const TabletIndex* index_meta) {
 size_t InvertedIndexFileWriter::headerLength() {
     size_t header_size = 0;
     header_size +=
-            sizeof(int) * 2; // Account for the size of the version number and number of indices
+            sizeof(int32_t) * 2; // Account for the size of the version number and number of indices
+
     for (const auto& entry : _indices_dirs) {
-        auto suffix = entry.first.second;
-        header_size += sizeof(int);     // index id
-        header_size += 4;               // index suffix name size
+        const auto& suffix = entry.first.second;
+        header_size += sizeof(int64_t); // index id
+        header_size += sizeof(int32_t); // index suffix name size
         header_size += suffix.length(); // index suffix name
-        header_size += sizeof(int);     // index file count
+        header_size += sizeof(int32_t); // index file count
         const auto& dir = entry.second;
         std::vector<std::string> files;
         dir->list(&files);
 
-        for (auto file : files) {
-            header_size += 4;             // file name size
-            header_size += file.length(); // file name
-            header_size += 8;             // file offset
-            header_size += 8;             // file size
+        for (const auto& file : files) {
+            header_size += sizeof(int32_t); // file name size
+            header_size += file.length();   // file name
+            header_size += sizeof(int64_t); // file offset
+            header_size += sizeof(int64_t); // file size
         }
     }
     return header_size;
@@ -150,19 +153,21 @@ Status InvertedIndexFileWriter::close() {
     } catch (CLuceneError& err) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError occur when close idx file {}, error msg: {}",
-                InvertedIndexDescriptor::get_index_file_name(_index_file_dir / _segment_file_name),
-                err.what());
+                InvertedIndexDescriptor::get_index_path_v2(_index_path_prefix), err.what());
     }
     return Status::OK();
 }
+
 size_t InvertedIndexFileWriter::write() {
     // Create the output stream to write the compound file
     int64_t current_offset = headerLength();
-    std::string idx_name = InvertedIndexDescriptor::get_index_file_name(_segment_file_name);
-    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, _index_file_dir.c_str());
 
-    auto compound_file_output =
-            std::unique_ptr<lucene::store::IndexOutput>(out_dir->createOutput(idx_name.c_str()));
+    io::Path index_path {InvertedIndexDescriptor::get_index_path_v2(_index_path_prefix)};
+
+    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, index_path.parent_path().c_str());
+
+    auto compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
+            out_dir->createOutput(index_path.filename().c_str()));
 
     // Write the version number
     compound_file_output->writeInt(InvertedIndexStorageFormatPB::V2);
@@ -188,10 +193,10 @@ size_t InvertedIndexFileWriter::write() {
         }
         // sort file list by file length
         std::vector<std::pair<std::string, int64_t>> sorted_files;
-        for (auto file : files) {
+        for (const auto& file : files) {
             sorted_files.emplace_back(file, dir->fileLength(file.c_str()));
         }
-        // TODO: need to optimize
+
         std::sort(sorted_files.begin(), sorted_files.end(),
                   [](const std::pair<std::string, int64_t>& a,
                      const std::pair<std::string, int64_t>& b) { return (a.second < b.second); });
@@ -199,18 +204,18 @@ size_t InvertedIndexFileWriter::write() {
         int32_t file_count = sorted_files.size();
 
         // Write the index ID and the number of files
-        compound_file_output->writeInt(index_id);
-        const auto* index_suffix_str = reinterpret_cast<const uint8_t*>(index_suffix.c_str());
-        compound_file_output->writeInt(index_suffix.length());
-        compound_file_output->writeBytes(index_suffix_str, index_suffix.length());
+        compound_file_output->writeLong(index_id);
+        compound_file_output->writeInt(static_cast<int32_t>(index_suffix.length()));
+        compound_file_output->writeBytes(reinterpret_cast<const uint8_t*>(index_suffix.data()),
+                                         index_suffix.length());
         compound_file_output->writeInt(file_count);
 
         // Calculate the offset for each file and write the file metadata
         for (const auto& file : sorted_files) {
             int64_t file_length = dir->fileLength(file.first.c_str());
-            const auto* file_name = reinterpret_cast<const uint8_t*>(file.first.c_str());
-            compound_file_output->writeInt(file.first.length());
-            compound_file_output->writeBytes(file_name, file.first.length());
+            compound_file_output->writeInt(static_cast<int32_t>(file.first.length()));
+            compound_file_output->writeBytes(reinterpret_cast<const uint8_t*>(file.first.data()),
+                                             file.first.length());
             compound_file_output->writeLong(current_offset);
             compound_file_output->writeLong(file_length);
 

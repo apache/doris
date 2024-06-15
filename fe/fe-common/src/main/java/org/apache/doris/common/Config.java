@@ -127,6 +127,13 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(description = {"是否使用文件记录日志。当使用 --console 启动 FE 时，全部日志同时写入到标准输出和文件。"
+            + "如果关闭这个选项，不再使用文件记录日志。",
+            "Whether to use file to record log. When starting FE with --console, "
+                    + "all logs will be written to both standard output and file. "
+                    + "Close this option will no longer use file to record log."})
+    public static boolean enable_file_logger = true;
+
     @ConfField(mutable = false, masterOnly = false,
             description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
@@ -150,6 +157,10 @@ public class Config extends ConfigBase {
                     + "separated by semicolons"
                     + "The default is * to allow all, if set to empty, also means to allow all"})
     public static String jdbc_driver_secure_path = "*";
+
+    @ConfField(description = {"MySQL Jdbc Catalog mysql 不支持下推的函数",
+            "MySQL Jdbc Catalog mysql does not support pushdown functions"})
+    public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
@@ -394,6 +405,16 @@ public class Config extends ConfigBase {
             "The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
     public static int thrift_client_timeout_ms = 0;
 
+    // The default value is inherited from org.apache.thrift.TConfiguration
+    @ConfField(description = {"thrift server 接收请求大小的上限",
+            "The maximum size of a (received) message of the thrift server, in bytes"})
+    public static int thrift_max_message_size = 100 * 1024 * 1024;
+
+    // The default value is inherited from org.apache.thrift.TConfiguration
+    @ConfField(description = {"thrift server transport 接收的每帧数据大小的上限",
+            "The limits of the size of one frame of thrift server transport"})
+    public static int thrift_max_frame_size = 16384000;
+
     @ConfField(description = {"thrift server 的 backlog 数量。"
             + "如果调大这个值，则需同时调整 /proc/sys/net/core/somaxconn 的值",
             "The backlog number of thrift server. "
@@ -635,6 +656,12 @@ public class Config extends ConfigBase {
             "Whether to enable to write single replica for stream load and broker load."},
             varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_single_replica_load = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "对于 tablet 数量小于该数目的 DUPLICATE KEY 表，将不会启用 shuffle",
+            "Shuffle won't be enabled for DUPLICATE KEY tables if its tablet num is lower than this number"},
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int min_tablets_for_dup_table_shuffle = 64;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "单个数据库最大并发运行的事务数，包括 prepare 和 commit 事务。",
@@ -981,6 +1008,14 @@ public class Config extends ConfigBase {
     public static int tablet_further_repair_max_times = 5;
 
     /**
+     * publish version queue's size in be, report it to fe,
+     * if publish task in be exceed direct_publish_limit_number,
+     * fe will direct publish task
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int publish_version_queued_limit_number = 1000;
+
+    /**
      * the default slot number per path for hdd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
@@ -1139,7 +1174,7 @@ public class Config extends ConfigBase {
      * the max concurrent routine load task num of a single routine load job
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_task_concurrent_num = 5;
+    public static int max_routine_load_task_concurrent_num = 256;
 
     /**
      * the max concurrent routine load task num per BE.
@@ -1148,7 +1183,7 @@ public class Config extends ConfigBase {
      * which is the routine load task thread pool max size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_task_num_per_be = 5;
+    public static int max_routine_load_task_num_per_be = 1024;
 
     /**
      * The max number of files store in SmallFileMgr
@@ -1193,6 +1228,12 @@ public class Config extends ConfigBase {
     public static boolean force_do_metadata_checkpoint = false;
 
     /**
+     * If some joural is wrong, and FE can't start, we can use this to skip it.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String[] force_skip_journal_ids = {};
+
+    /**
      * Decide how often to check dynamic partition
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1226,7 +1267,7 @@ public class Config extends ConfigBase {
      * a period for auto resume routine load
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int period_of_auto_resume_min = 5;
+    public static int period_of_auto_resume_min = 10;
 
     /**
      * If set to true, the backend will be automatically dropped after finishing decommission.
@@ -1290,22 +1331,21 @@ public class Config extends ConfigBase {
     public static boolean cache_enable_sql_mode = true;
 
     /**
-     * If set to true, fe will get data from be cache,
-     * This option is suitable for real-time updating of partial partitions.
-     */
-    @ConfField(mutable = true, masterOnly = false)
-    public static boolean cache_enable_partition_mode = true;
-
-    /**
      *  Minimum interval between last version when caching results,
      *  This parameter distinguishes between offline and real-time updates
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int cache_last_version_interval_second = 30;
+
+    /**
+     *  Expire sql sql in frontend time
      */
     @ConfField(
             mutable = true,
             masterOnly = false,
             callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig"
     )
-    public static int cache_last_version_interval_second = 30;
+    public static int expire_sql_cache_in_fe_second = 300;
 
     /**
      * Set the maximum number of rows that can be cached
@@ -1475,11 +1515,11 @@ public class Config extends ConfigBase {
     public static int default_max_query_instances = -1;
 
     /*
-     * One master daemon thread will update global partition in memory
-     * info every partition_in_memory_update_interval_secs
+     * One master daemon thread will update global partition info, include in memory and visible version
+     * info every partition_info_update_interval_secs
      */
     @ConfField(mutable = false, masterOnly = true)
-    public static int partition_in_memory_update_interval_secs = 300;
+    public static int partition_info_update_interval_secs = 60;
 
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
@@ -1613,7 +1653,7 @@ public class Config extends ConfigBase {
             "This parameter controls the time interval for automatic collection jobs to check the health of table"
                     + "statistics and trigger automatic collection"
     })
-    public static int auto_check_statistics_in_minutes = 5;
+    public static int auto_check_statistics_in_minutes = 1;
 
     /**
      * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
@@ -1691,7 +1731,7 @@ public class Config extends ConfigBase {
      * if we have a lot of async tasks, we need more threads to consume them. Sure, it's depends on the cpu cores.
      */
     @ConfField
-    public static int async_task_consumer_thread_num = 5;
+    public static int async_task_consumer_thread_num = 64;
 
     /**
      * When job is finished, it will be saved in job manager for a while.
@@ -1765,7 +1805,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 4;
+    public static int max_be_exec_version = 5;
 
     /**
      * Min data version of backends serialize block.
@@ -1956,7 +1996,7 @@ public class Config extends ConfigBase {
      * only for certain test type. E.g. only settting batch_size to small
      * value for p0.
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, masterOnly = false, options = {"p0"})
     public static String fuzzy_test_type = "";
 
     /**
@@ -2365,13 +2405,13 @@ public class Config extends ConfigBase {
     })
     public static long analyze_record_limit = 20000;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(mutable = true, masterOnly = true, description = {
             "Auto Buckets中最小的buckets数目",
             "min buckets of auto bucket"
     })
     public static int autobucket_min_buckets = 1;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(mutable = true, masterOnly = true, description = {
         "Auto Buckets中最大的buckets数目",
         "max buckets of auto bucket"
     })
@@ -2541,10 +2581,12 @@ public class Config extends ConfigBase {
     public static int http_load_submitter_max_worker_threads = 2;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "load label个数阈值，超过该个数后，对于已经完成导入作业或者任务，其label会被删除，被删除的 label 可以被重用。",
+            "load label个数阈值，超过该个数后，对于已经完成导入作业或者任务，"
+            + "其label会被删除，被删除的 label 可以被重用。 值为 -1 时，表示此阈值不生效。",
             "The threshold of load labels' number. After this number is exceeded, "
                     + "the labels of the completed import jobs or tasks will be deleted, "
-                    + "and the deleted labels can be reused."
+                    + "and the deleted labels can be reused. "
+                    + "When the value is -1, it indicates no threshold."
     })
     public static int label_num_threshold = 2000;
 
@@ -2552,6 +2594,15 @@ public class Config extends ConfigBase {
             "Specify the default authentication class of internal catalog"},
             options = {"default", "ranger-doris"})
     public static String access_controller_type = "default";
+
+    /* https://forums.oracle.com/ords/apexds/post/je-log-checksumexception-2812
+      when meeting disk damage or other reason described in the oracle forums
+      and fe cannot start due to `com.sleepycat.je.log.ChecksumException`, we
+      add a param `ignore_bdbje_log_checksum_read` to ignore the exception, but
+      there is no guarantee of correctness for bdbje kv data
+    */
+    @ConfField
+    public static boolean ignore_bdbje_log_checksum_read = false;
 
     @ConfField(description = {"指定 mysql登录身份认证类型",
             "Specifies the authentication type"},
@@ -2569,7 +2620,7 @@ public class Config extends ConfigBase {
             "倒排索引默认存储格式",
             "Default storage format of inverted index, the default value is V1."
     })
-    public static String inverted_index_storage_format = "V1";
+    public static String inverted_index_storage_format = "V2";
 
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",
@@ -2586,9 +2637,35 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean checkpoint_after_check_compatibility = false;
 
+    // Advance the next id before transferring to the master.
+    @ConfField(description = {
+            "是否在成为 Master 后推进 ID 分配器，保证即使回滚元数据时，它也不会回滚",
+            "Whether to advance the ID generator after becoming Master to ensure that the id "
+                    + "generator will not be rolled back even when metadata is rolled back."
+    })
+    public static boolean enable_advance_next_id = false;
+
+    // The count threshold to do manual GC when doing checkpoint but not enough memory.
+    // Set zero to disable it.
+    @ConfField(description = {
+            "如果 checkpoint 连续多次因内存不足而无法进行时，先尝试手动触发 GC",
+            "The threshold to do manual GC when doing checkpoint but not enough memory"})
+    public static int checkpoint_manual_gc_threshold = 0;
+
+    @ConfField(mutable = true, description = {
+            "是否在每个请求开始之前打印一遍请求内容, 主要是query语句",
+            "Should the request content be logged before each request starts, specifically the query statements"})
+    public static boolean enable_print_request_before_execution = false;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
+    @ConfField(description = {"是否启用FE 日志文件按照大小删除策略，当日志大小超过指定大小，删除相关的log。默认为按照时间策略删除",
+        "Whether to enable the FE log file deletion policy based on size, "
+            + "where logs exceeding the specified size are deleted. "
+            + "It is disabled by default and follows a time-based deletion policy."},
+            options = {"age", "size"})
+    public static String log_rollover_strategy = "age";
 
     @ConfField public static int info_sys_accumulated_file_size = 4;
     @ConfField public static int warn_sys_accumulated_file_size = 2;
@@ -2623,6 +2700,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int meta_service_rpc_retry_times = 200;
 
+    public static int metaServiceRpcRetryTimes() {
+        if (isCloudMode() && enable_check_compatibility_mode) {
+            return 1;
+        }
+        return meta_service_rpc_retry_times;
+    }
+
     // A connection will expire after a random time during [base, 2*base), so that the FE
     // has a chance to connect to a new RS. Set zero to disable it.
     //
@@ -2638,9 +2722,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static int drop_rpc_retry_num = 200;
-
-    @ConfField
-    public static int cloud_meta_service_rpc_failed_retry_times = 200;
 
     @ConfField
     public static int default_get_version_from_ms_timeout_second = 3;
@@ -2663,6 +2744,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_create_bitmap_index_as_inverted_index = false;
 
+    @ConfField(mutable = true)
+    public static boolean enable_create_inverted_index_for_array = false;
+
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,
     // to help to acquire a snapshot of partition versions.
@@ -2680,6 +2764,40 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static int cloud_txn_tablet_batch_size = 50;
+
+    /**
+     * Default number of waiting copy jobs for the whole cluster
+     */
+    @ConfField(mutable = true)
+    public static int cluster_max_waiting_copy_jobs = 100;
+
+    /**
+     * Default number of max file num for per copy into job
+     */
+    @ConfField(mutable = true)
+    public static int max_file_num_per_copy_into_job = 50;
+
+    /**
+     * Default number of max meta size for per copy into job
+     */
+    @ConfField(mutable = true)
+    public static int max_meta_size_per_copy_into_job = 51200;
+
+    // 0 means no limit
+    @ConfField(mutable = true)
+    public static int cloud_max_copy_job_per_table = 10000;
+
+    @ConfField(mutable = true)
+    public static int cloud_filter_copy_file_num_limit = 100;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean cloud_delete_loaded_internal_stage_files = false;
+
+    @ConfField(mutable = false)
+    public static int cloud_copy_txn_conflict_error_retry_num = 5;
+
+    @ConfField(mutable = false)
+    public static int cloud_copy_into_statement_submitter_threads_num = 64;
 
     @ConfField
     public static int drop_user_notify_ms_max_times = 86400;
@@ -2712,7 +2830,7 @@ public class Config extends ConfigBase {
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean cloud_preheating_enabled = true;
+    public static boolean enable_cloud_warm_up_for_rebalance = true;
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
@@ -2734,6 +2852,38 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Stream_Load 导入时，label 被限制的最大长度",
             "Stream_Load When importing, the maximum length of label is limited"})
     public static int label_regex_length = 128;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int history_cloud_warm_up_job_keep_max_second = 7 * 24 * 3600;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int cloud_warm_up_timeout_second = 86400 * 30; // 30 days
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int cloud_warm_up_job_scheduler_interval_millisecond = 1000; // 1 seconds
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_fetch_cluster_cache_hotspot = true;
+
+    @ConfField(mutable = true)
+    public static long fetch_cluster_cache_hotspot_interval_ms = 600000;
+    // to control the max num of values inserted into cache hotspot internal table
+    // insert into cache table when the size of batch values reaches this limit
+    @ConfField(mutable = true)
+    public static long batch_insert_cluster_cache_hotspot_num = 50;
+
+    /**
+     * intervals between be status checks for CloudUpgradeMgr
+     */
+    @ConfField(mutable = true)
+    public static int cloud_upgrade_mgr_interval_second = 15;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_running_txn_check = true;
+
+    @ConfField(description = {"存算分离模式下streamload导入使用的转发策略, 可选值为public-private或者空",
+            "streamload route policy in cloud mode, availale options are public-private and empty string"})
+    public static String streamload_redirect_policy = "";
 
     //==========================================================================
     //                      end of cloud config

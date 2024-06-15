@@ -30,13 +30,17 @@ import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionColl
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -51,13 +55,14 @@ public class PlanVisitorTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         createDatabase("visitor_test");
         useDatabase("visitor_test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         createTable("CREATE TABLE `table1` (\n"
                 + " `c1` varchar(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
                 + " `c3` int(20) not NULL,\n"
-                + " `k4` bitmap BITMAP_UNION NULL,\n"
-                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + " `k4` bitmap BITMAP_UNION ,\n"
+                + " `k5` bitmap BITMAP_UNION \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
                 + "COMMENT 'OLAP'\n"
@@ -70,8 +75,8 @@ public class PlanVisitorTest extends TestWithFeService {
                 + " `c1` bigint(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
                 + " `c3` bigint(20) not NULL,\n"
-                + " `k4` bitmap BITMAP_UNION NULL,\n"
-                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + " `k4` bitmap BITMAP_UNION ,\n"
+                + " `k5` bitmap BITMAP_UNION \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
                 + "COMMENT 'OLAP'\n"
@@ -84,8 +89,8 @@ public class PlanVisitorTest extends TestWithFeService {
                 + " `c1` bigint(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
                 + " `c3` bigint(20) not NULL,\n"
-                + " `k4` bitmap BITMAP_UNION NULL,\n"
-                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + " `k4` bitmap BITMAP_UNION ,\n"
+                + " `k5` bitmap BITMAP_UNION \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
                 + "COMMENT 'OLAP'\n"
@@ -166,6 +171,14 @@ public class PlanVisitorTest extends TestWithFeService {
 
     @Test
     public void test3() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        new MockUp<SessionVariable>() {
+            @Mock
+            public BitSet getDisableNereidsRules() {
+                return disableNereidsRules;
+            }
+        };
         PlanChecker.from(connectContext)
                 .checkPlannerResult("SELECT mv1.*, uuid() FROM mv1 "
                                 + "INNER JOIN view1 on mv1.c1 = view1.c2 "

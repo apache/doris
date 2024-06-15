@@ -68,11 +68,14 @@ public:
      */
     std::string clear_file_caches(bool sync);
 
+    std::vector<std::string> get_base_paths();
+
     FileCacheFactory() = default;
     FileCacheFactory& operator=(const FileCacheFactory&) = delete;
     FileCacheFactory(const FileCacheFactory&) = delete;
 
 private:
+    std::mutex _mtx;
     std::vector<std::unique_ptr<BlockFileCache>> _caches;
     std::unordered_map<std::string, BlockFileCache*> _path_to_cache;
     size_t _capacity = 0;

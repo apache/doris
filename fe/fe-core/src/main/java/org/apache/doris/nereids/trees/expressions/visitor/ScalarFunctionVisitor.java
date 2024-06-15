@@ -67,10 +67,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeYea
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRepeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayShuffle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayWithConstant;
@@ -430,6 +432,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -629,6 +632,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArraySortBy(ArraySortBy arraySortBy, C context) {
         return visitScalarFunction(arraySortBy, context);
+    }
+
+    default R visitArraySplit(ArraySplit arraySplit, C context) {
+        return visitScalarFunction(arraySplit, context);
+    }
+
+    default R visitArrayReverseSplit(ArrayReverseSplit arrayReverseSplit, C context) {
+        return visitScalarFunction(arrayReverseSplit, context);
     }
 
     default R visitArrayShuffle(ArrayShuffle arrayShuffle, C context) {
@@ -2127,6 +2138,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMapValues(MapValues mapValues, C context) {
         return visitScalarFunction(mapValues, context);
+    }
+
+    default R visitXor(Xor xor, C context) {
+        return visitScalarFunction(xor, context);
     }
 
     // struct function

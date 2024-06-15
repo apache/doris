@@ -20,11 +20,10 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.TreeStringPlan;
@@ -36,14 +35,13 @@ import org.apache.doris.qe.ResultSet;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
 /** LogicalSqlCache */
-public class LogicalSqlCache extends LogicalLeaf implements SqlCache, TreeStringPlan {
+public class LogicalSqlCache extends LogicalLeaf implements SqlCache, TreeStringPlan, BlockFuncDepsPropagation {
     private final TUniqueId queryId;
     private final List<String> columnLabels;
     private final List<Expr> resultExprs;
@@ -136,20 +134,5 @@ public class LogicalSqlCache extends LogicalLeaf implements SqlCache, TreeString
     @Override
     public String getChildrenTreeString() {
         return planBody;
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        return ImmutableSet.of();
-    }
-
-    @Override
-    public void computeUnique(Builder fdBuilder) {
-
-    }
-
-    @Override
-    public void computeUniform(Builder fdBuilder) {
-
     }
 }

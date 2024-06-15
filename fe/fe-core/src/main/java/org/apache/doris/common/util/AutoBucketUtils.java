@@ -85,7 +85,7 @@ public class AutoBucketUtils {
 
     public static int getBucketsNum(long partitionSize) {
         int bucketsNumByPartitionSize = convertParitionSizeToBucketsNum(partitionSize);
-        int bucketsNumByBE = getBucketsNumByBEDisks();
+        int bucketsNumByBE = Config.isCloudMode() ? Integer.MAX_VALUE : getBucketsNumByBEDisks();
         int bucketsNum = Math.min(Config.autobucket_max_buckets, Math.min(bucketsNumByPartitionSize, bucketsNumByBE));
         int beNum = getBENum();
         logger.debug("AutoBucketsUtil: bucketsNumByPartitionSize {}, bucketsNumByBE {}, bucketsNum {}, beNum {}",
@@ -93,6 +93,7 @@ public class AutoBucketUtils {
         if (bucketsNum < bucketsNumByPartitionSize && bucketsNum < beNum) {
             bucketsNum = beNum;
         }
+        bucketsNum = Math.min(bucketsNum, Config.autobucket_max_buckets);
         logger.debug("AutoBucketsUtil: final bucketsNum {}", bucketsNum);
         return bucketsNum;
     }

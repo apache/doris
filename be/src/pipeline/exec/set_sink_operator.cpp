@@ -22,33 +22,8 @@
 #include "pipeline/exec/operator.h"
 #include "vec/common/hash_table/hash_table_set_build.h"
 #include "vec/core/materialize_block.h"
-#include "vec/exec/vset_operation_node.h"
-
-namespace doris {
-class ExecNode;
-} // namespace doris
 
 namespace doris::pipeline {
-
-template <bool is_intersect>
-SetSinkOperatorBuilder<is_intersect>::SetSinkOperatorBuilder(int32_t id, ExecNode* set_node)
-        : OperatorBuilder<vectorized::VSetOperationNode<is_intersect>>(id, builder_name, set_node) {
-}
-
-template <bool is_intersect>
-OperatorPtr SetSinkOperatorBuilder<is_intersect>::build_operator() {
-    return std::make_shared<SetSinkOperator<is_intersect>>(this, this->_node);
-}
-
-template <bool is_intersect>
-SetSinkOperator<is_intersect>::SetSinkOperator(
-        OperatorBuilderBase* builder, vectorized::VSetOperationNode<is_intersect>* set_node)
-        : StreamingOperator<vectorized::VSetOperationNode<is_intersect>>(builder, set_node) {}
-
-template class SetSinkOperatorBuilder<true>;
-template class SetSinkOperatorBuilder<false>;
-template class SetSinkOperator<true>;
-template class SetSinkOperator<false>;
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
@@ -111,7 +86,7 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
 
     vectorized::materialize_block_inplace(block);
     vectorized::ColumnRawPtrs raw_ptrs(_child_exprs.size());
-    RETURN_IF_ERROR(_extract_build_column(local_state, block, raw_ptrs));
+    RETURN_IF_ERROR(_extract_build_column(local_state, block, raw_ptrs, rows));
 
     std::visit(
             [&](auto&& arg) {
@@ -133,28 +108,36 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::_extract_build_column(
         SetSinkLocalState<is_intersect>& local_state, vectorized::Block& block,
-        vectorized::ColumnRawPtrs& raw_ptrs) {
+        vectorized::ColumnRawPtrs& raw_ptrs, size_t& rows) {
+    std::vector<int> result_locs(_child_exprs.size(), -1);
+    bool is_all_const = true;
+
     for (size_t i = 0; i < _child_exprs.size(); ++i) {
-        int result_col_id = -1;
-        RETURN_IF_ERROR(_child_exprs[i]->execute(&block, &result_col_id));
+        RETURN_IF_ERROR(_child_exprs[i]->execute(&block, &result_locs[i]));
+        is_all_const &= is_column_const(*block.get_by_position(result_locs[i]).column);
+    }
+    rows = is_all_const ? 1 : rows;
 
-        block.get_by_position(result_col_id).column =
-                block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        const auto* column = block.get_by_position(result_col_id).column.get();
+    for (size_t i = 0; i < _child_exprs.size(); ++i) {
+        int result_col_id = result_locs[i];
 
-        if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
-            const auto& col_nested = nullable->get_nested_column();
-            if (local_state._shared_state->build_not_ignore_null[i]) {
-                raw_ptrs[i] = nullable;
-            } else {
-                raw_ptrs[i] = &col_nested;
-            }
-
+        if (is_all_const) {
+            block.get_by_position(result_col_id).column =
+                    assert_cast<const vectorized::ColumnConst&>(
+                            *block.get_by_position(result_col_id).column)
+                            .get_data_column_ptr();
         } else {
-            raw_ptrs[i] = column;
+            block.get_by_position(result_col_id).column =
+                    block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         }
+        if (local_state._shared_state->build_not_ignore_null[i]) {
+            block.get_by_position(result_col_id).column =
+                    make_nullable(block.get_by_position(result_col_id).column);
+        }
+
+        raw_ptrs[i] = block.get_by_position(result_col_id).column.get();
         DCHECK_GE(result_col_id, 0);
-        local_state._shared_state->build_col_idx.insert({result_col_id, i});
+        local_state._shared_state->build_col_idx.insert({i, result_col_id});
     }
     return Status::OK();
 }
@@ -191,11 +174,14 @@ Status SetSinkLocalState<is_intersect>::open(RuntimeState* state) {
     auto& parent = _parent->cast<Parent>();
     DCHECK(parent._cur_child_id == 0);
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
+    _shared_state->build_not_ignore_null.resize(child_exprs_lists[parent._cur_child_id].size());
+    _shared_state->hash_table_variants = std::make_unique<SetHashTableVariants>();
 
-    _shared_state->hash_table_variants = std::make_unique<vectorized::SetHashTableVariants>();
-
-    for (const auto& ctx : child_exprs_lists[parent._cur_child_id]) {
-        _shared_state->build_not_ignore_null.push_back(ctx->root()->is_nullable());
+    for (const auto& ctl : child_exprs_lists) {
+        for (int i = 0; i < ctl.size(); ++i) {
+            _shared_state->build_not_ignore_null[i] =
+                    _shared_state->build_not_ignore_null[i] || ctl[i]->root()->is_nullable();
+        }
     }
     _shared_state->hash_table_init();
     return Status::OK();

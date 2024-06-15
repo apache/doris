@@ -20,10 +20,16 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
@@ -80,6 +86,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -97,6 +104,10 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> WORKLOAD_GROUPS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> ROUTINE_INFO_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> TABLE_OPTIONS_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -117,6 +128,20 @@ public class MetadataGenerator {
             routineInfoBuilder.put(PlsqlManager.ROUTINE_INFO_TITLE_NAMES.get(i).toLowerCase(), i);
         }
         ROUTINE_INFO_COLUMN_TO_INDEX = routineInfoBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> policyBuilder = new ImmutableMap.Builder();
+        List<Column> policyColList = SchemaTable.TABLE_MAP.get("workload_policy").getFullSchema();
+        for (int i = 0; i < policyColList.size(); i++) {
+            policyBuilder.put(policyColList.get(i).getName().toLowerCase(), i);
+        }
+        WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX = policyBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> optionBuilder = new ImmutableMap.Builder();
+        List<Column> optionColList = SchemaTable.TABLE_MAP.get("table_options").getFullSchema();
+        for (int i = 0; i < optionColList.size(); i++) {
+            optionBuilder.put(optionColList.get(i).getName().toLowerCase(), i);
+        }
+        TABLE_OPTIONS_COLUMN_TO_INDEX = optionBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -156,9 +181,6 @@ public class MetadataGenerator {
             case TASKS:
                 result = taskMetadataResult(params);
                 break;
-            case WORKLOAD_SCHED_POLICY:
-                result = workloadSchedPolicyMetadataResult(params);
-                break;
             default:
                 return errorResult("Metadata table params is not set.");
         }
@@ -191,6 +213,14 @@ public class MetadataGenerator {
             case ROUTINES_INFO:
                 result = routineInfoMetadataResult(schemaTableParams);
                 columnIndex = ROUTINE_INFO_COLUMN_TO_INDEX;
+                break;
+            case WORKLOAD_SCHEDULE_POLICY:
+                result = workloadSchedPolicyMetadataResult(schemaTableParams);
+                columnIndex = WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX;
+                break;
+            case TABLE_OPTIONS:
+                result = tableOptionsMetadataResult(schemaTableParams);
+                columnIndex = TABLE_OPTIONS_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -469,7 +499,7 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TFetchSchemaTableDataResult workloadSchedPolicyMetadataResult(TMetadataTableRequestParams params) {
+    private static TFetchSchemaTableDataResult workloadSchedPolicyMetadataResult(TSchemaTableRequestParams params) {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
         }
@@ -716,7 +746,7 @@ public class MetadataGenerator {
                 }
                 MTMV mv = (MTMV) table;
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("mv: " + mv);
+                    LOG.debug("mv: " + mv.toInfoString());
                 }
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setLongVal(mv.getId()));
@@ -798,7 +828,7 @@ public class MetadataGenerator {
             }
             List<AbstractTask> tasks = job.queryAllTasks();
             for (AbstractTask task : tasks) {
-                TRow tvfInfo = task.getTvfInfo();
+                TRow tvfInfo = task.getTvfInfo(job.getJobName());
                 if (tvfInfo != null) {
                     dataBatch.add(tvfInfo);
                 }
@@ -858,6 +888,78 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setStringVal("")); // DATABASE_COLLATION
             dataBatch.add(trow);
         }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult tableOptionsMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        List<Long> catalogIds = Env.getCurrentEnv().getCatalogMgr().getCatalogIds();
+        for (Long catalogId : catalogIds) {
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+            List<Long> dbIds = catalog.getDbIds();
+            for (Long dbId : dbIds) {
+                DatabaseIf database = catalog.getDbNullable(dbId);
+                List<TableIf> tables = database.getTables();
+                for (TableIf table : tables) {
+                    if (!(table instanceof OlapTable)) {
+                        continue;
+                    }
+                    OlapTable olapTable = (OlapTable) table;
+                    TRow trow = new TRow();
+                    trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
+                    trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
+                    trow.addToColumnValue(
+                        new TCell().setStringVal(olapTable.getKeysType().toMetadata())); //TABLE_MODEL
+                    trow.addToColumnValue(
+                        new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTypes
+
+                    DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+                    if (distributionInfo.getType() == DistributionInfoType.HASH) {
+                        HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                        List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
+                        StringBuilder distributeKey = new StringBuilder();
+                        for (Column c : distributionColumns) {
+                            if (distributeKey.length() != 0) {
+                                distributeKey.append(",");
+                            }
+                            distributeKey.append(c.getName());
+                        }
+                        if (distributeKey.length() == 0) {
+                            trow.addToColumnValue(new TCell().setStringVal(""));
+                        } else {
+                            trow.addToColumnValue(
+                                new TCell().setStringVal(distributeKey.toString()));
+                        }
+                        trow.addToColumnValue(new TCell().setStringVal("HASH")); // DISTRIBUTE_TYPE
+                    } else {
+                        trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_KEY
+                        trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_TYPE
+                    }
+                    trow.addToColumnValue(new TCell().setIntVal(distributionInfo.getBucketNum())); // BUCKETS_NUM
+                    trow.addToColumnValue(new TCell().setIntVal(olapTable.getPartitionNum())); // PARTITION_NUM
+                    TableProperty property = olapTable.getTableProperty();
+                    if (property == null) {
+                        trow.addToColumnValue(new TCell().setStringVal("")); // PROPERTIES
+                    } else {
+                        try {
+                            trow.addToColumnValue(
+                                new TCell().setStringVal(property.getPropertiesString())); // PROPERTIES
+                        } catch (IOException e) {
+                            return errorResult(e.getMessage());
+                        }
+                    }
+                    dataBatch.add(trow);
+                } // for table
+            } // for db
+        } // for catalog
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;

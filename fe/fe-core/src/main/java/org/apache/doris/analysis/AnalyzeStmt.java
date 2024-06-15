@@ -116,7 +116,7 @@ public class AnalyzeStmt extends StatementBase {
         return analyzeProperties.forceFull();
     }
 
-    public boolean usingSqlForPartitionColumn() {
-        return analyzeProperties.usingSqlForPartitionColumn();
+    public boolean usingSqlForExternalTable() {
+        return analyzeProperties.usingSqlForExternalTable();
     }
 }

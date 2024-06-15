@@ -29,7 +29,7 @@ CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteReques
                                    RuntimeProfile* profile, const UniqueId& load_id)
         : BaseDeltaWriter(req, profile, load_id), _engine(engine) {
     _rowset_builder = std::make_unique<CloudRowsetBuilder>(engine, req, profile);
-    _query_thread_context.init();
+    _query_thread_context.init_unlocked();
 }
 
 CloudDeltaWriter::~CloudDeltaWriter() = default;
@@ -61,8 +61,8 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
 }
 
 Status CloudDeltaWriter::write(const vectorized::Block* block,
-                               const std::vector<uint32_t>& row_idxs, bool is_append) {
-    if (row_idxs.empty() && !is_append) [[unlikely]] {
+                               const std::vector<uint32_t>& row_idxs) {
+    if (row_idxs.empty()) [[unlikely]] {
         return Status::OK();
     }
     std::lock_guard lock(_mtx);
@@ -74,7 +74,7 @@ Status CloudDeltaWriter::write(const vectorized::Block* block,
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    return _memtable_writer->write(block, row_idxs, is_append);
+    return _memtable_writer->write(block, row_idxs);
 }
 
 Status CloudDeltaWriter::close() {

@@ -296,8 +296,11 @@ public class LocationPath {
                 fsType = FileSystemType.S3;
                 break;
             case COSN:
+                // COSN use s3 client on FE side, because it need to complete multi-part uploading files on FE side.
+                fsType = FileSystemType.S3;
+                break;
             case OFS:
-                // ofs:// and cosn:// use the same underlying file system: Tencent Cloud HDFS, aka CHDFS)) {
+                // ofs:// use the underlying file system: Tencent Cloud HDFS, aka CHDFS)) {
                 fsType = FileSystemType.OFS;
                 break;
             case HDFS:
@@ -329,7 +332,11 @@ public class LocationPath {
             return null;
         }
         LocationPath locationPath = new LocationPath(location);
-        switch (locationPath.getLocationType()) {
+        return locationPath.getTFileTypeForBE();
+    }
+
+    public TFileType getTFileTypeForBE() {
+        switch (this.getLocationType()) {
             case S3:
             case S3A:
             case S3N:
@@ -362,7 +369,7 @@ public class LocationPath {
      *
      * @return BE scan range path
      */
-    public Path toScanRangeLocation() {
+    public Path toStorageLocation() {
         switch (locationType) {
             case S3:
             case S3A:

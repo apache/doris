@@ -159,6 +159,8 @@ message PTabletWriterAddBlockRequest {
     optional bool write_single_replica = 12 [default = false];
     map<int64, PSlaveTabletNodes> slave_tablet_nodes = 13;
     optional bool is_single_tablet_block = 14 [default = false];
+    // for auto-partition first stage close, we should hang.
+    optional bool hang_wait = 15 [default = false];
 };
 
 message PSlaveTabletNodes {
@@ -248,6 +250,7 @@ message PCancelPlanFragmentRequest {
     optional PPlanFragmentCancelReason cancel_reason = 2;
     optional PUniqueId query_id = 3;
     optional int32 fragment_id = 4;
+    optional PStatus cancel_status = 5;
 };
 
 message PCancelPlanFragmentResult {
@@ -408,6 +411,8 @@ message PKafkaMetaProxyRequest {
     repeated PIntegerPair offset_times = 3;
     // optional for getting latest offsets of partitons
     repeated int32 partition_id_for_latest_offsets = 4;
+    // optional for getting real offset for end/beginning flag
+    repeated PIntegerPair offset_flags = 5;
 };
 
 message PProxyRequest {
@@ -557,7 +562,7 @@ message PMergeFilterRequest {
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
-    optional bool opt_remote_rf = 9;
+    optional bool opt_remote_rf = 9; // Deprecated
     optional PColumnType column_type = 10;
     optional bool contain_null = 11;
     optional bool ignored = 12;
@@ -785,7 +790,7 @@ enum FileCacheType {
     NORMAL = 2;
 }
 
-message FileCacheSegmentMeta {
+message FileCacheBlockMeta {
     required int64 tablet_id = 1;
     required string rowset_id = 2;
     required int64 segment_id = 3;
@@ -797,7 +802,7 @@ message FileCacheSegmentMeta {
 }
 
 message PGetFileCacheMetaResponse {
-    repeated FileCacheSegmentMeta file_cache_segment_metas = 1;
+    repeated FileCacheBlockMeta file_cache_block_metas = 1;
 }
 
 message PReportStreamLoadStatusRequest {

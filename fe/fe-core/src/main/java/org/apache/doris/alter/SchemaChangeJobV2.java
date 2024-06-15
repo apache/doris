@@ -54,7 +54,6 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
-import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -76,6 +75,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -282,7 +282,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             if (this.storageFormat != null) {
                                 createReplicaTask.setStorageFormat(this.storageFormat);
                             }
-
+                            createReplicaTask.setInvertedIndexStorageFormat(tbl.getInvertedIndexStorageFormat());
                             batchTask.addTask(createReplicaTask);
                         } // end for rollupReplicas
                     } // end for rollupTablets
@@ -418,7 +418,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         tbl.readLock();
-        Map<Object, List<TColumn>> tcloumnsPool  = Maps.newHashMap();
+        Map<Object, Object> objectPool = new ConcurrentHashMap<Object, Object>();
         String vaultId = tbl.getStorageVaultId();
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
@@ -430,30 +430,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
-
-            Map<String, Expr> defineExprs = Maps.newHashMap();
-            List<Column> fullSchema = tbl.getBaseSchema(true);
-            DescriptorTable descTable = new DescriptorTable();
-            TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
-            for (Column column : fullSchema) {
-                SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
-                destSlotDesc.setIsMaterialized(true);
-                destSlotDesc.setColumn(column);
-                destSlotDesc.setIsNullable(column.isAllowNull());
-
-                if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
-                    Column newColumn = indexColumnMap.get(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
-                    if (newColumn.getType() != column.getType()) {
-                        try {
-                            SlotRef slot = new SlotRef(destSlotDesc);
-                            slot.setCol(column.getName());
-                            defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
-                        } catch (AnalysisException e) {
-                            throw new AlterCancelException(e.getMessage());
-                        }
-                    }
-                }
-            }
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
@@ -467,6 +443,30 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     long shadowIdxId = entry.getKey();
                     MaterializedIndex shadowIdx = entry.getValue();
                     long originIdxId = indexIdMap.get(shadowIdxId);
+                    Map<String, Expr> defineExprs = Maps.newHashMap();
+                    List<Column> fullSchema = tbl.getSchemaByIndexId(originIdxId, true);
+                    DescriptorTable descTable = new DescriptorTable();
+                    TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
+                    for (Column column : fullSchema) {
+                        SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
+                        destSlotDesc.setIsMaterialized(true);
+                        destSlotDesc.setColumn(column);
+                        destSlotDesc.setIsNullable(column.isAllowNull());
+
+                        if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
+                            Column newColumn = indexColumnMap.get(
+                                    SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
+                            if (newColumn.getType() != column.getType()) {
+                                try {
+                                    SlotRef slot = new SlotRef(destSlotDesc);
+                                    slot.setCol(column.getName());
+                                    defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
+                                } catch (AnalysisException e) {
+                                    throw new AlterCancelException(e.getMessage());
+                                }
+                            }
+                        }
+                    }
                     int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                     int originSchemaHash = tbl.getSchemaHashByIndexId(indexIdMap.get(shadowIdxId));
                     List<Column> originSchemaColumns = tbl.getSchemaByIndexId(originIdxId, true);
@@ -478,12 +478,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             AlterReplicaTask rollupTask = new AlterReplicaTask(shadowReplica.getBackendId(), dbId,
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
-                                    JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, tcloumnsPool,
+                                    JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, objectPool,
                                     null, expiration, vaultId);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
                 }
+
             } // end for partitions
         } finally {
             tbl.readUnlock();

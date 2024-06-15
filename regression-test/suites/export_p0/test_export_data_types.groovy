@@ -67,7 +67,9 @@ suite("test_export_data_types", "p0") {
             `decimalv3_col5` decimalv3(20,10) COMMENT "",
             `decimalv3_col6` decimalv3(38,0) COMMENT "",
             `decimalv3_col7` decimalv3(38,37) COMMENT "",
-            `decimalv3_col8` decimalv3(38,38) COMMENT ""
+            `decimalv3_col8` decimalv3(38,38) COMMENT "",
+            `ipv4_col` ipv4 COMMENT "",
+            `ipv6_col` ipv6 COMMENT ""
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
@@ -81,28 +83,28 @@ suite("test_export_data_types", "p0") {
             (${i}, '2023-04-20', '2023-04-20', '2023-04-20 00:00:00', '2023-04-20 00:00:00', '2023-04-20 00:00:00', '2023-04-20 00:00:00',
             'Beijing', 'Haidian',
             ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}',
-            ${i}, ${i}, ${i}, 0.${i}, ${i}, ${i}, ${i}, ${i}, 0.${i}),
+            ${i}, ${i}, ${i}, 0.${i}, ${i}, ${i}, ${i}, ${i}, 0.${i}, '0.0.0.${i}', '::${i}'),
         """)
 
     sb.append("""
-        (${++i}, '9999-12-31', '9999-12-31', '9999-12-31 23:59:59', '9999-12-31 23:59:59', '2023-04-20 00:00:00.12', '2023-04-20 00:00:00.3344',
-        '', 'Haidian',
-        ${Short.MIN_VALUE}, ${Byte.MIN_VALUE}, true, ${Integer.MIN_VALUE}, ${Long.MIN_VALUE}, -170141183460469231731687303715884105728, ${Float.MIN_VALUE}, ${Double.MIN_VALUE}, 'char${i}',
-        100000000, 100000000, 4, 0.1, 0.99999999, 9999999999.9999999999, 99999999999999999999999999999999999999, 9.9999999999999999999999999999999999999, 0.99999999999999999999999999999999999999),
-    """)
+            (${++i}, '9999-12-31', '9999-12-31', '9999-12-31 23:59:59', '9999-12-31 23:59:59', '2023-04-20 00:00:00.12', '2023-04-20 00:00:00.3344',
+            '', 'Haidian',
+            ${Short.MIN_VALUE}, ${Byte.MIN_VALUE}, true, ${Integer.MIN_VALUE}, ${Long.MIN_VALUE}, -170141183460469231731687303715884105728, ${Float.MIN_VALUE}, ${Double.MIN_VALUE}, 'char${i}',
+            100000000, 100000000, 4, 0.1, 0.99999999, 9999999999.9999999999, 99999999999999999999999999999999999999, 9.9999999999999999999999999999999999999, 0.99999999999999999999999999999999999999, '0.0.0.0', '::'),
+        """)
     
     sb.append("""
             (${++i}, '2023-04-21', '2023-04-21', '2023-04-20 12:34:56', '2023-04-20 00:00:00', '2023-04-20 00:00:00.123', '2023-04-20 00:00:00.123456',
             'Beijing', '', 
             ${Short.MAX_VALUE}, ${Byte.MAX_VALUE}, true, ${Integer.MAX_VALUE}, ${Long.MAX_VALUE}, 170141183460469231731687303715884105727, ${Float.MAX_VALUE}, ${Double.MAX_VALUE}, 'char${i}',
-            999999999, 999999999, 9, 0.9, 9.99999999, 1234567890.0123456789, 12345678901234567890123456789012345678, 1.2345678901234567890123456789012345678, 0.12345678901234567890123456789012345678),
+            999999999, 999999999, 9, 0.9, 9.99999999, 1234567890.0123456789, 12345678901234567890123456789012345678, 1.2345678901234567890123456789012345678, 0.12345678901234567890123456789012345678, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'),
         """)
 
     sb.append("""
             (${++i}, '0000-01-01', '0000-01-01', '2023-04-20 00:00:00', '2023-04-20 00:00:00', '2023-04-20 00:00:00', '2023-04-20 00:00:00',
             'Beijing', 'Haidian',
             ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}',
-            ${i}, ${i}, ${i}, 0.${i}, ${i}, ${i}, ${i}, ${i}, 0.${i})
+            ${i}, ${i}, ${i}, 0.${i}, ${i}, ${i}, ${i}, ${i}, 0.${i}, '0.0.0.${i}', '::${i}')
         """)
 
     
@@ -154,7 +156,7 @@ suite("test_export_data_types", "p0") {
         def outfile_url = waiting_export.call(label)
         
         qt_select_load1 """ SELECT * FROM s3(
-                                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${format}",
+                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "${format}",
@@ -187,7 +189,7 @@ suite("test_export_data_types", "p0") {
         def outfile_url = waiting_export.call(label)
         
         qt_select_load2 """ SELECT * FROM s3(
-                                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${format}",
+                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "${format}",
@@ -219,7 +221,7 @@ suite("test_export_data_types", "p0") {
         def outfile_url = waiting_export.call(label)
         
         qt_select_load3 """ SELECT * FROM s3(
-                                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${format}",
+                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "${format}",
@@ -251,7 +253,7 @@ suite("test_export_data_types", "p0") {
         def outfile_url = waiting_export.call(label)
         
         qt_select_load4 """ SELECT * FROM s3(
-                                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "${format}",
@@ -284,7 +286,7 @@ suite("test_export_data_types", "p0") {
         def outfile_url = waiting_export.call(label)
         
         qt_select_load5 """ SELECT * FROM s3(
-                                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "${format}",

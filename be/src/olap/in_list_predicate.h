@@ -191,12 +191,15 @@ public:
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
             const void* ptr = iter->get_value();
-            auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(
-                    *reinterpret_cast<const T*>(ptr));
+            //            auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(
+            //                    *reinterpret_cast<const T*>(ptr));
+            std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+            RETURN_IF_ERROR(
+                    InvertedIndexQueryParamFactory::create_query_value<Type>(ptr, query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
-            RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
-                                                               num_rows, index));
+            RETURN_IF_ERROR(iterator->read_from_inverted_index(
+                    column_name, query_param->get_value(), query_type, num_rows, index));
             indices |= *index;
             iter->next();
         }

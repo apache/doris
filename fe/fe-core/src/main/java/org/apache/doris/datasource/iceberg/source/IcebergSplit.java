@@ -28,13 +28,16 @@ import java.util.Map;
 @Data
 public class IcebergSplit extends FileSplit {
 
+    private final String originalPath;
+
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(Path file, long start, long length, long fileLength, String[] hosts,
                         Integer formatVersion, Map<String, String> config,
-                        List<String> partitionList) {
+                        List<String> partitionList, String originalPath) {
         super(file, start, length, fileLength, hosts, partitionList);
         this.formatVersion = formatVersion;
         this.config = config;
+        this.originalPath = originalPath;
     }
 
     private Integer formatVersion;

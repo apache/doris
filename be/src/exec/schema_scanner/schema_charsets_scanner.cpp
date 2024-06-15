@@ -69,38 +69,38 @@ Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
 
     // variables names
     {
-        StringRef strs[row_num];
+        std::vector<StringRef> strs(row_num);
         for (int i = 0; i < row_num; ++i) {
             strs[i] = StringRef(_s_charsets[i].charset, strlen(_s_charsets[i].charset));
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
     }
     // DEFAULT_COLLATE_NAME
     {
-        StringRef strs[row_num];
+        std::vector<StringRef> strs(row_num);
         for (int i = 0; i < row_num; ++i) {
             strs[i] = StringRef(_s_charsets[i].default_collation,
                                 strlen(_s_charsets[i].default_collation));
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // DESCRIPTION
     {
-        StringRef strs[row_num];
+        std::vector<StringRef> strs(row_num);
         for (int i = 0; i < row_num; ++i) {
             strs[i] = StringRef(_s_charsets[i].description, strlen(_s_charsets[i].description));
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // maxlen
     {
-        int64_t srcs[row_num];
+        std::vector<int64_t> srcs(row_num);
         for (int i = 0; i < row_num; ++i) {
             srcs[i] = _s_charsets[i].maxlen;
-            datas[i] = srcs + i;
+            datas[i] = srcs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }

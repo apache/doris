@@ -224,6 +224,7 @@ public:
                 break;
             }
             setup_analyzer_lowercase(analyzer);
+            setup_analyzer_use_stopwords(analyzer);
             return Status::OK();
         } catch (CLuceneError& e) {
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
@@ -233,10 +234,19 @@ public:
 
     void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
         auto lowercase = get_parser_lowercase_from_properties<true>(_index_meta->properties());
-        if (lowercase == "true") {
+        if (lowercase == INVERTED_INDEX_PARSER_TRUE) {
             analyzer->set_lowercase(true);
-        } else if (lowercase == "false") {
+        } else if (lowercase == INVERTED_INDEX_PARSER_FALSE) {
             analyzer->set_lowercase(false);
+        }
+    }
+
+    void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
+        auto stop_words = get_parser_stopwords_from_properties(_index_meta->properties());
+        if (stop_words == "none") {
+            analyzer->set_stopwords(nullptr);
+        } else {
+            analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
         }
     }
 
@@ -363,25 +373,17 @@ public:
                 LOG(ERROR) << "index writer is null in inverted index writer.";
                 return Status::InternalError("index writer is null in inverted index writer");
             }
+            size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                // offsets[i+1] is now row element count
-                // [0, 3, 6]
-                // [10,20,30] [20,30,40], [30,40,50]
-                auto start_off = offsets[i];
-                auto end_off = offsets[i + 1];
+                // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
+                // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
+                auto array_elem_size = offsets[i + 1] - offsets[i];
                 // TODO(Amory).later we use object pool to avoid field creation
                 lucene::document::Field* new_field = nullptr;
                 CL_NS(analysis)::TokenStream* ts = nullptr;
-                for (auto j = start_off; j < end_off; ++j) {
+                for (auto j = start_off; j < start_off + array_elem_size; ++j) {
                     if (null_map[j] == 1) {
                         continue;
-                    }
-                    // now we temp create field . later make a pool
-                    if (Status st = create_field(&new_field); st != Status::OK()) {
-                        LOG(ERROR)
-                                << "create field " << string(_field_name.begin(), _field_name.end())
-                                << " error:" << st;
-                        return st;
                     }
                     auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
                     if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
@@ -391,33 +393,58 @@ public:
                         // TODO. Maybe here has performance problem for large size string.
                         continue;
                     } else {
+                        // now we temp create field . later make a pool
+                        if (Status st = create_field(&new_field); st != Status::OK()) {
+                            LOG(ERROR) << "create field "
+                                       << string(_field_name.begin(), _field_name.end())
+                                       << " error:" << st;
+                            return st;
+                        }
                         if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
                             _parser_type != InvertedIndexParserType::PARSER_NONE) {
                             // in this case stream need to delete after add_document, because the
                             // stream can not reuse for different field
-                            _char_string_reader->init(v->get_data(), v->get_size(), false);
+                            bool own_token_stream = true;
+                            bool own_reader = true;
+                            std::unique_ptr<lucene::util::Reader> char_string_reader = nullptr;
+                            RETURN_IF_ERROR(create_char_string_reader(char_string_reader));
+                            char_string_reader->init(v->get_data(), v->get_size(), false);
+                            _analyzer->set_ownReader(own_reader);
                             ts = _analyzer->tokenStream(new_field->name(),
-                                                        _char_string_reader.get());
-                            new_field->setValue(ts);
+                                                        char_string_reader.release());
+                            new_field->setValue(ts, own_token_stream);
                         } else {
                             new_field_char_value(v->get_data(), v->get_size(), new_field);
                         }
                         _doc->add(*new_field);
                     }
                 }
+                start_off += array_elem_size;
                 if (!_doc->getFields()->empty()) {
                     // if this array is null, we just ignore to write inverted index
                     RETURN_IF_ERROR(add_document());
                     _doc->clear();
-                    _CLDELETE(ts);
+                } else {
+                    // avoid to add doc which without any field which may make threadState init skip
+                    // init fieldDataArray, then will make error with next doc with fields in
+                    // resetCurrentFieldData
+                    if (Status st = create_field(&new_field); st != Status::OK()) {
+                        LOG(ERROR)
+                                << "create field " << string(_field_name.begin(), _field_name.end())
+                                << " error:" << st;
+                        return st;
+                    }
+                    _doc->add(*new_field);
+                    RETURN_IF_ERROR(add_null_document());
+                    _doc->clear();
                 }
                 _rid++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
+            size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                auto start_off = offsets[i];
-                auto end_off = offsets[i + 1];
-                for (size_t j = start_off; j < end_off; ++j) {
+                auto array_elem_size = offsets[i + 1] - offsets[i];
+                for (size_t j = start_off; j < start_off + array_elem_size; ++j) {
                     if (null_map[j] == 1) {
                         continue;
                     }
@@ -428,6 +455,7 @@ public:
                     _value_key_coder->full_encode_ascending(p, &new_value);
                     _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
                 }
+                start_off += array_elem_size;
                 _row_ids_seen_for_bkd++;
                 _rid++;
             }
@@ -536,18 +564,15 @@ public:
                 if constexpr (field_is_numeric_type(field_type)) {
                     _bkd_writer->max_doc_ = _rid;
                     _bkd_writer->docs_seen_ = _row_ids_seen_for_bkd;
-                    null_bitmap_out =
-                            std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                                    InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()
-                                            .c_str()));
+                    null_bitmap_out = std::unique_ptr<
+                            lucene::store::IndexOutput>(_dir->createOutput(
+                            InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()));
                     data_out = std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                            InvertedIndexDescriptor::get_temporary_bkd_index_data_file_name()
-                                    .c_str()));
+                            InvertedIndexDescriptor::get_temporary_bkd_index_data_file_name()));
                     meta_out = std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                            InvertedIndexDescriptor::get_temporary_bkd_index_meta_file_name()
-                                    .c_str()));
+                            InvertedIndexDescriptor::get_temporary_bkd_index_meta_file_name()));
                     index_out = std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                            InvertedIndexDescriptor::get_temporary_bkd_index_file_name().c_str()));
+                            InvertedIndexDescriptor::get_temporary_bkd_index_file_name()));
                     write_null_bitmap(null_bitmap_out.get());
 
                     DBUG_EXECUTE_IF("InvertedIndexWriter._set_bkd_data_out_nullptr",
@@ -567,10 +592,9 @@ public:
                     index_out->close();
                     _dir->close();
                 } else if constexpr (field_is_slice_type(field_type)) {
-                    null_bitmap_out =
-                            std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                                    InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()
-                                            .c_str()));
+                    null_bitmap_out = std::unique_ptr<
+                            lucene::store::IndexOutput>(_dir->createOutput(
+                            InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()));
                     write_null_bitmap(null_bitmap_out.get());
                     close();
                     DBUG_EXECUTE_IF(
@@ -668,8 +692,8 @@ Status InvertedIndexColumnWriter::create(const Field* field,
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL128I)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL256)
         M(FieldType::OLAP_FIELD_TYPE_BOOL)
-        M(FieldType::OLAP_FIELD_TYPE_DOUBLE)
-        M(FieldType::OLAP_FIELD_TYPE_FLOAT)
+        M(FieldType::OLAP_FIELD_TYPE_IPV4)
+        M(FieldType::OLAP_FIELD_TYPE_IPV6)
 #undef M
     default:
         return Status::NotSupported("unsupported type for inverted index: " +

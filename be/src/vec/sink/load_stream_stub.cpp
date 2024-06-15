@@ -127,11 +127,12 @@ inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamReplyHandler
 
 LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id,
                                std::shared_ptr<IndexToTabletSchema> schema_map,
-                               std::shared_ptr<IndexToEnableMoW> mow_map)
+                               std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental)
         : _load_id(load_id),
           _src_id(src_id),
           _tablet_schema_for_index(schema_map),
-          _enable_unique_mow_for_index(mow_map) {};
+          _enable_unique_mow_for_index(mow_map),
+          _is_incremental(incremental) {};
 
 LoadStreamStub::~LoadStreamStub() {
     if (_is_init.load() && !_is_closed.load()) {
@@ -141,8 +142,7 @@ LoadStreamStub::~LoadStreamStub() {
 }
 
 // open_load_stream
-Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
-                            BrpcClientCache<PBackendService_Stub>* client_cache,
+Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const NodeInfo& node_info, int64_t txn_id,
                             const OlapTableSchemaParam& schema,
                             const std::vector<PTabletID>& tablets_for_schema, int total_streams,
@@ -157,7 +157,7 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
     opt.max_buf_size = config::load_stream_max_buf_size;
     opt.idle_timeout_ms = idle_timeout_ms;
     opt.messages_in_batch = config::load_stream_messages_in_batch;
-    opt.handler = new LoadStreamReplyHandler(_load_id, _dst_id, self);
+    opt.handler = new LoadStreamReplyHandler(_load_id, _dst_id, shared_from_this());
     brpc::Controller cntl;
     if (int ret = brpc::StreamCreate(&_stream_id, cntl, &opt)) {
         delete opt.handler;
@@ -169,16 +169,22 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
     request.set_src_id(_src_id);
     request.set_txn_id(txn_id);
     request.set_enable_profile(enable_profile);
-    request.set_total_streams(total_streams);
+    if (_is_incremental) {
+        request.set_total_streams(0);
+    } else if (total_streams > 0) {
+        request.set_total_streams(total_streams);
+    } else {
+        return Status::InternalError("total_streams should be greator than 0");
+    }
     request.set_idle_timeout_ms(idle_timeout_ms);
     schema.to_protobuf(request.mutable_schema());
     for (auto& tablet : tablets_for_schema) {
         *request.add_tablets() = tablet;
     }
     POpenLoadStreamResponse response;
-    // use "pooled" connection to avoid conflicts between streaming rpc and regular rpc,
-    // see: https://github.com/apache/brpc/issues/392
-    const auto& stub = client_cache->get_new_client_no_cache(host_port, "baidu_std", "pooled");
+    // set connection_group "streaming" to distinguish with non-streaming connections
+    const auto& stub =
+            client_cache->get_new_client_no_cache(host_port, "baidu_std", "single", "streaming");
     stub->open_load_stream(&cntl, &request, &response, nullptr);
     for (const auto& resp : response.tablet_schemas()) {
         auto tablet_schema = std::make_unique<TabletSchema>();

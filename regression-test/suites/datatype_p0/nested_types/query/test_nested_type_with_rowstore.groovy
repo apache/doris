@@ -18,8 +18,6 @@ import org.apache.commons.lang3.StringUtils
 // under the License.
 
 suite("test_nested_type_with_rowstore") {
-    // this test case aim to test nested type with old planner
-    sql """set enable_nereids_planner=false"""
     sql """ DROP TABLE IF EXISTS ct_table;"""
     sql """CREATE TABLE ct_table ( `id` int(11) NOT NULL COMMENT "用户 ID", `c_varchar` varchar(65533) NULL COMMENT "用户姓名", `c_jsonb` JSONB NULL, `c_array` ARRAY<INT> NULL, `c_map` MAP<STRING, INT> NULL, `c_struct` STRUCT<a:INT, b:INT> NULL) UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "store_row_column" = "true");"""
 

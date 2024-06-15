@@ -250,4 +250,9 @@ public class MapType extends Type {
     public int hashCode() {
         return Objects.hash(keyType, valueType);
     }
+
+    @Override
+    public boolean isSupported() {
+        return keyType.isSupported() && !keyType.isNull() && valueType.isSupported() && !valueType.isNull();
+    }
 }

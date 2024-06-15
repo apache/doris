@@ -21,8 +21,6 @@ import org.apache.commons.lang3.StringUtils
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_nestedtypes_insert_into_select", "p0") {
-    sql "set enable_nereids_planner=false"
-
     // create array struct
     sql "DROP TABLE IF EXISTS ast;"
     sql """ CREATE TABLE IF NOT EXISTS ast (col1 varchar(64) NULL, col2 array<struct<a:int,b:string>>) DUPLICATE KEY(`col1`)  DISTRIBUTED BY HASH(`col1`) PROPERTIES ("replication_num" = "1"); """

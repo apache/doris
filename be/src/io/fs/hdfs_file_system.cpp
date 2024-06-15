@@ -31,7 +31,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/hdfs_file_reader.h"
@@ -86,15 +85,7 @@ HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, std::string fs_na
     }
 }
 
-HdfsFileSystem::~HdfsFileSystem() {
-    if (_fs_handle != nullptr) {
-        if (_fs_handle->from_cache) {
-            _fs_handle->dec_ref();
-        } else {
-            delete _fs_handle;
-        }
-    }
-}
+HdfsFileSystem::~HdfsFileSystem() = default;
 
 Status HdfsFileSystem::init() {
     RETURN_IF_ERROR(
@@ -107,13 +98,11 @@ Status HdfsFileSystem::init() {
 
 Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                         const FileWriterOptions* opts) {
-    _fs_handle->inc_ref();
     auto res = io::HdfsFileWriter::create(file, _fs_handle, _fs_name, opts);
     if (res.has_value()) {
         *writer = std::move(res).value();
         return Status::OK();
     } else {
-        _fs_handle->dec_ref();
         return std::move(res).error();
     }
 }

@@ -64,7 +64,6 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -89,6 +88,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -101,6 +101,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -184,6 +185,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     private TableProperty tableProperty;
 
     private AutoIncrementGenerator autoIncrementGenerator;
+
+    private volatile Statistics statistics = new Statistics();
 
     public OlapTable() {
         // for persist
@@ -271,6 +274,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     public boolean isBeingSynced() {
         return getOrCreatTableProperty().isBeingSynced();
+    }
+
+    public boolean isTemporaryPartition(long partitionId) {
+        return tempPartitions.hasPartition(partitionId);
     }
 
     public void setTableProperty(TableProperty tableProperty) {
@@ -802,9 +809,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public List<Column> getSchemaAllIndexes(boolean full) {
+    public Set<Column> getSchemaAllIndexes(boolean full) {
+        Set<Column> columns = Sets.newHashSet();
+        for (Long indexId : indexIdToMeta.keySet()) {
+            columns.addAll(getSchemaByIndexId(indexId, full));
+        }
+        return columns;
+    }
+
+    public List<Column> getMvColumns(boolean full) {
         List<Column> columns = Lists.newArrayList();
         for (Long indexId : indexIdToMeta.keySet()) {
+            if (indexId == baseIndexId) {
+                continue;
+            }
             columns.addAll(getSchemaByIndexId(indexId, full));
         }
         return columns;
@@ -1092,6 +1110,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return partition;
     }
 
+    public PartitionItem getPartitionItemOrAnalysisException(String partitionName) throws AnalysisException {
+        Partition partition = nameToPartition.get(partitionName);
+        if (partition == null) {
+            partition = tempPartitions.getPartition(partitionName);
+        }
+        if (partition == null) {
+            throw new AnalysisException("partition not found: " + partitionName);
+        }
+        return partitionInfo.getItem(partition.getId());
+    }
+
     public Partition getPartitionOrAnalysisException(long partitionId) throws AnalysisException {
         Partition partition = idToPartition.get(partitionId);
         if (partition == null) {
@@ -1323,29 +1352,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
     }
 
-    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
-        if (tblStats == null) {
-            return true;
-        }
-        if (!tblStats.analyzeColumns().containsAll(getColumnIndexPairs(getSchemaAllIndexes(false)
-                .stream()
-                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                .map(Column::getName)
-                .collect(Collectors.toSet())))) {
-            return true;
-        }
-        long rowCount = getRowCount();
-        if (rowCount > 0 && tblStats.rowCount == 0) {
-            return true;
-        }
-        long updateRows = tblStats.updatedRows.get();
-        int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
-        return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
-    }
-
     @Override
-    public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-        List<Pair<String, String>> ret = Lists.newArrayList();
+    public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+        Set<Pair<String, String>> ret = Sets.newHashSet();
         // Check the schema of all indexes for each given column name,
         // If the column name exists in the index, add the <IndexName, ColumnName> pair to return list.
         for (String column : columns) {
@@ -1799,34 +1808,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return oldPartition;
     }
 
-    public long getDataSize(boolean singleReplica) {
-        long dataSize = 0;
-        for (Partition partition : getAllPartitions()) {
-            dataSize += partition.getDataSize(singleReplica);
-        }
-        return dataSize;
-    }
-
-    public long getDataSize() {
-        return getDataSize(false);
-    }
-
-    public long getRemoteDataSize() {
-        long remoteDataSize = 0;
-        for (Partition partition : getAllPartitions()) {
-            remoteDataSize += partition.getRemoteDataSize();
-        }
-        return remoteDataSize;
-    }
-
-    public long getReplicaCount() {
-        long replicaCount = 0;
-        for (Partition partition : getAllPartitions()) {
-            replicaCount += partition.getReplicaCount();
-        }
-        return replicaCount;
-    }
-
     public void checkNormalStateForAlter() throws DdlException {
         if (state != OlapTableState.NORMAL) {
             throw new DdlException("Table[" + name + "]'s state(" + state.toString()
@@ -1993,6 +1974,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return keysNum;
     }
 
+    public String getKeyColAsString() {
+        StringBuilder str = new StringBuilder();
+        str.append("");
+        for (Column column : getBaseSchema()) {
+            if (column.isKey()) {
+                if (str.length() != 0) {
+                    str.append(",");
+                }
+                str.append(column.getName());
+            }
+        }
+        return str.toString();
+    }
+
     public boolean convertHashDistributionToRandomDistribution() {
         boolean hasChanged = false;
         if (defaultDistributionInfo.getType() == DistributionInfoType.HASH) {
@@ -2067,6 +2062,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             return tableProperty.getEstimatePartitionSize();
         }
         return "";
+    }
+
+    public boolean containsPartition(String partitionName) {
+        return nameToPartition.containsKey(partitionName);
     }
 
     public long getTTLSeconds() {
@@ -2175,6 +2174,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
         return false;
     }
+
+    public int getBaseSchemaVersion() {
+        MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
+        return baseIndexMeta.getSchemaVersion();
+    }
+
 
     public void setEnableSingleReplicaCompaction(boolean enableSingleReplicaCompaction) {
         if (tableProperty == null) {
@@ -2302,11 +2307,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             return tableProperty.timeSeriesCompactionLevelThreshold();
         }
         return PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
-    }
-
-    public int getBaseSchemaVersion() {
-        MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
-        return baseIndexMeta.getSchemaVersion();
     }
 
     public int getIndexSchemaVersion(long indexId) {
@@ -2778,10 +2778,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public Map<Long, PartitionItem> getAndCopyPartitionItems() {
+    public Map<String, PartitionItem> getAndCopyPartitionItems() {
         readLock();
         try {
-            return Maps.newHashMap(getPartitionInfo().getIdToItem(false));
+            Map<String, PartitionItem> res = Maps.newHashMap();
+            for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItem(false).entrySet()) {
+                Partition partition = idToPartition.get(entry.getKey());
+                if (partition != null) {
+                    res.put(partition.getName(), entry.getValue());
+                }
+            }
+            return res;
         } finally {
             readUnlock();
         }
@@ -2793,8 +2800,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(long partitionId) throws AnalysisException {
-        long visibleVersion = getPartitionOrAnalysisException(partitionId).getVisibleVersion();
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName) throws AnalysisException {
+        long visibleVersion = getPartitionOrAnalysisException(partitionName).getVisibleVersion();
         return new MTMVVersionSnapshot(visibleVersion);
     }
 
@@ -2846,5 +2853,93 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             }
         }
         return null;
+    }
+
+    public void setStatistics(Statistics statistics) {
+        this.statistics = statistics;
+    }
+
+    public static class Statistics {
+        @Getter
+        private String dbName;
+        @Getter
+        private String tableName;
+
+        @Getter
+        private Long dataSize; // single replica data size
+        @Getter
+        private Long totalReplicaDataSize;
+
+        @Getter
+        private Long remoteDataSize; // single replica remote data size
+
+        @Getter
+        private Long replicaCount;
+
+        @Getter
+        private Long rowCount;
+
+        @Getter
+        private Long rowsetCount;
+
+        @Getter
+        private Long segmentCount;
+
+        public Statistics() {
+            this.dbName = null;
+            this.tableName = null;
+
+            this.dataSize = 0L;
+            this.totalReplicaDataSize = 0L;
+
+            this.remoteDataSize = 0L;
+
+            this.replicaCount = 0L;
+
+            this.rowCount = 0L;
+            this.rowsetCount = 0L;
+            this.segmentCount = 0L;
+
+        }
+
+        public Statistics(String dbName, String tableName,
+                Long dataSize, Long totalReplicaDataSize,
+                Long remoteDataSize, Long replicaCount, Long rowCount,
+                Long rowsetCount, Long segmentCount) {
+
+            this.dbName = dbName;
+            this.tableName = tableName;
+
+            this.dataSize = dataSize;
+            this.totalReplicaDataSize = totalReplicaDataSize;
+
+            this.remoteDataSize = remoteDataSize;
+
+            this.replicaCount = replicaCount;
+
+            this.rowCount = rowCount;
+            this.rowsetCount = rowsetCount;
+            this.segmentCount = segmentCount;
+        }
+    }
+
+    public long getDataSize() {
+        return getDataSize(false);
+    }
+
+    public long getDataSize(boolean singleReplica) {
+        if (singleReplica) {
+            statistics.getDataSize();
+        }
+
+        return statistics.getTotalReplicaDataSize();
+    }
+
+    public long getRemoteDataSize() {
+        return statistics.getRemoteDataSize();
+    }
+
+    public long getReplicaCount() {
+        return statistics.getReplicaCount();
     }
 }

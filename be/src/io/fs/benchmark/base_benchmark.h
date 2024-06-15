@@ -177,7 +177,7 @@ public:
             }
             remaining_size -= size;
         }
-        if (status.ok() && writer != nullptr) {
+        if (status.ok() && writer != nullptr && writer->state() != FileWriter::State::CLOSED) {
             status = writer->close();
         }
 

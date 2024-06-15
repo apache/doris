@@ -129,7 +129,7 @@ public:
     Status save_meta(DataDir* data_dir);
 
     void serialize(std::string* meta_binary);
-    Status deserialize(const std::string& meta_binary);
+    Status deserialize(std::string_view meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
@@ -165,6 +165,7 @@ public:
     // Remote disk space occupied by tablet.
     size_t tablet_remote_size() const;
     size_t version_count() const;
+    size_t version_count_cross_with_range(const Version& range) const;
     Version max_version() const;
 
     TabletState tablet_state() const;
@@ -191,6 +192,9 @@ public:
     void revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap);
 
     const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
+    // return the snapshot of rowset_meta
+    // the return value is map<rowset_id_str, rowset_meta_sptr>
+    std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
@@ -440,6 +444,11 @@ public:
     bool empty() const;
 
     /**
+     * return the total cardinality of the Delete Bitmap
+     */
+    uint64_t cardinality() const;
+
+    /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 1 if the insertion took place, 0 if the assignment took place
@@ -686,6 +695,15 @@ inline bool TabletMeta::all_beta() const {
         }
     }
     return true;
+}
+
+inline std::unordered_map<std::string, RowsetMetaSharedPtr> TabletMeta::snapshot_rs_metas() const {
+    std::unordered_map<std::string, RowsetMetaSharedPtr> id_to_rowset_meta_map;
+    std::shared_lock rlock(_meta_lock);
+    std::for_each(_rs_metas.cbegin(), _rs_metas.cend(), [&](const auto& rowset_meta) {
+        id_to_rowset_meta_map.emplace(rowset_meta->rowset_id().to_string(), rowset_meta);
+    });
+    return id_to_rowset_meta_map;
 }
 
 std::string tablet_state_name(TabletState state);

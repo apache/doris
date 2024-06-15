@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 
 import java.util.List;
@@ -74,6 +76,22 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                         return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()),
                                 sort.withChildren(new LogicalProject<>(projects, project.child())));
                     })
+            ),
+            RuleType.FILL_UP_SORT_AGGREGATE_HAVING_AGGREGATE.build(
+                logicalSort(
+                    aggregate(logicalHaving(aggregate()))
+                        .when(a -> a.getOutputExpressions().stream().allMatch(SlotReference.class::isInstance))
+                ).when(this::checkSort)
+                    .then(sort -> processDistinctProjectWithAggregate(sort, sort.child(), sort.child().child().child()))
+            ),
+            // ATTN: process aggregate with distinct project, must run this rule before FILL_UP_SORT_AGGREGATE
+            //   because this pattern will always fail in FILL_UP_SORT_AGGREGATE
+            RuleType.FILL_UP_SORT_AGGREGATE_AGGREGATE.build(
+                logicalSort(
+                    aggregate(aggregate())
+                        .when(a -> a.getOutputExpressions().stream().allMatch(SlotReference.class::isInstance))
+                ).when(this::checkSort)
+                    .then(sort -> processDistinctProjectWithAggregate(sort, sort.child(), sort.child().child()))
             ),
             RuleType.FILL_UP_SORT_AGGREGATE.build(
                 logicalSort(aggregate())
@@ -158,20 +176,52 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             // Convert having to filter
             RuleType.FILL_UP_HAVING_PROJECT.build(
                     logicalHaving(logicalProject()).then(having -> {
-                        LogicalProject<Plan> project = having.child();
-                        Set<Slot> projectOutputSet = project.getOutputSet();
-                        Set<Slot> notExistedInProject = having.getExpressions().stream()
-                                .map(Expression::getInputSlots)
-                                .flatMap(Set::stream)
-                                .filter(s -> !projectOutputSet.contains(s))
-                                .collect(Collectors.toSet());
-                        if (notExistedInProject.isEmpty()) {
-                            return null;
+                        if (having.getExpressions().stream().anyMatch(e -> e.containsType(AggregateFunction.class))) {
+                            // This is very weird pattern.
+                            // There are some aggregate functions in having, but its child is project.
+                            // There are some slot from project in having too.
+                            // Having should execute after project.
+                            // But aggregate function should execute before project.
+                            // Since no aggregate here, we should add an empty aggregate before project.
+                            // We should push aggregate function into aggregate node first.
+                            // Then put aggregate result slots and original project slots into new project.
+                            // The final plan should be
+                            //   Having
+                            //   +-- Project
+                            //       +-- Aggregate
+                            // Since aggregate node have no group by key.
+                            // So project should not contain any slot from its original child.
+                            // Or otherwise slot cannot find will be thrown.
+                            LogicalProject<Plan> project = having.child();
+                            // new an empty agg here
+                            LogicalAggregate<Plan> agg = new LogicalAggregate<>(
+                                    ImmutableList.of(), ImmutableList.of(), project.child());
+                            // avoid throw exception even if having have slot from its child.
+                            // because we will add a project between having and project.
+                            Resolver resolver = new Resolver(agg, false);
+                            having.getConjuncts().forEach(resolver::resolve);
+                            agg = agg.withAggOutput(resolver.getNewOutputSlots());
+                            Set<Expression> newConjuncts = ExpressionUtils.replace(
+                                    having.getConjuncts(), resolver.getSubstitution());
+                            ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
+                            projects.addAll(project.getOutputs()).addAll(agg.getOutput());
+                            return new LogicalHaving<>(newConjuncts, new LogicalProject<>(projects.build(), agg));
+                        } else {
+                            LogicalProject<Plan> project = having.child();
+                            Set<Slot> projectOutputSet = project.getOutputSet();
+                            Set<Slot> notExistedInProject = having.getExpressions().stream()
+                                    .map(Expression::getInputSlots)
+                                    .flatMap(Set::stream)
+                                    .filter(s -> !projectOutputSet.contains(s))
+                                    .collect(Collectors.toSet());
+                            if (notExistedInProject.isEmpty()) {
+                                return null;
+                            }
+                            List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
+                                    .addAll(project.getProjects()).addAll(notExistedInProject).build();
+                            return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()),
+                                    having.withChildren(new LogicalProject<>(projects, project.child())));
                         }
-                        List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
-                                .addAll(project.getProjects()).addAll(notExistedInProject).build();
-                        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()),
-                                having.withChildren(new LogicalProject<>(projects, project.child())));
                     })
             )
         );
@@ -184,13 +234,19 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         private final Map<Expression, Slot> substitution = Maps.newHashMap();
         private final List<NamedExpression> newOutputSlots = Lists.newArrayList();
         private final Map<Slot, Expression> outputSubstitutionMap;
+        private final boolean checkSlot;
 
-        Resolver(Aggregate aggregate) {
+        Resolver(Aggregate<?> aggregate, boolean checkSlot) {
             outputExpressions = aggregate.getOutputExpressions();
             groupByExpressions = aggregate.getGroupByExpressions();
             outputSubstitutionMap = outputExpressions.stream().filter(Alias.class::isInstance)
                     .collect(Collectors.toMap(NamedExpression::toSlot, alias -> alias.child(0),
                             (k1, k2) -> k1));
+            this.checkSlot = checkSlot;
+        }
+
+        Resolver(Aggregate<?> aggregate) {
+            this(aggregate, true);
         }
 
         public void resolve(Expression expression) {
@@ -218,7 +274,9 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                 // We couldn't find the equivalent expression in output expressions and group-by expressions,
                 // so we should check whether the expression is valid.
                 if (expression instanceof SlotReference) {
-                    throw new AnalysisException(expression.toSql() + " should be grouped by.");
+                    if (checkSlot) {
+                        throw new AnalysisException(expression.toSql() + " should be grouped by.");
+                    }
                 } else if (expression instanceof AggregateFunction) {
                     if (checkWhetherNestedAggregateFunctionsExist((AggregateFunction) expression)) {
                         throw new AnalysisException("Aggregate functions in having clause can't be nested: "
@@ -293,7 +351,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
     }
 
     interface PlanGenerator {
-        Plan apply(Resolver resolver, Aggregate aggregate);
+        Plan apply(Resolver resolver, Aggregate<?> aggregate);
     }
 
     private Plan createPlan(Resolver resolver, Aggregate<? extends Plan> aggregate, PlanGenerator planGenerator) {
@@ -329,5 +387,50 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             }
         }
         return false;
+    }
+
+    /**
+     * for sql like SELECT DISTINCT a FROM t GROUP BY a HAVING b > 0 ORDER BY a.
+     * there order by need to bind with bottom aggregate's output and bottom aggregate's child's output.
+     * this function used to fill up missing slot for these situations correctly.
+     *
+     * @param sort top sort
+     * @param upperAggregate upper aggregate used to check slot in order by should be in select list
+     * @param bottomAggregate bottom aggregate used to bind with its and its child's output
+     *
+     * @return filled up plan
+     */
+    private Plan processDistinctProjectWithAggregate(LogicalSort<?> sort,
+            Aggregate<?> upperAggregate, Aggregate<Plan> bottomAggregate) {
+        Resolver resolver = new Resolver(bottomAggregate);
+        sort.getExpressions().forEach(resolver::resolve);
+        return createPlan(resolver, bottomAggregate, (r, a) -> {
+            List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
+                    .map(ok -> new OrderKey(
+                            ExpressionUtils.replace(ok.getExpr(), r.getSubstitution()),
+                            ok.isAsc(),
+                            ok.isNullFirst()))
+                    .collect(ImmutableList.toImmutableList());
+            boolean sortNotChanged = newOrderKeys.equals(sort.getOrderKeys());
+            boolean aggNotChanged = a.equals(bottomAggregate);
+            if (sortNotChanged && aggNotChanged) {
+                return null;
+            }
+            if (aggNotChanged) {
+                // since sort expr must in select list, we should not change agg at all.
+                return new LogicalSort<>(newOrderKeys, sort.child());
+            } else {
+                Set<NamedExpression> upperAggOutputs = Sets.newHashSet(upperAggregate.getOutputExpressions());
+                for (int i = 0; i < newOrderKeys.size(); i++) {
+                    OrderKey orderKey = newOrderKeys.get(i);
+                    Expression expression = orderKey.getExpr();
+                    if (!upperAggOutputs.containsAll(expression.getInputSlots())) {
+                        throw new AnalysisException(sort.getOrderKeys().get(i).getExpr().toSql()
+                                + " of ORDER BY clause is not in SELECT list");
+                    }
+                }
+                throw new AnalysisException("Expression of ORDER BY clause is not in SELECT list");
+            }
+        });
     }
 }

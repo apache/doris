@@ -19,7 +19,7 @@ version: '3'
 
 services:
   doris--db2_11:
-    image: ibmcom/db2:11.5.0.0a
+    image: icr.io/db2_community/db2
     ports:
       - ${DOCKER_DB2_EXTERNAL_PORT}:50000
     privileged: true

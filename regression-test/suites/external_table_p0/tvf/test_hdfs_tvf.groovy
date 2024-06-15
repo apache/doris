@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
-    String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+    String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
     // It's okay to use random `hdfsUser`, but can not be empty.
@@ -206,13 +206,13 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                         "strip_outer_array" = "false",
                         "read_json_by_line" = "true") order by id; """
 
-            // test insert into select
+            // test insert into select in strict mode or insert_insert_max_filter_ratio is setted
             def testTable = "test_hdfs_tvf"
             sql "DROP TABLE IF EXISTS ${testTable}"
             def result1 = sql """ CREATE TABLE IF NOT EXISTS ${testTable}
                 (
                     id int,
-                    city varchar(50),
+                    city varchar(8),
                     code int
                 )
                 COMMENT "test hdfs tvf table"
@@ -225,6 +225,9 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/nest_json.json"
             format = "json"
+
+            sql "set enable_insert_strict=false;"
+            sql "set insert_max_filter_ratio=0.2;"
             def result2 = sql """ insert into ${testTable}(id,city,code)
                     select cast (id as INT) as id, city, cast (code as INT) as code
                     from HDFS(
@@ -234,9 +237,41 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                         "strip_outer_array" = "false",
                         "read_json_by_line" = "true",
                         "json_root" = "\$.item") """
-            
             sql "sync"
-            assertTrue(result2[0][0] == 5, "Insert should update 12 rows")
+            assertTrue(result2[0][0] == 4, "Insert should update 4 rows")
+
+            try{
+                sql "set insert_max_filter_ratio=0.1;"
+                def result3 = sql """ insert into ${testTable}(id,city,code)
+                        select cast (id as INT) as id, city, cast (code as INT) as code
+                        from HDFS(
+                            "uri" = "${uri}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "${format}",
+                            "strip_outer_array" = "false",
+                            "read_json_by_line" = "true",
+                            "json_root" = "\$.item") """
+            } catch (Exception e) {
+                logger.info(e.getMessage())
+                assertTrue(e.getMessage().contains('Insert has too many filtered data 1/5 insert_max_filter_ratio is 0.100000.'))
+            }
+
+            try{
+                sql " set enable_insert_strict=true;"
+                def result4 = sql """ insert into ${testTable}(id,city,code)
+                        select cast (id as INT) as id, city, cast (code as INT) as code
+                        from HDFS(
+                            "uri" = "${uri}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "${format}",
+                            "strip_outer_array" = "false",
+                            "read_json_by_line" = "true",
+                            "json_root" = "\$.item") """
+            } catch (Exception e) {
+                logger.info(e.getMessage())
+                assertTrue(e.getMessage().contains('Insert has filtered data in strict mode.'))
+            }
+
             qt_insert """ select * from test_hdfs_tvf order by id; """
 
             // test desc function

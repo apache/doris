@@ -24,7 +24,6 @@ suite("test_decimalv3_where") {
 	sql """insert into ${tableName} values (1,'doris',20,324.10),(2,'spark',10,95.5),(3,'flink',9,20)"""
 	qt_decimalv3 "select * from ${tableName} where dr != 1  order by age;"
 
-    sql """set enable_nereids_planner=false;"""
     sql """drop table if exists test_sys_update_basic_test_update_decimal_tb"""
     sql """CREATE TABLE test_sys_update_basic_test_update_decimal_tb (
               k1 DECIMAL(10, 5) NULL, 

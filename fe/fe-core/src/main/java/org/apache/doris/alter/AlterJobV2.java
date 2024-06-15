@@ -31,6 +31,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -223,7 +224,7 @@ public abstract class AlterJobV2 implements Writable {
             return;
         }
 
-        if (!cloudClusterName.isEmpty()) {
+        if (!Strings.isNullOrEmpty(cloudClusterName)) {
             ConnectContext ctx = new ConnectContext();
             ctx.setThreadLocalInfo();
             ctx.setCloudCluster(cloudClusterName);

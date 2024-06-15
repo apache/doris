@@ -151,7 +151,9 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                     ctx.queryId(), createTableInfo.getTableName());
         }
         try {
-            Env.getCurrentEnv().createTable(createTableStmt);
+            if (Env.getCurrentEnv().createTable(createTableStmt)) {
+                return;
+            }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
@@ -160,7 +162,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
         try {
             if (!FeConstants.runningUnitTest) {
-                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty()).run(ctx, executor);
+                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty(), Optional.empty()).run(
+                        ctx, executor);
             }
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);

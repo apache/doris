@@ -140,6 +140,7 @@ public abstract class RemoteBase {
         switch (obj.provider) {
             case OSS:
                 return new OssRemote(obj);
+            case GCP:
             case S3:
                 return new S3Remote(obj);
             case COS:

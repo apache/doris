@@ -136,11 +136,6 @@ public:
         if (_inited) {
             return Status::OK();
         }
-        // TODO: really need the lock?
-        std::lock_guard<std::mutex> l(_lock);
-        if (_inited) {
-            return Status::OK();
-        }
         DCHECK(bloom_filter_length >= 0);
         DCHECK_EQ((bloom_filter_length & (bloom_filter_length - 1)), 0);
         _bloom_filter_alloced = bloom_filter_length;
@@ -154,7 +149,6 @@ public:
         // If `_inited` is false, there is no memory allocated in bloom filter and this is the first
         // call for `merge` function. So we just reuse this bloom filter, and we don't need to
         // allocate memory again.
-        std::lock_guard<std::mutex> l(_lock);
         if (!_inited) {
             auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
             DCHECK(_bloom_filter == nullptr);
@@ -167,7 +161,7 @@ public:
         DCHECK(bloomfilter_func != nullptr);
         auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
         if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
-            return Status::InvalidArgument(
+            return Status::InternalError(
                     "bloom filter size not the same: already allocated bytes {}, expected "
                     "allocated bytes {}",
                     _bloom_filter_alloced, other_func->_bloom_filter_alloced);
@@ -228,7 +222,6 @@ protected:
     int32_t _bloom_filter_alloced;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
     bool _inited {};
-    std::mutex _lock;
     int64_t _bloom_filter_length;
     bool _build_bf_exactly = false;
     bool _bloom_filter_size_calculated_by_ndv = false;

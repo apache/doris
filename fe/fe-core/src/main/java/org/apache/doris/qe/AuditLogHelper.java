@@ -111,7 +111,11 @@ public class AuditLogHelper {
                     auditEventBuilder.setSqlDigest(sqlDigest);
                 }
             }
-            auditEventBuilder.setIsQuery(true);
+            auditEventBuilder.setIsQuery(true)
+                    .setScanBytesFromLocalStorage(
+                            statistics == null ? 0 : statistics.getScanBytesFromLocalStorage())
+                    .setScanBytesFromRemoteStorage(
+                            statistics == null ? 0 : statistics.getScanBytesFromRemoteStorage());
         } else {
             auditEventBuilder.setIsQuery(false);
         }

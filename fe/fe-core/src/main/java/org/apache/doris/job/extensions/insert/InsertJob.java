@@ -30,7 +30,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -67,38 +66,39 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 @EqualsAndHashCode(callSuper = true)
 @Data
-@Slf4j
+@Log4j2
 public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> implements GsonPostProcessable {
 
-    public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("Id", ScalarType.createStringType()),
-            new Column("Name", ScalarType.createStringType()),
-            new Column("Definer", ScalarType.createStringType()),
-            new Column("ExecuteType", ScalarType.createStringType()),
-            new Column("RecurringStrategy", ScalarType.createStringType()),
-            new Column("Status", ScalarType.createStringType()),
-            new Column("ExecuteSql", ScalarType.createStringType()),
-            new Column("CreateTime", ScalarType.createStringType()),
-            new Column("Comment", ScalarType.createStringType()));
+    public static final ImmutableList<Column> SCHEMA = ImmutableList.<Column>builder()
+            .add(new Column("Id", ScalarType.createStringType()))
+            .add(new Column("Name", ScalarType.createStringType()))
+            .add(new Column("Definer", ScalarType.createStringType()))
+            .add(new Column("ExecuteType", ScalarType.createStringType()))
+            .add(new Column("RecurringStrategy", ScalarType.createStringType()))
+            .add(new Column("Status", ScalarType.createStringType()))
+            .add(new Column("ExecuteSql", ScalarType.createStringType()))
+            .add(new Column("CreateTime", ScalarType.createStringType()))
+            .addAll(COMMON_SCHEMA)
+            .add(new Column("Comment", ScalarType.createStringType()))
+            .build();
 
     private static final ShowResultSetMetaData TASK_META_DATA =
             ShowResultSetMetaData.builder()
@@ -126,8 +126,10 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         COLUMN_TO_INDEX = builder.build();
     }
 
+    //we used insertTaskQueue to store the task info, and we will query the task info from it
+    @Deprecated
     @SerializedName("tis")
-    ConcurrentLinkedQueue<Long> historyTaskIdList;
+    ConcurrentLinkedQueue<Long> historyTaskIdList = new ConcurrentLinkedQueue<>();
     @SerializedName("did")
     private final long dbId;
     @SerializedName("ln")
@@ -146,7 +148,9 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     private List<InsertIntoTableCommand> plans = new ArrayList<>();
     private LoadStatistic loadStatistic = new LoadStatistic();
     private Set<Long> finishedTaskIds = new HashSet<>();
-    private ConcurrentHashMap<Long, InsertTask> idToTasks = new ConcurrentHashMap<>();
+
+    @SerializedName("tas")
+    private ConcurrentLinkedQueue<InsertTask> insertTaskQueue = new ConcurrentLinkedQueue<>();
     private Map<String, String> properties = new HashMap<>();
     private Set<String> tableNames;
     private AuthorizationInfo authorizationInfo;
@@ -164,8 +168,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         if (null == plans) {
             plans = new ArrayList<>();
         }
-        if (null == idToTasks) {
-            idToTasks = new ConcurrentHashMap<>();
+        if (null == insertTaskQueue) {
+            insertTaskQueue = new ConcurrentLinkedQueue<>();
         }
         if (null == loadStatistic) {
             loadStatistic = new LoadStatistic();
@@ -181,6 +185,15 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         }
         if (null == historyTaskIdList) {
             historyTaskIdList = new ConcurrentLinkedQueue<>();
+        }
+        if (null == getSucceedTaskCount()) {
+            setSucceedTaskCount(new AtomicLong(0));
+        }
+        if (null == getFailedTaskCount()) {
+            setFailedTaskCount(new AtomicLong(0));
+        }
+        if (null == getCanceledTaskCount()) {
+            setCanceledTaskCount(new AtomicLong(0));
         }
     }
 
@@ -250,9 +263,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         List<InsertTask> newTasks = new ArrayList<>();
         if (plans.isEmpty()) {
             InsertTask task = new InsertTask(labelName, getCurrentDbName(), getExecuteSql(), getCreateUser());
-            idToTasks.put(task.getTaskId(), task);
             newTasks.add(task);
-            recordTask(task.getTaskId());
         } else {
             // use for load stmt
             for (InsertIntoTableCommand logicalPlan : plans) {
@@ -260,28 +271,24 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
                     throw new IllegalArgumentException("Load plan need label name.");
                 }
                 InsertTask task = new InsertTask(logicalPlan, ctx, stmtExecutor, loadStatistic);
-                idToTasks.put(task.getTaskId(), task);
                 newTasks.add(task);
-                recordTask(task.getTaskId());
             }
         }
         initTasks(newTasks, taskType);
+        recordTasks(newTasks);
         return new ArrayList<>(newTasks);
     }
 
-    public void recordTask(long id) {
+    public void recordTasks(List<InsertTask> tasks) {
         if (Config.max_persistence_task_count < 1) {
             return;
         }
-        if (CollectionUtils.isEmpty(historyTaskIdList)) {
-            historyTaskIdList = new ConcurrentLinkedQueue<>();
-            historyTaskIdList.add(id);
-            Env.getCurrentEnv().getEditLog().logUpdateJob(this);
-            return;
-        }
-        historyTaskIdList.add(id);
-        if (historyTaskIdList.size() >= Config.max_persistence_task_count) {
-            historyTaskIdList.poll();
+        insertTaskQueue.addAll(tasks);
+
+        while (insertTaskQueue.size() > Config.max_persistence_task_count) {
+            insertTaskQueue.poll();
+            //since we have insertTaskQueue, we do not need to store the task id in historyTaskIdList, so we clear it
+            historyTaskIdList.clear();
         }
         Env.getCurrentEnv().getEditLog().logUpdateJob(this);
     }
@@ -319,35 +326,54 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
 
     @Override
     public List<InsertTask> queryTasks() {
-        if (CollectionUtils.isEmpty(historyTaskIdList)) {
+        if (historyTaskIdList.isEmpty() && insertTaskQueue.isEmpty()) {
             return new ArrayList<>();
         }
+
         //TODO it's will be refactor, we will storage task info in job inner and query from it
-        List<Long> taskIdList = new ArrayList<>(this.historyTaskIdList);
+
+        // merge task info from insertTaskQueue and historyTaskIdList
+        List<Long> taskIds = insertTaskQueue.stream().map(InsertTask::getTaskId).collect(Collectors.toList());
+        taskIds.addAll(historyTaskIdList);
+        taskIds.stream().distinct().collect(Collectors.toList());
         if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
-            Collections.reverse(taskIdList);
-            return queryLoadTasksByTaskIds(taskIdList);
+            return queryLoadTasksByTaskIds(taskIds);
         }
-        List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager().queryLoadJobsByJobIds(taskIdList);
-        if (CollectionUtils.isEmpty(loadJobs)) {
-            return new ArrayList<>();
+        // query from load job
+        List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager().queryLoadJobsByJobIds(taskIds);
+
+        Map<Long, LoadJob> loadJobMap = loadJobs.stream().collect(Collectors.toMap(LoadJob::getId, loadJob -> loadJob));
+        List<InsertTask> tasksRsp = new ArrayList<>();
+        //read task info from insertTaskQueue
+        insertTaskQueue.forEach(task -> {
+            if (task.getJobInfo() == null) {
+                LoadJob loadJob = loadJobMap.get(task.getTaskId());
+                if (loadJob != null) {
+                    task.setJobInfo(loadJob);
+                }
+            }
+            tasksRsp.add(task);
+        });
+        if (CollectionUtils.isEmpty(historyTaskIdList)) {
+            return tasksRsp;
         }
-        List<InsertTask> tasks = new ArrayList<>();
-        loadJobs.forEach(loadJob -> {
-            InsertTask task;
-            try {
-                task = new InsertTask(loadJob.getLabel(), loadJob.getDb().getFullName(), null, getCreateUser());
-                task.setCreateTimeMs(loadJob.getCreateTimestamp());
-            } catch (MetaNotFoundException e) {
-                log.warn("load job not found, job id is {}", loadJob.getId());
+
+        historyTaskIdList.forEach(historyTaskId -> {
+            LoadJob loadJob = loadJobMap.get(historyTaskId);
+            if (null == loadJob) {
                 return;
             }
+            InsertTask task = new InsertTask(loadJob.getLabel(), getCurrentDbName(), null, getCreateUser());
             task.setJobId(getJobId());
             task.setTaskId(loadJob.getId());
             task.setJobInfo(loadJob);
-            tasks.add(task);
+            task.setJobId(getJobId());
+            task.setTaskId(loadJob.getId());
+            task.setJobInfo(loadJob);
+            tasksRsp.add(task);
         });
-        return tasks;
+        return tasksRsp;
+
 
     }
 
@@ -355,13 +381,13 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         if (taskIdList.isEmpty()) {
             return new ArrayList<>();
         }
-        List<InsertTask> tasks = new ArrayList<>();
-        taskIdList.forEach(id -> {
-            if (null != idToTasks.get(id)) {
-                tasks.add(idToTasks.get(id));
+        List<InsertTask> queryTasks = new ArrayList<>();
+        insertTaskQueue.forEach(task -> {
+            if (taskIdList.contains(task.getTaskId())) {
+                queryTasks.add(task);
             }
         });
-        return tasks;
+        return queryTasks;
     }
 
     @Override
@@ -462,7 +488,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             // load end time
             jobInfo.add(TimeUtils.longToTimeString(getFinishTimeMs()));
             // tracking urls
-            List<String> trackingUrl = idToTasks.values().stream()
+            List<String> trackingUrl = insertTaskQueue.stream()
                     .map(task -> {
                         if (StringUtils.isNotEmpty(task.getTrackingUrl())) {
                             return task.getTrackingUrl();
@@ -527,7 +553,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     public void updateLoadingStatus(Long beId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows,
                                     long scannedBytes, boolean isDone) {
         loadStatistic.updateLoadProgress(beId, loadId, fragmentId, scannedRows, scannedBytes, isDone);
-        progress = (int) ((double) finishedTaskIds.size() / idToTasks.size() * 100);
+        progress = (int) ((double) finishedTaskIds.size() / insertTaskQueue.size() * 100);
         if (progress == 100) {
             progress = 99;
         }

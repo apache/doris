@@ -138,6 +138,8 @@ public class Function implements Writable {
 
     // If true, this function is global function
     protected boolean isGlobal = false;
+    // If true, this function is table function, mainly used by java-udtf
+    protected boolean isUDTFunction = false;
 
     // Only used for serialization
     protected Function() {
@@ -196,6 +198,8 @@ public class Function implements Writable {
             System.arraycopy(other.argTypes, 0, this.argTypes, 0, other.argTypes.length);
         }
         this.checksum = other.checksum;
+        this.isGlobal = other.isGlobal;
+        this.isUDTFunction = other.isUDTFunction;
     }
 
     public void setNestedFunction(Function nestedFunction) {
@@ -563,6 +567,7 @@ public class Function implements Writable {
             fn.setChecksum(checksum);
         }
         fn.setVectorized(vectorized);
+        fn.setIsUdtfFunction(isUDTFunction);
         return fn;
     }
 
@@ -671,6 +676,7 @@ public class Function implements Writable {
         IOUtils.writeOptionString(output, libUrl);
         IOUtils.writeOptionString(output, checksum);
         output.writeUTF(nullableMode.toString());
+        output.writeBoolean(isUDTFunction);
     }
 
     @Override
@@ -708,6 +714,9 @@ public class Function implements Writable {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_126) {
             nullableMode = NullableMode.valueOf(input.readUTF());
         }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_131) {
+            isUDTFunction = input.readBoolean();
+        }
     }
 
     public static Function read(DataInput input) throws IOException {
@@ -744,7 +753,11 @@ public class Function implements Writable {
             // function type
             // intermediate type
             if (this instanceof ScalarFunction) {
-                row.add("Scalar");
+                if (isUDTFunction()) {
+                    row.add("TABLES");
+                } else {
+                    row.add("Scalar");
+                }
                 row.add("NULL");
             } else if (this instanceof AliasFunction) {
                 row.add("Alias");
@@ -773,6 +786,14 @@ public class Function implements Writable {
 
     public NullableMode getNullableMode() {
         return nullableMode;
+    }
+
+    public void setUDTFunction(boolean isUDTFunction) {
+        this.isUDTFunction = isUDTFunction;
+    }
+
+    public boolean isUDTFunction() {
+        return this.isUDTFunction;
     }
 
     // Try to serialize this function and write to nowhere.

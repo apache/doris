@@ -37,12 +37,16 @@ import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
@@ -50,6 +54,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -58,6 +63,7 @@ import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.LocationUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -65,6 +71,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Iceberg utils
@@ -77,7 +84,6 @@ public class IcebergUtils {
             return 0;
         }
     };
-    static long MILLIS_TO_NANO_TIME = 1000;
     // https://iceberg.apache.org/spec/#schemas-and-data-types
     // All time and timestamp values are stored with microsecond precision
     private static final int ICEBERG_DATETIME_SCALE_MS = 6;
@@ -85,6 +91,13 @@ public class IcebergUtils {
     public static final String TOTAL_RECORDS = "total-records";
     public static final String TOTAL_POSITION_DELETES = "total-position-deletes";
     public static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
+
+    // nickname in flink and spark
+    public static final String WRITE_FORMAT = "write-format";
+    public static final String COMPRESSION_CODEC = "compression-codec";
+
+    // nickname in spark
+    public static final String SPARK_SQL_COMPRESSION_CODEC = "spark.sql.iceberg.compression-codec";
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
@@ -306,7 +319,7 @@ public class IcebergUtils {
                 case DATE:
                     return dateLiteral.getStringValue();
                 case TIMESTAMP:
-                    return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
+                    return dateLiteral.getUnixTimestampWithMicroseconds(TimeUtils.getTimeZone());
                 default:
                     return null;
             }
@@ -503,8 +516,17 @@ public class IcebergUtils {
                 Types.ListType list = (Types.ListType) type;
                 return ArrayType.create(icebergTypeToDorisType(list.elementType()), true);
             case MAP:
+                Types.MapType map = (Types.MapType) type;
+                return new MapType(
+                    icebergTypeToDorisType(map.keyType()),
+                    icebergTypeToDorisType(map.valueType())
+                );
             case STRUCT:
-                return Type.UNSUPPORTED;
+                Types.StructType struct = (Types.StructType) type;
+                ArrayList<StructField> nestedTypes = struct.fields().stream().map(
+                        x -> new StructField(x.name(), icebergTypeToDorisType(x.type()))
+                ).collect(Collectors.toCollection(ArrayList::new));
+                return new StructType(nestedTypes);
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }
@@ -559,5 +581,52 @@ public class IcebergUtils {
             LOG.warn("Fail to collect row count for db {} table {}", dbName, tbName, e);
         }
         return -1;
+    }
+
+    public static String getFileFormat(Table table) {
+        Map<String, String> properties = table.properties();
+        if (properties.containsKey(WRITE_FORMAT)) {
+            return properties.get(WRITE_FORMAT);
+        }
+        if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+            return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
+        }
+        return TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
+    }
+
+    public static String getFileCompress(Table table) {
+        Map<String, String> properties = table.properties();
+        if (properties.containsKey(COMPRESSION_CODEC)) {
+            return properties.get(COMPRESSION_CODEC);
+        } else if (properties.containsKey(SPARK_SQL_COMPRESSION_CODEC)) {
+            return properties.get(SPARK_SQL_COMPRESSION_CODEC);
+        }
+        String fileFormat = getFileFormat(table);
+        if (fileFormat.equalsIgnoreCase("parquet")) {
+            return properties.getOrDefault(
+                    TableProperties.PARQUET_COMPRESSION, TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0);
+        } else if (fileFormat.equalsIgnoreCase("orc")) {
+            return properties.getOrDefault(
+                    TableProperties.ORC_COMPRESSION, TableProperties.ORC_COMPRESSION_DEFAULT);
+        }
+        throw new NotSupportedException("Unsupported file format: " + fileFormat);
+    }
+
+    public static String dataLocation(Table table) {
+        Map<String, String> properties = table.properties();
+        if (properties.containsKey(TableProperties.WRITE_LOCATION_PROVIDER_IMPL)) {
+            throw new NotSupportedException(
+                "Table " + table.name() + " specifies " + properties.get(TableProperties.WRITE_LOCATION_PROVIDER_IMPL)
+                    + " as a location provider. "
+                    + "Writing to Iceberg tables with custom location provider is not supported.");
+        }
+        String dataLocation = properties.get(TableProperties.WRITE_DATA_LOCATION);
+        if (dataLocation == null) {
+            dataLocation = properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION);
+            if (dataLocation == null) {
+                dataLocation = String.format("%s/data", LocationUtil.stripTrailingSlash(table.location()));
+            }
+        }
+        return dataLocation;
     }
 }

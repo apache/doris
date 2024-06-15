@@ -22,7 +22,6 @@
 #include <stdint.h>
 
 #include <list>
-#include <map>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -183,6 +182,8 @@ private:
         RuntimeProfile::Counter* decode_dict_time = nullptr;
         RuntimeProfile::Counter* decode_level_time = nullptr;
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
+        RuntimeProfile::Counter* skip_page_header_num = nullptr;
+        RuntimeProfile::Counter* parse_page_header_num = nullptr;
     };
 
     Status _open_file();
@@ -271,6 +272,7 @@ private:
     // Maybe null if not used
     FileMetaCache* _meta_cache = nullptr;
     bool _enable_lazy_mat = true;
+    bool _enable_filter_by_min_max = true;
     const TupleDescriptor* _tuple_descriptor = nullptr;
     const RowDescriptor* _row_descriptor = nullptr;
     const std::unordered_map<std::string, int>* _colname_to_slot_id = nullptr;

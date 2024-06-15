@@ -379,6 +379,7 @@ public:
 private:
     const Schema* _schema = nullptr;
     RowwiseIteratorUPtr _cur_iter = nullptr;
+    StorageReadOptions _read_options;
     std::vector<RowwiseIteratorUPtr> _origin_iters;
 };
 
@@ -392,10 +393,9 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
     // in the same order as the original segments.
     std::reverse(_origin_iters.begin(), _origin_iters.end());
 
-    for (auto& iter : _origin_iters) {
-        RETURN_IF_ERROR(iter->init(opts));
-    }
+    _read_options = opts;
     _cur_iter = std::move(_origin_iters.back());
+    RETURN_IF_ERROR(_cur_iter->init(_read_options));
     _schema = &_cur_iter->schema();
     return Status::OK();
 }
@@ -407,6 +407,7 @@ Status VUnionIterator::next_batch(Block* block) {
             _origin_iters.pop_back();
             if (!_origin_iters.empty()) {
                 _cur_iter = std::move(_origin_iters.back());
+                RETURN_IF_ERROR(_cur_iter->init(_read_options));
             } else {
                 _cur_iter = nullptr;
             }

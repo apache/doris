@@ -125,11 +125,6 @@ function show_frontends()
     fi
    echo "$frontends"
 
-    #if [[ "x$DB_ADMIN_PASSWD" != "x" ]]; then
-    #    timeout 15 mysql --connect-timeout 2 -h $addr -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;'
-    #else
-    #    timeout 15 mysql --connect-timeout 2 -h $addr -P $QUERY_PORT -u$DB_ADMIN_USER --batch -e 'show frontends;'
-    #fi
 }
 
 # add myself in cluster for FOLLOWER.
@@ -142,11 +137,6 @@ function add_self_follower()
         mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";"
     fi
 
-    #if [[ "x$DB_ADMIN_PASSWD" != "x" ]]; then
-    #    mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";"
-    #else
-    #    mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";"
-    #fi
 }
 
 # add myself in cluster for OBSERVER.
@@ -159,11 +149,6 @@ function add_self_observer()
         mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";"
     fi
 
-    #if [[ "x$DB_ADMIN_PASSWD" != "x" ]]; then
-    #    mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";"
-    #else
-    #    mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";"
-    #fi
 }
 
 # `dori-meta/image` not exist start as first time.
@@ -362,6 +347,7 @@ start_fe_with_meta()
     $DORIS_HOME/bin/start_fe.sh  $opts
 }
 
+# print the least 10 records of 'VLSN'. When fe failed to restart, user can select the fe of VLSN is the bigest to force restart.
 print_vlsn()
 {
     local doirs_meta_path=`parse_confval_from_fe_conf "meta_dir"`
@@ -371,6 +357,33 @@ print_vlsn()
 
     vlsns=`grep -rn "VLSN:" $doris_meta_path/bdb/je* | tail -n 10`
     echo "$vlsns"
+}
+
+#fist start create account and grant 'NODE_PRIV'
+create_account()
+{
+    if [[ "x$FE_MASTER" == "x" ]]; then
+		return 0
+	fi
+
+    # if not set password, the account not config.
+    if [[ "x$DB_ADMIN_PASSWD" == "x" ]]; then
+        return 0
+    fi
+
+    users=`timeout 15 mysql --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "the 'root' account have set paasword! not need auto create management account."
+        return 0
+    fi
+
+    if echo $users | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
+       log_stderr "the $DB_ADMIN_USER have exit in doris."
+       return 0
+    fi
+
+    `mysql --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1`
+    log_stderr "created new account and grant NODE_PRIV!"
 }
 
 fe_addrs=$1
@@ -391,5 +404,7 @@ else
     log_stderr "first start fe with meta not exist."
     collect_env_info
     probe_master $fe_addrs
+    #create account about node management
+    create_account
     start_fe_no_meta
 fi

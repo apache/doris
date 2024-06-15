@@ -70,7 +70,7 @@ fi
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 # shellcheck source=/dev/null
-# install_java
+# install_java, clear_coredump
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
@@ -126,3 +126,4 @@ echo "#### 3. try to kill old doris process"
 # stop_doris
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 if stop_doris; then echo; fi
+clear_coredump

@@ -50,42 +50,45 @@ namespace vectorized {
 BroadcastPBlockHolder::~BroadcastPBlockHolder() {
     // lock the parent queue, if the queue could lock success, then return the block
     // to the queue, to reuse the block
-    std::shared_ptr<BroadcastPBlockHolderQueue> tmp_queue = _parent_creator.lock();
-    if (tmp_queue != nullptr) {
-        tmp_queue->push(BroadcastPBlockHolder::create_shared(std::move(_pblock)));
+    std::shared_ptr<BroadcastPBlockHolderMemLimiter> limiter = _parent_creator.lock();
+    if (limiter != nullptr) {
+        limiter->release(*this);
     }
     // If the queue already deconstruted, then release pblock automatically since it
     // is a unique ptr.
 }
 
-void BroadcastPBlockHolderQueue::push(std::shared_ptr<BroadcastPBlockHolder> holder) {
+void BroadcastPBlockHolderMemLimiter::acquire(BroadcastPBlockHolder& holder) {
     std::unique_lock l(_holders_lock);
-    holder->set_parent_creator(shared_from_this());
-    _holders.push(holder);
-    if (_broadcast_dependency) {
+    DCHECK(_broadcast_dependency != nullptr);
+    holder.set_parent_creator(shared_from_this());
+    auto size = holder._pblock->column_values().size();
+    _total_queue_buffer_size += size;
+    _total_queue_blocks_count++;
+    if (_total_queue_buffer_size >= config::exchg_node_buffer_size_bytes ||
+        _total_queue_blocks_count >= config::num_broadcast_buffer) {
+        _broadcast_dependency->block();
+    }
+}
+
+void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holder) {
+    std::unique_lock l(_holders_lock);
+    DCHECK(_broadcast_dependency != nullptr);
+    auto size = holder._pblock->column_values().size();
+    _total_queue_buffer_size -= size;
+    _total_queue_blocks_count--;
+    if (_total_queue_buffer_size <= 0) {
         _broadcast_dependency->set_ready();
     }
 }
 
-std::shared_ptr<BroadcastPBlockHolder> BroadcastPBlockHolderQueue::pop() {
-    std::unique_lock l(_holders_lock);
-    if (_holders.empty()) {
-        return {};
-    }
-    std::shared_ptr<BroadcastPBlockHolder> res = _holders.top();
-    _holders.pop();
-    if (_holders.empty() && _broadcast_dependency != nullptr) {
-        _broadcast_dependency->block();
-    }
-    return res;
-}
 } // namespace vectorized
 
 namespace pipeline {
 
-template <typename Parent>
-ExchangeSinkBuffer<Parent>::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
-                                               int send_id, int be_number, RuntimeState* state)
+ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id,
+                                       int be_number, RuntimeState* state,
+                                       ExchangeSinkLocalState* parent)
         : HasTaskExecutionCtx(state),
           _queue_capacity(0),
           _is_finishing(false),
@@ -94,13 +97,10 @@ ExchangeSinkBuffer<Parent>::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId de
           _sender_id(send_id),
           _be_number(be_number),
           _state(state),
-          _context(state->get_query_ctx()) {}
+          _context(state->get_query_ctx()),
+          _parent(parent) {}
 
-template <typename Parent>
-ExchangeSinkBuffer<Parent>::~ExchangeSinkBuffer() = default;
-
-template <typename Parent>
-void ExchangeSinkBuffer<Parent>::close() {
+void ExchangeSinkBuffer::close() {
     // Could not clear the queue here, because there maybe a running rpc want to
     // get a request from the queue, and clear method will release the request
     // and it will core.
@@ -109,53 +109,13 @@ void ExchangeSinkBuffer<Parent>::close() {
     //_instance_to_request.clear();
 }
 
-template <typename Parent>
-bool ExchangeSinkBuffer<Parent>::can_write() const {
-    size_t max_package_size =
-            config::exchg_buffer_queue_capacity_factor * _instance_to_package_queue.size();
-    size_t total_package_size = 0;
-    for (auto& [_, q] : _instance_to_package_queue) {
-        total_package_size += q.size();
-    }
-    return total_package_size <= max_package_size;
-}
-
-template <typename Parent>
-void ExchangeSinkBuffer<Parent>::_set_ready_to_finish(bool all_done) {
+void ExchangeSinkBuffer::_set_ready_to_finish(bool all_done) {
     if (_finish_dependency && _should_stop && all_done) {
         _finish_dependency->set_ready();
     }
 }
 
-template <typename Parent>
-bool ExchangeSinkBuffer<Parent>::is_pending_finish() {
-    //note(wb) angly implementation here, because operator couples the scheduling logic
-    // graceful implementation maybe as follows:
-    // 1 make ExchangeSinkBuffer support try close which calls brpc::StartCancel
-    // 2 make BlockScheduler calls tryclose when query is cancel
-    DCHECK(_context != nullptr);
-    bool need_cancel = _context->is_cancelled();
-
-    for (auto& pair : _instance_to_package_queue_mutex) {
-        std::unique_lock<std::mutex> lock(*(pair.second));
-        auto& id = pair.first;
-        if (!_rpc_channel_is_idle.at(id)) {
-            // when pending finish, we need check whether current query is cancelled
-            if (need_cancel && _instance_to_rpc_ctx.find(id) != _instance_to_rpc_ctx.end()) {
-                auto& rpc_ctx = _instance_to_rpc_ctx[id];
-                if (!rpc_ctx.is_cancelled) {
-                    brpc::StartCancel(rpc_ctx._send_callback->cntl_->call_id());
-                    rpc_ctx.is_cancelled = true;
-                }
-            }
-            return true;
-        }
-    }
-    return false;
-}
-
-template <typename Parent>
-void ExchangeSinkBuffer<Parent>::register_sink(TUniqueId fragment_instance_id) {
+void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     if (_is_finishing) {
         return;
     }
@@ -165,10 +125,9 @@ void ExchangeSinkBuffer<Parent>::register_sink(TUniqueId fragment_instance_id) {
     }
     _instance_to_package_queue_mutex[low_id] = std::make_unique<std::mutex>();
     _instance_to_seq[low_id] = 0;
-    _instance_to_package_queue[low_id] =
-            std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>();
+    _instance_to_package_queue[low_id] = std::queue<TransmitInfo, std::list<TransmitInfo>>();
     _instance_to_broadcast_package_queue[low_id] =
-            std::queue<BroadcastTransmitInfo<Parent>, std::list<BroadcastTransmitInfo<Parent>>>();
+            std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>();
     _queue_capacity =
             config::exchg_buffer_queue_capacity_factor * _instance_to_package_queue.size();
     PUniqueId finst_id;
@@ -181,8 +140,7 @@ void ExchangeSinkBuffer<Parent>::register_sink(TUniqueId fragment_instance_id) {
     _construct_request(low_id, finst_id);
 }
 
-template <typename Parent>
-Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
+Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
     if (_is_finishing) {
         return Status::OK();
     }
@@ -198,6 +156,10 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
             send_now = true;
             _rpc_channel_is_idle[ins_id] = false;
             _busy_channels++;
+        }
+        if (request.block) {
+            RETURN_IF_ERROR(
+                    BeExecVersionManager::check_be_exec_version(request.block->be_exec_version()));
         }
         _instance_to_package_queue[ins_id].emplace(std::move(request));
         _total_queue_size++;
@@ -212,8 +174,7 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
     return Status::OK();
 }
 
-template <typename Parent>
-Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& request) {
+Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
     if (_is_finishing) {
         return Status::OK();
     }
@@ -230,6 +191,10 @@ Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& req
             _rpc_channel_is_idle[ins_id] = false;
             _busy_channels++;
         }
+        if (request.block_holder->get_block()) {
+            RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(
+                    request.block_holder->get_block()->be_exec_version()));
+        }
         _instance_to_broadcast_package_queue[ins_id].emplace(request);
     }
     if (send_now) {
@@ -239,20 +204,17 @@ Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& req
     return Status::OK();
 }
 
-template <typename Parent>
-Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
+Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
 
     DCHECK(_rpc_channel_is_idle[id] == false);
 
-    std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>& q =
-            _instance_to_package_queue[id];
-    std::queue<BroadcastTransmitInfo<Parent>, std::list<BroadcastTransmitInfo<Parent>>>&
-            broadcast_q = _instance_to_broadcast_package_queue[id];
+    std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
+    std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
+            _instance_to_broadcast_package_queue[id];
 
     if (_is_finishing) {
-        _rpc_channel_is_idle[id] = true;
-        _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
+        _turn_off_channel(id);
         return Status::OK();
     }
 
@@ -262,7 +224,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
-        if (request.block) {
+        if (request.block && !request.block->column_metas().empty()) {
             brpc_request->set_allocated_block(request.block.get());
         }
         if (!request.exec_status.ok()) {
@@ -341,7 +303,8 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
-        if (request.block_holder->get_block()) {
+        if (request.block_holder->get_block() &&
+            !request.block_holder->get_block()->column_metas().empty()) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
         }
         auto send_callback = request.channel->get_send_callback(id, request.eos);
@@ -410,15 +373,13 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         }
         broadcast_q.pop();
     } else {
-        _rpc_channel_is_idle[id] = true;
-        _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
+        _turn_off_channel(id);
     }
 
     return Status::OK();
 }
 
-template <typename Parent>
-void ExchangeSinkBuffer<Parent>::_construct_request(InstanceLoId id, PUniqueId finst_id) {
+void ExchangeSinkBuffer::_construct_request(InstanceLoId id, PUniqueId finst_id) {
     _instance_to_request[id] = std::make_shared<PTransmitDataParams>();
     _instance_to_request[id]->mutable_finst_id()->CopyFrom(finst_id);
     _instance_to_request[id]->mutable_query_id()->CopyFrom(_query_id);
@@ -428,8 +389,7 @@ void ExchangeSinkBuffer<Parent>::_construct_request(InstanceLoId id, PUniqueId f
     _instance_to_request[id]->set_be_number(_be_number);
 }
 
-template <typename Parent>
-void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
+void ExchangeSinkBuffer::_ended(InstanceLoId id) {
     if (!_instance_to_package_queue_mutex.template contains(id)) {
         std::stringstream ss;
         ss << "failed find the instance id:" << id
@@ -443,40 +403,45 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
         __builtin_unreachable();
     } else {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
-        if (!_rpc_channel_is_idle[id]) {
-            _rpc_channel_is_idle[id] = true;
-            _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
-        }
+        _turn_off_channel(id);
     }
 }
 
-template <typename Parent>
-void ExchangeSinkBuffer<Parent>::_failed(InstanceLoId id, const std::string& err) {
+void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
     _is_finishing = true;
-    _context->cancel(err, Status::Cancelled(err));
-    _ended(id);
+    _context->cancel(Status::Cancelled(err));
+    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    _turn_off_channel(id, true);
 }
 
-template <typename Parent>
-void ExchangeSinkBuffer<Parent>::_set_receiver_eof(InstanceLoId id) {
+void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     _instance_to_receiver_eof[id] = true;
-    if (!_rpc_channel_is_idle[id]) {
-        _rpc_channel_is_idle[id] = true;
-        _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
-    }
-    std::queue<BroadcastTransmitInfo<Parent>, std::list<BroadcastTransmitInfo<Parent>>> empty;
+    _turn_off_channel(id, true);
+    std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>> empty;
     swap(empty, _instance_to_broadcast_package_queue[id]);
 }
 
-template <typename Parent>
-bool ExchangeSinkBuffer<Parent>::_is_receiver_eof(InstanceLoId id) {
+bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     return _instance_to_receiver_eof[id];
 }
 
-template <typename Parent>
-void ExchangeSinkBuffer<Parent>::get_max_min_rpc_time(int64_t* max_time, int64_t* min_time) {
+void ExchangeSinkBuffer::_turn_off_channel(InstanceLoId id, bool cleanup) {
+    if (!_rpc_channel_is_idle[id]) {
+        _rpc_channel_is_idle[id] = true;
+        auto all_done = _busy_channels.fetch_sub(1) == 1;
+        _set_ready_to_finish(all_done);
+        if (cleanup && all_done) {
+            auto weak_task_ctx = weak_task_exec_ctx();
+            if (auto pip_ctx = weak_task_ctx.lock()) {
+                _parent->set_reach_limit();
+            }
+        }
+    }
+}
+
+void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_time) {
     int64_t local_max_time = 0;
     int64_t local_min_time = INT64_MAX;
     for (auto& [id, time] : _instance_to_rpc_time) {
@@ -489,8 +454,7 @@ void ExchangeSinkBuffer<Parent>::get_max_min_rpc_time(int64_t* max_time, int64_t
     *min_time = local_min_time == INT64_MAX ? 0 : local_min_time;
 }
 
-template <typename Parent>
-int64_t ExchangeSinkBuffer<Parent>::get_sum_rpc_time() {
+int64_t ExchangeSinkBuffer::get_sum_rpc_time() {
     int64_t sum_time = 0;
     for (auto& [id, time] : _instance_to_rpc_time) {
         sum_time += time;
@@ -498,9 +462,8 @@ int64_t ExchangeSinkBuffer<Parent>::get_sum_rpc_time() {
     return sum_time;
 }
 
-template <typename Parent>
-void ExchangeSinkBuffer<Parent>::set_rpc_time(InstanceLoId id, int64_t start_rpc_time,
-                                              int64_t receive_rpc_time) {
+void ExchangeSinkBuffer::set_rpc_time(InstanceLoId id, int64_t start_rpc_time,
+                                      int64_t receive_rpc_time) {
     _rpc_count++;
     int64_t rpc_spend_time = receive_rpc_time - start_rpc_time;
     DCHECK(_instance_to_rpc_time.find(id) != _instance_to_rpc_time.end());
@@ -509,8 +472,7 @@ void ExchangeSinkBuffer<Parent>::set_rpc_time(InstanceLoId id, int64_t start_rpc
     }
 }
 
-template <typename Parent>
-void ExchangeSinkBuffer<Parent>::update_profile(RuntimeProfile* profile) {
+void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
     auto* _max_rpc_timer = ADD_TIMER(profile, "RpcMaxTime");
     auto* _min_rpc_timer = ADD_TIMER(profile, "RpcMinTime");
     auto* _sum_rpc_timer = ADD_TIMER(profile, "RpcSumTime");
@@ -527,9 +489,6 @@ void ExchangeSinkBuffer<Parent>::update_profile(RuntimeProfile* profile) {
     _sum_rpc_timer->set(sum_time);
     _avg_rpc_timer->set(sum_time / std::max(static_cast<int64_t>(1), _rpc_count.load()));
 }
-
-template class ExchangeSinkBuffer<vectorized::VDataStreamSender>;
-template class ExchangeSinkBuffer<pipeline::ExchangeSinkLocalState>;
 
 } // namespace pipeline
 } // namespace doris

@@ -26,7 +26,7 @@ suite ("mv_percentile") {
             create table d_table(
                 k1 int null,
                 k2 int not null,
-                k3 decimal(28,6) null,
+                k3 bigint null,
                 k4 varchar(100) null
             )
             duplicate key (k1,k2,k3)

@@ -499,7 +499,6 @@ suite("test_list_partition_datatype", "p0") {
     assertTrue(ret.size() == 1)
     try_sql "DROP TABLE IF EXISTS test_list_partition_ddl_tbl_1"
     try_sql "DROP TABLE IF EXISTS test_list_partition_empty_tb"
-    try_sql "DROP TABLE IF EXISTS test_list_partition_select_tb"
     try_sql "DROP TABLE IF EXISTS test_list_partition_tb2_char"
     // try_sql "DROP TABLE IF EXISTS test_list_partition_tb3_char"
 }

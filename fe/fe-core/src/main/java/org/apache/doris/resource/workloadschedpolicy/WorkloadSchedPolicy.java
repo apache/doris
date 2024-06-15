@@ -22,7 +22,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.thrift.TCompareOperator;
 import org.apache.doris.thrift.TWorkloadAction;
 import org.apache.doris.thrift.TWorkloadActionType;
 import org.apache.doris.thrift.TWorkloadCondition;
@@ -31,7 +30,6 @@ import org.apache.doris.thrift.TWorkloadSchedPolicy;
 import org.apache.doris.thrift.TopicInfo;
 
 import com.esotericsoftware.minlog.Log;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
 
@@ -50,25 +48,6 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
 
     public static final ImmutableSet<String> POLICY_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(ENABLED).add(PRIORITY).add(WORKLOAD_GROUP).build();
-
-    // used for convert fe type to thrift type
-    private static ImmutableMap<WorkloadMetricType, TWorkloadMetricType> METRIC_MAP
-            = new ImmutableMap.Builder<WorkloadMetricType, TWorkloadMetricType>()
-            .put(WorkloadMetricType.QUERY_TIME, TWorkloadMetricType.QUERY_TIME)
-            .put(WorkloadMetricType.BE_SCAN_ROWS, TWorkloadMetricType.BE_SCAN_ROWS)
-            .put(WorkloadMetricType.BE_SCAN_BYTES, TWorkloadMetricType.BE_SCAN_BYTES).build();
-    private static ImmutableMap<WorkloadActionType, TWorkloadActionType> ACTION_MAP
-            = new ImmutableMap.Builder<WorkloadActionType, TWorkloadActionType>()
-            .put(WorkloadActionType.MOVE_QUERY_TO_GROUP, TWorkloadActionType.MOVE_QUERY_TO_GROUP)
-            .put(WorkloadActionType.CANCEL_QUERY, TWorkloadActionType.CANCEL_QUERY).build();
-
-    private static ImmutableMap<WorkloadConditionOperator, TCompareOperator> OP_MAP
-            = new ImmutableMap.Builder<WorkloadConditionOperator, TCompareOperator>()
-            .put(WorkloadConditionOperator.EQUAL, TCompareOperator.EQUAL)
-            .put(WorkloadConditionOperator.GREATER, TCompareOperator.GREATER)
-            .put(WorkloadConditionOperator.GREATER_EQUAL, TCompareOperator.GREATER_EQUAL)
-            .put(WorkloadConditionOperator.LESS, TCompareOperator.LESS)
-            .put(WorkloadConditionOperator.LESS_EQUAl, TCompareOperator.LESS_EQUAL).build();
 
     @SerializedName(value = "id")
     long id;
@@ -172,7 +151,7 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         return retType;
     }
 
-    public void updateProperty(Map<String, String> property, List<Long> wgIdList) {
+    public void updatePropertyIfNotNull(Map<String, String> property, List<Long> wgIdList) {
         String enabledStr = property.get(ENABLED);
         if (enabledStr != null) {
             this.enabled = Boolean.parseBoolean(enabledStr);
@@ -183,7 +162,11 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
             this.priority = Integer.parseInt(priorityStr);
         }
 
-        if (wgIdList.size() > 0) {
+        String workloadGroupIdStr = property.get(WORKLOAD_GROUP);
+        // workloadGroupIdStr != null means user set workload group property,
+        // then we should overwrite policy's workloadGroupIdList
+        // if workloadGroupIdStr.length == 0, it means the policy should match all query.
+        if (workloadGroupIdStr != null) {
             this.workloadGroupIdList = wgIdList;
         }
     }
@@ -251,12 +234,12 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         List<TWorkloadCondition> condList = new ArrayList();
         for (WorkloadConditionMeta cond : conditionMetaList) {
             TWorkloadCondition tCond = new TWorkloadCondition();
-            TWorkloadMetricType metricType = METRIC_MAP.get(cond.metricName);
+            TWorkloadMetricType metricType = WorkloadSchedPolicyMgr.METRIC_MAP.get(cond.metricName);
             if (metricType == null) {
                 return null;
             }
             tCond.setMetricName(metricType);
-            tCond.setOp(OP_MAP.get(cond.op));
+            tCond.setOp(WorkloadSchedPolicyMgr.OP_MAP.get(cond.op));
             tCond.setValue(cond.value);
             condList.add(tCond);
         }
@@ -264,7 +247,7 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         List<TWorkloadAction> actionList = new ArrayList();
         for (WorkloadActionMeta action : actionMetaList) {
             TWorkloadAction tAction = new TWorkloadAction();
-            TWorkloadActionType tActionType = ACTION_MAP.get(action.action);
+            TWorkloadActionType tActionType = WorkloadSchedPolicyMgr.ACTION_MAP.get(action.action);
             if (tActionType == null) {
                 return null;
             }

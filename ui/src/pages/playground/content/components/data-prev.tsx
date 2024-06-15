@@ -27,6 +27,7 @@ import {useTranslation} from 'react-i18next';
 export function DataPrev(props: any) {
     let {t} = useTranslation();
     const {db_name, tbl_name} = getDbName();
+    const dbName = db_name.replace(/default_cluster:/, '')
     const [tableData, setTableData] = useState<any[]>([]);
     const [columns, setColumns] = useState<any[]>([]);
 
@@ -37,7 +38,7 @@ export function DataPrev(props: any) {
         }
         AdHocAPI.doQuery({
             db_name,
-            body: {stmt: `SELECT * FROM ${db_name}.${tbl_name} LIMIT 10`},
+            body: {stmt: `SELECT * FROM ${dbName}.${tbl_name} LIMIT 10`},
         }).then((res: any) => {
             if (res && res.msg === 'success') {
                 console.log(getColumns(res.data?.meta), 2222)
@@ -99,7 +100,7 @@ export function DataPrev(props: any) {
             <Row justify="space-between" style={{marginBottom: 10}}>
                 <span style={{paddingBottom: '15px'}}>{t('dataPreview') + "(" + t('display10') + ")"}</span>
                 <span>
-                    {db_name}.{tbl_name}
+                    {dbName}.{tbl_name}
                 </span>
                 <FlatBtn
                     onClick={() =>

@@ -22,11 +22,8 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vunion_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace vectorized {
@@ -35,39 +32,6 @@ class Block;
 
 namespace pipeline {
 class DataQueue;
-
-class UnionSourceOperatorBuilder final : public OperatorBuilder<vectorized::VUnionNode> {
-public:
-    UnionSourceOperatorBuilder(int32_t id, ExecNode* node, std::shared_ptr<DataQueue>);
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-
-private:
-    std::shared_ptr<DataQueue> _data_queue;
-};
-
-class UnionSourceOperator final : public SourceOperator<vectorized::VUnionNode> {
-public:
-    UnionSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* node,
-                        std::shared_ptr<DataQueue>);
-
-    // this operator in source open directly return, do this work in sink
-    Status open(RuntimeState* /*state*/) override { return Status::OK(); }
-
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
-    bool can_read() override;
-
-    Status pull_data(RuntimeState* state, vectorized::Block* output_block, bool* eos);
-
-private:
-    bool _has_data();
-
-    std::shared_ptr<DataQueue> _data_queue;
-    bool _need_read_for_const_expr;
-};
 
 class UnionSourceOperatorX;
 class UnionSourceLocalState final : public PipelineXLocalState<UnionSharedState> {

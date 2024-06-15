@@ -75,7 +75,7 @@ struct AggregateFunctionUniqExactData {
 
     Set set;
 
-    static String get_name() { return "uniqExact"; }
+    static String get_name() { return "multi_distinct"; }
 };
 
 namespace detail {

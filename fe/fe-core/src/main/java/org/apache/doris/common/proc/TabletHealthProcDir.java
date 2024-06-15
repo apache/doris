@@ -47,6 +47,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -65,6 +66,8 @@ public class TabletHealthProcDir implements ProcDirInterface {
             .build();
 
     private Env env;
+
+    private ForkJoinPool taskPool = new ForkJoinPool();
 
     public TabletHealthProcDir(Env env) {
         Preconditions.checkNotNull(env);
@@ -88,12 +91,14 @@ public class TabletHealthProcDir implements ProcDirInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        List<DBTabletStatistic> statistics = env.getInternalCatalog().getDbIds().parallelStream()
-                // skip information_schema database
-                .flatMap(id -> Stream.of(id == 0 ? null : env.getInternalCatalog().getDbNullable(id)))
-                .filter(Objects::nonNull).map(DBTabletStatistic::new)
-                // sort by dbName
-                .sorted(Comparator.comparing(db -> db.db.getFullName())).collect(Collectors.toList());
+        List<DBTabletStatistic> statistics = taskPool.submit(() ->
+                env.getInternalCatalog().getDbIds().parallelStream()
+                    // skip information_schema database
+                    .flatMap(id -> Stream.of(id == 0 ? null : env.getInternalCatalog().getDbNullable(id)))
+                    .filter(Objects::nonNull).map(DBTabletStatistic::new)
+                    // sort by dbName
+                    .sorted(Comparator.comparing(db -> db.db.getFullName())).collect(Collectors.toList())
+        ).join();
 
         List<List<String>> rows = new ArrayList<>(statistics.size() + 1);
         for (DBTabletStatistic statistic : statistics) {
@@ -256,8 +261,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                     oversizeTabletIds.add(tablet.getId());
                                 }
                                 for (Replica replica : tablet.getReplicas()) {
-                                    if (replica.getVersionCount()
-                                            > Config.min_version_count_indicate_replica_compaction_too_slow) {
+                                    if (replica.tooBigVersionCount()) {
                                         replicaCompactionTooSlowNum++;
                                         replicaCompactionTooSlowTabletIds.add(tablet.getId());
                                         break;

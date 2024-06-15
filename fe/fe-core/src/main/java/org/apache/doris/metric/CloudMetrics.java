@@ -65,35 +65,35 @@ public class CloudMetrics {
 
         CLUSTER_REQUEST_PER_SECOND_GAUGE = new AutoMappedMetric<>(name -> {
             GaugeMetricImpl<Double> gauge  = new GaugeMetricImpl<Double>("rps", MetricUnit.NOUNIT,
-                    "request per second");
+                    "request per second", 0.0);
             MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
             return gauge;
         });
 
         CLUSTER_QUERY_PER_SECOND_GAUGE = new AutoMappedMetric<>(name -> {
             GaugeMetricImpl<Double> gauge  = new GaugeMetricImpl<Double>("qps", MetricUnit.NOUNIT,
-                    "query per second");
+                    "query per second", 0.0);
             MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
             return gauge;
         });
 
         CLUSTER_QUERY_ERR_RATE_GAUGE = new AutoMappedMetric<>(name -> {
             GaugeMetricImpl<Double> gauge  = new GaugeMetricImpl<Double>("query_err_rate", MetricUnit.NOUNIT,
-                    "query error rate");
+                    "query error rate", 0.0);
             MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
             return gauge;
         });
 
         CLUSTER_BACKEND_ALIVE = new AutoMappedMetric<>(name -> {
             GaugeMetricImpl<Integer> gauge  = new GaugeMetricImpl<Integer>("backend_alive", MetricUnit.NOUNIT,
-                    "backend alive or not");
+                    "backend alive or not", 0);
             MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
             return gauge;
         });
 
         CLUSTER_BACKEND_ALIVE_TOTAL = new AutoMappedMetric<>(name -> {
             GaugeMetricImpl<Integer> gauge  = new GaugeMetricImpl<Integer>("backend_alive_total", MetricUnit.NOUNIT,
-                    "backend alive num in cluster");
+                    "backend alive num in cluster", 0);
             MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
             return gauge;
         });

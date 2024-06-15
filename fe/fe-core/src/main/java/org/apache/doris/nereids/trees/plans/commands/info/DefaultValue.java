@@ -27,6 +27,7 @@ public class DefaultValue {
     public static String CURRENT_DATE = "CURRENT_DATE";
     public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
     public static String NOW = "now";
+    public static String HLL_EMPTY = "HLL_EMPTY";
     public static DefaultValue CURRENT_DATE_DEFAULT_VALUE = new DefaultValue(CURRENT_DATE, CURRENT_DATE.toLowerCase());
     public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(CURRENT_TIMESTAMP, NOW);
     // default null
@@ -34,7 +35,7 @@ public class DefaultValue {
     public static String ZERO = new String(new byte[] {0});
     public static String ZERO_NUMBER = "0";
     // default "value", "0" means empty hll
-    public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO);
+    public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO, HLL_EMPTY);
     // default "value", "0" means empty bitmap
     public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO);
     // default "value", "[]" means empty array

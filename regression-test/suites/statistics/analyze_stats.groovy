@@ -1149,6 +1149,11 @@ PARTITION `p599` VALUES IN (599)
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     sql """ INSERT INTO test_updated_rows VALUES('1',1,1); """
     def cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
+    for (int i = 0; i < 10; ++i) {
+      if (Integer.valueOf(cnt1[0][0]) == 8) break;
+      Thread.sleep(1000) // rows updated report is async
+      cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
+    }
     assertEquals(Integer.valueOf(cnt1[0][0]), 1)
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
@@ -1156,6 +1161,11 @@ PARTITION `p599` VALUES IN (599)
     sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     def cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
+    for (int i = 0; i < 10; ++i) {
+      if (Integer.valueOf(cnt2[0][0]) == 8) break;
+      Thread.sleep(1000) // rows updated report is async
+      cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
+    }
     assertTrue(Integer.valueOf(cnt2[0][0]) == 0 || Integer.valueOf(cnt2[0][0]) == 8)
 
     // test analyze specific column
@@ -1168,7 +1178,7 @@ PARTITION `p599` VALUES IN (599)
     );"""
     sql """insert into test_analyze_specific_column values('%.', 2, 1);"""
     sql """ANALYZE TABLE test_analyze_specific_column(col2) WITH SYNC"""
-    result = sql """SHOW COLUMN STATS test_analyze_specific_column"""
+    def result = sql """SHOW COLUMN STATS test_analyze_specific_column"""
     assert result.size() == 1
 
     // test escape sql
@@ -2755,7 +2765,7 @@ PARTITION `p599` VALUES IN (599)
 
     // Test analyze default full.
     sql """analyze table trigger_test with sync"""
-    def result = sql """show column stats trigger_test"""
+    result = sql """show column stats trigger_test"""
     logger.info("show column trigger_test stats: " + result)
     assertEquals(2, result.size())
     assertEquals("4.0", result[0][2])
@@ -2774,7 +2784,7 @@ PARTITION `p599` VALUES IN (599)
 
     // Test auto analyze with job type SYSTEM
     sql """drop stats trigger_test"""
-    sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+    sql """analyze table trigger_test PROPERTIES("use.auto.analyzer"="true")"""
     int i = 0;
     for (0; i < 10; i++) {
         result = sql """show column stats trigger_test"""

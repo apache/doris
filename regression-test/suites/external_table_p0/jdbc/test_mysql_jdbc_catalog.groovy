@@ -179,7 +179,6 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             order_qt_dt_null """select * from ${dt_null} order by 1; """
             order_qt_test_dz """select * from ${test_zd} order by 1; """
             order_qt_test_filter_not """select * from ${ex_tb13} where name not like '%张三0%' order by 1; """
-            order_qt_test_filter_not_old_plan """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${ex_tb13} where name not like '%张三0%' order by 1; """
             explain {
                 sql("select `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
                 contains """ SELECT `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2012-10-25')"""
@@ -386,6 +385,11 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             sql("select k8 from test1 where money_format(k8) = '1.00';")
 
             contains "QUERY: SELECT `k8` FROM `doris_test`.`test1`"
+        }
+        explain {
+            sql("select k12 from test1 where negative(k12) = 1;")
+
+            contains "QUERY: SELECT `k12` FROM `doris_test`.`test1`"
         }
         explain {
             sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05';")

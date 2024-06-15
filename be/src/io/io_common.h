@@ -57,7 +57,7 @@ struct IOContext {
     bool is_persistent = false;
     // stop reader when reading, used in some interrupted operations
     bool should_stop = false;
-    uint64_t expiration_time = 0;
+    int64_t expiration_time = 0;
     const TUniqueId* query_id = nullptr;             // Ref
     FileCacheStatistics* file_cache_stats = nullptr; // Ref
 };

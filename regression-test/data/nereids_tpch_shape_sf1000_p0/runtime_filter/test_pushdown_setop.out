@@ -23,7 +23,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((expr_abs(l_linenumber) = expr_cast(r_regionkey as LARGEINT))) otherCondition=() build RFs:RF0 expr_cast(r_regionkey as LARGEINT)->[abs(l_linenumber),abs(o_orderkey)]
+----------hashJoin[INNER_JOIN] hashCondition=((expr_abs(l_linenumber) = expr_cast(r_regionkey as LARGEINT))) otherCondition=() build RFs:RF0 expr_cast(r_regionkey as LARGEINT)->[abs(cast(l_linenumber as BIGINT)),abs(o_orderkey)]
 ------------PhysicalProject
 --------------PhysicalExcept
 ----------------PhysicalDistribute[DistributionSpecHash]

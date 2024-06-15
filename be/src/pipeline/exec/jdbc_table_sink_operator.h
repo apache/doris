@@ -20,14 +20,9 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/sink/vresult_sink.h"
 #include "vec/sink/writer/vjdbc_table_writer.h"
 
-namespace doris {
-class DataSink;
-
-namespace pipeline {
+namespace doris::pipeline {
 
 class JdbcTableSinkOperatorX;
 class JdbcTableSinkLocalState final
@@ -65,5 +60,4 @@ private:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

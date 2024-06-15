@@ -23,6 +23,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
+#include "runtime/fragment_mgr.h"
 #include "util/runtime_profile.h"
 #include "vec/spill/spill_stream_manager.h"
 
@@ -204,80 +205,110 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
     _dependency->Dependency::block();
 
     auto execution_context = state->get_task_execution_context();
-    _shared_state_holder = _shared_state->shared_from_this();
+    /// Resources in shared state will be released when the operator is closed,
+    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
+    /// So, we need hold the pointer of shared state.
+    std::weak_ptr<PartitionedAggSharedState> shared_state_holder =
+            _shared_state->shared_from_this();
     auto query_id = state->query_id();
+    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
-
-    RETURN_IF_ERROR(
-            ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool()->submit_func(
-                    [this, state, query_id, execution_context, submit_timer] {
-                        auto execution_context_lock = execution_context.lock();
-                        if (!execution_context_lock) {
-                            LOG(INFO) << "query " << print_id(query_id)
-                                      << " execution_context released, maybe query was cancelled.";
-                            // FIXME: return status is meaningless?
-                            return Status::Cancelled("Cancelled");
+    auto spill_func = [this, state, query_id, execution_context, submit_timer] {
+        _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
+        Defer defer {[&]() {
+            if (!_status.ok() || state->is_cancelled()) {
+                if (!_status.ok()) {
+                    LOG(WARNING) << "query " << print_id(query_id) << " agg node "
+                                 << _parent->node_id()
+                                 << " merge spilled agg data error: " << _status;
+                }
+                _shared_state->close();
+            } else if (_shared_state->spill_partitions.empty()) {
+                VLOG_DEBUG << "query " << print_id(query_id) << " agg node " << _parent->node_id()
+                           << " merge spilled agg data finish";
+            }
+            Base::_shared_state->in_mem_shared_state->aggregate_data_container->init_once();
+            _is_merging = false;
+            _dependency->Dependency::set_ready();
+        }};
+        bool has_agg_data = false;
+        auto& parent = Base::_parent->template cast<Parent>();
+        while (!state->is_cancelled() && !has_agg_data &&
+               !_shared_state->spill_partitions.empty()) {
+            for (auto& stream : _shared_state->spill_partitions[0]->spill_streams_) {
+                stream->set_read_counters(Base::_spill_read_data_time,
+                                          Base::_spill_deserialize_time, Base::_spill_read_bytes,
+                                          Base::_spill_read_wait_io_timer);
+                vectorized::Block block;
+                bool eos = false;
+                while (!eos && !state->is_cancelled()) {
+                    {
+                        SCOPED_TIMER(Base::_spill_recover_time);
+                        DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::recover_spill_data",
+                                        {
+                                            _status = Status::Error<INTERNAL_ERROR>(
+                                                    "fault_inject partitioned_agg_source "
+                                                    "recover_spill_data failed");
+                                        });
+                        if (_status.ok()) {
+                            _status = stream->read_next_block_sync(&block, &eos);
                         }
+                    }
+                    RETURN_IF_ERROR(_status);
 
-                        _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
-                        SCOPED_ATTACH_TASK(state);
-                        Defer defer {[&]() {
-                            if (!_status.ok() || state->is_cancelled()) {
-                                if (!_status.ok()) {
-                                    LOG(WARNING) << "query " << print_id(query_id) << " agg node "
-                                                 << _parent->node_id()
-                                                 << " merge spilled agg data error: " << _status;
-                                }
-                                _shared_state->close();
-                            } else if (_shared_state->spill_partitions.empty()) {
-                                VLOG_DEBUG << "query " << print_id(query_id) << " agg node "
-                                           << _parent->node_id()
-                                           << " merge spilled agg data finish";
-                            }
-                            Base::_shared_state->in_mem_shared_state->aggregate_data_container
-                                    ->init_once();
-                            _is_merging = false;
-                            _dependency->Dependency::set_ready();
-                        }};
-                        bool has_agg_data = false;
-                        auto& parent = Base::_parent->template cast<Parent>();
-                        while (!state->is_cancelled() && !has_agg_data &&
-                               !_shared_state->spill_partitions.empty()) {
-                            for (auto& stream :
-                                 _shared_state->spill_partitions[0]->spill_streams_) {
-                                stream->set_read_counters(
-                                        Base::_spill_read_data_time, Base::_spill_deserialize_time,
-                                        Base::_spill_read_bytes, Base::_spill_read_wait_io_timer);
-                                vectorized::Block block;
-                                bool eos = false;
-                                while (!eos && !state->is_cancelled()) {
-                                    {
-                                        SCOPED_TIMER(Base::_spill_recover_time);
-                                        _status = stream->read_next_block_sync(&block, &eos);
-                                    }
-                                    RETURN_IF_ERROR(_status);
+                    if (!block.empty()) {
+                        has_agg_data = true;
+                        _status = parent._agg_source_operator
+                                          ->merge_with_serialized_key_helper<false>(
+                                                  _runtime_state.get(), &block);
+                        RETURN_IF_ERROR(_status);
+                    }
+                }
+                (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
+            }
+            _shared_state->spill_partitions.pop_front();
+        }
+        if (_shared_state->spill_partitions.empty()) {
+            _shared_state->close();
+        }
+        return _status;
+    };
 
-                                    if (!block.empty()) {
-                                        has_agg_data = true;
-                                        _status = parent._agg_source_operator
-                                                          ->merge_with_serialized_key_helper<false>(
-                                                                  _runtime_state.get(), &block);
-                                        RETURN_IF_ERROR(_status);
-                                    }
-                                }
-                                (void)ExecEnv::GetInstance()
-                                        ->spill_stream_mgr()
-                                        ->delete_spill_stream(stream);
-                            }
-                            _shared_state->spill_partitions.pop_front();
-                        }
-                        if (_shared_state->spill_partitions.empty()) {
-                            _shared_state->close();
-                        }
-                        return _status;
-                    }));
-    return Status::OK();
+    auto exception_catch_func = [spill_func, query_id, mem_tracker, shared_state_holder,
+                                 execution_context, this]() {
+        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+        std::shared_ptr<TaskExecutionContext> execution_context_lock;
+        auto shared_state_sptr = shared_state_holder.lock();
+        if (shared_state_sptr) {
+            execution_context_lock = execution_context.lock();
+        }
+        if (!shared_state_sptr || !execution_context_lock) {
+            LOG(INFO) << "query " << print_id(query_id)
+                      << " execution_context released, maybe query was cancelled.";
+            return;
+        }
+        DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::merge_spill_data_cancel", {
+            auto st = Status::InternalError(
+                    "fault_inject partitioned_agg_source "
+                    "merge spill data canceled");
+            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, st);
+            return;
+        });
+
+        auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return spill_func(); }); }();
+
+        if (!status.ok()) {
+            _status = status;
+        }
+    };
+
+    DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::submit_func", {
+        return Status::Error<INTERNAL_ERROR>(
+                "fault_inject partitioned_agg_source submit_func failed");
+    });
+    return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
+            exception_catch_func);
 }
 } // namespace doris::pipeline

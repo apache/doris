@@ -496,7 +496,9 @@ Status NewJsonReader::_vhandle_simple_json(RuntimeState* /*state*/, Block& block
                 objectValue = _json_doc;
             }
             _next_row = 0;
-            if (_fuzzy_parse) {
+            // Here we expect the incoming `objectValue` to be a Json Object, such as {"key" : "value"}
+            // If a Json Array comes here, it maybe crashed in it->name.GetString()
+            if (_fuzzy_parse && objectValue->IsObject()) {
                 for (auto* v : slot_descs) {
                     for (int i = 0; i < objectValue->MemberCount(); ++i) {
                         auto it = objectValue->MemberBegin() + i;
@@ -1070,7 +1072,7 @@ Status NewJsonReader::_simdjson_handle_simple_json(RuntimeState* /*state*/, Bloc
             return Status::OK();
         }
         RETURN_IF_ERROR(st);
-        if (*is_empty_row) {
+        if (*is_empty_row || *eof) {
             return Status::OK();
         }
 

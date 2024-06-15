@@ -20,7 +20,7 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupId;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -74,14 +74,14 @@ public class JoinEstimateTest {
                     public List<Slot> get() {
                         return Lists.newArrayList(a);
                     }
-                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
+                }, () -> DataTrait.EMPTY_TRAIT)));
         GroupPlan right = new GroupPlan(new Group(idGenerator.getNextId(), new LogicalProperties(
                 new Supplier<List<Slot>>() {
                     @Override
                     public List<Slot> get() {
                         return Lists.newArrayList(b);
                     }
-                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
+                }, () -> DataTrait.EMPTY_TRAIT)));
         LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, Lists.newArrayList(eq),
                 left, right, null);
         Statistics outputStats = JoinEstimation.estimate(leftStats, rightStats, join);
@@ -125,14 +125,14 @@ public class JoinEstimateTest {
                     public List<Slot> get() {
                         return Lists.newArrayList(a);
                     }
-                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
+                }, () -> DataTrait.EMPTY_TRAIT)));
         GroupPlan right = new GroupPlan(new Group(idGenerator.getNextId(), new LogicalProperties(
                 new Supplier<List<Slot>>() {
                     @Override
                     public List<Slot> get() {
                         return Lists.newArrayList(b, c);
                     }
-                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
+                }, () -> DataTrait.EMPTY_TRAIT)));
         LogicalJoin join = new LogicalJoin(JoinType.LEFT_OUTER_JOIN, Lists.newArrayList(eq),
                 left, right, null);
         Statistics outputStats = JoinEstimation.estimate(leftStats, rightStats, join);

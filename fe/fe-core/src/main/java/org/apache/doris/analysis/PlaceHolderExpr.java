@@ -24,22 +24,18 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
 // PlaceHolderExpr is a reference class point to real LiteralExpr
 public class PlaceHolderExpr extends LiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(LiteralExpr.class);
     private LiteralExpr lExpr;
     int mysqlTypeCode = -1;
 
     public PlaceHolderExpr() {
-
+        type = Type.UNSUPPORTED;
     }
 
     public void setTypeCode(int mysqlTypeCode) {
@@ -48,10 +44,12 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     protected PlaceHolderExpr(LiteralExpr literal) {
         this.lExpr = literal;
+        this.type = literal.getType();
     }
 
     protected PlaceHolderExpr(PlaceHolderExpr other) {
         this.lExpr = other.lExpr;
+        this.type = other.type;
     }
 
     public void setLiteral(LiteralExpr literal) {
@@ -139,12 +137,7 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     @Override
     public boolean supportSerializable() {
-        return true;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Preconditions.checkState(false, "should not implement this in derived class. " + this.type.toSql());
+        return false;
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -164,7 +157,17 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     @Override
     public String toSqlImpl() {
-        return getStringValue();
+        if (this.lExpr == null) {
+            return "?";
+        }
+        return "_placeholder_(" + this.lExpr.toSqlImpl() + ")";
+    }
+
+    // @Override
+    public Expr reset() {
+        this.lExpr = null;
+        this.type = Type.UNSUPPORTED;
+        return this;
     }
 
     @Override

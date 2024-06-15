@@ -19,7 +19,6 @@ package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.S3URI;
 
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
@@ -113,14 +112,7 @@ class S3ObjStorageTest {
         client.setAccessible(true);
         MockedS3Client mockedClient = new MockedS3Client();
         client.set(storage, mockedClient);
-        Assertions.assertTrue(storage.getClient("mocked") instanceof MockedS3Client);
-
-        S3URI vUri = S3URI.create("s3://bucket/key", true);
-        S3URI uri = S3URI.create("s3://bucket/key", false);
-        Assertions.assertEquals(vUri.getVirtualBucket(), "bucket");
-        Assertions.assertEquals(vUri.getBucket(), "key");
-        Assertions.assertEquals(uri.getVirtualBucket(), "");
-        Assertions.assertEquals(uri.getBucket(), "bucket");
+        Assertions.assertTrue(storage.getClient() instanceof MockedS3Client);
 
         Status st = storage.headObject("s3://bucket/key");
         Assertions.assertEquals(Status.OK, st);

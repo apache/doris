@@ -23,48 +23,13 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/core/block.h"
-#include "vec/exec/vunion_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
 class DataQueue;
-
-class UnionSinkOperatorBuilder final : public OperatorBuilder<vectorized::VUnionNode> {
-public:
-    UnionSinkOperatorBuilder(int32_t id, int child_id, ExecNode* node,
-                             std::shared_ptr<DataQueue> queue);
-
-    OperatorPtr build_operator() override;
-
-    bool is_sink() const override { return true; }
-
-private:
-    int _cur_child_id;
-    std::shared_ptr<DataQueue> _data_queue;
-};
-
-class UnionSinkOperator final : public StreamingOperator<vectorized::VUnionNode> {
-public:
-    UnionSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* node,
-                      std::shared_ptr<DataQueue> queue);
-
-    bool can_write() override { return true; }
-
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
-
-    Status close(RuntimeState* state) override;
-
-private:
-    int _cur_child_id;
-    std::shared_ptr<DataQueue> _data_queue;
-    std::unique_ptr<vectorized::Block> _output_block;
-};
 
 class UnionSinkOperatorX;
 class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionSharedState> {

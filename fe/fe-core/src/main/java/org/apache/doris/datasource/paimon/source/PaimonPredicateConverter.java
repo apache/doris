@@ -60,7 +60,7 @@ public class PaimonPredicateConverter {
         return list;
     }
 
-    public Predicate convertToPaimonExpr(Expr dorisExpr) {
+    private Predicate convertToPaimonExpr(Expr dorisExpr) {
         if (dorisExpr == null) {
             return null;
         }

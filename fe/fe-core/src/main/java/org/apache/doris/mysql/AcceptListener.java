@@ -101,8 +101,8 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                         }
                         context.setStartTime();
                         int userQueryTimeout = context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser());
-                        if (userQueryTimeout <= 0) {
-                            LOG.warn("Connection set query timeout to {}",
+                        if (userQueryTimeout <= 0 && LOG.isDebugEnabled()) {
+                            LOG.debug("Connection set query timeout to {}",
                                         context.getSessionVariable().getQueryTimeoutS());
                         }
                         context.setUserQueryTimeout(userQueryTimeout);

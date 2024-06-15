@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_array_zip_array_enumerate_uniq", "p0") {
-
-    sql "set enable_nereids_planner=false;"
 //     ========== array-zip ==========
 //     wrong case
     try {
@@ -25,7 +23,7 @@ suite("test_array_zip_array_enumerate_uniq", "p0") {
                SELECT array_zip();
                 """
     } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("errCode = 2, detailMessage = Unexpected exception: "))
+        assertTrue(ex.getMessage().contains("errCode = 2, detailMessage ="))
     }
 
     try {

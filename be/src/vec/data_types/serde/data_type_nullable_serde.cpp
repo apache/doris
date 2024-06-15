@@ -238,13 +238,13 @@ void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, Jsonb
                                                     Arena* mem_pool, int32_t col_id,
                                                     int row_num) const {
     auto& nullable_col = assert_cast<const ColumnNullable&>(column);
-    if (nullable_col.is_null_at(row_num)) {
-        // do not insert to jsonb
-        return;
-    }
     result.writeKey(col_id);
-    nested_serde->write_one_cell_to_jsonb(nullable_col.get_nested_column(), result, mem_pool,
-                                          col_id, row_num);
+    if (nullable_col.is_null_at(row_num)) {
+        result.writeNull();
+    } else {
+        nested_serde->write_one_cell_to_jsonb(nullable_col.get_nested_column(), result, mem_pool,
+                                              col_id, row_num);
+    }
 }
 
 void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
@@ -288,15 +288,14 @@ template <bool is_binary_format>
 Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
                                                      MysqlRowBuffer<is_binary_format>& result,
                                                      int row_idx, bool col_const) const {
-    auto& col = assert_cast<const ColumnNullable&>(column);
-    auto& nested_col = col.get_nested_column();
-    col_const = col_const || is_column_const(nested_col);
+    const auto& col = assert_cast<const ColumnNullable&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     if (col.has_null() && col.is_null_at(col_index)) {
         if (UNLIKELY(0 != result.push_null())) {
             return Status::InternalError("pack mysql buffer failed.");
         }
     } else {
+        const auto& nested_col = col.get_nested_column();
         RETURN_IF_ERROR(
                 nested_serde->write_column_to_mysql(nested_col, result, col_index, col_const));
     }
@@ -339,14 +338,14 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
 Status DataTypeNullableSerDe::write_one_cell_to_json(const IColumn& column,
                                                      rapidjson::Value& result,
                                                      rapidjson::Document::AllocatorType& allocator,
-                                                     int row_num) const {
+                                                     Arena& mem_pool, int row_num) const {
     auto& col = static_cast<const ColumnNullable&>(column);
     auto& nested_col = col.get_nested_column();
     if (col.is_null_at(row_num)) {
         result.SetNull();
     } else {
-        RETURN_IF_ERROR(
-                nested_serde->write_one_cell_to_json(nested_col, result, allocator, row_num));
+        RETURN_IF_ERROR(nested_serde->write_one_cell_to_json(nested_col, result, allocator,
+                                                             mem_pool, row_num));
     }
     return Status::OK();
 }

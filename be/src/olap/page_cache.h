@@ -111,7 +111,7 @@ public:
                 : LRUCachePolicy(CachePolicy::CacheType::DATA_PAGE_CACHE, capacity,
                                  LRUCacheType::SIZE, config::data_page_cache_stale_sweep_time_sec,
                                  num_shards) {
-            init_mem_tracker_by_allocator();
+            init_mem_tracker_by_allocator(lru_cache_type_string(LRUCacheType::SIZE));
         }
     };
 
@@ -121,7 +121,7 @@ public:
                 : LRUCachePolicy(CachePolicy::CacheType::INDEXPAGE_CACHE, capacity,
                                  LRUCacheType::SIZE, config::index_page_cache_stale_sweep_time_sec,
                                  num_shards) {
-            init_mem_tracker_by_allocator();
+            init_mem_tracker_by_allocator(lru_cache_type_string(LRUCacheType::SIZE));
         }
     };
 
@@ -131,7 +131,7 @@ public:
                 : LRUCachePolicy(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE, capacity,
                                  LRUCacheType::SIZE,
                                  config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {
-            init_mem_tracker_by_allocator();
+            init_mem_tracker_by_allocator(lru_cache_type_string(LRUCacheType::SIZE));
         }
     };
 

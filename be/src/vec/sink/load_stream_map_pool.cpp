@@ -35,7 +35,7 @@ LoadStreamMap::LoadStreamMap(UniqueId load_id, int64_t src_id, int num_streams, 
     DCHECK(num_use > 0) << "use num should be greater than 0";
 }
 
-std::shared_ptr<Streams> LoadStreamMap::get_or_create(int64_t dst_id) {
+std::shared_ptr<Streams> LoadStreamMap::get_or_create(int64_t dst_id, bool incremental) {
     std::lock_guard<std::mutex> lock(_mutex);
     std::shared_ptr<Streams> streams = _streams_for_node[dst_id];
     if (streams != nullptr) {
@@ -44,7 +44,7 @@ std::shared_ptr<Streams> LoadStreamMap::get_or_create(int64_t dst_id) {
     streams = std::make_shared<Streams>();
     for (int i = 0; i < _num_streams; i++) {
         streams->emplace_back(new LoadStreamStub(_load_id, _src_id, _tablet_schema_for_index,
-                                                 _enable_unique_mow_for_index));
+                                                 _enable_unique_mow_for_index, incremental));
     }
     _streams_for_node[dst_id] = streams;
     return streams;
@@ -101,10 +101,13 @@ bool LoadStreamMap::release() {
     return false;
 }
 
-Status LoadStreamMap::close_load() {
-    return for_each_st([this](int64_t dst_id, const Streams& streams) -> Status {
+Status LoadStreamMap::close_load(bool incremental) {
+    return for_each_st([this, incremental](int64_t dst_id, const Streams& streams) -> Status {
         const auto& tablets = _tablets_to_commit[dst_id];
         for (auto& stream : streams) {
+            if (stream->is_incremental() != incremental) {
+                continue;
+            }
             RETURN_IF_ERROR(stream->close_load(tablets));
         }
         return Status::OK();

@@ -151,6 +151,7 @@ public class ColocatePlanTest extends TestWithFeService {
     // 2. scan node with two tablet one instance
     @Test
     public void sqlAggWithColocateTable() throws Exception {
+        connectContext.getSessionVariable().setParallelResultSink(false);
         String sql = "select k1, k2, count(*) from db1.test_multi_partition where k2 = 1 group by k1, k2";
         StmtExecutor executor = getSqlStmtExecutor(sql);
         Planner planner = executor.planner();
@@ -186,6 +187,7 @@ public class ColocatePlanTest extends TestWithFeService {
     // Fix #8778
     @Test
     public void rollupAndMoreThanOneInstanceWithoutColocate() throws Exception {
+        connectContext.getSessionVariable().setParallelResultSink(false);
         String createColocateTblStmtStr = "create table db1.test_colocate_one_backend(k1 int, k2 int, k3 int, k4 int) "
                 + "distributed by hash(k1, k2, k3) buckets 10 properties('replication_num' = '1');";
         createTable(createColocateTblStmtStr);

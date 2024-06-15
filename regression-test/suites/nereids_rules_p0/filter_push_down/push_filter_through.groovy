@@ -25,6 +25,8 @@ suite("push_filter_through") {
     sql "SET ignore_shape_nodes='PhysicalDistribute, PhysicalProject'"
     sql "set enable_fold_nondeterministic_fn=false"
     sql "set enable_fold_constant_by_be=false"//plan shape will be different
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     // push filter through alias
     qt_filter_project_alias""" 

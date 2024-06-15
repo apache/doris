@@ -34,6 +34,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
@@ -121,9 +122,13 @@ public class PartitionTableInfo {
 
     private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx,
                                          boolean isEnableMergeOnWrite, boolean isExternal) {
-        if (!column.isKey()
-                && (!column.getAggType().equals(AggregateType.NONE) || isEnableMergeOnWrite)) {
-            throw new AnalysisException("The partition column could not be aggregated column");
+        if (!column.isKey()) { // value column
+            if (!column.getAggType().equals(AggregateType.NONE)) { // agg column
+                throw new AnalysisException("The partition column could not be aggregated column");
+            }
+            if (isEnableMergeOnWrite) { // MoW table
+                throw new AnalysisException("Merge-on-Write table's partition column must be KEY column");
+            }
         }
         if (column.getType().isFloatLikeType()) {
             throw new AnalysisException("Floating point type column can not be partition column");
@@ -140,8 +145,10 @@ public class PartitionTableInfo {
             throw new AnalysisException(
                 "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
         }
-        if (isAutoPartition && partitionType.equalsIgnoreCase(PartitionType.RANGE.name()) && column.isNullable()) {
-            throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column");
+        if (partitionType.equalsIgnoreCase(PartitionType.RANGE.name()) && isAutoPartition) {
+            if (column.isNullable()) {
+                throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column");
+            }
         }
     }
 
@@ -154,6 +161,8 @@ public class PartitionTableInfo {
      * @param isEnableMergeOnWrite whether enable merge on write
      */
     public void validatePartitionInfo(
+            String engineName,
+            List<ColumnDefinition> columns,
             Map<String, ColumnDefinition> columnMap,
             Map<String, String> properties,
             ConnectContext ctx,
@@ -183,6 +192,27 @@ public class PartitionTableInfo {
             if (!duplicatesKeys.isEmpty()) {
                 throw new AnalysisException(
                         "Duplicated partition column " + duplicatesKeys.get(0));
+            }
+
+            if (engineName.equals(CreateTableInfo.ENGINE_HIVE)) {
+                // 1. Cannot set all columns as partitioning columns
+                // 2. The partition field must be at the end of the schema
+                // 3. The order of partition fields in the schema
+                //    must be consistent with the order defined in `PARTITIONED BY LIST()`
+                if (partitionColumns.size() == columns.size()) {
+                    throw new AnalysisException("Cannot set all columns as partitioning columns.");
+                }
+                List<ColumnDefinition> partitionInSchema = columns.subList(
+                        columns.size() - partitionColumns.size(), columns.size());
+                if (partitionInSchema.stream().anyMatch(p -> !partitionColumns.contains(p.getName()))) {
+                    throw new AnalysisException("The partition field must be at the end of the schema.");
+                }
+                for (int i = 0; i < partitionInSchema.size(); i++) {
+                    if (!partitionInSchema.get(i).getName().equals(partitionColumns.get(i))) {
+                        throw new AnalysisException("The order of partition fields in the schema "
+                            + "must be consistent with the order defined in `PARTITIONED BY LIST()`");
+                    }
+                }
             }
 
             if (partitionDefs != null) {

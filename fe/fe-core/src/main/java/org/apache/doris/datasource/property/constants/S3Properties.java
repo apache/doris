@@ -21,9 +21,9 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.credentials.CloudCredential;
-import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
-import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
+import org.apache.doris.common.credentials.CloudCredential;
+import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
+import org.apache.doris.common.credentials.DataLakeAWSCredentialsProvider;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.thrift.TS3StorageParam;
 
@@ -265,6 +265,7 @@ public class S3Properties extends BaseProperties {
         s3Info.setRegion(properties.get(S3Properties.REGION));
         s3Info.setAk(properties.get(S3Properties.ACCESS_KEY));
         s3Info.setSk(properties.get(S3Properties.SECRET_KEY));
+        s3Info.setToken(properties.get(S3Properties.SESSION_TOKEN));
 
         s3Info.setRootPath(properties.get(S3Properties.ROOT_PATH));
         s3Info.setBucket(properties.get(S3Properties.BUCKET));

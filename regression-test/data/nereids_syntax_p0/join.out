@@ -60,3 +60,8 @@
 -- !outer_join_with_filter --
 1310179	1455	1455	42
 
+-- !test --
+
+-- !test --
+29	Supplier#000000029	VVSymB3fbwaN	ARGENTINA4	ARGENTINA	AMERICA	11-773-203-7342
+

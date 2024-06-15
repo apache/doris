@@ -228,14 +228,15 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
 
 Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                                   rapidjson::Document::AllocatorType& allocator,
-                                                  int row_num) const {
+                                                  Arena& mem_pool, int row_num) const {
     // Use allocator instead of stack memory, since rapidjson hold the reference of String value
     // otherwise causes stack use after free
     auto& column_array = static_cast<const ColumnArray&>(column);
     if (row_num > column_array.size()) {
         return Status::InternalError("row num {} out of range {}!", row_num, column_array.size());
     }
-    void* mem = allocator.Malloc(sizeof(vectorized::Field));
+    // void* mem = allocator.Malloc(sizeof(vectorized::Field));
+    void* mem = mem_pool.alloc(sizeof(vectorized::Field));
     if (!mem) {
         return Status::InternalError("Malloc failed");
     }

@@ -172,14 +172,14 @@ static_assert(ret_val_ptr != nullptr, "ret_val_ptr cannot be nullptr");\
 TEST_SYNC_POINT_CALLBACK(sync_point_name, ret_val_ptr); \
 { \
   bool pred = false; \
-  TEST_SYNC_POINT_CALLBACK(sync_point_name"::pred", &pred); \
+  TEST_SYNC_POINT_CALLBACK(std::string(sync_point_name) + "::pred", &pred); \
   if (pred) return *ret_val_ptr; \
 }
 
 # define TEST_SYNC_POINT_RETURN_WITH_VOID(sync_point_name) \
 { \
   bool pred = false; \
-  TEST_SYNC_POINT_CALLBACK(sync_point_name"::pred", &pred); \
+  TEST_SYNC_POINT_CALLBACK(std::string(sync_point_name) + "::pred", &pred); \
   if (pred) return; \
 }
 

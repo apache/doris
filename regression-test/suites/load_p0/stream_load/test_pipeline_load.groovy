@@ -152,7 +152,7 @@ suite("test_pipeline_load", "nonConcurrent") {
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
                 assertTrue(json.Message.contains("Encountered unqualified data"))
-                assertEquals(0, json.NumberTotalRows)
+                assertEquals(100, json.NumberTotalRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)
             }

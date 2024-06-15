@@ -37,7 +37,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -148,7 +147,7 @@ public class DeleteStmt extends DdlStmt {
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isInDebugMode()) {
             throw new AnalysisException("Delete is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
-                    + String.join(", ", SessionVariable.DEBUG_VARIABLES));
+                    + ConnectContext.get().getSessionVariable().printDebugModeVariables());
         }
         boolean isMow = ((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite();
         for (Column column : targetTable.getColumns()) {
@@ -342,7 +341,8 @@ public class DeleteStmt extends DdlStmt {
             // TODO(Now we can not push down non-scala type like array/map/struct to storage layer because of
             //  predict_column in be not support non-scala type, so we just should ban this type in delete predict, when
             //  we delete predict_column in be we should delete this ban)
-            if (!column.getType().isScalarType()) {
+            if (!column.getType().isScalarType()
+                    || (column.getType().isOnlyMetricType() && !column.getType().isJsonbType())) {
                 throw new AnalysisException(String.format("Can not apply delete condition to column type: %s ",
                         column.getType()));
 

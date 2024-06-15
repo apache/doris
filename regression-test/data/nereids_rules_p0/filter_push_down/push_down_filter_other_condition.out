@@ -191,7 +191,7 @@ PhysicalResultSink
 -- !pushdown_left_outer_join_subquery --
 PhysicalResultSink
 --filter(((cast(id as BIGINT) = sum(id)) OR id IS NULL))
-----NestedLoopJoin[LEFT_OUTER_JOIN](t1.id = 1)
+----NestedLoopJoin[LEFT_OUTER_JOIN](id = 1)
 ------PhysicalOlapScan[t1]
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
@@ -199,7 +199,7 @@ PhysicalResultSink
 
 -- !pushdown_left_anti_join_subquery --
 PhysicalResultSink
---NestedLoopJoin[LEFT_ANTI_JOIN](((t1.id = t2.id) OR id IS NULL) OR id IS NULL)(t1.id > 1)
+--NestedLoopJoin[LEFT_ANTI_JOIN](((t1.id = t2.id) OR id IS NULL) OR id IS NULL)(id > 1)
 ----PhysicalOlapScan[t1]
 ----PhysicalOlapScan[t2]
 
@@ -229,7 +229,7 @@ PhysicalResultSink
 
 -- !pushdown_left_outer_join_subquery_outer --
 PhysicalResultSink
---NestedLoopJoin[INNER_JOIN]((t1.id = t2.id) OR (id IS NULL AND (t1.id > 1)))
+--NestedLoopJoin[INNER_JOIN]((t1.id = t2.id) OR (id IS NULL AND (id > 1)))
 ----PhysicalOlapScan[t1]
 ----PhysicalAssertNumRows
 ------PhysicalOlapScan[t2]
@@ -241,5 +241,5 @@ PhysicalResultSink
 ------PhysicalOlapScan[t1]
 ----PhysicalLimit[GLOBAL]
 ------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[t2]
+--------PhysicalStorageLayerAggregate[t2]
 

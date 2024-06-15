@@ -41,12 +41,13 @@ class InnerJoinRightAssociateProjectTest implements MemoPatternMatchSupported {
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .project(ImmutableList.of(0, 2))
                 .join(scan3, JoinType.INNER_JOIN, Pair.of(1, 0))
+                .projectAll()
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyExploration(InnerJoinRightAssociateProject.INSTANCE.build())
                 .matchesExploration(
-                        logicalJoin(
+                        logicalProject(logicalJoin(
                                 logicalProject(
                                         logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1"))),
                                 logicalProject(
@@ -55,7 +56,7 @@ class InnerJoinRightAssociateProjectTest implements MemoPatternMatchSupported {
                                                 logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
                                         )
                                 )
-                        )
+                        ))
                 );
     }
 

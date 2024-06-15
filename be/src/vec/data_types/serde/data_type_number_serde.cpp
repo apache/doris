@@ -84,7 +84,7 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
                                      end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
                 column.get_name(), array_builder->type()->name());
-    } else if constexpr (std::is_same_v<T, Int128> || std::is_same_v<T, IPv6>) {
+    } else if constexpr (std::is_same_v<T, Int128>) {
         auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t i = start; i < end; ++i) {
             auto& data_value = col_data[i];
@@ -97,7 +97,7 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
                                  column.get_name(), array_builder->type()->name());
             }
         }
-    } else if constexpr (std::is_same_v<T, UInt128>) {
+    } else if constexpr (std::is_same_v<T, UInt128> || std::is_same_v<T, IPv6>) {
     } else {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         checkArrowStatus(
@@ -344,6 +344,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::FloatVectorBatch)
     } else if constexpr (std::is_same_v<T, Float64>) { // double
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::DoubleVectorBatch)
+    } else if constexpr (std::is_same_v<T, IPv4>) { // ipv4
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::IntVectorBatch)
     }
     return Status::OK();
 }

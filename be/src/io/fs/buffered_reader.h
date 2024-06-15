@@ -173,7 +173,6 @@ public:
         for (char* box : _boxes) {
             delete[] box;
         }
-        static_cast<void>(close());
     }
 
     Status close() override {

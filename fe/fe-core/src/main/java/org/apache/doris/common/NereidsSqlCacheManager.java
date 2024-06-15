@@ -74,8 +74,11 @@ public class NereidsSqlCacheManager {
     // value: SqlCacheContext
     private volatile Cache<String, SqlCacheContext> sqlCaches;
 
-    public NereidsSqlCacheManager(int sqlCacheNum, long cacheIntervalSeconds) {
-        sqlCaches = buildSqlCaches(sqlCacheNum, cacheIntervalSeconds);
+    public NereidsSqlCacheManager() {
+        sqlCaches = buildSqlCaches(
+                Config.sql_cache_manage_num,
+                Config.expire_sql_cache_in_fe_second
+        );
     }
 
     public static synchronized void updateConfig() {
@@ -90,22 +93,24 @@ public class NereidsSqlCacheManager {
 
         Cache<String, SqlCacheContext> sqlCaches = buildSqlCaches(
                 Config.sql_cache_manage_num,
-                Config.cache_last_version_interval_second
+                Config.expire_sql_cache_in_fe_second
         );
         sqlCaches.putAll(sqlCacheManager.sqlCaches.asMap());
         sqlCacheManager.sqlCaches = sqlCaches;
     }
 
-    private static Cache<String, SqlCacheContext> buildSqlCaches(int sqlCacheNum, long cacheIntervalSeconds) {
-        sqlCacheNum = sqlCacheNum < 0 ? 100 : sqlCacheNum;
-        cacheIntervalSeconds = cacheIntervalSeconds < 0 ? 30 : cacheIntervalSeconds;
-
-        return Caffeine.newBuilder()
-                .maximumSize(sqlCacheNum)
-                .expireAfterAccess(Duration.ofSeconds(cacheIntervalSeconds))
+    private static Cache<String, SqlCacheContext> buildSqlCaches(int sqlCacheNum, long expireAfterAccessSeconds) {
+        Caffeine<Object, Object> cacheBuilder = Caffeine.newBuilder()
                 // auto evict cache when jvm memory too low
-                .softValues()
-                .build();
+                .softValues();
+        if (sqlCacheNum > 0) {
+            cacheBuilder = cacheBuilder.maximumSize(sqlCacheNum);
+        }
+        if (expireAfterAccessSeconds > 0) {
+            cacheBuilder = cacheBuilder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSeconds));
+        }
+
+        return cacheBuilder.build();
     }
 
     /** tryAddFeCache */
@@ -237,9 +242,6 @@ public class NereidsSqlCacheManager {
     }
 
     private boolean tablesOrDataChanged(Env env, SqlCacheContext sqlCacheContext) {
-        long latestPartitionTime = sqlCacheContext.getLatestPartitionTime();
-        long latestPartitionVersion = sqlCacheContext.getLatestPartitionVersion();
-
         if (sqlCacheContext.hasUnsupportedTables()) {
             return true;
         }
@@ -255,7 +257,7 @@ public class NereidsSqlCacheManager {
             long cacheTableTime = scanTable.latestTimestamp;
             long currentTableVersion = olapTable.getVisibleVersion();
             long cacheTableVersion = scanTable.latestVersion;
-            // some partitions have been dropped, or delete or update or insert rows into new partition?
+            // some partitions have been dropped, or delete or updated or replaced, or insert rows into new partition?
             if (currentTableTime > cacheTableTime
                     || (currentTableTime == cacheTableTime && currentTableVersion > cacheTableVersion)) {
                 return true;
@@ -264,9 +266,7 @@ public class NereidsSqlCacheManager {
             for (Long scanPartitionId : scanTable.getScanPartitions()) {
                 Partition partition = olapTable.getPartition(scanPartitionId);
                 // partition == null: is this partition truncated?
-                if (partition == null || partition.getVisibleVersionTime() > latestPartitionTime
-                        || (partition.getVisibleVersionTime() == latestPartitionTime
-                        && partition.getVisibleVersion() > latestPartitionVersion)) {
+                if (partition == null) {
                     return true;
                 }
             }

@@ -32,9 +32,12 @@ import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
+import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
+import org.apache.doris.nereids.rules.rewrite.AdjustPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.CTEInline;
@@ -43,8 +46,8 @@ import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
+import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
-import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
@@ -81,15 +84,18 @@ import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
+import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
 import org.apache.doris.nereids.rules.rewrite.MergeAggregate;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
+import org.apache.doris.nereids.rules.rewrite.MergePercentileToArray;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
+import org.apache.doris.nereids.rules.rewrite.ProjectOtherJoinConditionForNestedLoopJoin;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
@@ -121,6 +127,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
+import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
 import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
@@ -226,7 +233,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Window analysis",
                     topDown(
                             new ExtractAndNormalizeWindowExpression(),
-                            new CheckAndStandardizeWindowFunctionAndFrame()
+                            new CheckAndStandardizeWindowFunctionAndFrame(),
+                            new SimplifyWindowExpression()
                     )
             ),
             topic("Rewrite join",
@@ -265,7 +273,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // eliminate useless not null or inferred not null
                     // TODO: wait InferPredicates to infer more not null.
                     bottomUp(new EliminateNotNull()),
-                    topDown(new ConvertInnerOrCrossJoin())
+                    topDown(new ConvertInnerOrCrossJoin()),
+                    topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
             ),
             topic("Column pruning and infer predicate",
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
@@ -299,7 +308,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
             topic("Eliminate GroupBy",
                     topDown(new EliminateGroupBy(),
-                            new MergeAggregate())
+                            new MergeAggregate(),
+                            // need to adjust min/max/sum nullable attribute after merge aggregate
+                            new AdjustAggregateNullableForEmptySet())
             ),
 
             topic("Eager aggregation",
@@ -384,9 +395,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                     custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
             ),
+            topic("adjust preagg status",
+                    topDown(new AdjustPreAggStatus())
+            ),
             topic("topn optimize",
                     topDown(new DeferMaterializeTopNResult())
             ),
+            topic("Point query short circuit",
+                    topDown(new LogicalResultSinkToShortCircuitPointQuery())),
             topic("eliminate",
                     // SORT_PRUNING should be applied after mergeLimit
                     custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
@@ -394,7 +410,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
             topic("agg rewrite",
                 // these rules should be put after mv optimization to avoid mv matching fail
-                topDown(new SumLiteralRewrite())
+                topDown(new SumLiteralRewrite(),
+                        new MergePercentileToArray())
+            ),
+            topic("add projection for join",
+                    custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
+                    topDown(new MergeProjects())
             ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
@@ -411,9 +432,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Push project and filter on cte consumer to cte producer",
                     topDown(
                             new CollectFilterAboveConsumer(),
-                            new CollectProjectAboveConsumer()
+                            new CollectCteConsumerOutput()
                     )
-            )
+            ),
+            topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new))
     );
 
     private static final List<RewriteJob> WHOLE_TREE_REWRITE_JOBS
@@ -465,7 +487,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(jobs))
                 ),
                 topic("or expansion",
-                        topDown(new OrExpansion())),
+                        custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE)),
                 topic("whole plan check",
                         custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
                 )

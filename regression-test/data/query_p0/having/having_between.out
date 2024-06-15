@@ -14,18 +14,3 @@ aa	1
 b	1
 bb	1
 
--- !sql01 --
-aa	ba	22	cc	11	\N
-b	b	242	c	121	\N
-bb	b	22	c	11	\N
-
--- !sql02 --
-aa	1
-b	1
-bb	1
-
--- !sql03 --
-aa	1
-b	1
-bb	1
-

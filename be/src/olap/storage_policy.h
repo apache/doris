@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,6 +31,11 @@
 #include "io/fs/remote_file_system.h"
 
 namespace doris {
+class RowsetMeta;
+
+namespace cloud {
+class StorageVaultPB_PathFormat;
+}
 
 struct StoragePolicy {
     std::string name;
@@ -47,8 +53,6 @@ struct StoragePolicy {
 
 using StoragePolicyPtr = std::shared_ptr<StoragePolicy>;
 
-Status get_remote_file_system(int64_t storage_policy_id, std::shared_ptr<io::RemoteFileSystem>* fs);
-
 // return nullptr if not found
 StoragePolicyPtr get_storage_policy(int64_t id);
 
@@ -62,20 +66,36 @@ std::vector<std::pair<int64_t, int64_t>> get_storage_policy_ids();
 
 struct StorageResource {
     io::RemoteFileSystemSPtr fs;
-    int64_t version = -1;
+    int64_t path_version = 0;
+    std::function<int64_t(int64_t)> shard_fn;
+
+    StorageResource() = default;
+    StorageResource(io::RemoteFileSystemSPtr fs_) : fs(std::move(fs_)) {}
+    StorageResource(io::RemoteFileSystemSPtr, const cloud::StorageVaultPB_PathFormat&);
+
+    std::string remote_segment_path(int64_t tablet_id, std::string_view rowset_id,
+                                    int64_t seg_id) const;
+    std::string remote_segment_path(const RowsetMeta& rowset, int64_t seg_id) const;
+    std::string remote_tablet_path(int64_t tablet_id) const;
+    std::string cooldown_tablet_meta_path(int64_t tablet_id, int64_t replica_id,
+                                          int64_t cooldown_term) const;
 };
 
 // return nullptr if not found
 io::RemoteFileSystemSPtr get_filesystem(const std::string& resource_id);
 
-// return [nullptr, -1] if not found
-StorageResource get_storage_resource(int64_t resource_id);
+// Get `StorageResource` and its version
+std::optional<std::pair<StorageResource, int64_t>> get_storage_resource(int64_t resource_id);
+std::optional<std::pair<StorageResource, int64_t>> get_storage_resource(
+        const std::string& resource_id);
+
+Result<StorageResource> get_resource_by_storage_policy_id(int64_t storage_policy_id);
 
 // always success
-void put_storage_resource(std::string resource_id, StorageResource resource);
+void put_storage_resource(std::string resource_id, StorageResource resource, int64_t version);
 
 // always success
-void put_storage_resource(int64_t resource_id, StorageResource resource);
+void put_storage_resource(int64_t resource_id, StorageResource resource, int64_t version);
 
 void delete_storage_resource(int64_t resource_id);
 

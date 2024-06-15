@@ -124,7 +124,7 @@ public class CacheFactoryTest {
                 false,
                 ticker::read);
         LoadingCache<Integer, CacheValue> loadingCache = cacheFactory.buildCache(
-                key -> CacheValue.createValue("value" + key, counter), executor);
+                key -> CacheValue.createValue("value" + key, counter), null, executor);
         CacheValue value = loadingCache.get(1);
         Assertions.assertEquals("value1", value.getValue());
         Assertions.assertEquals(1, counter.get());
@@ -155,7 +155,7 @@ public class CacheFactoryTest {
                 false,
                 ticker::read);
         LoadingCache<Integer, CacheValue> loadingCache = cacheFactory.buildCache(
-                key -> CacheValue.createValue("value" + key, counter), executor);
+                key -> CacheValue.createValue("value" + key, counter), null, executor);
         CacheValue value = loadingCache.get(1);
         Assertions.assertEquals("value1", value.getValue());
         Assertions.assertEquals(1, counter.get());
@@ -193,7 +193,7 @@ public class CacheFactoryTest {
                 false,
                 ticker::read);
         LoadingCache<Integer, CacheValue> loadingCache = cacheFactory.buildCache(
-                key -> CacheValue.createValue("value" + key, counter), executor);
+                key -> CacheValue.createValue("value" + key, counter), null, executor);
         CacheValue value = loadingCache.get(1);
         Assertions.assertEquals("value1", value.getValue());
         Assertions.assertEquals(1, counter.get());

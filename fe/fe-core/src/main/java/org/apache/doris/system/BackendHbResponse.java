@@ -52,6 +52,8 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private long lastFragmentUpdateTime;
     @SerializedName(value = "isShutDown")
     private boolean isShutDown = false;
+    // The physical memory available for use by BE.
+    private long beMemory = 0;
 
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
@@ -74,6 +76,26 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.lastFragmentUpdateTime = lastFragmentUpdateTime;
         this.isShutDown = isShutDown;
         this.arrowFlightSqlPort = arrowFlightSqlPort;
+    }
+
+    public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, long hbTime, long beStartTime,
+            String version, String nodeRole, long fragmentNum, long lastFragmentUpdateTime,
+            boolean isShutDown, int arrowFlightSqlPort, long beMemory) {
+        super(HeartbeatResponse.Type.BACKEND);
+        this.beId = beId;
+        this.status = HbStatus.OK;
+        this.bePort = bePort;
+        this.httpPort = httpPort;
+        this.brpcPort = brpcPort;
+        this.hbTime = hbTime;
+        this.beStartTime = beStartTime;
+        this.version = version;
+        this.nodeRole = nodeRole;
+        this.fragmentNum = fragmentNum;
+        this.lastFragmentUpdateTime = lastFragmentUpdateTime;
+        this.isShutDown = isShutDown;
+        this.arrowFlightSqlPort = arrowFlightSqlPort;
+        this.beMemory = beMemory;
     }
 
     public BackendHbResponse(long beId, String errMsg) {
@@ -133,6 +155,10 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
 
     public boolean isShutDown() {
         return isShutDown;
+    }
+
+    public long getBeMemory() {
+        return beMemory;
     }
 
     @Override

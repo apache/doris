@@ -20,12 +20,16 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
     //files  partitions no imp 
 
     def enabled = context.config.otherConfigs.get("enableHiveTest")
-    def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
 
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    for (String hivePrefix : ["hive2", "hive3"]) {
         try {
-            def hms_port = context.config.otherConfigs.get("hms_port")
-            def catalog_name = "test_information_schema_external"
+            def hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            def catalog_name = "test_information_schema_external_${hivePrefix}"
+            def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
@@ -36,7 +40,7 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
 
             //schemata
             order_qt_schemata_1 """
-                select * from internal.information_schema.schemata 
+                select * from ${catalog_name}.information_schema.schemata 
                     where  CATALOG_NAME = "${catalog_name}" and  SCHEMA_NAME = "default";
             """
             sql """ create database if not exists ${db_name}_1; """
@@ -101,23 +105,23 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
                     where TABLE_CATALOG = "internal" and  TABLE_SCHEMA = "${db_name}";
             """
             order_qt_columns_3 """
-                select * from internal.information_schema.columns 
+                select * from ${catalog_name}.information_schema.columns 
                     where TABLE_CATALOG = "${catalog_name}" and  TABLE_SCHEMA = "tpch1_parquet" and TABLE_NAME = "customer";
             """
             order_qt_columns_4 """
-                select * from internal.information_schema.columns 
+                select * from ${catalog_name}.information_schema.columns 
                     where TABLE_CATALOG = "${catalog_name}" and  TABLE_SCHEMA = "tpch1_parquet" and TABLE_NAME = "lineitem";
             """            
             order_qt_columns_5 """
-                select * from internal.information_schema.columns 
+                select * from ${catalog_name}.information_schema.columns 
                     where TABLE_CATALOG = "${catalog_name}" and  TABLE_SCHEMA = "tpch1_parquet" and TABLE_NAME = "nation";
             """            
             order_qt_columns_6 """
-                select * from internal.information_schema.columns 
+                select * from ${catalog_name}.information_schema.columns 
                     where TABLE_CATALOG = "${catalog_name}" and  TABLE_SCHEMA = "tpch1_parquet" and TABLE_NAME = "orders";
             """
             order_qt_columns_7 """
-                select * from internal.information_schema.columns 
+                select * from ${catalog_name}.information_schema.columns 
                     where TABLE_CATALOG = "${catalog_name}" and  TABLE_SCHEMA = "tpch1_parquet" and TABLE_NAME = "partsupp";
             """
             sql """ drop table if exists  ${db_name}.abcd """
@@ -125,65 +129,65 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
 
             //metadata_name_ids
             order_qt_ids_1 """
-                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from internal.information_schema.metadata_name_ids 
+                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${catalog_name}.information_schema.metadata_name_ids 
                     where CATALOG_NAME = "${catalog_name}" and  DATABASE_NAME = "tpch1_parquet" and TABLE_NAME = "customer";
             """
             order_qt_ids_2 """
-                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from internal.information_schema.metadata_name_ids 
+                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${catalog_name}.information_schema.metadata_name_ids 
                     where CATALOG_NAME = "${catalog_name}" and  DATABASE_NAME = "tpch1_parquet" and TABLE_NAME = "lineitem";
             """            
             order_qt_ids_3 """
-                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from internal.information_schema.metadata_name_ids 
+                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${catalog_name}.information_schema.metadata_name_ids 
                     where CATALOG_NAME = "${catalog_name}" and  DATABASE_NAME = "tpch1_parquet" and TABLE_NAME = "nation";
             """            
             order_qt_ids_4 """
-                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from internal.information_schema.metadata_name_ids 
+                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${catalog_name}.information_schema.metadata_name_ids 
                     where CATALOG_NAME = "${catalog_name}" and  DATABASE_NAME = "tpch1_parquet" and TABLE_NAME = "orders";
             """            
             order_qt_ids_5 """
-                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from internal.information_schema.metadata_name_ids 
+                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${catalog_name}.information_schema.metadata_name_ids 
                     where CATALOG_NAME = "${catalog_name}" and  DATABASE_NAME = "tpch1_parquet" and TABLE_NAME = "part";
             """            
             order_qt_ids_6 """
-                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from internal.information_schema.metadata_name_ids 
+                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${catalog_name}.information_schema.metadata_name_ids 
                     where CATALOG_NAME = "${catalog_name}" and  DATABASE_NAME = "tpch1_parquet" and TABLE_NAME = "partsupp";
             """            
             order_qt_ids_7 """
-                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from internal.information_schema.metadata_name_ids 
+                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${catalog_name}.information_schema.metadata_name_ids 
                     where CATALOG_NAME = "${catalog_name}" and  DATABASE_NAME = "tpch1_parquet" and TABLE_NAME = "region";
             """            
             order_qt_ids_8 """
-                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from internal.information_schema.metadata_name_ids 
+                select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${catalog_name}.information_schema.metadata_name_ids 
                     where CATALOG_NAME = "${catalog_name}" and  DATABASE_NAME = "tpch1_parquet" and TABLE_NAME = "supplier";
             """
 
             //tables
             order_qt_tables_1 """
-                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from internal.information_schema.tables 
+                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from ${catalog_name}.information_schema.tables 
                     where TABLE_CATALOG = "${catalog_name}" and  TABLE_SCHEMA = "tpch1_parquet" and TABLE_NAME = "supplier";
             """
             order_qt_tables_2 """
-                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from internal.information_schema.tables 
+                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from ${catalog_name}.information_schema.tables 
                     where TABLE_CATALOG = "${catalog_name}" and  TABLE_SCHEMA = "tpch1_parquet" and TABLE_NAME = "region";
             """
             order_qt_tables_3 """
-                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from internal.information_schema.tables 
+                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from ${catalog_name}.information_schema.tables 
                     where TABLE_CATALOG = "${catalog_name}" and  TABLE_SCHEMA = "tpch1_parquet" and TABLE_NAME = "customer";
             """
             order_qt_tables_4 """
-                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from internal.information_schema.tables 
+                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from ${catalog_name}.information_schema.tables 
                     where TABLE_CATALOG = "${catalog_name}" and  TABLE_SCHEMA = "tpch1_parquet" and TABLE_NAME = "lineitem";
             """            
             order_qt_tables_5 """
-                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from internal.information_schema.tables 
+                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from ${catalog_name}.information_schema.tables 
                     where TABLE_CATALOG = "${catalog_name}" and  TABLE_SCHEMA = "tpch1_parquet" and TABLE_NAME = "nation";
             """            
             order_qt_tables_6 """
-                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from internal.information_schema.tables 
+                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from ${catalog_name}.information_schema.tables 
                     where TABLE_CATALOG = "${catalog_name}" and  TABLE_SCHEMA = "tpch1_parquet" and TABLE_NAME = "orders";
             """
             order_qt_tables_7 """
-                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from internal.information_schema.tables 
+                select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_TYPE,ENGINE,DATA_LENGTH,MAX_DATA_LENGTH,TABLE_COMMENT from ${catalog_name}.information_schema.tables 
                     where TABLE_CATALOG = "${catalog_name}" and  TABLE_SCHEMA = "tpch1_parquet" and TABLE_NAME = "partsupp";
             """
 

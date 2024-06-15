@@ -198,7 +198,7 @@ public class ArrayType extends Type {
 
     @Override
     public boolean isSupported() {
-        return !itemType.isNull();
+        return itemType.isSupported() && !itemType.isNull();
     }
 
     @Override
@@ -221,16 +221,6 @@ public class ArrayType extends Type {
         TColumnType thrift = new TColumnType();
         thrift.type = PrimitiveType.ARRAY.toThrift();
         return thrift;
-    }
-
-    @Override
-    public boolean isFixedLengthType() {
-        return false;
-    }
-
-    @Override
-    public boolean supportsTablePartitioning() {
-        return false;
     }
 
     @Override
