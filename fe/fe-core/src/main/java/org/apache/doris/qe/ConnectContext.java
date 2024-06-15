@@ -904,9 +904,9 @@ public class ConnectContext {
     }
 
     // kill operation with no protect by timeout.
-    private void killByTimeout(boolean killConnection) {
-        LOG.warn("kill query from {}, kill mysql connection: {} reason time out", getRemoteHostPortString(),
-                killConnection);
+    public void killSelf(boolean killConnection, String reason) {
+        LOG.warn("kill query from {}, kill mysql connection: {} reason: {}", getRemoteHostPortString(),
+                killConnection, reason);
 
         if (killConnection) {
             isKilled = true;
@@ -962,7 +962,7 @@ public class ConnectContext {
         }
 
         if (killFlag) {
-            killByTimeout(killConnection);
+            killSelf(killConnection, "timeout connection");
         }
     }
 

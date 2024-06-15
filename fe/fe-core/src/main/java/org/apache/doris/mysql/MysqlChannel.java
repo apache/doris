@@ -401,11 +401,13 @@ public class MysqlChannel implements BytesChannel {
     protected void realNetSend(ByteBuffer buffer) throws IOException {
         buffer = encryptData(buffer);
         long bufLen = buffer.remaining();
+        long start = System.currentTimeMillis();
         long writeLen = Channels.writeBlocking(conn.getSinkChannel(), buffer, context.getNetWriteTimeout(),
                 TimeUnit.SECONDS);
         if (bufLen != writeLen) {
+            long duration = System.currentTimeMillis() - start;
             throw new IOException("Write mysql packet failed.[write=" + writeLen
-                    + ", needToWrite=" + bufLen + "]");
+                    + ", needToWrite=" + bufLen + "], duration: " + duration + " ms");
         }
         Channels.flushBlocking(conn.getSinkChannel(), context.getNetWriteTimeout(), TimeUnit.SECONDS);
         isSend = true;

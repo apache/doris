@@ -490,7 +490,10 @@ public abstract class ConnectProcessor {
         if (throwable instanceof IOException) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", throwable);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed: " + throwable.getMessage());
+            if (throwable.getMessage().contains("Write mysql packet failed")) {
+                ctx.killSelf(true, throwable.getMessage());
+            }
         } else if (throwable instanceof UserException) {
             LOG.warn("Process one query failed because.", throwable);
             ctx.getState().setError(((UserException) throwable).getMysqlErrorCode(), throwable.getMessage());
