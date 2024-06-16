@@ -5825,7 +5825,8 @@ public class Env {
                 throw new DdlException("Temp partition[" + partName + "] does not exist");
             }
         }
-        olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
+        olapTable.replaceTempPartitions(db.getId(), partitionNames, tempPartitionNames, isStrictRange,
+                useTempPartitionName, true);
         long version;
         long versionTime = System.currentTimeMillis();
         if (Config.isNotCloudMode()) {
@@ -5864,9 +5865,9 @@ public class Env {
                 .getTableOrMetaException(tableId, Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW));
         olapTable.writeLock();
         try {
-            olapTable.replaceTempPartitions(replaceTempPartitionLog.getPartitions(),
+            olapTable.replaceTempPartitions(dbId, replaceTempPartitionLog.getPartitions(),
                     replaceTempPartitionLog.getTempPartitions(), replaceTempPartitionLog.isStrictRange(),
-                    replaceTempPartitionLog.useTempPartitionName());
+                    replaceTempPartitionLog.useTempPartitionName(), replaceTempPartitionLog.isRecycle());
             olapTable.updateVisibleVersionAndTime(replaceTempPartitionLog.getVersion(),
                     replaceTempPartitionLog.getVersionTime());
         } catch (DdlException e) {
