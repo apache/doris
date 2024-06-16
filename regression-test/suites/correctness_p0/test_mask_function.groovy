@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_mask_function") {
+    sql " set enable_fallback_to_original_planner = false; "
     sql """
         drop table if exists table_mask_test;
     """
