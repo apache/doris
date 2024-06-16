@@ -38,7 +38,7 @@ namespace doris::vectorized {
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
     std::regex pattern(
-            R"delimiter((?:'([^']*)'|"([^"]*)"|([^,]*))\s*=\s*(?:'([^']*)'|"([^"]*)"|([^,]*)))delimiter");
+            R"delimiter((?:'([^']*)'|"([^"]*)"|([^, ]*))\s*=\s*(?:'([^']*)'|"([^"]*)"|([^, ]*)))delimiter");
     std::smatch matches;
 
     std::string::const_iterator searchStart(str.cbegin());
