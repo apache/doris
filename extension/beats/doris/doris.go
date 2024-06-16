@@ -57,6 +57,8 @@ func makeDoris(
 		return outputs.Fail(err)
 	}
 
+	reporter := NewProgressReporter(config.LogProgressInterval, logger)
+
 	clients := make([]outputs.NetworkClient, len(config.Hosts))
 	for i, host := range config.Hosts {
 		logger.Info("Making client for host: " + host)
@@ -81,13 +83,14 @@ func makeDoris(
 			Headers:       config.createHeaders(),
 			Codec:         codec,
 			LineDelimiter: config.LineDelimiter,
-			LogRequest:    config.logRequest,
+			LogRequest:    config.LogRequest,
 
 			LabelPrefix: config.LabelPrefix,
 			Database:    config.Database,
 			Table:       config.Table,
 
-			Logger: logger,
+			Reporter: reporter,
+			Logger:   logger,
 		})
 		if err != nil {
 			return outputs.Fail(err)
@@ -102,7 +105,9 @@ func makeDoris(
 	} else {
 		retry = config.MaxRetries
 	}
-	logger.Infof("config.MaxRetries: %v, retry: %v", config.MaxRetries, retry)
+
+	go reporter.Report()
+
 	return outputs.SuccessNet(true, config.BulkMaxSize, retry, clients)
 }
 

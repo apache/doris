@@ -29,14 +29,15 @@ import (
 )
 
 type config struct {
-	Hosts         []string `config:"fenodes" validate:"required"`
-	User          string   `config:"user"`
-	Password      string   `config:"password"`
-	Database      string   `config:"database" validate:"required"`
-	Table         string   `config:"table" validate:"required"`
-	LabelPrefix   string   `config:"label_prefix"`
-	LineDelimiter string   `config:"line_delimiter"`
-	logRequest    bool     `config:"log_request"`
+	Hosts               []string `config:"fenodes" validate:"required"`
+	User                string   `config:"user"`
+	Password            string   `config:"password"`
+	Database            string   `config:"database" validate:"required"`
+	Table               string   `config:"table" validate:"required"`
+	LabelPrefix         string   `config:"label_prefix"`
+	LineDelimiter       string   `config:"line_delimiter"`
+	LogRequest          bool     `config:"log_request"`
+	LogProgressInterval int      `config:"log_progress_interval"`
 
 	Headers map[string]string `config:"headers"`
 
@@ -55,10 +56,11 @@ type backoff struct {
 
 func defaultConfig() config {
 	return config{
-		Password:      "",
-		LabelPrefix:   "doris_beats",
-		LineDelimiter: "\n",
-		logRequest:    true,
+		Password:            "",
+		LabelPrefix:         "doris_beats",
+		LineDelimiter:       "\n",
+		LogRequest:          true,
+		LogProgressInterval: 10,
 
 		BulkMaxSize: 100000,
 		MaxRetries:  3,

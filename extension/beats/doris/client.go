@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/elastic/beats/v7/libbeat/beat"
@@ -34,6 +35,7 @@ import (
 	"github.com/elastic/beats/v7/libbeat/outputs"
 	"github.com/elastic/beats/v7/libbeat/outputs/codec"
 	"github.com/elastic/beats/v7/libbeat/publisher"
+	"github.com/google/uuid"
 )
 
 type client struct {
@@ -50,6 +52,7 @@ type client struct {
 	logRequest    bool
 
 	observer outputs.Observer
+	reporter *ProgressReporter
 	logger   *logp.Logger
 }
 
@@ -67,6 +70,7 @@ type clientSettings struct {
 	Beat     beat.Info
 	Codec    codec.Codec
 	Observer outputs.Observer
+	Reporter *ProgressReporter
 	Logger   *logp.Logger
 }
 
@@ -79,6 +83,69 @@ type ResponseStatus struct {
 }
 
 func (e *ResponseStatus) Error() string { return e.Status }
+
+type ProgressReporter struct {
+	totalBytes int64
+	totalRows  int64
+	failedRows int64
+	interval   time.Duration
+	logger     *logp.Logger
+}
+
+func NewProgressReporter(interval int, logger *logp.Logger) *ProgressReporter {
+	return &ProgressReporter{
+		totalBytes: 0,
+		totalRows:  0,
+		failedRows: 0,
+		interval:   time.Duration(interval) * time.Second,
+		logger:     logger,
+	}
+}
+
+func (reporter *ProgressReporter) IncrTotalBytes(bytes int64) {
+	atomic.AddInt64(&reporter.totalBytes, bytes)
+}
+
+func (reporter *ProgressReporter) IncrTotalRows(rows int64) {
+	atomic.AddInt64(&reporter.totalRows, rows)
+}
+
+func (reporter *ProgressReporter) IncrFailedRows(rows int64) {
+	atomic.AddInt64(&reporter.totalRows, rows)
+}
+
+func (reporter *ProgressReporter) Report() {
+	init_time := time.Now().Unix()
+	last_time := init_time
+	last_bytes := atomic.LoadInt64(&reporter.totalBytes)
+	last_rows := atomic.LoadInt64(&reporter.totalRows)
+
+	reporter.logger.Infof("start progress reporter with interval %v", reporter.interval)
+	for reporter.interval > 0 {
+		time.Sleep(reporter.interval)
+
+		cur_time := time.Now().Unix()
+		cur_bytes := atomic.LoadInt64(&reporter.totalBytes)
+		cur_rows := atomic.LoadInt64(&reporter.totalRows)
+		total_time := cur_time - init_time
+		total_speed_mbps := cur_bytes / 1024 / 1024 / total_time
+		total_speed_rps := cur_rows / total_time
+
+		inc_bytes := cur_bytes - last_bytes
+		inc_rows := cur_rows - last_rows
+		inc_time := cur_time - last_time
+		inc_speed_mbps := inc_bytes / 1024 / 1024 / inc_time
+		inc_speed_rps := inc_rows / inc_time
+
+		reporter.logger.Infof("total %v MB %v ROWS, total speed %v MB/s %v R/s, last %v seconds speed %v MB/s %v R/s",
+			cur_bytes/1024/1024, cur_rows, total_speed_mbps, total_speed_rps,
+			inc_time, inc_speed_mbps, inc_speed_rps)
+
+		last_time = cur_time
+		last_bytes = cur_bytes
+		last_rows = cur_rows
+	}
+}
 
 func NewDorisClient(s clientSettings) (*client, error) {
 	s.Logger.Infof("Received settings: %s", s)
@@ -98,6 +165,7 @@ func NewDorisClient(s clientSettings) (*client, error) {
 
 		codec:    s.Codec,
 		observer: s.Observer,
+		reporter: s.Reporter,
 		logger:   s.Logger,
 	}
 	return client, nil
@@ -120,7 +188,7 @@ func (client *client) Publish(_ context.Context, batch publisher.Batch) error {
 	length := len(events)
 	client.logger.Debugf("Received events: %d", length)
 
-	label := fmt.Sprintf("%s_%s_%s_%d", client.labelPrefix, client.database, client.table, time.Now().UnixMilli())
+	label := fmt.Sprintf("%s_%s_%s_%d_%s", client.labelPrefix, client.database, client.table, time.Now().UnixMilli(), uuid.New())
 	rest, err := client.publishEvents(label, events)
 
 	if len(rest) == 0 {
@@ -154,6 +222,7 @@ func (client *client) publishEvents(lable string, events []publisher.Event) ([]p
 			client.logger.Debugf("Failed event: %v", event)
 
 			dropped++
+			client.reporter.IncrFailedRows(1)
 			continue
 		}
 
@@ -215,5 +284,9 @@ func (client *client) publishEvents(lable string, events []publisher.Event) ([]p
 
 	client.observer.Dropped(dropped)
 	client.observer.Acked(len(events) - dropped)
+
+	client.reporter.IncrTotalBytes(int64(stringBuilder.Len()))
+	client.reporter.IncrTotalRows(int64(len(events) - dropped))
+
 	return nil, nil
 }
