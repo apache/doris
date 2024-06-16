@@ -53,6 +53,8 @@ public class ReplacePartitionOperationLog implements Writable {
     private long version = 0L;
     @SerializedName(value = "versionTime")
     private long versionTime = 0L;
+    @SerializedName(value = "recycle")
+    private boolean recycle = false;
 
     public ReplacePartitionOperationLog(long dbId, String dbName, long tblId, String tblName,
                                         List<String> partitionNames,
@@ -68,6 +70,7 @@ public class ReplacePartitionOperationLog implements Writable {
         this.useTempPartitionName = useTempPartitionName;
         this.version = version;
         this.versionTime = versionTime;
+        this.recycle = true; // set to true in constructor
     }
 
     public long getDbId() {
@@ -100,6 +103,10 @@ public class ReplacePartitionOperationLog implements Writable {
 
     public long getVersionTime() {
         return versionTime;
+    }
+
+    public boolean isRecycle() {
+        return recycle;
     }
 
     public static ReplacePartitionOperationLog read(DataInput in) throws IOException {
