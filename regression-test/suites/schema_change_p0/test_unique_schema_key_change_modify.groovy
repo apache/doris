@@ -1926,7 +1926,7 @@ suite("test_unique_schema_key_change_modify","p0") {
              "               (789012345, 'Grace', 0, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-01-01', '2022-07-07 22:00:00');"
 
      //TODO Test the unique model by modify a key type from DATETIME to BOOLEAN
-     errorMessage="errCode = 2, detailMessage = Number out of range[13812345678]. type: TINYINT"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to BOOLEAN"
      expectException({
           sql initTable
           sql initTableData
@@ -1939,7 +1939,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      },errorMessage)
 
      //TODO Test the unique model by modify a key type from DATETIME to TINYINT
-     errorMessage="errCode = 2, detailMessage = Number out of range[13812345678]. type: TINYINT"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to TINYINT"
      expectException({
           sql initTable
           sql initTableData
@@ -1952,7 +1952,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      },errorMessage)
 
      //TODO Test the unique model by modify a key type from DATETIME to SMALLINT
-     errorMessage="errCode = 2, detailMessage = Number out of range[13812345678]. type: TINYINT"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to SMALLINT"
      expectException({
           sql initTable
           sql initTableData
@@ -1966,7 +1966,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from DATETIME to INT
-     errorMessage="errCode = 2, detailMessage = Number out of range[13812345678]. type: TINYINT"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to INT"
      expectException({
           sql initTable
           sql initTableData
@@ -1981,7 +1981,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from DATETIME to BIGINT
-     errorMessage="errCode = 2, detailMessage = Number out of range[13812345678]. type: TINYINT"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to BIGINT"
      expectException({
           sql initTable
           sql initTableData
@@ -1996,7 +1996,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from DATETIME to FLOAT
-     errorMessage="errCode = 2, detailMessage = Number out of range[13812345678]. type: TINYINT"
+     errorMessage="errCode = 2, detailMessage = Float or double can not used as a key, use decimal instead."
      expectException({
           sql initTable
           sql initTableData
@@ -2011,7 +2011,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from DATETIME to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Number out of range[13812345678]. type: TINYINT"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL32"
      expectException({
           sql initTable
           sql initTableData
@@ -2025,7 +2025,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from DATETIME to CHAR
-     errorMessage="errCode = 2, detailMessage = Number out of range[13812345678]. type: TINYINT"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to CHAR"
      expectException({
           sql initTable
           sql initTableData
@@ -2039,7 +2039,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      },errorMessage)
 
      //TODO Test the unique model by modify a key type from DATETIME to STRING
-     errorMessage="errCode = 2, detailMessage = Number out of range[13812345678]. type: TINYINT"
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]."
      expectException({
           sql initTable
           sql initTableData
@@ -2053,7 +2053,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from DATETIME to VARCHAR
-     errorMessage="errCode = 2, detailMessage = Number out of range[13812345678]. type: TINYINT"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to VARCHAR"
      expectException({
           sql initTable
           sql initTableData

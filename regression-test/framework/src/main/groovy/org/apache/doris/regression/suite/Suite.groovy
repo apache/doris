@@ -648,6 +648,12 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    String getRandomBoolean() {
+        Random random = new Random()
+        boolean randomBoolean = random.nextBoolean()
+        return randomBoolean ? "true" : "false"
+    }
+
     void expectExceptionLike(Closure userFunction, String errorMessage = null) {
         try {
             userFunction()
