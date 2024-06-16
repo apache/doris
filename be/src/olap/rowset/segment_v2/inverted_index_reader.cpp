@@ -323,7 +323,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             query_info.terms.emplace_back(search_str);
         } else {
             if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-                RETURN_IF_ERROR(PhraseQuery::parser_slop(search_str, query_info));
+                PhraseQuery::parser_slop(search_str, query_info);
             }
 
             InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
@@ -364,6 +364,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             std::string str_tokens = join(query_info.terms, " ");
             if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
                 str_tokens += " " + std::to_string(query_info.slop);
+                str_tokens += " " + std::to_string(query_info.ordered);
             }
             cache_key = {index_file_key, column_name, query_type, str_tokens};
         }
