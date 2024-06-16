@@ -67,7 +67,6 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -1773,22 +1772,16 @@ public class RestoreJob extends AbstractJob {
             }
             try {
                 Map<Long, Long> map = restoredVersionInfo.rowMap().get(tblId);
-                List<Partition> partitions = map.keySet().stream().map(partId -> olapTbl.getPartition(partId))
-                        .filter(partition -> partition != null)
-                        .collect(Collectors.toList());
-                List<Long> visibleVersions = null;
-                try {
-                    visibleVersions = Partition.getVisibleVersions(partitions);
-                } catch (RpcException e) {
-                    return new Status(ErrCode.COMMON_ERROR, "get partition visible version failed: " + e.getMessage());
-                }
-                for (int i = 0; i < partitions.size(); i++) {
-                    Partition part = partitions.get(i);
-                    long visibleVersion = visibleVersions.get(i);
-                    long partId = part.getId();
+                for (Map.Entry<Long, Long> entry : map.entrySet()) {
+                    long partId = entry.getKey();
+                    Partition part = olapTbl.getPartition(partId);
+                    if (part == null) {
+                        continue;
+                    }
 
                     // update partition visible version
-                    part.updateVersionForRestore(map.get(partId));
+                    part.updateVersionForRestore(entry.getValue());
+                    long visibleVersion = part.getVisibleVersion();
 
                     // we also need to update the replica version of these overwritten restored partitions
                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -1803,7 +1796,7 @@ public class RestoreJob extends AbstractJob {
 
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("restore set partition {} version in table {}, version: {}",
-                                partId, tblId, map.get(partId));
+                                partId, tblId, entry.getValue());
                     }
                 }
             } finally {
