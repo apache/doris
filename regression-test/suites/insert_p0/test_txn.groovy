@@ -35,7 +35,7 @@ suite("test_txn") {
                 );
     """
     sql "begin"
-    sql "insert into {$tableName} values(1,1,5,'{"b":"b"}'),(1,1,4,'{"b":"b"}'),(1,1,3,'{"b":"b"}')"
+    sql "insert into ${tableName} values(1,1,5,'{"b":"b"}'),(1,1,4,'{"b":"b"}'),(1,1,3,'{"b":"b"}')"
     sql "commit"
 
     qt_select1 "SELECT * from ${tableName}"

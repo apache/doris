@@ -34,7 +34,7 @@ suite("test_sequence_column") {
                 "replication_num" = "1"
                 );
     """
-    sql "insert into {$tableName} values(1,1,5,'a'),(1,1,4,'a'),(1,1,3,'a')"
+    sql "insert into ${tableName} values(1,1,5,'a'),(1,1,4,'a'),(1,1,3,'a')"
 
     qt_select1 "SELECT * from ${tableName}"
 
@@ -56,7 +56,7 @@ suite("test_sequence_column") {
                 "store_row_column" = "true
                 );
     """
-    sql "insert into {$tableName} values(1,1,5,'a'),(1,1,4,'a'),(1,1,3,'a')"
+    sql "insert into ${tableName} values(1,1,5,'a'),(1,1,4,'a'),(1,1,3,'a')"
 
     order_qt_all "SELECT * from ${tableName}"
 
@@ -79,7 +79,7 @@ suite("test_sequence_column") {
                 "store_row_column" = "true
                 );
     """
-    sql "insert into {$tableName} values(1,1,5,'a','{"a":"a"}'),(1,1,4,'a','{"a":"a"}'),(1,1,3,'a','{"a":"a"}')"
+    sql "insert into ${tableName} values(1,1,5,'a','{"a":"a"}'),(1,1,4,'a','{"a":"a"}'),(1,1,3,'a','{"a":"a"}')"
 
     order_qt_all "SELECT * from ${tableName}"
 

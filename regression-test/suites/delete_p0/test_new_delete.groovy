@@ -33,8 +33,8 @@ suite("test_new_delete") {
                 "replication_num" = "1"
                 );
     """
-    sql "insert into {$tableName} values(1,1,5,'a'),(1,1,4,'a'),(1,1,3,'a')"
-    sql "delete from {$tableName} where user_id=1"
+    sql "insert into ${tableName} values(1,1,5,'a'),(1,1,4,'a'),(1,1,3,'a')"
+    sql "delete from ${tableName} where user_id=1"
 
     qt_select1 "SELECT * from ${tableName}"
 
@@ -54,8 +54,8 @@ suite("test_new_delete") {
                 "store_row_column" = "true
                 );
     """
-    sql "insert into {$tableName} values(1,1,5,'a'),(1,1,4,'a'),(1,1,3,'a')"
-    sql "delete from {$tableName} where user_id=1"
+    sql "insert into ${tableName} values(1,1,5,'a'),(1,1,4,'a'),(1,1,3,'a')"
+    sql "delete from ${tableName} where user_id=1"
 
     qt_select2 "SELECT * from ${tableName}"
 }
