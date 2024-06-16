@@ -89,8 +89,8 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
     IndexSearcher s(reader);
     std::unique_ptr<lucene::search::Query> query;
 
-    std::wstring field_ws(field.begin(), field.end());
-    std::wstring token_ws(token.begin(), token.end());
+    auto field_ws = StringUtil::string_to_wstring(field);
+    auto token_ws = StringUtil::string_to_wstring(token);
     lucene::index::Term* term = _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str());
     if (pred == "eq" || pred == "match") {
         query.reset(new lucene::search::TermQuery(term));

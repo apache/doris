@@ -83,7 +83,7 @@ public:
         _parser_type = get_inverted_index_parser_type_from_string(
                 get_parser_string_from_properties(_index_meta->properties()));
         _value_key_coder = get_key_coder(field_type);
-        _field_name = std::wstring(field_name.begin(), field_name.end());
+        _field_name = StringUtil::string_to_wstring(field_name);
     }
 
     ~InvertedIndexColumnWriterImpl() override {
