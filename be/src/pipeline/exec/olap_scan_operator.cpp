@@ -152,7 +152,7 @@ Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
     SCOPED_TIMER(_process_conjunct_timer);
     auto& p = _parent->cast<OlapScanOperatorX>();
     if (p._olap_scan_node.__isset.second_key && !p._olap_scan_node.second_key.empty()) {
-        for (const auto& key: p._olap_scan_node.second_key) {
+        for (const auto& key : p._olap_scan_node.second_key) {
             _second_key.emplace(key);
         }
     }
