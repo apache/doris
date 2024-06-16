@@ -73,7 +73,7 @@ public class Group {
 
     private PhysicalProperties chosenProperties;
 
-    private List<Integer> chosenGroupExpressionId = new ArrayList<>();
+    private int chosenGroupExpressionId = -1;
 
     private StructInfoMap structInfoMap = new StructInfoMap();
 
@@ -213,16 +213,11 @@ public class Group {
      * @return {@link Optional} of cost and {@link GroupExpression} of physical plan pair.
      */
     public Optional<Pair<Cost, GroupExpression>> getLowestCostPlan(PhysicalProperties physicalProperties) {
-        chosenProperties = physicalProperties;
         if (physicalProperties == null || lowestCostPlans.isEmpty()) {
-            chosenGroupExpressionId.clear();
             return Optional.empty();
         }
         Optional<Pair<Cost, GroupExpression>> costAndGroupExpression =
                 Optional.ofNullable(lowestCostPlans.get(physicalProperties));
-        if (costAndGroupExpression.isPresent()) {
-            chosenGroupExpressionId.add(costAndGroupExpression.get().second.getId().asInt());
-        }
         return costAndGroupExpression;
     }
 
@@ -463,7 +458,7 @@ public class Group {
         for (GroupExpression enforcer : enforcers) {
             str.append("    ").append(enforcer).append("\n");
         }
-        if (!chosenGroupExpressionId.isEmpty()) {
+        if (chosenGroupExpressionId != -1) {
             str.append("  chosen expression id: ").append(chosenGroupExpressionId).append("\n");
             str.append("  chosen properties: ").append(chosenProperties).append("\n");
         }
@@ -471,19 +466,15 @@ public class Group {
         str.append(getStatistics() == null ? "" : getStatistics().detail("    "));
 
         str.append("  lowest Plan(cost, properties, plan, childrenRequires)");
-        getAllProperties().forEach(
-                prop -> {
-                    Optional<Pair<Cost, GroupExpression>> costAndGroupExpression = getLowestCostPlan(prop);
-                    if (costAndGroupExpression.isPresent()) {
-                        Cost cost = costAndGroupExpression.get().first;
-                        GroupExpression child = costAndGroupExpression.get().second;
-                        str.append("\n\n    ").append(cost.getValue()).append(" ").append(prop)
-                                .append("\n     ").append(child).append("\n     ")
-                                .append(child.getInputPropertiesListOrEmpty(prop));
-                    }
-                }
-        );
-
+        for (Map.Entry<PhysicalProperties, Pair<Cost, GroupExpression>> entry : lowestCostPlans.entrySet()) {
+            PhysicalProperties prop = entry.getKey();
+            Pair<Cost, GroupExpression> costGroupExpressionPair = entry.getValue();
+            Cost cost = costGroupExpressionPair.first;
+            GroupExpression child = costGroupExpressionPair.second;
+            str.append("\n\n    ").append(cost.getValue()).append(" ").append(prop)
+                .append("\n     ").append(child).append("\n     ")
+                .append(child.getInputPropertiesListOrEmpty(prop));
+        }
         str.append("\n").append("  struct info map").append("\n");
         str.append(structInfoMap);
 
@@ -558,5 +549,21 @@ public class Group {
         };
 
         return TreeStringUtils.treeString(this, toString, getChildren, getExtraPlans, displayExtraPlan);
+    }
+
+    public PhysicalProperties getChosenProperties() {
+        return chosenProperties;
+    }
+
+    public void setChosenProperties(PhysicalProperties chosenProperties) {
+        this.chosenProperties = chosenProperties;
+    }
+
+    public int getChosenGroupExpressionId() {
+        return chosenGroupExpressionId;
+    }
+
+    public void setChosenGroupExpressionId(int chosenGroupExpressionId) {
+        this.chosenGroupExpressionId = chosenGroupExpressionId;
     }
 }
