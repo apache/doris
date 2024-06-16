@@ -22,7 +22,8 @@
 #include "vec/core/types.h"
 #include "vec/exec/format/table/iceberg/partition_spec.h"
 
-namespace doris::vectorized {
+namespace doris {
+namespace vectorized {
 
 const std::chrono::time_point<std::chrono::system_clock> PartitionColumnTransformUtils::EPOCH =
         std::chrono::system_clock::from_time_t(0);
