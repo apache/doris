@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -36,7 +37,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
@@ -65,6 +65,7 @@ public class EsTable extends Table {
     // Here we have a slightly conservative value of 20, but at the same time
     // we also provide configurable parameters for expert-using
     // @see `MAX_DOCVALUE_FIELDS`
+    @Getter
     private static final int DEFAULT_MAX_DOCVALUE_FIELDS = 20;
     private String hosts;
     private String[] seeds;
@@ -77,6 +78,7 @@ public class EsTable extends Table {
     private String mappingType = null;
     // only save the partition definition, save the partition key,
     // partition list is got from es cluster dynamically and is saved in esTableState
+    @SerializedName("pi")
     private PartitionInfo partitionInfo;
     private EsTablePartitions esTablePartitions;
 
@@ -101,6 +103,7 @@ public class EsTable extends Table {
     private boolean includeHiddenIndex = Boolean.parseBoolean(EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE);
 
     // tableContext is used for being convenient to persist some configuration parameters uniformly
+    @SerializedName("tc")
     private Map<String, String> tableContext = new HashMap<>();
 
     // record the latest and recently exception when sync ES table metadata (mapping, shard location)
@@ -261,18 +264,7 @@ public class EsTable extends Table {
         return md5;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeInt(tableContext.size());
-        for (Map.Entry<String, String> entry : tableContext.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
-        Text.writeString(out, partitionInfo.getType().name());
-        partitionInfo.write(out);
-    }
-
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

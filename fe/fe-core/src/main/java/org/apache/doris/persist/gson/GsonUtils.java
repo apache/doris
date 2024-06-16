@@ -80,8 +80,10 @@ import org.apache.doris.catalog.InlineView;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.ListPartitionInfo;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MultiRowType;
 import org.apache.doris.catalog.MysqlDBTable;
 import org.apache.doris.catalog.MysqlTable;
@@ -90,9 +92,11 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
@@ -103,6 +107,7 @@ import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TempPartitions;
 import org.apache.doris.catalog.TemplateType;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.View;
@@ -114,6 +119,8 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.load.CloudBrokerLoadJob;
+import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.util.RangeUtils;
@@ -124,6 +131,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.es.EsExternalTable;
+import org.apache.doris.datasource.es.EsRestClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -168,9 +176,15 @@ import org.apache.doris.fs.remote.dfs.JFSFileSystem;
 import org.apache.doris.fs.remote.dfs.OFSFileSystem;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
+import org.apache.doris.load.loadv2.BrokerLoadJob;
+import org.apache.doris.load.loadv2.BulkLoadJob;
+import org.apache.doris.load.loadv2.InsertLoadJob;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
+import org.apache.doris.load.loadv2.MiniLoadJob;
 import org.apache.doris.load.loadv2.MiniLoadTxnCommitAttachment;
+import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.KafkaProgress;
@@ -215,6 +229,7 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
 import com.google.gson.ReflectionAccessFilter;
+import com.google.gson.ToNumberPolicy;
 import com.google.gson.TypeAdapter;
 import com.google.gson.TypeAdapterFactory;
 import com.google.gson.annotations.SerializedName;
@@ -223,6 +238,8 @@ import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import org.apache.commons.lang3.reflect.TypeUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
@@ -252,6 +269,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * See the following "GuavaTableAdapter" and "GuavaMultimapAdapter" for example.
  */
 public class GsonUtils {
+    private static final Logger LOG = LogManager.getLogger(GsonUtils.class);
 
     // runtime adapter for class "Type"
     private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory
@@ -569,6 +587,21 @@ public class GsonUtils {
                     .registerSubtype(NumericLiteralExpr.class, NumericLiteralExpr.class.getSimpleName())
                     .registerSubtype(PlaceHolderExpr.class, PlaceHolderExpr.class.getSimpleName());
 
+    private static RuntimeTypeAdapterFactory<LoadJob> loadJobTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(LoadJob.class, "clazz")
+            .registerSubtype(BrokerLoadJob.class, BrokerLoadJob.class.getSimpleName())
+            .registerSubtype(BulkLoadJob.class, BulkLoadJob.class.getSimpleName())
+            .registerSubtype(CloudBrokerLoadJob.class, CloudBrokerLoadJob.class.getSimpleName())
+            .registerSubtype(CopyJob.class, CopyJob.class.getSimpleName())
+            .registerSubtype(InsertLoadJob.class, InsertLoadJob.class.getSimpleName())
+            .registerSubtype(MiniLoadJob.class, MiniLoadJob.class.getSimpleName())
+            .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<PartitionItem> partitionItemTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(PartitionItem.class, "clazz")
+            .registerSubtype(ListPartitionItem.class, ListPartitionItem.class.getSimpleName())
+            .registerSubtype(RangePartitionItem.class, RangePartitionItem.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
@@ -603,8 +636,12 @@ public class GsonUtils {
             .registerTypeAdapterFactory(jobBackupTypeAdapterFactory)
             .registerTypeAdapterFactory(tableTypeAdapterFactory)
             .registerTypeAdapterFactory(literalExprAdapterFactory)
+            .registerTypeAdapterFactory(loadJobTypeAdapterFactory)
+            .registerTypeAdapterFactory(partitionItemTypeAdapterFactory)
+            .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
+            .registerTypeAdapter(org.apache.doris.catalog.Table.class, new TableAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
             .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer()).setExclusionStrategies(
                     new ExclusionStrategy() {
@@ -877,6 +914,114 @@ public class GsonUtils {
             JsonObject jsonObject = new JsonObject();
             jsonObject.addProperty("boolean", atomicBoolean.get());
             return jsonObject;
+        }
+    }
+
+    private static final class TableAdapter
+            implements JsonDeserializer<org.apache.doris.catalog.Table> {
+
+        @Override
+        public org.apache.doris.catalog.Table deserialize(JsonElement jsonElement, Type type,
+                                         JsonDeserializationContext jsonDeserializationContext)
+                throws JsonParseException {
+            JsonObject jsonObject = jsonElement.getAsJsonObject();
+            TableIf.TableType tableType = TableIf.TableType.valueOf(jsonObject.get("type").getAsString());
+            switch (tableType) {
+                case OLAP:
+                    OlapTable olapTb = jsonDeserializationContext.deserialize(jsonElement, OlapTable.class);
+                    if (olapTb.getIndexNameToId() != null) {
+                        olapTb.getIndexNameToId().forEach((name, id) -> {
+                            MaterializedIndexMeta meta = olapTb.getIndexIdToMeta().get(id);
+                            if (meta.getIndexId() != id) {
+                                LOG.warn("HACK: the index id {} in materialized index meta of {} is not equals"
+                                        + " to the index saved in table {} ({}), reset it to {}",
+                                        meta.getIndexId(), name, olapTb.getName(), olapTb.getId(), id);
+                                meta.resetIndexIdForRestore(id);
+                            }
+                        });
+                    }
+                    if (olapTb.getIdToPartition() != null) {
+                        olapTb.getIdToPartition().forEach((id, part) ->
+                                olapTb.getNameToPartition().put(part.getName(), part));
+                        if (olapTb.getAutoIncrementGenerator() != null) {
+                            olapTb.getAutoIncrementGenerator().setEditLog(Env.getCurrentEnv().getEditLog());
+                        }
+                    }
+                    if (olapTb.getDefaultDistributionInfo() != null && olapTb.isAutoBucket()) {
+                        olapTb.getDefaultDistributionInfo().markAutoBucket();
+                    }
+                    TempPartitions tempPartitions = olapTb.getTempPartitions();
+                    if (tempPartitions != null) {
+                        RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
+                        if (tempRangeInfo != null) {
+                            tempRangeInfo.getIdToItem(false).keySet().forEach(id -> {
+                                olapTb.getPartitionInfo().addPartition(id, true,
+                                        tempRangeInfo.getItem(id), tempRangeInfo.getDataProperty(id),
+                                        tempRangeInfo.getReplicaAllocation(id), tempRangeInfo.getIsInMemory(id),
+                                        tempRangeInfo.getIsMutable(id));
+                            });
+                        }
+                        tempPartitions.unsetPartitionInfo();
+                    }
+                    olapTb.rebuildFullSchema();
+                    return olapTb;
+                case MATERIALIZED_VIEW:
+                    return jsonDeserializationContext.deserialize(jsonElement, MTMV.class);
+                case ODBC:
+                    return jsonDeserializationContext.deserialize(jsonElement, OdbcTable.class);
+                case MYSQL:
+                    return jsonDeserializationContext.deserialize(jsonElement, MysqlTable.class);
+                case VIEW:
+                    return jsonDeserializationContext.deserialize(jsonElement, View.class);
+                case BROKER:
+                    return jsonDeserializationContext.deserialize(jsonElement, BrokerTable.class);
+                case ELASTICSEARCH:
+                    EsTable esTb = jsonDeserializationContext.deserialize(jsonElement, EsTable.class);
+                    esTb.setHosts(esTb.getTableContext().get("hosts"));
+                    esTb.setSeeds(esTb.getHosts().split(","));
+                    esTb.setUserName(esTb.getTableContext().get("userName"));
+                    esTb.setPasswd(esTb.getTableContext().get("passwd"));
+                    esTb.setIndexName(esTb.getTableContext().get("indexName"));
+                    esTb.setMappingType(esTb.getTableContext().get("mappingType"));
+                    esTb.setEnableDocValueScan(Boolean.parseBoolean(
+                            esTb.getTableContext().getOrDefault("enableDocValueScan",
+                                    EsResource.DOC_VALUE_SCAN_DEFAULT_VALUE)));
+                    esTb.setEnableKeywordSniff(Boolean.parseBoolean(
+                            esTb.getTableContext().getOrDefault("enableKeywordSniff",
+                                    EsResource.KEYWORD_SNIFF_DEFAULT_VALUE)));
+                    if (esTb.getTableContext().containsKey("maxDocValueFields")) {
+                        try {
+                            esTb.setMaxDocValueFields(Integer.parseInt(esTb.getTableContext()
+                                    .get("maxDocValueFields")));
+                        } catch (Exception e) {
+                            esTb.setMaxDocValueFields(EsTable.getDEFAULT_MAX_DOCVALUE_FIELDS());
+                        }
+                    }
+                    esTb.setNodesDiscovery(Boolean.parseBoolean(
+                            esTb.getTableContext().getOrDefault(EsResource.NODES_DISCOVERY,
+                                    EsResource.NODES_DISCOVERY_DEFAULT_VALUE)));
+                    esTb.setHttpSslEnabled(Boolean.parseBoolean(
+                            esTb.getTableContext().getOrDefault(EsResource.HTTP_SSL_ENABLED,
+                                    EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE)));
+                    esTb.setLikePushDown(Boolean.parseBoolean(
+                            esTb.getTableContext().getOrDefault(EsResource.LIKE_PUSH_DOWN,
+                                    EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE)));
+                    esTb.setIncludeHiddenIndex(Boolean.parseBoolean(
+                            esTb.getTableContext().getOrDefault(EsResource.INCLUDE_HIDDEN_INDEX,
+                                    EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE)));
+                    esTb.setClient(new EsRestClient(
+                            esTb.getSeeds(),
+                            esTb.getUserName(),
+                            esTb.getPasswd(),
+                            esTb.isHttpSslEnabled()));
+                    return esTb;
+                case HIVE:
+                    return jsonDeserializationContext.deserialize(jsonElement, HiveTable.class);
+                case JDBC:
+                    return jsonDeserializationContext.deserialize(jsonElement, JdbcTable.class);
+                default:
+                    return jsonDeserializationContext.deserialize(jsonElement, org.apache.doris.catalog.Table.class);
+            }
         }
     }
 

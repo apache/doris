@@ -3268,7 +3268,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             // if table currently has no partitions, this sql like empty command and do nothing, should return directly.
             // but if truncate whole table, the temporary partitions also need drop
-            if (origPartitions.isEmpty() && (!truncateEntireTable || olapTable.getTempPartitions().isEmpty())) {
+            if (origPartitions.isEmpty() && (!truncateEntireTable || olapTable.getAllTempPartitions().isEmpty())) {
                 LOG.info("finished to truncate table {}, no partition contains data, do nothing",
                         tblRef.getName().toSql());
                 return;
@@ -3445,7 +3445,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         if (isEntireTable) {
             Set<Long> oldPartitionsIds = oldPartitions.stream().map(Partition::getId).collect(Collectors.toSet());
-            for (Partition partition : olapTable.getTempPartitions()) {
+            for (Partition partition : olapTable.getAllTempPartitions()) {
                 if (!oldPartitionsIds.contains(partition.getId())) {
                     oldPartitions.add(partition);
                 }

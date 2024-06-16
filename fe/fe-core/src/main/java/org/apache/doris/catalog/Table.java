@@ -41,6 +41,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
@@ -84,7 +85,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @SerializedName(value = "createTime")
     protected long createTime;
     protected QueryableReentrantReadWriteLock rwLock;
-    // Used for queuing commit transaction tasks to avoid fdb transaction conflicts,
+    // Used for queuing commit transactifon tasks to avoid fdb transaction conflicts,
     // especially to reduce conflicts when obtaining delete bitmap update locks for
     // MoW table
     protected ReentrantLock commitLock;
@@ -441,59 +442,61 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public static Table read(DataInput in) throws IOException {
-        Table table = null;
-        TableType type = TableType.valueOf(Text.readString(in));
-        if (type == TableType.OLAP) {
-            table = new OlapTable();
-        } else if (type == TableType.MATERIALIZED_VIEW) {
-            table = new MTMV();
-        } else if (type == TableType.ODBC) {
-            table = new OdbcTable();
-        } else if (type == TableType.MYSQL) {
-            table = new MysqlTable();
-        } else if (type == TableType.VIEW) {
-            table = new View();
-        } else if (type == TableType.BROKER) {
-            table = new BrokerTable();
-        } else if (type == TableType.ELASTICSEARCH) {
-            table = new EsTable();
-        } else if (type == TableType.HIVE) {
-            table = new HiveTable();
-        } else if (type == TableType.JDBC) {
-            table = new JdbcTable();
-        } else {
-            throw new IOException("Unknown table type: " + type.name());
-        }
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            Table table = null;
+            TableType type = TableType.valueOf(Text.readString(in));
+            if (type == TableType.OLAP) {
+                table = new OlapTable();
+            } else if (type == TableType.MATERIALIZED_VIEW) {
+                table = new MTMV();
+            } else if (type == TableType.ODBC) {
+                table = new OdbcTable();
+            } else if (type == TableType.MYSQL) {
+                table = new MysqlTable();
+            } else if (type == TableType.VIEW) {
+                table = new View();
+            } else if (type == TableType.BROKER) {
+                table = new BrokerTable();
+            } else if (type == TableType.ELASTICSEARCH) {
+                table = new EsTable();
+            } else if (type == TableType.HIVE) {
+                table = new HiveTable();
+            } else if (type == TableType.JDBC) {
+                table = new JdbcTable();
+            } else {
+                throw new IOException("Unknown table type: " + type.name());
+            }
 
-        table.setTypeRead(true);
-        table.readFields(in);
-        return table;
+            table.setTypeRead(true);
+            table.readFields(in);
+            return table;
+        } else {
+            String json = Text.readString(in);
+            JsonObject jsonObject = GsonUtils.GSON.fromJson(json, JsonObject.class);
+            TableType type = TableType.valueOf(jsonObject.get("type").getAsString());
+            switch (type) {
+                case OLAP:
+                case MATERIALIZED_VIEW:
+                case ODBC:
+                case MYSQL:
+                case VIEW:
+                case BROKER:
+                case ELASTICSEARCH:
+                case HIVE:
+                case JDBC:
+                    return GsonUtils.GSON.fromJson(json, Table.class);
+                default:
+                    throw new IOException("Unknown table type: " + type.name());
+            }
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // ATTN: must write type first
-        Text.writeString(out, type.name());
-
-        // write last check time
-        super.write(out);
-
-        out.writeLong(id);
-        Text.writeString(out, name);
-
-        // base schema
-        int columnCount = fullSchema.size();
-        out.writeInt(columnCount);
-        for (Column column : fullSchema) {
-            column.write(out);
-        }
-        Text.writeString(out, comment);
-        // write table attributes
-        Text.writeString(out, GsonUtils.GSON.toJson(tableAttributes));
-        // write create time
-        out.writeLong(createTime);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         if (!isTypeRead) {
             type = TableType.valueOf(Text.readString(in));

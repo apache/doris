@@ -20,8 +20,10 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TJdbcTable;
 import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -31,6 +33,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.collections.map.CaseInsensitiveMap;
@@ -38,7 +41,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
@@ -65,23 +67,36 @@ public class JdbcTable extends Table {
     private static final String DRIVER_URL = "driver_url";
     private static final String CHECK_SUM = "checksum";
     private static Map<String, TOdbcTableType> TABLE_TYPE_MAP;
+    @SerializedName("rn")
     private String resourceName;
+    @SerializedName("etn")
     private String externalTableName;
 
     // real name only for jdbc catalog
+    @SerializedName("rdn")
     private String remoteDatabaseName;
+    @SerializedName("rtn")
     private String remoteTableName;
+    @SerializedName("rcn")
     private Map<String, String> remoteColumnNames;
 
+    @SerializedName("jtn")
     private String jdbcTypeName;
 
+    @SerializedName("jurl")
     private String jdbcUrl;
+    @SerializedName("jusr")
     private String jdbcUser;
+    @SerializedName("jpwd")
     private String jdbcPasswd;
+    @SerializedName("dc")
     private String driverClass;
+    @SerializedName("du")
     private String driverUrl;
+    @SerializedName("cs")
     private String checkSum;
 
+    @SerializedName("cid")
     private long catalogId = -1;
 
     private int connectionPoolMinSize;
@@ -235,37 +250,7 @@ public class JdbcTable extends Table {
         return tTableDescriptor;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Map<String, String> serializeMap = Maps.newHashMap();
-        serializeMap.put(CATALOG_ID, String.valueOf(catalogId));
-        serializeMap.put(TABLE, externalTableName);
-        serializeMap.put(RESOURCE, resourceName);
-        serializeMap.put(TABLE_TYPE, jdbcTypeName);
-        serializeMap.put(URL, jdbcUrl);
-        serializeMap.put(USER, jdbcUser);
-        serializeMap.put(PASSWORD, jdbcPasswd);
-        serializeMap.put(DRIVER_CLASS, driverClass);
-        serializeMap.put(DRIVER_URL, driverUrl);
-        serializeMap.put(CHECK_SUM, checkSum);
-        serializeMap.put(REMOTE_DATABASE, remoteDatabaseName);
-        serializeMap.put(REMOTE_TABLE, remoteTableName);
-        serializeMap.put(REMOTE_COLUMNS, objectMapper.writeValueAsString(remoteColumnNames));
-
-        int size = (int) serializeMap.values().stream().filter(v -> {
-            return v != null;
-        }).count();
-        out.writeInt(size);
-
-        for (Map.Entry<String, String> kv : serializeMap.entrySet()) {
-            if (kv.getValue() != null) {
-                Text.writeString(out, kv.getKey());
-                Text.writeString(out, kv.getValue());
-            }
-        }
-    }
-
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -362,12 +347,21 @@ public class JdbcTable extends Table {
 
     @Override
     public JdbcTable clone() {
-        JdbcTable copied = new JdbcTable();
-        if (!DeepCopy.copy(this, copied, JdbcTable.class, FeConstants.meta_version)) {
+        JdbcTable copied = DeepCopy.copy(this, JdbcTable.class, FeConstants.meta_version);
+        if (copied == null) {
             LOG.warn("failed to copy jdbc table: " + getName());
             return null;
         }
         return copied;
+    }
+
+    public static JdbcTable read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            JdbcTable t = new JdbcTable();
+            t.readFields(in);
+            return t;
+        }
+        return (JdbcTable) GsonUtils.GSON.fromJson(Text.readString(in), Table.class);
     }
 
     private void validate(Map<String, String> properties) throws DdlException {

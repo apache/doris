@@ -281,7 +281,7 @@ public class MetadataViewer {
             for (Partition p : olapTable.getPartitions()) {
                 allPartionNames.put(p.getName(), false);
             }
-            for (Partition p : olapTable.getTempPartitions()) {
+            for (Partition p : olapTable.getAllTempPartitions()) {
                 allPartionNames.put(p.getName(), true);
             }
         } else {
