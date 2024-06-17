@@ -100,6 +100,9 @@ public class DatabaseTransactionMgrTest {
                 PublishVersionTask task = new PublishVersionTask(backendId, transactionState.getTransactionId(),
                         transactionState.getDbId(), null, System.currentTimeMillis());
                 task.setFinished(true);
+                task.setSuccTablets(
+                        keyToSuccessTablets.getOrDefault(backendId + "-" + transactionState.getTransactionId(),
+                                new HashMap<>()));
                 transactionState.addPublishVersionTask(backendId, task);
             }
         }
@@ -144,7 +147,11 @@ public class DatabaseTransactionMgrTest {
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId1,
                 transTablets);
         TransactionState transactionState1 = fakeEditLog.getTransaction(transactionId1);
-        setTransactionFinishPublish(transactionState1, allBackends);
+        Map<String, Map<Long, Long>> keyToSuccessTablets = new HashMap<>();
+        DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets,
+                allBackends, transactionState1.getTransactionId(), CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion + 1);
+        setTransactionFinishPublish(transactionState1, allBackends, keyToSuccessTablets);
         Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
         Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1,

@@ -434,9 +434,11 @@ public class GlobalTransactionMgrTest {
         checkTableVersion(testTable1, 1, 2);
         slaveTransMgr.replayUpsertTransactionState(transactionState);
         // finish transaction
-        DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState, allBackends);
-        transactionState.getPublishVersionTasks().get(CatalogTestUtil.testBackendId1).get(0).getErrorTablets()
-                .add(CatalogTestUtil.testTabletId1);
+        Map<String, Map<Long, Long>> keyToSuccessTablets = new HashMap<>();
+        DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets,
+                Lists.newArrayList(CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3),
+                transactionState.getTransactionId(), CatalogTestUtil.testTabletId1, 14);
+        DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState, allBackends, keyToSuccessTablets);
         Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
         Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, partitionVisibleVersions,
@@ -504,12 +506,14 @@ public class GlobalTransactionMgrTest {
 
             // master finish the transaction failed
             FakeEnv.setEnv(masterEnv);
-            DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState,
-                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2));
-
+            Map<String, Map<Long, Long>> keyToSuccessTablets = new HashMap<>();
             // backend2 publish failed
-            transactionState.getPublishVersionTasks()
-                    .get(CatalogTestUtil.testBackendId2).get(0).getErrorTablets().add(CatalogTestUtil.testTabletId1);
+            DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1),
+                    transactionState.getTransactionId(), CatalogTestUtil.testTabletId1, 14);
+            DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2),
+                    keyToSuccessTablets);
             masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, partitionVisibleVersions,
                     backendPartitions);
             Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
@@ -524,7 +528,7 @@ public class GlobalTransactionMgrTest {
 
             // backend2 publish success
             Map<Long, Long> backend2SuccTablets = Maps.newHashMap();
-            backend2SuccTablets.put(CatalogTestUtil.testTabletId1, 0L);
+            backend2SuccTablets.put(CatalogTestUtil.testTabletId1, 14L);
             transactionState.getPublishVersionTasks()
                     .get(CatalogTestUtil.testBackendId2).get(0).setSuccTablets(backend2SuccTablets);
             masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, partitionVisibleVersions,
@@ -586,7 +590,12 @@ public class GlobalTransactionMgrTest {
             Assert.assertTrue(CatalogTestUtil.compareCatalog(masterEnv, slaveEnv));
 
             // master finish the transaction2
-            DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState, allBackends);
+            Map<String, Map<Long, Long>> keyToSuccessTablets = new HashMap<>();
+            // backend2 publish failed
+            DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets,
+                    allBackends, transactionState.getTransactionId(), CatalogTestUtil.testTabletId1,
+                    CatalogTestUtil.testStartVersion + 3);
+            DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState, allBackends, keyToSuccessTablets);
             masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId2, partitionVisibleVersions,
                     backendPartitions);
             Assert.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
