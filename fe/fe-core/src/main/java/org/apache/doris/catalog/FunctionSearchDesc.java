@@ -18,12 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -31,11 +26,8 @@ import java.io.IOException;
 
 // Used to search a function
 public class FunctionSearchDesc implements Writable {
-    @SerializedName("n")
     private FunctionName name;
-    @SerializedName("t")
     private Type[] argTypes;
-    @SerializedName("isV")
     private boolean isVariadic;
 
     private FunctionSearchDesc() {}
@@ -101,10 +93,15 @@ public class FunctionSearchDesc implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
+        name.write(out);
+        // write args
+        out.writeShort(argTypes.length);
+        for (Type type : argTypes) {
+            ColumnType.write(out, type);
+        }
+        out.writeBoolean(isVariadic);
     }
 
-    @Deprecated
     public void readFields(DataInput in) throws IOException {
         name = FunctionName.read(in);
         // read args
@@ -117,12 +114,8 @@ public class FunctionSearchDesc implements Writable {
     }
 
     public static FunctionSearchDesc read(DataInput input) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-            FunctionSearchDesc function = new FunctionSearchDesc();
-            function.readFields(input);
-            return function;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(input), FunctionSearchDesc.class);
-        }
+        FunctionSearchDesc function = new FunctionSearchDesc();
+        function.readFields(input);
+        return function;
     }
 }

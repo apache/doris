@@ -25,6 +25,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -42,13 +43,24 @@ public class RelationUtil {
             case 1: { // table
                 // Use current database name from catalog.
                 String tableName = nameParts.get(0);
-                String catalogName = context.getCurrentCatalog().getName();
+                CatalogIf catalogIf = context.getCurrentCatalog();
+                if (catalogIf == null) {
+                    throw new IllegalStateException("Current catalog is not set.");
+                }
+                String catalogName = catalogIf.getName();
                 String dbName = context.getDatabase();
+                if (Strings.isNullOrEmpty(dbName)) {
+                    throw new IllegalStateException("Current database is not set.");
+                }
                 return ImmutableList.of(catalogName, dbName, tableName);
             }
             case 2: { // db.table
                 // Use database name from table name parts.
-                String catalogName = context.getCurrentCatalog().getName();
+                CatalogIf catalogIf = context.getCurrentCatalog();
+                if (catalogIf == null) {
+                    throw new IllegalStateException("Current catalog is not set.");
+                }
+                String catalogName = catalogIf.getName();
                 // if the relation is view, nameParts.get(0) is dbName.
                 String dbName = nameParts.get(0);
                 String tableName = nameParts.get(1);
