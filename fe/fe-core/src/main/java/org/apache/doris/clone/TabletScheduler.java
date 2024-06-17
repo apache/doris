@@ -1193,7 +1193,9 @@ public class TabletScheduler extends MasterDaemon {
                     throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_DECOMMISSION,
                             "wait txn before post watermark txn  " + postWatermarkTxnId + " to be finished");
                 }
-            } catch (AnalysisException e) {
+            } catch (SchedException e) {
+                throw e;
+            } catch (Exception e) {
                 throw new SchedException(Status.UNRECOVERABLE, e.getMessage());
             }
         }
