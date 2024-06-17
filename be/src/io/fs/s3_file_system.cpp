@@ -430,18 +430,18 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
 std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,
                                                  bool is_public_endpoint) const {
     std::string key = fmt::format("{}/{}", _prefix, path.native());
-    auto new_s3_conf = _client->s3_client_conf();
+    std::shared_ptr<ObjStorageClient> client;
     if (is_public_endpoint &&
         _client->s3_client_conf().endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
+        auto new_s3_conf = _client->s3_client_conf();
         new_s3_conf.endpoint.erase(
                 _client->s3_client_conf().endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
                 LEN_OF_OSS_PRIVATE_SUFFIX);
+        client = S3ClientFactory::instance().create(new_s3_conf);
+    } else {
+        client = _client->get();
     }
-    auto client = std::dynamic_pointer_cast<Aws::S3::S3Client>(
-            S3ClientFactory::instance().create(new_s3_conf));
-    DCHECK(client != nullptr);
-    return client->GeneratePresignedUrl(_bucket, key, Aws::Http::HttpMethod::HTTP_GET,
-                                        expiration_secs);
+    return client->generate_presigned_url({.bucket = _bucket, .key = key}, expiration_secs);
 }
 
 } // namespace doris::io

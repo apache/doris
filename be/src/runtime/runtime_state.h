@@ -42,6 +42,7 @@
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "io/fs/file_system.h"
+#include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
@@ -736,7 +737,7 @@ private:
     vectorized::ColumnInt64* _partial_update_auto_inc_column;
 
     // save error log to s3
-    io::FileSystemSPtr _s3_error_fs;
+    std::shared_ptr<io::S3FileSystem> _s3_error_fs;
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
 };

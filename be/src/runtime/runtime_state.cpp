@@ -257,12 +257,11 @@ RuntimeState::~RuntimeState() {
         _error_log_file->close();
         delete _error_log_file;
         _error_log_file = nullptr;
-        if (config::save_load_error_log_to_s3 && config::is_cloud_mode()) {
+        if (_s3_error_fs) {
             std::string error_log_absolute_path =
                     _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
             // upload error log file to s3
-            Status st = std::dynamic_pointer_cast<io::S3FileSystem>(_s3_error_fs)
-                                ->upload(error_log_absolute_path, _s3_error_log_file_path);
+            Status st = _s3_error_fs->upload(error_log_absolute_path, _s3_error_log_file_path);
             if (st.ok()) {
                 // remove local error log file
                 std::filesystem::remove(error_log_absolute_path);
@@ -371,13 +370,16 @@ const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_error_log_file() {
     if (config::save_load_error_log_to_s3 && config::is_cloud_mode()) {
-        _s3_error_fs = ExecEnv::GetInstance()->storage_engine().to_cloud().latest_fs();
-        std::stringstream ss;
-        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_err_packet.html
-        // shorten the path as much as possible to prevent the length of the presigned URL from
-        // exceeding the MySQL error packet size limit
-        ss << "error_log/" << _import_label << "_" << std::hex << _fragment_instance_id.hi;
-        _s3_error_log_file_path = ss.str();
+        _s3_error_fs = std::dynamic_pointer_cast<io::S3FileSystem>(
+                ExecEnv::GetInstance()->storage_engine().to_cloud().latest_fs());
+        if (_s3_error_fs) {
+            std::stringstream ss;
+            // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_err_packet.html
+            // shorten the path as much as possible to prevent the length of the presigned URL from
+            // exceeding the MySQL error packet size limit
+            ss << "error_log/" << _import_label << "_" << std::hex << _fragment_instance_id.hi;
+            _s3_error_log_file_path = ss.str();
+        }
     }
 
     static_cast<void>(_exec_env->load_path_mgr()->get_load_error_file_name(
@@ -455,12 +457,12 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
 }
 
 std::string RuntimeState::get_error_log_file_path() const {
-    if (config::save_load_error_log_to_s3 && config::is_cloud_mode()) {
+    if (_s3_error_fs) {
         // expiration must be less than a week (in seconds) for presigned url
         static const unsigned EXPIRATION_SECONDS = 7 * 24 * 60 * 60 - 1;
         // We should return a public endpoint to user.
-        return std::dynamic_pointer_cast<io::S3FileSystem>(_s3_error_fs)
-                ->generate_presigned_url(_s3_error_log_file_path, EXPIRATION_SECONDS, true);
+        return _s3_error_fs->generate_presigned_url(_s3_error_log_file_path, EXPIRATION_SECONDS,
+                                                    true);
     }
     return _error_log_file_path;
 }
