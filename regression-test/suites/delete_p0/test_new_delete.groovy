@@ -51,7 +51,7 @@ suite("test_new_delete") {
         DISTRIBUTED BY HASH (user_id) BUCKETS 1
         PROPERTIES(
                 "replication_num" = "1",
-                "store_row_column" = "true
+                "store_row_column" = "true"
                 );
     """
     sql "insert into ${tableName} values(1,1,5,'a'),(1,1,4,'a'),(1,1,3,'a')"

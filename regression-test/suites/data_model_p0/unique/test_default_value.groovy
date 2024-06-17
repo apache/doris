@@ -46,7 +46,7 @@ suite("test_default_value") {
             `user_id` bigint,
             `group_id` bigint,
             `id` bigint,
-            `vv` variant default '{"a":"a"}'
+            `vv` variant default NULL 
             ) ENGINE=OLAP
         UNIQUE KEY(user_id, group_id)
         DISTRIBUTED BY HASH (user_id) BUCKETS 1
@@ -54,8 +54,8 @@ suite("test_default_value") {
                 "replication_num" = "1"
                 );
     """
-    sql "insert into ${tableName} (user_id, group_id, id) values (1,1,5),(2,2,4),(1,1,3)"
-    sql "insert into ${tableName} values(3,3,3,'{"b":"b"}')"
+    sql """insert into ${tableName} (user_id, group_id, id) values (1,1,5),(2,2,4),(1,1,3)"""
+    sql """insert into ${tableName} values(3,3,3,'{"b":"b"}')"""
 
     qt_select2 "SELECT * from ${tableName}"
 }

@@ -37,26 +37,13 @@ suite("test_new_schema_change") {
             DISTRIBUTED BY HASH(siteid) BUCKETS 5
             PROPERTIES("replication_num" = "1", "light_schema_change" = "true"); 
          """
-     sql "begin"
-     sql """ insert into ${tbName} values('2021-11-01',1,1,'用户A',1),('2021-11-01',1,1,'用户B',1),('2021-11-01',1,1,'用户A',3),('2021-11-02',1,1,'用户A',1),('2021-11-02',1,1,'用户B',1),('2021-11-02',101,112332121,'用户B',112312),('2021-11-02',103,112332211,'用户B',112312); """
-     sql """ alter  table ${tbName} add column vv int after pv"""
-
-     int max_try_time = 100
-     while (max_try_time--){
-          String result = getJobState(tbName)
-          if (result == "FINISHED") {
-               sleep(3000)
-               sql """ insert into ${tbName} values('2021-11-01',1,1,'用户A',1,1)"""
-               sql "commit"
-               qt_desc_uniq_table """ desc ${tbName} """
-               qt_sql """ SELECT * FROM ${tbName} order by event_day,citycode  """
-               sql """ DROP TABLE  ${tbName} """
-               break
-          } else {
-               sleep(2000)
-               if (max_try_time < 1){
-                    assertEquals(1,2)
-               }
-          }
+     try{
+          sql "begin"
+          sql """ insert into ${tbName} values('2021-11-01',1,1,'用户A',1),('2021-11-01',1,1,'用户B',1),('2021-11-01',1,1,'用户A',3),('2021-11-02',1,1,'用户A',1),('2021-11-02',1,1,'用户B',1),('2021-11-02',101,112332121,'用户B',112312),('2021-11-02',103,112332211,'用户B',112312); """
+          sql """ alter  table ${tbName} add column vv int after pv"""
+          sql "commit"
+          sql """ DROP TABLE  ${tbName} """
+     }catch (Exception e){
+          assertTrue(e.getMessage().contains("This is in a transaction, only insert, commit, rollback is acceptable."))
      }
 }

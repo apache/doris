@@ -30,12 +30,12 @@ suite("test_txn") {
         UNIQUE KEY(user_id, group_id)
         DISTRIBUTED BY HASH (user_id) BUCKETS 1
         PROPERTIES(
-                "store_row_column" = "true,
+                "store_row_column" = "true",
                 "replication_num" = "1"
                 );
     """
     sql "begin"
-    sql "insert into ${tableName} values(1,1,5,'{"b":"b"}'),(1,1,4,'{"b":"b"}'),(1,1,3,'{"b":"b"}')"
+    sql """insert into ${tableName} values(1,1,5,'{"b":"b"}'),(1,1,4,'{"b":"b"}'),(1,1,3,'{"b":"b"}')"""
     sql "commit"
 
     qt_select1 "SELECT * from ${tableName}"
