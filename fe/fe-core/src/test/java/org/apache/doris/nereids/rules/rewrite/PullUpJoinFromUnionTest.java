@@ -23,7 +23,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
 
-class PullUpCommonJoinFromUnionTest extends TestWithFeService implements MemoPatternMatchSupported {
+class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");

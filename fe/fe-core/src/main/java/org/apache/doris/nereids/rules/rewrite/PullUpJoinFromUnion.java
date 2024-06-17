@@ -50,8 +50,19 @@ import javax.annotation.Nullable;
 
 /**
  * Pull up join from union all rules.
+ *       Union
+ *       /    \
+ *     Join   Join
+ *     / \    / \
+ *    t1 t2   t1 t3
+ *  =====>
+ *            Join
+ *          /    \
+ *       Union   t1
+ *       /    \
+ *       t2   t3
  */
-public class PullUpCommonJoinFromUnion extends OneRewriteRuleFactory {
+public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalUnion()
@@ -80,7 +91,7 @@ public class PullUpCommonJoinFromUnion extends OneRewriteRuleFactory {
                     }
 
                     return constructNewJoinUnion(union, commonChild, slotToIndex);
-                }).toRule(RuleType.PULL_UP_COMMON_JOIN_FROM_UNION);
+                }).toRule(RuleType.PULL_UP_JOIN_FROM_UNION);
     }
 
     // For union children, we must keep the join condition satisfied the following conditions:
@@ -292,7 +303,7 @@ public class PullUpCommonJoinFromUnion extends OneRewriteRuleFactory {
     }
 
     class LogicalPlanComparator {
-        HashMap<Expression, Expression> plan1ToPlan2 = new HashMap<>();
+        private HashMap<Expression, Expression> plan1ToPlan2 = new HashMap<>();
 
         public boolean isLogicalEqual(Plan plan1, Plan plan2) {
             if (plan1.children().size() != plan2.children().size()) {
@@ -303,10 +314,19 @@ public class PullUpCommonJoinFromUnion extends OneRewriteRuleFactory {
                     return false;
                 }
             }
+            if (isNotSupported(plan1) || isNotSupported(plan2)) {
+                return false;
+            }
             return comparePlan(plan1, plan2);
         }
 
-        public boolean comparePlan(Plan plan1, Plan plan2) {
+        boolean isNotSupported(Plan plan) {
+            return !(plan instanceof LogicalFilter)
+                    && !(plan instanceof LogicalCatalogRelation)
+                    && !(plan instanceof LogicalProject);
+        }
+
+        boolean comparePlan(Plan plan1, Plan plan2) {
             boolean isEqual = true;
             if (plan1 instanceof LogicalCatalogRelation && plan2 instanceof LogicalCatalogRelation) {
                 isEqual = new TableIdentifier(((LogicalCatalogRelation) plan1).getTable())
