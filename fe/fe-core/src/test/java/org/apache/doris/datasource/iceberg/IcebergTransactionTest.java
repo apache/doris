@@ -26,7 +26,7 @@ import org.apache.doris.thrift.TIcebergCommitData;
 import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
-import org.apache.commons.lang.SerializationUtils;
+import org.apache.commons.lang3.SerializationUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileScanTask;
