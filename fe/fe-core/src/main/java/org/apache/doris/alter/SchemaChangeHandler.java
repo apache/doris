@@ -1883,6 +1883,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         sendClearAlterTask(db, olapTable);
                         return;
                     } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+                        DynamicPartitionUtil.checkDynamicPartitionPropertyKeysValid(properties);
                         if (!olapTable.dynamicPartitionExists()) {
                             try {
                                 DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties,
@@ -2647,7 +2648,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
     @Override
     public void addAlterJobV2(AlterJobV2 alterJob) throws AnalysisException {
-        alterJob = AlterJobV2Factory.rebuildAlterJobV2(alterJob);
         super.addAlterJobV2(alterJob);
         runnableSchemaChangeJobV2.put(alterJob.getJobId(), alterJob);
     }
@@ -2698,7 +2698,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
     @Override
     public void replayAlterJobV2(AlterJobV2 alterJob) throws AnalysisException {
-        alterJob = AlterJobV2Factory.rebuildAlterJobV2(alterJob);
         if (!alterJob.isDone() && !runnableSchemaChangeJobV2.containsKey(alterJob.getJobId())) {
             runnableSchemaChangeJobV2.put(alterJob.getJobId(), alterJob);
         }
@@ -2989,13 +2988,14 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         try {
+            long timeoutSecond = Config.alter_table_timeout_second;
             for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
                 long originIndexId = entry.getKey();
                 for (Partition partition : olapTable.getPartitions()) {
                     // create job
                     long jobId = Env.getCurrentEnv().getNextId();
                     IndexChangeJob indexChangeJob = new IndexChangeJob(
-                            jobId, db.getId(), olapTable.getId(), olapTable.getName());
+                            jobId, db.getId(), olapTable.getId(), olapTable.getName(), timeoutSecond * 1000);
                     indexChangeJob.setOriginIndexId(originIndexId);
                     indexChangeJob.setAlterInvertedIndexInfo(isDropOp, alterIndexes);
                     long partitionId = partition.getId();

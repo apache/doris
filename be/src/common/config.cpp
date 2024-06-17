@@ -135,6 +135,8 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
+DEFINE_mBool(enable_stacktrace_in_allocator_check_failed, "false");
+
 DEFINE_mInt64(large_memory_check_bytes, "2147483648");
 
 DEFINE_mBool(enable_memory_orphan_check, "true");
@@ -994,6 +996,8 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
+// only cache index pages (prerequisite: enable_file_cache = true)
+DEFINE_Bool(file_cache_index_only, "false");
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
@@ -1106,6 +1110,9 @@ DEFINE_mInt64(lookup_connection_cache_capacity, "2048");
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
+// USED FOR DEBUGING
+// core directly if the compaction found there's duplicate key on mow table
+DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
@@ -1289,10 +1296,15 @@ DEFINE_Int64(s3_file_system_local_upload_buffer_size, "5242880");
 //JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues. The default setting is off.
 DEFINE_Bool(enable_jvm_monitor, "false");
 
+DEFINE_Int32(load_data_dirs_threads, "-1");
+
 // Skip loading stale rowset meta when initializing `TabletMeta` from protobuf
 DEFINE_mBool(skip_loading_stale_rowset_meta, "false");
 
 DEFINE_Bool(enable_file_logger, "true");
+
+// The minimum row group size when exporting Parquet files. default 128MB
+DEFINE_Int64(min_row_group_size, "134217728");
 
 // clang-format off
 #ifdef BE_TEST

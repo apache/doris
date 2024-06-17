@@ -775,6 +775,7 @@ public class ReportHandler extends Daemon {
                                        long backendReportVersion) {
         AgentBatchTask createReplicaBatchTask = new AgentBatchTask();
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        Map<Object, Object> objectPool = new HashMap<Object, Object>();
         for (Long dbId : tabletDeleteFromMeta.keySet()) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
@@ -881,9 +882,11 @@ public class ReportHandler extends Daemon {
                                             olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                             olapTable.getTimeSeriesCompactionLevelThreshold(),
                                             olapTable.storeRowColumn(),
-                                            binlogConfig);
+                                            binlogConfig, objectPool);
 
                                     createReplicaTask.setIsRecoverTask(true);
+                                    createReplicaTask.setInvertedIndexStorageFormat(olapTable
+                                                                .getInvertedIndexStorageFormat());
                                     createReplicaBatchTask.addTask(createReplicaTask);
                                 } else {
                                     // just set this replica as bad

@@ -1014,7 +1014,8 @@ public class EditLog {
                     env.getAuth().replayAlterUser(log);
                     break;
                 }
-                case OperationType.OP_INIT_CATALOG: {
+                case OperationType.OP_INIT_CATALOG:
+                case OperationType.OP_INIT_CATALOG_COMP: {
                     final InitCatalogLog log = (InitCatalogLog) journal.getData();
                     env.getCatalogMgr().replayInitCatalog(log);
                     break;

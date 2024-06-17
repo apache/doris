@@ -71,7 +71,7 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
         assertRewrite(new Cast(tinyIntLiteral, TinyIntType.INSTANCE), tinyIntLiteral);
         // cast tinyint as decimalv2(3,0)
         assertRewrite(new Cast(tinyIntLiteral, DecimalV2Type.forType(TinyIntType.INSTANCE)),
-                new DecimalLiteral(new BigDecimal(12)));
+                new DecimalLiteral(DecimalV2Type.forType(TinyIntType.INSTANCE), new BigDecimal(12)));
 
         assertRewrite(new Cast(tinyIntLiteral, DecimalV2Type.createDecimalV2Type(5, 1)),
                 new DecimalLiteral(DecimalV2Type.createDecimalV2Type(5, 1),
@@ -79,7 +79,7 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
 
         // cast tinyint as decimalv3(3,0)
         assertRewrite(new Cast(tinyIntLiteral, DecimalV3Type.forType(TinyIntType.INSTANCE)),
-                new DecimalV3Literal(new BigDecimal(12)));
+                new DecimalV3Literal(DecimalV3Type.forType(TinyIntType.INSTANCE), new BigDecimal(12)));
         // cast tinyint as decimalv3(5,1)
         assertRewrite(new Cast(tinyIntLiteral, DecimalV3Type.createDecimalV3Type(5, 1)),
                 new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(5, 1),
@@ -108,20 +108,20 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
         assertRewrite(new Cast(intLiteral, IntegerType.INSTANCE), intLiteral);
         // cast int as decimalv2
         assertRewrite(new Cast(intLiteral, DecimalV2Type.forType(IntegerType.INSTANCE)),
-                new DecimalLiteral(new BigDecimal(30000000)));
+                new DecimalLiteral(DecimalV2Type.forType(IntegerType.INSTANCE), new BigDecimal(30000000)));
         // cast int as decimalv3
         assertRewrite(new Cast(intLiteral, DecimalV3Type.forType(IntegerType.INSTANCE)),
-                new DecimalV3Literal(new BigDecimal(30000000)));
+                new DecimalV3Literal(DecimalV3Type.forType(IntegerType.INSTANCE), new BigDecimal(30000000)));
 
         Expression bigIntLiteral = new BigIntLiteral(30000000000L);
         // cast bigint as bigint
         assertRewrite(new Cast(bigIntLiteral, BigIntType.INSTANCE), bigIntLiteral);
         // cast bigint as decimalv2
         assertRewrite(new Cast(bigIntLiteral, DecimalV2Type.forType(BigIntType.INSTANCE)),
-                new DecimalLiteral(new BigDecimal(30000000000L)));
+                new DecimalLiteral(DecimalV2Type.forType(BigIntType.INSTANCE), new BigDecimal(30000000000L)));
         // cast bigint as decimalv3
         assertRewrite(new Cast(bigIntLiteral, DecimalV3Type.forType(BigIntType.INSTANCE)),
-                new DecimalV3Literal(new BigDecimal(30000000000L)));
+                new DecimalV3Literal(DecimalV3Type.forType(BigIntType.INSTANCE), new BigDecimal(30000000000L)));
 
         Expression varcharLiteral = new VarcharLiteral("12345");
         // cast varchar(5) as varchar(3)

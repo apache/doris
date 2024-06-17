@@ -702,7 +702,7 @@ struct UnixTimeStampStrImpl {
         std::tie(col_right, format_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
-        auto col_result = ColumnDecimal<Decimal64>::create(input_rows_count, 0);
+        auto col_result = ColumnDecimal<Decimal64>::create(input_rows_count, 6);
         auto null_map = ColumnVector<UInt8>::create(input_rows_count);
         auto& col_result_data = col_result->get_data();
         auto& null_map_data = null_map->get_data();

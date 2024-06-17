@@ -35,6 +35,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "cctz/time_zone.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/factory_creator.h"
@@ -350,9 +351,8 @@ public:
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
 
     int be_exec_version() const {
-        if (!_query_options.__isset.be_exec_version) {
-            return 0;
-        }
+        DCHECK(_query_options.__isset.be_exec_version &&
+               BeExecVersionManager::check_be_exec_version(_query_options.be_exec_version));
         return _query_options.be_exec_version;
     }
     bool enable_local_shuffle() const {
@@ -365,10 +365,6 @@ public:
 
     bool return_object_data_as_binary() const {
         return _query_options.return_object_data_as_binary;
-    }
-
-    bool enable_exchange_node_parallel_merge() const {
-        return _query_options.enable_enable_exchange_node_parallel_merge;
     }
 
     segment_v2::CompressionTypePB fragement_transmission_compression_type() const {
@@ -646,13 +642,6 @@ private:
 
     // owned by PipelineFragmentContext
     RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
-
-    // Data stream receivers created by a plan fragment are gathered here to make sure
-    // they are destroyed before _obj_pool (class members are destroyed in reverse order).
-    // Receivers depend on the descriptor table and we need to guarantee that their control
-    // blocks are removed from the data stream manager before the objects in the
-    // descriptor table are destroyed.
-    std::unique_ptr<ObjectPool> _data_stream_recvrs_pool;
 
     // Lock protecting _error_log and _unreported_error_idx
     std::mutex _error_log_lock;

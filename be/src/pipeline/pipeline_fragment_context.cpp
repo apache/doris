@@ -190,9 +190,6 @@ void PipelineFragmentContext::cancel(const Status reason) {
         stream_load_ctx->pipe->cancel(reason.to_string());
     }
 
-    // Cancel the result queue manager used by spark doris connector
-    // TODO pipeline incomp
-    // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
             task->clear_blocking_state();
@@ -306,18 +303,17 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         SCOPED_TIMER(_build_pipelines_timer);
         // 2. Build pipelines with operators in this fragment.
         auto root_pipeline = add_pipeline();
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_pipelines(_runtime_state->obj_pool(), request,
-                                                            *_query_ctx->desc_tbl, &_root_op,
-                                                            root_pipeline));
+        RETURN_IF_ERROR(_build_pipelines(_runtime_state->obj_pool(), request, *_query_ctx->desc_tbl,
+                                         &_root_op, root_pipeline));
 
         // 3. Create sink operator
         if (!request.fragment.__isset.output_sink) {
             return Status::InternalError("No output sink in this fragment!");
         }
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_data_sink(
-                _runtime_state->obj_pool(), request.fragment.output_sink,
-                request.fragment.output_exprs, request, root_pipeline->output_row_desc(),
-                _runtime_state.get(), *_desc_tbl, root_pipeline->id()));
+        RETURN_IF_ERROR(_create_data_sink(_runtime_state->obj_pool(), request.fragment.output_sink,
+                                          request.fragment.output_exprs, request,
+                                          root_pipeline->output_row_desc(), _runtime_state.get(),
+                                          *_desc_tbl, root_pipeline->id()));
         RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
         RETURN_IF_ERROR(root_pipeline->set_sink(_sink));
 
@@ -585,7 +581,6 @@ void PipelineFragmentContext::trigger_report_if_necessary() {
             _runtime_state->runtime_profile()->compute_time_in_profile();
             _runtime_state->runtime_profile()->pretty_print(&ss);
             if (_runtime_state->load_channel_profile()) {
-                // _runtime_state->load_channel_profile()->compute_time_in_profile(); // TODO load channel profile add timer
                 _runtime_state->load_channel_profile()->pretty_print(&ss);
             }
 
@@ -602,7 +597,6 @@ void PipelineFragmentContext::trigger_report_if_necessary() {
     }
 }
 
-// TODO: use virtual function to do abstruct
 Status PipelineFragmentContext::_build_pipelines(ObjectPool* pool,
                                                  const doris::TPipelineFragmentParams& request,
                                                  const DescriptorTbl& descs, OperatorXPtr* root,
@@ -617,7 +611,6 @@ Status PipelineFragmentContext::_build_pipelines(ObjectPool* pool,
                                         &node_idx, root, cur_pipe, 0));
 
     if (node_idx + 1 != request.fragment.plan.nodes.size()) {
-        // TODO: print thrift msg for diagnostic purposes.
         return Status::InternalError(
                 "Plan tree only partially reconstructed. Not all thrift nodes were used.");
     }
@@ -632,7 +625,6 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
                                                     PipelinePtr& cur_pipe, int child_idx) {
     // propagate error case
     if (*node_idx >= tnodes.size()) {
-        // TODO: print thrift msg
         return Status::InternalError(
                 "Failed to reconstruct plan tree from thrift. Node id: {}, number of nodes: {}",
                 *node_idx, tnodes.size());
@@ -661,7 +653,6 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
         // we are expecting a child, but have used all nodes
         // this means we have been given a bad tree and must fail
         if (*node_idx >= tnodes.size()) {
-            // TODO: print thrift msg
             return Status::InternalError(
                     "Failed to reconstruct plan tree from thrift. Node id: {}, number of nodes: {}",
                     *node_idx, tnodes.size());
@@ -961,7 +952,6 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             return Status::InternalError("Missing data buffer sink.");
         }
 
-        // TODO: figure out good buffer size based on size of output row
         _sink.reset(new ResultSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs,
                                             thrift_sink.result_sink));
         break;
@@ -981,7 +971,8 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     }
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        _sink.reset(new GroupCommitBlockSinkOperatorX(next_sink_operator_id(), row_desc));
+        _sink.reset(
+                new GroupCommitBlockSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs));
         break;
     }
     case TDataSinkType::HIVE_TABLE_SINK: {
@@ -1028,7 +1019,6 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             return Status::InternalError("Missing result file sink.");
         }
 
-        // TODO: figure out good buffer size based on size of output row
         // Result file sink is not the top sink
         if (params.__isset.destinations && !params.destinations.empty()) {
             _sink.reset(new ResultFileSinkOperatorX(next_sink_operator_id(), row_desc,
@@ -1043,7 +1033,6 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     case TDataSinkType::MULTI_CAST_DATA_STREAM_SINK: {
         DCHECK(thrift_sink.__isset.multi_cast_stream_sink);
         DCHECK_GT(thrift_sink.multi_cast_stream_sink.sinks.size(), 0);
-        // TODO: figure out good buffer size based on size of output row
         auto sink_id = next_sink_operator_id();
         auto sender_size = thrift_sink.multi_cast_stream_sink.sinks.size();
         // one sink has multiple sources.
@@ -1189,7 +1178,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         if (tnode.agg_node.aggregate_functions.empty() && !_runtime_state->enable_agg_spill() &&
             request.query_options.__isset.enable_distinct_streaming_aggregation &&
             request.query_options.enable_distinct_streaming_aggregation &&
-            !tnode.agg_node.grouping_exprs.empty()) {
+            !tnode.agg_node.grouping_exprs.empty() &&
+            !tnode.agg_node.__isset.agg_sort_info_by_group_key) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs,
                                                        _require_bucket_distribution));
             _require_bucket_distribution =

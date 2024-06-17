@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.PartitionExprUtil;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.TableName;
@@ -1216,7 +1217,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         OlapTable table = (OlapTable) db.getTableOrMetaException(request.tbl, TableType.OLAP);
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
-        TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, clientIp);
+        Backend backend = Env.getCurrentSystemInfo().getBackend(request.getBackendId());
+        long startTime = backend != null ? backend.getLastStartTime() : 0;
+        TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, request.getBackendId(), clientIp, startTime);
         if (request.isSetToken()) {
             txnCoord.isFromInternal = true;
         }
@@ -1324,10 +1327,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // step 5: get timeout
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
 
+        Backend backend = Env.getCurrentSystemInfo().getBackend(request.getBackendId());
+        long startTime = backend != null ? backend.getLastStartTime() : 0;
+        TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, request.getBackendId(), clientIp, startTime);
         // step 6: begin transaction
         long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), tableIdList, request.getLabel(), request.getRequestId(),
-                new TxnCoordinator(TxnSourceType.BE, clientIp),
+                db.getId(), tableIdList, request.getLabel(), request.getRequestId(), txnCoord,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
 
         // step 7: return result
@@ -2104,6 +2109,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             httpStreamParams.getParams().setLoadStreamPerNode(loadStreamPerNode);
             httpStreamParams.getParams().setTotalLoadStreams(loadStreamPerNode);
             httpStreamParams.getParams().setNumLocalSink(1);
+
+            TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(
+                    httpStreamParams.getDb().getId(), httpStreamParams.getTxnId());
+            if (txnState == null) {
+                LOG.warn("Not found http stream related txn, txn id = {}", httpStreamParams.getTxnId());
+            } else {
+                TxnCoordinator txnCoord = txnState.getCoordinator();
+                Backend backend = Env.getCurrentSystemInfo().getBackend(request.getBackendId());
+                if (backend != null) {
+                    // only modify txnCoord in memory, not write editlog yet.
+                    txnCoord.sourceType = TxnSourceType.BE;
+                    txnCoord.id = backend.getId();
+                    txnCoord.ip = backend.getHost();
+                    txnCoord.startTime = backend.getLastStartTime();
+                    LOG.info("Change http stream related txn {} to coordinator {}",
+                            httpStreamParams.getTxnId(), txnCoord);
+                }
+            }
+
             result.setPipelineParams(httpStreamParams.getParams());
             result.getPipelineParams().setDbName(httpStreamParams.getDb().getFullName());
             result.getPipelineParams().setTableName(httpStreamParams.getTable().getName());
@@ -3177,8 +3201,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ColStatsData data = GsonUtils.GSON.fromJson(request.colStatsData, ColStatsData.class);
         ColumnStatistic c = data.toColumnStatistic();
         if (c == ColumnStatistic.UNKNOWN) {
-            Env.getCurrentEnv().getStatisticsCache().invalidate(k.catalogId, k.dbId, k.tableId,
-                    k.idxId, null, k.colName);
+            Env.getCurrentEnv().getStatisticsCache().invalidateColumnStatsCache(k.catalogId, k.dbId, k.tableId,
+                    k.idxId, k.colName);
         } else {
             Env.getCurrentEnv().getStatisticsCache().updateColStatsCache(
                     k.catalogId, k.dbId, k.tableId, k.idxId, k.colName, c);
@@ -3195,7 +3219,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (tableStats == null) {
             return new TStatus(TStatusCode.OK);
         }
-        analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId, target.columns, tableStats);
+        PartitionNames partitionNames = null;
+        if (target.partitions != null) {
+            partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
+        }
+        analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId,
+                target.columns, tableStats, partitionNames);
         return new TStatus(TStatusCode.OK);
     }
 

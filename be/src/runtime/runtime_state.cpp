@@ -55,7 +55,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
         : _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(fragment_exec_params.query_id),
           _per_fragment_instance_idx(0),
@@ -101,7 +100,6 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
         : _profile("Fragment " + print_id(instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(query_id),
           _fragment_id(fragment_id),
@@ -138,7 +136,6 @@ RuntimeState::RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& 
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _runtime_filter_mgr(nullptr),
-          _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(query_id),
           _fragment_id(fragment_id),
@@ -171,7 +168,6 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
         : _profile("PipelineX  " + std::to_string(fragment_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(query_id),
           _fragment_id(fragment_id),
@@ -205,7 +201,6 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         : _profile("<unnamed>"),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
@@ -239,10 +234,10 @@ RuntimeState::RuntimeState()
         : _profile("<unnamed>"),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
+    _query_options.be_exec_version = BeExecVersionManager::get_newest_version();
     _timezone = TimezoneUtils::default_time_zone;
     _timestamp_ms = 0;
     _nano_seconds = 0;
