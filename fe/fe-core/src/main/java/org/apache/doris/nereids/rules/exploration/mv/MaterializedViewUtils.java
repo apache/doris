@@ -36,7 +36,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
-import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -65,6 +64,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashSet;
@@ -266,10 +266,9 @@ public class MaterializedViewUtils {
      * in the result expression result
      */
     public static List<Expression> extractNondeterministicFunction(Plan plan) {
-        NondeterministicFunctionCollector.FunctionCollectContext collectContext =
-                NondeterministicFunctionCollector.FunctionCollectContext.of(ImmutableSet.of(FunctionTrait.class));
-        plan.accept(NondeterministicFunctionCollector.INSTANCE, collectContext);
-        return collectContext.getCollectedExpressions();
+        List<Expression> nondeterministicFunctions = new ArrayList<>();
+        plan.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
+        return nondeterministicFunctions;
     }
 
     private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
