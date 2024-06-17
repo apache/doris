@@ -40,7 +40,8 @@ suite("test_partial_update_with_inverted_index", "p0") {
                         INDEX idx_col4 (`col4`) USING INVERTED
                     ) unique key(col1, col2) distributed by hash(col1) buckets 1
                     properties(
-                        "replication_num" = "1"
+                        "replication_num" = "1",
+                        "store_row_column" = "${use_row_store}"
                     ); """
 
             sql """
