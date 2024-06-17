@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include "operator.h"
 #include "vec/sink/writer/vfile_result_writer.h"
 
@@ -39,7 +37,7 @@ public:
     using Base = AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
     ENABLE_FACTORY_CREATOR(ResultFileSinkLocalState);
     ResultFileSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
-    ~ResultFileSinkLocalState();
+    ~ResultFileSinkLocalState() override;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;

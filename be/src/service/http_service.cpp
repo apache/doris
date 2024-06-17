@@ -54,6 +54,7 @@
 #include "http/action/reset_rpc_channel_action.h"
 #include "http/action/restore_tablet_action.h"
 #include "http/action/show_hotspot_action.h"
+#include "http/action/shrink_mem_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
 #include "http/action/stream_load_2pc.h"
@@ -217,6 +218,10 @@ Status HttpService::start() {
     ReportAction* report_task_action = _pool.add(
             new ReportAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_TASK"));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/task", report_task_action);
+
+    // shrink memory for starting co-exist process during upgrade
+    ShrinkMemAction* shrink_mem_action = _pool.add(new ShrinkMemAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/shrink_mem", shrink_mem_action);
 
     auto& engine = _env->storage_engine();
     if (config::is_cloud_mode()) {

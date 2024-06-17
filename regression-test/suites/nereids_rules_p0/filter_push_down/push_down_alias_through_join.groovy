@@ -23,6 +23,7 @@ suite("push_down_alias_through_join") {
     sql "use regression_test_nereids_rules_p0"
     sql "set disable_join_reorder=true"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+    sql "set enable_parallel_result_sink=false;"
 
     // Push alias through inner join where condition not use alias
     qt_pushdown_inner_join"""
