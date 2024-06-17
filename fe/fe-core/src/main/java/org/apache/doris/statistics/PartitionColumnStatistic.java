@@ -101,13 +101,14 @@ public class PartitionColumnStatistic {
     }
 
     public static PartitionColumnStatistic fromResultRow(ResultRow row) {
-        // row : [catalog_id, db_id, tbl_id, idx_id, col_id, count, ndv, null_count, min, max, data_size, update_time]
+        // row : [catalog_id, db_id, tbl_id, idx_id, part_name, col_id,
+        //        count, ndv, null_count, min, max, data_size, update_time]
         try {
             long catalogId = Long.parseLong(row.get(0));
             long dbID = Long.parseLong(row.get(1));
             long tblId = Long.parseLong(row.get(2));
             long idxId = Long.parseLong(row.get(3));
-            String colName = row.get(4);
+            String colName = row.get(5);
             Column col = StatisticsUtil.findColumn(catalogId, dbID, tblId, idxId, colName);
             if (col == null) {
                 LOG.info("Failed to deserialize column statistics, ctlId: {} dbId: {}, "
@@ -116,9 +117,9 @@ public class PartitionColumnStatistic {
             }
 
             PartitionColumnStatisticBuilder partitionStatisticBuilder = new PartitionColumnStatisticBuilder();
-            double count = Double.parseDouble(row.get(5));
+            double count = Double.parseDouble(row.get(6));
             partitionStatisticBuilder.setCount(count);
-            String ndv = row.get(6);
+            String ndv = row.get(7);
             Base64.Decoder decoder = Base64.getDecoder();
             DataInputStream dis = new DataInputStream(new ByteArrayInputStream(decoder.decode(ndv)));
             Hll hll = new Hll();
@@ -127,15 +128,15 @@ public class PartitionColumnStatistic {
                 return PartitionColumnStatistic.UNKNOWN;
             }
             partitionStatisticBuilder.setNdv(Hll128.fromHll(hll));
-            String nullCount = row.getWithDefault(7, "0");
+            String nullCount = row.getWithDefault(8, "0");
             partitionStatisticBuilder.setNumNulls(Double.parseDouble(nullCount));
             partitionStatisticBuilder.setDataSize(Double
-                    .parseDouble(row.getWithDefault(10, "0")));
+                    .parseDouble(row.getWithDefault(11, "0")));
             partitionStatisticBuilder.setAvgSizeByte(partitionStatisticBuilder.getCount() == 0
                     ? 0 : partitionStatisticBuilder.getDataSize()
                     / partitionStatisticBuilder.getCount());
-            String min = row.get(8);
-            String max = row.get(9);
+            String min = row.get(9);
+            String max = row.get(10);
             if (!"NULL".equalsIgnoreCase(min)) {
                 try {
                     partitionStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
@@ -158,7 +159,7 @@ public class PartitionColumnStatistic {
             } else {
                 partitionStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
             }
-            partitionStatisticBuilder.setUpdatedTime(row.get(11));
+            partitionStatisticBuilder.setUpdatedTime(row.get(12));
             return partitionStatisticBuilder.build();
         } catch (Exception e) {
             LOG.warn("Failed to deserialize column statistics. Row [{}]", row, e);
