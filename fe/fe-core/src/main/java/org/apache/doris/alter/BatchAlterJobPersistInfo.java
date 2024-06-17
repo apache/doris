@@ -17,13 +17,7 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -38,7 +32,6 @@ import java.util.List;
  */
 public class BatchAlterJobPersistInfo implements Writable {
 
-    @SerializedName("l")
     private List<AlterJobV2> alterJobV2List;
 
     public BatchAlterJobPersistInfo(List<AlterJobV2> alterJobV2List) {
@@ -47,20 +40,19 @@ public class BatchAlterJobPersistInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
+        out.writeInt(alterJobV2List.size());
+        for (AlterJobV2 alterJobV2 : alterJobV2List) {
+            alterJobV2.write(out);
+        }
     }
 
     public static BatchAlterJobPersistInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-            int size = in.readInt();
-            List<AlterJobV2> alterJobV2List = new ArrayList<>();
-            for (int i = 0; i < size; i++) {
-                alterJobV2List.add(AlterJobV2.read(in));
-            }
-            return new BatchAlterJobPersistInfo(alterJobV2List);
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), BatchAlterJobPersistInfo.class);
+        int size = in.readInt();
+        List<AlterJobV2> alterJobV2List = new ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            alterJobV2List.add(AlterJobV2.read(in));
         }
+        return new BatchAlterJobPersistInfo(alterJobV2List);
     }
 
     public List<AlterJobV2> getAlterJobV2List() {

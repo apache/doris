@@ -40,7 +40,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -85,7 +84,6 @@ import java.util.regex.Matcher;
  */
 public class TableRef implements ParseNode, Writable {
     private static final Logger LOG = LogManager.getLogger(TableRef.class);
-    @SerializedName("n")
     protected TableName name;
     // Legal aliases of this table ref. Contains the explicit alias as its sole element if
     // there is one. Otherwise, contains the two implicit aliases. Implicit aliases are set
@@ -93,7 +91,6 @@ public class TableRef implements ParseNode, Writable {
     // analysis. By convention, for table refs with multiple implicit aliases, aliases_[0]
     // contains the fully-qualified implicit alias to ensure that aliases_[0] always
     // uniquely identifies this table ref regardless of whether it has an explicit alias.
-    @SerializedName("a")
     protected String[] aliases;
     protected List<Long> sampleTabletIds;
     // Indicates whether this table ref is given an explicit alias,
@@ -131,7 +128,6 @@ public class TableRef implements ParseNode, Writable {
     protected List<TupleId> correlatedTupleIds = Lists.newArrayList();
     // analysis output
     protected TupleDescriptor desc;
-    @SerializedName("p")
     private PartitionNames partitionNames = null;
     private ArrayList<String> joinHints;
     private ArrayList<String> sortHints;
