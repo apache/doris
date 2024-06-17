@@ -31,6 +31,7 @@
 #include <string>
 #include <vector>
 
+#include "CLucene/util/stringUtil.h"
 #include "io/fs/file_reader.h"
 #ifdef __clang__
 #pragma clang diagnostic push
@@ -93,14 +94,17 @@ std::string get_usage(const std::string& progname) {
     ss << "./index_tool --operation=term_query --directory=directory "
           "--idx_file_name=file --print_row_id --term=term --column_name=column_name "
           "--pred_type=eq/lt/gt/le/ge/match etc\n";
-    ss << "./index_tool --operation=write_index_v2 --idx_file_path=path/to/index "
-          "--data_file_path=data/to/index\n";
     ss << "*** debug_index_compaction operation is only for offline debug index compaction, do not "
           "use in production ***\n";
     ss << "./index_tool --operation=debug_index_compaction --idx_id=index_id "
           "--src_idx_dirs_file=path/to/file --dest_idx_dirs_file=path/to/file "
           "--dest_seg_num_rows_file=path/to/file --tablet_path=path/to/tablet "
           "--trans_vec_file=path/to/file\n";
+    ss << "./index_tool --operation=write_index_v2 --idx_file_path=path/to/index "
+          "--data_file_path=data/to/index\n";
+    ss << "./index_tool --operation=show_nested_files_v2 --idx_file_path=path/to/file\n";
+    ss << "./index_tool --operation=check_terms_stats_v2 --idx_file_path=path/to/file "
+          "--idx_id=index_id\n";
     return ss.str();
 }
 
@@ -129,21 +133,21 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
 
     std::cout << "version: " << (int32_t)(reader->getIndexVersion()) << std::endl;
 
-    std::wstring field_ws(field.begin(), field.end());
+    auto field_ws = StringUtil::string_to_wstring(field);
     if (pred == "match_all") {
     } else if (pred == "match_phrase") {
         std::vector<std::string> terms = split(token, '|');
         auto* phrase_query = new lucene::search::PhraseQuery();
         for (auto& term : terms) {
-            std::wstring term_ws = StringUtil::string_to_wstring(term);
+            auto term_ws = StringUtil::string_to_wstring(term);
             auto* t = _CLNEW lucene::index::Term(field_ws.c_str(), term_ws.c_str());
             phrase_query->add(t);
             _CLDECDELETE(t);
         }
         query.reset(phrase_query);
     } else {
-        std::wstring token_ws(token.begin(), token.end());
-        lucene::index::Term* term = _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str());
+        auto token_ws = StringUtil::string_to_wstring(token);
+        auto* term = _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str());
         if (pred == "eq" || pred == "match") {
             query.reset(new lucene::search::TermQuery(term));
         } else if (pred == "lt") {
@@ -205,7 +209,10 @@ void check_terms_stats(lucene::store::Directory* dir) {
         /* empty */
         std::string token =
                 lucene_wcstoutf8string(te->term(false)->text(), te->term(false)->textLength());
+        std::string field = lucene_wcstoutf8string(te->term(false)->field(),
+                                                   lenOfString(te->term(false)->field()));
 
+        printf("Field: %s ", field.c_str());
         printf("Term: %s ", token.c_str());
         printf("Freq: %d\n", te->docFreq());
         if (FLAGS_print_doc_id) {
@@ -430,7 +437,7 @@ int main(int argc, char** argv) {
 
         std::string index_writer_path = tablet_path + "/tmp_index_writer";
         lucene::store::Directory* dir =
-                DorisCompoundDirectoryFactory::getDirectory(fs, index_writer_path.c_str(), false);
+                DorisFSDirectoryFactory::getDirectory(fs, index_writer_path.c_str(), false);
         lucene::analysis::SimpleAnalyzer<char> analyzer;
         auto index_writer = _CLNEW lucene::index::IndexWriter(dir, &analyzer, true /* create */,
                                                               true /* closeDirOnShutdown */);
@@ -443,7 +450,7 @@ int main(int argc, char** argv) {
             std::string src_idx_full_name =
                     src_index_files[i] + "_" + std::to_string(index_id) + ".idx";
             DorisCompoundReader* reader = new DorisCompoundReader(
-                    DorisCompoundDirectoryFactory::getDirectory(fs, tablet_path.c_str()),
+                    DorisFSDirectoryFactory::getDirectory(fs, tablet_path.c_str()),
                     src_idx_full_name.c_str());
             src_index_dirs[i] = reader;
         }
@@ -453,8 +460,7 @@ int main(int argc, char** argv) {
         for (int i = 0; i < dest_segment_num; ++i) {
             // format: rowsetId_segmentId_columnId
             auto path = tablet_path + "/" + dest_index_files[i] + "_" + std::to_string(index_id);
-            dest_index_dirs[i] =
-                    DorisCompoundDirectoryFactory::getDirectory(fs, path.c_str(), true);
+            dest_index_dirs[i] = DorisFSDirectoryFactory::getDirectory(fs, path.c_str(), true);
         }
 
         index_writer->indexCompaction(src_index_dirs, dest_index_dirs, trans_vec,
@@ -556,7 +562,7 @@ int main(int argc, char** argv) {
         auto field_config = (int32_t)(lucene::document::Field::STORE_NO);
         field_config |= (int32_t)(lucene::document::Field::INDEX_NONORMS);
         field_config |= lucene::document::Field::INDEX_TOKENIZED;
-        auto field_name = std::wstring(name.begin(), name.end());
+        auto field_name = StringUtil::string_to_wstring(name);
         auto field = _CLNEW lucene::document::Field(field_name.c_str(), field_config);
         field->setOmitTermFreqAndPositions(false);
         doc->add(*field);
@@ -633,7 +639,7 @@ int main(int argc, char** argv) {
             std::cerr << "error occurred when show files: " << err.what() << std::endl;
         }
     } else if (FLAGS_operation == "check_terms_stats_v2") {
-        if (FLAGS_idx_file_path == "") {
+        if (FLAGS_idx_file_path == "" || FLAGS_idx_id <= 0) {
             std::cout << "no file flag for check " << std::endl;
             return -1;
         }
@@ -650,7 +656,7 @@ int main(int argc, char** argv) {
                 return -1;
             }
             std::vector<std::string> files;
-            int64_t index_id = 1;
+            int64_t index_id = FLAGS_idx_id;
             std::string index_suffix = "";
             doris::TabletIndexPB index_pb;
             index_pb.set_index_id(index_id);
