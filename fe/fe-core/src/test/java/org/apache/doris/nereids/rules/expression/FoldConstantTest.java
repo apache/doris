@@ -527,7 +527,6 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testDateError() {
-        System.out.println("error data test 0000-02-29");
         boolean isError = false;
         try {
             new DateV2Literal("0000-02-29");
