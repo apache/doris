@@ -101,6 +101,7 @@ import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
+import org.apache.doris.nereids.rules.rewrite.PullUpCommonJoinFromUnion;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
 import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
@@ -330,7 +331,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
             // this rule should invoke after infer predicate and push down distinct, and before push down limit
             topic("eliminate join according unique or foreign key",
                 bottomUp(new EliminateJoinByFK()),
-                topDown(new EliminateJoinByUnique())
+                topDown(new EliminateJoinByUnique()),
+                topDown(new PullUpCommonJoinFromUnion())
             ),
 
             // this rule should be after topic "Column pruning and infer predicate"

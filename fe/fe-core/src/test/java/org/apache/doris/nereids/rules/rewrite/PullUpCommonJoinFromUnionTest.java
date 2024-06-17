@@ -17,12 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class PullUpCommonJoinFromUnionTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -57,15 +55,51 @@ class PullUpCommonJoinFromUnionTest extends TestWithFeService implements MemoPat
     }
 
     @Test
-    void test() {
+    void testSimple() {
         String sql = "select * from t1 join t2 on t1.id = t2.id "
                 + "union all "
                 + "select * from t1 join t3 on t1.id = t3.id;";
-        Plan plan = PlanChecker.from(connectContext)
+        PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .getPlan();
-        Assertions.assertEquals("", plan.treeString());
+                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+    }
 
+    @Test
+    void testProject() {
+        String sql = "select t2.id from t1 join t2 on t1.id = t2.id "
+                + "union all "
+                + "select t3.id from t1 join t3 on t1.id = t3.id;";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+
+        sql = "select t2.id, t1.name from t1 join t2 on t1.id = t2.id "
+                + "union all "
+                + "select t3.id, t1.name from t1 join t3 on t1.id = t3.id;";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+    }
+
+    @Test
+    void testFilter() {
+        String sql = "select * from t1 join t2 on t1.id = t2.id where t1.name = '' "
+                + "union all "
+                + "select * from t1 join t3 on t1.id = t3.id where t1.name = '' ;";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+
+        sql = "select t2.id from t1 join t2 on t1.id = t2.id where t1.name = '' "
+                + "union all "
+                + "select t3.id from t1 join t3 on t1.id = t3.id where t1.name = '' ;";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
     }
 }

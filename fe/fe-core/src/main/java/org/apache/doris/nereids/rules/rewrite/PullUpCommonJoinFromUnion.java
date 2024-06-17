@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -51,7 +52,6 @@ import javax.annotation.Nullable;
  * Pull up join from union all rules.
  */
 public class PullUpCommonJoinFromUnion extends OneRewriteRuleFactory {
-
     @Override
     public Rule build() {
         return logicalUnion()
@@ -97,16 +97,29 @@ public class PullUpCommonJoinFromUnion extends OneRewriteRuleFactory {
                         && expression.child(1).isSlot()) {
                     return false;
                 }
-                int left = slotToIndex.get(expression.child(0));
-                int right = slotToIndex.get(expression.child(1));
-                if (joinCondIndices.containsKey(left) && joinCondIndices.get(left) != right) {
+                Plan commonPlan = joinChildPair.second;
+
+                Expression otherChildSlot;
+                Expression commonChildSlot;
+                if (commonPlan.getOutputSet().contains((Slot) expression.child(0))) {
+                    otherChildSlot = expression.child(1);
+                    commonChildSlot = expression.child(0);
+                } else if (commonPlan.getOutputSet().contains((Slot) expression.child(1))) {
+                    otherChildSlot = expression.child(0);
+                    commonChildSlot = expression.child(1);
+                } else {
                     return false;
                 }
-                if (joinCondIndices.containsKey(right) && joinCondIndices.get(right) != left) {
+
+                if (!slotToIndex.containsKey(otherChildSlot)) {
                     return false;
                 }
-                joinCondIndices.put(left, right);
-                joinCondIndices.put(right, left);
+                int commonIndex = commonPlan.getOutput().indexOf(commonChildSlot);
+                int otherChildIndex = slotToIndex.get(otherChildSlot);
+                joinCondIndices.putIfAbsent(commonIndex, otherChildIndex);
+                if (joinCondIndices.get(commonIndex) != otherChildIndex) {
+                    return false;
+                }
             }
         }
         return true;
@@ -117,20 +130,7 @@ public class PullUpCommonJoinFromUnion extends OneRewriteRuleFactory {
             HashMap<Expression, Integer> slotToIndex) {
 
         // 1. construct new children of union
-        List<Plan> newChildren = new ArrayList<>();
-        for (Pair<LogicalJoin<?, ?>, Plan> child : commonChild) {
-            // find the child that is not the common side
-            Plan newChild;
-            if (child.first.child(0).equals(child.second)) {
-                newChild = constructNewChild(child.first.child(1), slotToIndex);
-            } else {
-                newChild = constructNewChild(child.first.child(0), slotToIndex);
-            }
-            newChildren.add(newChild);
-        }
-
-        //2. construct new union
-        LogicalUnion newUnion = union.withChildren(newChildren);
+        LogicalUnion newUnion = constructNewUnion(commonChild, slotToIndex);
         HashMap<Expression, Integer> newSlotToIndex = new HashMap<>();
         for (Plan child : newUnion.children()) {
             for (int i = 0; i < child.getOutput().size(); i++) {
@@ -153,39 +153,62 @@ public class PullUpCommonJoinFromUnion extends OneRewriteRuleFactory {
             Map<Expression, Integer> originalSlotToIndex,
             LogicalUnion newUnion,
             Map<Expression, Integer> newSlotToIndex) {
-        HashMap<Integer, Integer> originalUnionToNewUnion = new HashMap<>();
+        HashMap<Slot, Slot> originalUnionToNewSlot = new HashMap<>();
         for (Expression expr : originalSlotToIndex.keySet()) {
-            if (!newSlotToIndex.containsKey(expr)) {
-                continue;
+            Slot originalUnionSlot = originalUnion.getOutput().get(originalSlotToIndex.get(expr));
+            if (newSlotToIndex.containsKey(expr)) {
+                Slot newUnionSlot = newUnion.getOutput().get(newSlotToIndex.get(expr));
+                originalUnionToNewSlot.put(originalUnionSlot, newUnionSlot);
+            } else if (plan.getOutputSet().contains((Slot) expr)) {
+                originalUnionToNewSlot.put(originalUnionSlot, (Slot) expr);
             }
-            originalUnionToNewUnion.put(originalSlotToIndex.get(expr), newSlotToIndex.get(expr));
         }
-
         List<NamedExpression> newOutput = new ArrayList<>();
-        Set<Slot> outputs = plan.getOutputSet();
         for (int i = 0; i < originalUnion.getOutput().size(); i++) {
-            Slot outputSlot = originalUnion.getOutput().get(i);
-            if (outputs.contains(outputSlot)) {
-                continue;
-            }
-            int newUnionIndex = originalUnionToNewUnion.get(i);
-            Slot newUnionSlot = newUnion.getOutput().get(newUnionIndex);
-            newOutput.add(new Alias(outputSlot.getExprId(), newUnionSlot, outputSlot.getName()));
+            Slot originalSlot = originalUnion.getOutput().get(i);
+            Slot newSlot = originalUnionToNewSlot.get(originalSlot);
+            newOutput.add(new Alias(originalSlot.getExprId(), newSlot, originalSlot.getName()));
         }
         return newOutput;
     }
 
-    private Plan constructNewChild(Plan child, HashMap<Expression, Integer> slotToIndex) {
+    private LogicalUnion constructNewUnion(
+            Set<Pair<LogicalJoin<?, ?>, Plan>> commonChild, HashMap<Expression, Integer> slotToIndex) {
+        List<Plan> newChildren = new ArrayList<>();
+        for (Pair<LogicalJoin<?, ?>, Plan> child : commonChild) {
+            // find the child that is not the common side
+            Plan newChild;
+            if (child.first.child(0).equals(child.second)) {
+                newChild = constructNewChild(child.first.child(1), slotToIndex);
+            } else {
+                newChild = constructNewChild(child.first.child(0), slotToIndex);
+            }
+            newChildren.add(newChild);
+        }
+
+        //2. construct new union
+        LogicalUnion newUnion = new LogicalUnion(Qualifier.ALL, newChildren);
+        List<List<SlotReference>> childrenOutputs = newChildren.stream()
+                .map(p -> p.getOutput().stream()
+                        .map(SlotReference.class::cast)
+                        .collect(ImmutableList.toImmutableList()))
+                .collect(ImmutableList.toImmutableList());
+        newUnion = (LogicalUnion) newUnion.withChildrenAndTheirOutputs(newChildren, childrenOutputs);
+        newUnion = newUnion.withNewOutputs(newUnion.buildNewOutputs());
+        return newUnion;
+    }
+
+    private Plan constructNewChild(Plan plan, Map<Expression, Integer> slotToIndex) {
         List<NamedExpression> output = slotToIndex.entrySet()
                 .stream()
                 .sorted(Map.Entry.comparingByValue())
                 .map(e -> (Slot) (e.getKey()))
-                .filter(child.getOutputSet()::contains)
+                .filter(plan.getOutputSet()::contains)
                 .collect(Collectors.toList());
-        if (child.getOutput().equals(output)) {
-            return child;
+        if (plan.getOutput().equals(output)) {
+            return plan;
         }
-        return new LogicalProject<>(output, child);
+        return new LogicalProject<>(output, plan);
     }
 
     private Plan constructNewJoin(LogicalJoin<?, ?> originalJoin,
@@ -290,10 +313,10 @@ public class PullUpCommonJoinFromUnion extends OneRewriteRuleFactory {
                         .equals(new TableIdentifier(((LogicalCatalogRelation) plan2).getTable()));
             } else if (plan1 instanceof LogicalProject && plan2 instanceof LogicalProject) {
                 for (int i = 0; i < plan2.getOutput().size(); i++) {
-                    NamedExpression expr = ((LogicalProject<?>) plan2).getProjects().get(i);
+                    NamedExpression expr = ((LogicalProject<?>) plan1).getProjects().get(i);
                     NamedExpression replacedExpr = (NamedExpression)
                             expr.rewriteUp(e -> plan1ToPlan2.getOrDefault(e, e));
-                    if (!replacedExpr.equals(((LogicalProject<?>) plan1).getProjects().get(i))) {
+                    if (!replacedExpr.equals(((LogicalProject<?>) plan2).getProjects().get(i))) {
                         isEqual = false;
                         break;
                     }
@@ -301,10 +324,10 @@ public class PullUpCommonJoinFromUnion extends OneRewriteRuleFactory {
 
             } else if (plan1 instanceof LogicalFilter && plan2 instanceof LogicalFilter) {
                 Set<Expression> replacedConjuncts = new HashSet<>();
-                for (Expression expr : ((LogicalFilter<?>) plan2).getConjuncts()) {
+                for (Expression expr : ((LogicalFilter<?>) plan1).getConjuncts()) {
                     replacedConjuncts.add(expr.rewriteUp(e -> plan1ToPlan2.getOrDefault(e, e)));
                 }
-                isEqual = replacedConjuncts.equals(((LogicalFilter<?>) plan1).getConjuncts());
+                isEqual = replacedConjuncts.equals(((LogicalFilter<?>) plan2).getConjuncts());
             }
             if (!isEqual) {
                 return false;
