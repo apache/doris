@@ -150,6 +150,11 @@ public class PlaceHolderExpr extends LiteralExpr {
         return "?";
     }
 
+    @Override
+    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
+        return this.lExpr.uncheckedCastTo(targetType);
+    }
+
     // Swaps the sign of numeric literals.
     // Throws for non-numeric literals.
     public void swapSign() throws NotImplementedException {
