@@ -611,8 +611,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         // This may be a first fragment request of the query.
         // Create the query fragments context.
-        query_ctx = QueryContext::create_shared(query_id, _exec_env, params.query_options,
-                                                params.coord, pipeline, params.is_nereids);
+        query_ctx =
+                QueryContext::create_shared(query_id, _exec_env, params.query_options, params.coord,
+                                            pipeline, params.is_nereids, params.current_connect_fe);
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
