@@ -47,9 +47,11 @@ suite("test_primary_key_partial_update_seq_type", "p0") {
                         "store_row_column" = "${use_row_store}"); """
             // insert 2 lines
             sql """
-                insert into ${tableName} values
-                    (2, "doris2", 2000, 223, 1, '2023-01-01'),
-                    (1, "doris", 1000, 123, 1, '2023-01-01')
+                insert into ${tableName}
+                    (id, name, score, test, dft, update_time, __DORIS_SEQUENCE_COL__)
+                values
+                    (2, "doris2", 2000, 223, 1, '2023-01-01', 1),
+                    (1, "doris", 1000, 123, 1, '2023-01-01', 1)
             """
 
             sql "sync"
