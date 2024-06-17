@@ -107,6 +107,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.InvalidateStatsTarget;
 import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.UpdatePartitionStatsTarget;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -240,6 +241,7 @@ import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
+import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
@@ -986,6 +988,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Exception e) {
             throw new TException("Failed to get split source " + request.getSplitSourceId(), e);
         }
+    }
+
+    @Override
+    public TStatus updatePartitionStatsCache(TUpdateFollowerPartitionStatsCacheRequest request) {
+        UpdatePartitionStatsTarget target = GsonUtils.GSON.fromJson(request.key, UpdatePartitionStatsTarget.class);
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        analysisManager.updateLocalPartitionStatsCache(target.catalogId, target.dbId, target.tableId,
+                target.indexId, target.partitions, target.columnName);
+        return new TStatus(TStatusCode.OK);
     }
 
     @Override
