@@ -2545,6 +2545,8 @@ public class Analyzer {
         List<SlotId> slotIds = Lists.newArrayList();
 
         for (Expr e : exprs) {
+            LOG.info("mark slot materialized1: {}", e.toString());
+            LOG.info("mark slot materialized2: {}", e.toSql());
             Preconditions.checkState(e.isAnalyzed);
             e.getIds(null, slotIds);
         }
