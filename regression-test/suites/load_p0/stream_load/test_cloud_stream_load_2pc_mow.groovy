@@ -16,36 +16,34 @@
 // under the License.
 
 suite("test_cloud_stream_load_2pc_mow", "p0") {
-    // test common case
-    def tableName = "test_cloud_2pc_mow"
-
-    sql """ drop table if exists ${tableName} """
-
-    sql """
-    CREATE TABLE IF NOT EXISTS ${tableName} (
-      `k1` int(11) NULL,
-      `k2` tinyint(4) NULL,
-      `k3` smallint(6) NULL,
-      `k4` bigint(20) NULL,
-      `k5` largeint(40) NULL,
-      `k6` float NULL,
-      `k7` double NULL,
-      `k8` decimal(9, 0) NULL,
-      `k9` char(10) NULL,
-      `k10` varchar(1024) NULL,
-      `k11` text NULL,
-      `k12` date NULL,
-      `k13` datetime NULL
-      ) ENGINE=OLAP
-      UNIQUE KEY(`k1`)
-      DISTRIBUTED BY HASH(`k1`) BUCKETS 2
-      PROPERTIES (
-            "enable_unique_key_merge_on_write" = "true"
-      );
-    """
-
-    // 2pc precommit
     if (isCloudMode()) {
+        def tableName = "test_cloud_2pc_mow"
+
+        sql """ drop table if exists ${tableName} """
+
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+          `k1` int(11) NULL,
+          `k2` tinyint(4) NULL,
+          `k3` smallint(6) NULL,
+          `k4` bigint(20) NULL,
+          `k5` largeint(40) NULL,
+          `k6` float NULL,
+          `k7` double NULL,
+          `k8` decimal(9, 0) NULL,
+          `k9` char(10) NULL,
+          `k10` varchar(1024) NULL,
+          `k11` text NULL,
+          `k12` date NULL,
+          `k13` datetime NULL
+          ) ENGINE=OLAP
+          UNIQUE KEY(`k1`)
+          DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+          PROPERTIES (
+               "enable_unique_key_merge_on_write" = "true"
+          );
+        """
+
         streamLoad {
             table "${tableName}"
 
