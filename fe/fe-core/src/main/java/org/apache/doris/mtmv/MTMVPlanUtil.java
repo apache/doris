@@ -17,13 +17,16 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.Auth;
@@ -40,27 +43,31 @@ import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 public class MTMVPlanUtil {
 
-    public static ConnectContext createMTMVContext(MTMV mtmv) {
+    public static ConnectContext createMTMVContext(MTMV mtmv) throws DdlException {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQualifiedUser(Auth.ADMIN_USER);
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
-        ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
-        ctx.getSessionVariable().enableNereidsDML = true;
+        SessionVariable sessionVariable = ctx.getSessionVariable();
+        setPersonalizedSession(sessionVariable, mtmv);
+        sessionVariable.enableFallbackToOriginalPlanner = false;
+        sessionVariable.enableNereidsDML = true;
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
-            ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
+            sessionVariable.setWorkloadGroup(workloadGroup.get());
         }
         // switch catalog;
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(mtmv.getEnvInfo().getCtlId());
@@ -77,6 +84,16 @@ public class MTMVPlanUtil {
         }
         ctx.setDatabase(databaseIf.get().getFullName());
         return ctx;
+    }
+
+    private static void setPersonalizedSession(SessionVariable sessionVariable, MTMV mtmv) throws DdlException {
+        Map<String, String> mvProperties = mtmv.getMvProperties();
+        for (String key : mvProperties.keySet()) {
+            if (MTMVPropertyUtil.isSessionVariableProperty(key)) {
+                VariableMgr.setVar(sessionVariable, new SetVar(MTMVPropertyUtil.getSessionVariableKey(key),
+                        new StringLiteral(mvProperties.get(key))));
+            }
+        }
     }
 
     public static Pair<Boolean, String> checkEnvInfo(EnvInfo envInfo, ConnectContext ctx) {
@@ -97,7 +114,7 @@ public class MTMVPlanUtil {
         return Pair.of(true, "");
     }
 
-    public static MTMVRelation generateMTMVRelation(MTMV mtmv, ConnectContext ctx) {
+    public static MTMVRelation generateMTMVRelationByPlan(MTMV mtmv, ConnectContext ctx) {
         // Should not make table without data to empty relation when analyze the related table,
         // so add disable rules
         SessionVariable sessionVariable = ctx.getSessionVariable();
@@ -113,18 +130,19 @@ public class MTMVPlanUtil {
             sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
             ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         }
-        return generateMTMVRelation(plan);
+        return generateMTMVRelationByPlan(plan, ctx);
     }
 
-    public static MTMVRelation generateMTMVRelation(Plan plan) {
-        return new MTMVRelation(getBaseTables(plan, true), getBaseTables(plan, false), getBaseViews(plan));
+    public static MTMVRelation generateMTMVRelationByPlan(Plan plan, ConnectContext ctx) {
+        return new MTMVRelation(getBaseTables(plan, true, ctx), getBaseTables(plan, false, ctx), getBaseViews(plan));
     }
 
-    private static Set<BaseTableInfo> getBaseTables(Plan plan, boolean expand) {
+    private static Set<BaseTableInfo> getBaseTables(Plan plan, boolean expand, ConnectContext ctx) {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
                         com.google.common.collect.Sets
                                 .newHashSet(TableType.values()), expand);
+        collectorContext.setConnectContext(ctx);
         plan.accept(TableCollector.INSTANCE, collectorContext);
         Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         return transferTableIfToInfo(collectedTables);

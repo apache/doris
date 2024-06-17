@@ -192,6 +192,7 @@ public class PlanVisitorTest extends TestWithFeService {
                             // Check get tables
                             TableCollectorContext collectorContext = new TableCollector.TableCollectorContext(
                                     Sets.newHashSet(TableType.OLAP), true);
+                            collectorContext.setConnectContext(connectContext);
                             physicalPlan.accept(TableCollector.INSTANCE, collectorContext);
                             Set<String> expectedTables = new HashSet<>();
                             expectedTables.add("table1");

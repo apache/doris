@@ -156,7 +156,7 @@ public class CreateMTMVInfo {
                     mvName.getDb() + ": " + mvName.getTbl());
             throw new AnalysisException(message);
         }
-        analyzeProperties();
+        analyzeProperties(ctx);
         analyzeQuery(ctx);
         // analyze column
         final boolean finalEnableMergeOnWrite = false;
@@ -181,17 +181,17 @@ public class CreateMTMVInfo {
         distribution.validate(columnMap, KeysType.DUP_KEYS);
         refreshInfo.validate();
 
-        analyzeProperties();
+        analyzeProperties(ctx);
     }
 
-    private void analyzeProperties() {
+    private void analyzeProperties(ConnectContext ctx) {
         properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(mvName.getCtl(), mvName.getDb(), properties);
         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
             throw new AnalysisException("Not support dynamic partition properties on async materialized view");
         }
-        for (String key : MTMVPropertyUtil.mvPropertyKeys) {
-            if (properties.containsKey(key)) {
-                MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
+        for (String key : properties.keySet()) {
+            if (MTMVPropertyUtil.mvPropertyKeys.contains(key) || MTMVPropertyUtil.isSessionVariableProperty(key)) {
+                MTMVPropertyUtil.analyzeProperty(key, properties.get(key), ctx, Env.getCurrentEnv());
                 mvProperties.put(key, properties.get(key));
                 properties.remove(key);
             }
@@ -283,7 +283,7 @@ public class CreateMTMVInfo {
             sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
             ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         }
-        this.relation = MTMVPlanUtil.generateMTMVRelation(plan);
+        this.relation = MTMVPlanUtil.generateMTMVRelationByPlan(plan, ctx);
     }
 
     private PartitionDesc generatePartitionDesc(ConnectContext ctx) {

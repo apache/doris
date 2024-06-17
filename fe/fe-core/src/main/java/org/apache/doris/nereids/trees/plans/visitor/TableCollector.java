@@ -21,13 +21,13 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.mtmv.MTMVCache;
-import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -73,9 +73,10 @@ public class TableCollector extends DefaultPlanVisitor<Plan, TableCollectorConte
         if (!context.isExpand()) {
             return;
         }
+        ConnectContext connectContext = context.getConnectContext();
+        Preconditions.checkNotNull(connectContext);
         // Make sure use only one connection context when in query to avoid ConnectionContext.get() wrong
-        MTMVCache expandedMv = MTMVCache.from(mtmv, context.getConnectContext() == null
-                ? MTMVPlanUtil.createMTMVContext(mtmv) : context.getConnectContext());
+        MTMVCache expandedMv = MTMVCache.from(mtmv, connectContext);
         expandedMv.getLogicalPlan().accept(this, context);
     }
 
