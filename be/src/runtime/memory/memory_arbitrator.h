@@ -15,23 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/memory/global_memory_arbitrator.h"
+#pragma once
 
-#include <bvar/bvar.h>
+#include "runtime/memory/global_memory_arbitrator.h"
 
 namespace doris {
 
-bvar::PassiveStatus<int64_t> g_vm_rss_sub_allocator_cache(
-        "meminfo_vm_rss_sub_allocator_cache",
-        [](void*) { return GlobalMemoryArbitrator::vm_rss_sub_allocator_cache(); }, nullptr);
-bvar::PassiveStatus<int64_t> g_process_memory_usage(
-        "meminfo_process_memory_usage",
-        [](void*) { return GlobalMemoryArbitrator::process_memory_usage(); }, nullptr);
-bvar::PassiveStatus<int64_t> g_sys_mem_avail(
-        "meminfo_sys_mem_avail", [](void*) { return GlobalMemoryArbitrator::sys_mem_available(); },
-        nullptr);
+class MemoryArbitrator {
+public:
+    static bool process_minor_gc(
+            std::string mem_info =
+                    doris::GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str());
+    static bool process_full_gc(
+            std::string mem_info =
+                    doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
 
-std::atomic<int64_t> GlobalMemoryArbitrator::_s_process_reserved_memory = 0;
-std::atomic<int64_t> GlobalMemoryArbitrator::refresh_interval_memory_growth = 0;
+    static int64_t tg_disable_overcommit_group_gc();
+    static int64_t tg_enable_overcommit_group_gc(int64_t request_free_memory,
+                                                 RuntimeProfile* profile, bool is_minor_gc);
+
+private:
+};
 
 } // namespace doris

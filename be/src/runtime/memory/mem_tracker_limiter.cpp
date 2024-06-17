@@ -216,6 +216,13 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     snapshot.peak_consumption = PerfCounters::get_vm_hwm();
     (*snapshots).emplace_back(snapshot);
 
+    snapshot.type = "reserved memory";
+    snapshot.label = "";
+    snapshot.limit = -1;
+    snapshot.cur_consumption = GlobalMemoryArbitrator::process_reserved_memory();
+    snapshot.peak_consumption = -1;
+    (*snapshots).emplace_back(snapshot);
+
     snapshot.type = "process virtual memory"; // from /proc VmSize VmPeak
     snapshot.label = "";
     snapshot.limit = -1;
@@ -359,10 +366,10 @@ void MemTrackerLimiter::print_log_process_usage() {
 std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
     std::string err_msg = fmt::format(
             "memory tracker limit exceeded, tracker label:{}, type:{}, limit "
-            "{}, peak used {}, current used {}. backend {} process memory used {}.",
+            "{}, peak used {}, current used {}. backend {}, {}.",
             label(), type_string(_type), print_bytes(limit()),
             print_bytes(_consumption->peak_value()), print_bytes(_consumption->current_value()),
-            BackendOptions::get_localhost(), PerfCounters::get_vm_rss_str());
+            BackendOptions::get_localhost(), GlobalMemoryArbitrator::process_memory_used_str());
     if (_type == Type::QUERY || _type == Type::LOAD) {
         err_msg += fmt::format(
                 " exec node:<{}>, can `set exec_mem_limit=8G` to change limit, details see "
@@ -377,23 +384,17 @@ std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
 }
 
 int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem,
-                                                 const std::string& vm_rss_str,
-                                                 const std::string& mem_available_str,
+                                                 const std::string& cancel_reason,
                                                  RuntimeProfile* profile, Type type) {
     return free_top_memory_query(
             min_free_mem, type, ExecEnv::GetInstance()->mem_tracker_limiter_pool,
-            [&vm_rss_str, &mem_available_str, &type](int64_t mem_consumption,
-                                                     const std::string& label) {
+            [&cancel_reason, &type](int64_t mem_consumption, const std::string& label) {
                 return fmt::format(
-                        "Process has no memory available, cancel top memory used {}: "
-                        "{} memory tracker <{}> consumption {}, backend {} "
-                        "process memory used {} exceed limit {} or sys available memory {} "
-                        "less than low water mark {}. Execute again after enough memory, "
-                        "details see be.INFO.",
-                        type_string(type), type_string(type), label, print_bytes(mem_consumption),
-                        BackendOptions::get_localhost(), vm_rss_str, MemInfo::mem_limit_str(),
-                        mem_available_str,
-                        print_bytes(MemInfo::sys_mem_available_low_water_mark()));
+                        "Process memory not enough, cancel top memory used {}: "
+                        "<{}> consumption {}, backend {}, {}. Execute again "
+                        "after enough memory, details see be.INFO.",
+                        type_string(type), label, print_bytes(mem_consumption),
+                        BackendOptions::get_localhost(), cancel_reason);
             },
             profile, GCType::PROCESS);
 }
@@ -504,23 +505,17 @@ int64_t MemTrackerLimiter::free_top_memory_query(
 }
 
 int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem,
-                                                     const std::string& vm_rss_str,
-                                                     const std::string& mem_available_str,
+                                                     const std::string& cancel_reason,
                                                      RuntimeProfile* profile, Type type) {
     return free_top_overcommit_query(
             min_free_mem, type, ExecEnv::GetInstance()->mem_tracker_limiter_pool,
-            [&vm_rss_str, &mem_available_str, &type](int64_t mem_consumption,
-                                                     const std::string& label) {
+            [&cancel_reason, &type](int64_t mem_consumption, const std::string& label) {
                 return fmt::format(
-                        "Process has less memory, cancel top memory overcommit {}: "
-                        "{} memory tracker <{}> consumption {}, backend {} "
-                        "process memory used {} exceed soft limit {} or sys available memory {} "
-                        "less than warning water mark {}. Execute again after enough memory, "
-                        "details see be.INFO.",
-                        type_string(type), type_string(type), label, print_bytes(mem_consumption),
-                        BackendOptions::get_localhost(), vm_rss_str, MemInfo::soft_mem_limit_str(),
-                        mem_available_str,
-                        print_bytes(MemInfo::sys_mem_available_warning_water_mark()));
+                        "Process memory not enough, cancel top memory overcommit {}: "
+                        "<{}> consumption {}, backend {}, {}. Execute again "
+                        "after enough memory, details see be.INFO.",
+                        type_string(type), label, print_bytes(mem_consumption),
+                        BackendOptions::get_localhost(), cancel_reason);
             },
             profile, GCType::PROCESS);
 }

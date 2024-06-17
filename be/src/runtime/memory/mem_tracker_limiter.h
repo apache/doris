@@ -141,7 +141,7 @@ public:
             return true;
         }
         bool st = true;
-        if (is_overcommit_tracker() && config::enable_query_memory_overcommit) {
+        if (is_overcommit_tracker() && !config::enable_query_memory_overcommit) {
             st = _consumption->try_add(bytes, _limit);
         } else {
             _consumption->add(bytes);
@@ -192,9 +192,8 @@ public:
     static void print_log_process_usage();
 
     // Start canceling from the query with the largest memory usage until the memory of min_free_mem size is freed.
-    // vm_rss_str and mem_available_str recorded when gc is triggered, for log printing.
-    static int64_t free_top_memory_query(int64_t min_free_mem, const std::string& vm_rss_str,
-                                         const std::string& mem_available_str,
+    // cancel_reason recorded when gc is triggered, for log printing.
+    static int64_t free_top_memory_query(int64_t min_free_mem, const std::string& cancel_reason,
                                          RuntimeProfile* profile, Type type = Type::QUERY);
 
     static int64_t free_top_memory_query(
@@ -202,16 +201,13 @@ public:
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
             RuntimeProfile* profile, GCType gctype);
 
-    static int64_t free_top_memory_load(int64_t min_free_mem, const std::string& vm_rss_str,
-                                        const std::string& mem_available_str,
+    static int64_t free_top_memory_load(int64_t min_free_mem, const std::string& cancel_reason,
                                         RuntimeProfile* profile) {
-        return free_top_memory_query(min_free_mem, vm_rss_str, mem_available_str, profile,
-                                     Type::LOAD);
+        return free_top_memory_query(min_free_mem, cancel_reason, profile, Type::LOAD);
     }
     // Start canceling from the query with the largest memory overcommit ratio until the memory
     // of min_free_mem size is freed.
-    static int64_t free_top_overcommit_query(int64_t min_free_mem, const std::string& vm_rss_str,
-                                             const std::string& mem_available_str,
+    static int64_t free_top_overcommit_query(int64_t min_free_mem, const std::string& cancel_reason,
                                              RuntimeProfile* profile, Type type = Type::QUERY);
 
     static int64_t free_top_overcommit_query(
@@ -219,11 +215,9 @@ public:
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
             RuntimeProfile* profile, GCType gctype);
 
-    static int64_t free_top_overcommit_load(int64_t min_free_mem, const std::string& vm_rss_str,
-                                            const std::string& mem_available_str,
+    static int64_t free_top_overcommit_load(int64_t min_free_mem, const std::string& cancel_reason,
                                             RuntimeProfile* profile) {
-        return free_top_overcommit_query(min_free_mem, vm_rss_str, mem_available_str, profile,
-                                         Type::LOAD);
+        return free_top_overcommit_query(min_free_mem, cancel_reason, profile, Type::LOAD);
     }
 
     // only for Type::QUERY or Type::LOAD.
