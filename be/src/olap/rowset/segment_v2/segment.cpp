@@ -116,6 +116,9 @@ Status Segment::_open() {
 
     // An estimated memory usage of a segment
     _meta_mem_usage += _footer_pb->ByteSizeLong();
+    if (_pk_index_meta != nullptr) {
+        _meta_mem_usage += _pk_index_meta->ByteSizeLong();
+    }
     _meta_mem_usage += sizeof(*this);
     _meta_mem_usage += _tablet_schema->num_columns() * config::estimated_mem_per_column_reader;
 
