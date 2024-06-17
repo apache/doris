@@ -30,6 +30,7 @@ import java.util.Locale;
 import java.util.Map;
 
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
+import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.SetOperationStmt.Qualifier;
 import org.apache.doris.analysis.SetOperationStmt.Operation;
 import org.apache.doris.analysis.SetOperationStmt.SetOperand;
@@ -493,11 +494,6 @@ terminal String
     KW_MATCH_PHRASE_PREFIX,
     KW_MATCH_REGEXP,
     KW_MATCH_PHRASE_EDGE,
-    KW_MATCH_ELEMENT_EQ,
-    KW_MATCH_ELEMENT_LT,
-    KW_MATCH_ELEMENT_GT,
-    KW_MATCH_ELEMENT_LE,
-    KW_MATCH_ELEMENT_GE,
     KW_NAME,
     KW_NAMES,
     KW_NATURAL,
@@ -934,6 +930,9 @@ nonterminal Long opt_passwd_expire_policy, opt_password_lock_time, passwd_expire
 nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
+nonterminal ColumnNullableType opt_nullable_type;
+
+
 // Boolean
 nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local;
 nonterminal String opt_from_rollup, opt_to_rollup;
@@ -1019,7 +1018,7 @@ precedence left KW_AND;
 precedence left KW_NOT, NOT;
 precedence left KW_BETWEEN, KW_IN, KW_IS, KW_EXISTS;
 precedence left KW_LIKE, KW_REGEXP;
-precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH_REGEXP, KW_MATCH_PHRASE_EDGE, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
+precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH_REGEXP, KW_MATCH_PHRASE_EDGE, KW_MATCH;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
@@ -3051,6 +3050,14 @@ grant_stmt ::=
     {:
         RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STAGE);
     :}
+    | KW_GRANT privilege_list:privs KW_ON KW_STORAGE KW_VAULT resource_pattern:resourcePattern KW_TO user_identity:userId
+    {:
+        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STORAGE_VAULT);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_STORAGE KW_VAULT resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STORAGE_VAULT);
+    :}
     | KW_GRANT privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_TO user_identity:userId
     {:
         RESULT = new GrantStmt(userId, null, workloadGroupPattern, privs);
@@ -3146,6 +3153,14 @@ revoke_stmt ::=
     | KW_REVOKE privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
     {:
         RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STAGE);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_STORAGE KW_VAULT resource_pattern:resourcePattern KW_FROM user_identity:userId
+    {:
+        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STORAGE_VAULT);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_STORAGE KW_VAULT resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STORAGE_VAULT);
     :}
     | KW_REVOKE privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_FROM user_identity:userId
     {:
@@ -3254,9 +3269,9 @@ drop_stmt ::=
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null, null);
     :}
     /* statistics */
-    | KW_DROP KW_STATS table_name:tbl opt_col_list:cols
+    | KW_DROP KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
     {:
-        RESULT = new DropStatsStmt(tbl, cols);
+        RESULT = new DropStatsStmt(tbl, cols, partitionNames);
     :}
     | KW_DROP KW_EXPIRED KW_STATS
     {:
@@ -3943,14 +3958,14 @@ opt_is_key ::=
     ;
 
 column_definition ::=
-    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
+    ident:columnName type_def:typeDef opt_is_key:isKey opt_nullable_type:nullable_type opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, autoIncInitValue, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, nullable_type, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_nullable_type:nullable_type opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, autoIncInitValue, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, nullable_type, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
     ;
@@ -3966,6 +3981,20 @@ build_index_definition ::=
     KW_INDEX ident:indexName opt_partition_names:partitionNames
     {:
         RESULT = new IndexDef(indexName, partitionNames, true);
+    :}
+    ;
+
+opt_nullable_type ::=
+    {:
+        RESULT = ColumnNullableType.DEFAULT;
+    :}
+    | KW_NULL
+    {:
+        RESULT = ColumnNullableType.NULLABLE;
+    :}
+    | KW_NOT KW_NULL
+    {:
+        RESULT = ColumnNullableType.NOT_NULLABLE;
     :}
     ;
 
@@ -4126,6 +4155,14 @@ show_stmt ::=
     | KW_SHOW KW_STORAGE KW_POLICY
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null, null);
+    :}
+    | KW_SHOW KW_STORAGE KW_POLICY KW_USING
+    {:
+        RESULT = new ShowStoragePolicyUsingStmt(null);
+    :}
+    | KW_SHOW KW_STORAGE KW_POLICY KW_USING KW_FOR ident:policy
+    {:
+        RESULT = new ShowStoragePolicyUsingStmt(policy);
     :}
     /* show stage */
     | KW_SHOW KW_STAGES
@@ -7565,16 +7602,6 @@ match_predicate ::=
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_REGEXP, e1, e2); :}
   | expr:e1 KW_MATCH_PHRASE_EDGE expr:e2
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE_EDGE, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_EQ expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_EQ, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_LT expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_LT, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_GT expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_GT, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_LE expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_LE, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_GE expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_GE, e1, e2); :}
   ;
 
 // Avoid a reduce/reduce conflict with compound_predicate by explicitly
@@ -8451,15 +8478,29 @@ keyword ::=
     {: RESULT = id; :}
     | KW_MATCH_PHRASE_EDGE:id
     {: RESULT = id; :}
-    | KW_MATCH_ELEMENT_EQ:id
+    | KW_SQL:id
     {: RESULT = id; :}
-    | KW_MATCH_ELEMENT_LT:id
+    | KW_CACHE:id
     {: RESULT = id; :}
-    | KW_MATCH_ELEMENT_GT:id
+    | KW_COLOCATE:id
     {: RESULT = id; :}
-    | KW_MATCH_ELEMENT_LE:id
+    | KW_COMPRESS_TYPE:id
     {: RESULT = id; :}
-    | KW_MATCH_ELEMENT_GE:id
+    | KW_DORIS_INTERNAL_TABLE_ID:id
+    {: RESULT = id; :}
+    | KW_HOTSPOT:id
+    {: RESULT = id; :}
+    | KW_PRIVILEGES:id
+    {: RESULT = id; :}
+    | KW_RECENT:id
+    {: RESULT = id; :}
+    | KW_STAGES:id
+    {: RESULT = id; :}
+    | KW_WARM:id
+    {: RESULT = id; :}
+    | KW_UP:id
+    {: RESULT = id; :}
+    | KW_CONVERT_LSC:id
     {: RESULT = id; :}
     ;
 

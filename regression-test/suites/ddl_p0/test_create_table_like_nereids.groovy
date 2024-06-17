@@ -18,6 +18,8 @@
 suite("test_create_table_like_nereids") {
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     sql "drop table if exists mal_test_create_table_like"
     sql """create table mal_test_create_table_like(pk int, a int, b int) distributed by hash(pk) buckets 10

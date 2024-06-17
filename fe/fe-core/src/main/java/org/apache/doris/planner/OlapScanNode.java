@@ -178,12 +178,6 @@ public class OlapScanNode extends ScanNode {
     // It's limit for scanner instead of scanNode so we add a new limit.
     private long sortLimit = -1;
 
-    // useTopnOpt is equivalent to !topnFilterSortNodes.isEmpty().
-    // keep this flag for compatibility.
-    private boolean useTopnOpt = false;
-    // support multi topn filter
-    private final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
-
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
 
@@ -317,14 +311,6 @@ public class OlapScanNode extends ScanNode {
 
     public void setSortLimit(long sortLimit) {
         this.sortLimit = sortLimit;
-    }
-
-    public boolean getUseTopnOpt() {
-        return useTopnOpt;
-    }
-
-    public void setUseTopnOpt(boolean useTopnOpt) {
-        this.useTopnOpt = useTopnOpt;
     }
 
     public Collection<Long> getSelectedPartitionIds() {
@@ -1157,7 +1143,8 @@ public class OlapScanNode extends ScanNode {
 
     public boolean isPointQuery() {
         return this.pointQueryEqualPredicats != null
-                    || (preparedStatment != null && preparedStatment.isPointQueryShortCircuit());
+                    || (preparedStatment != null && preparedStatment.isPointQueryShortCircuit())
+                    || ConnectContext.get().getStatementContext().isShortCircuitQuery();
     }
 
     private void computeTabletInfo() throws UserException {
@@ -1285,6 +1272,7 @@ public class OlapScanNode extends ScanNode {
         scanTabletIds.clear();
         bucketSeq2locations.clear();
         scanReplicaIds.clear();
+        sampleTabletIds.clear();
         try {
             createScanRangeLocations();
         } catch (AnalysisException e) {
@@ -1347,7 +1335,7 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
         }
-        if (useTopnOpt) {
+        if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
                     topnFilterSortNodes.stream()
                             .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
@@ -1366,8 +1354,9 @@ public class OlapScanNode extends ScanNode {
         String selectedPartitions = getSelectedPartitionIds().stream().sorted()
                 .map(id -> olapTable.getPartition(id).getName())
                 .collect(Collectors.joining(","));
-        output.append(prefix).append(String.format("partitions=%s/%s (%s), tablets=%s/%s", selectedPartitionNum,
-                olapTable.getPartitions().size(), selectedPartitions, selectedTabletsNum, totalTabletsNum));
+        output.append(prefix).append(String.format("partitions=%s/%s (%s)", selectedPartitionNum,
+                olapTable.getPartitions().size(), selectedPartitions)).append("\n");
+        output.append(prefix).append(String.format("tablets=%s/%s", selectedTabletsNum, totalTabletsNum));
         // We print up to 3 tablet, and we print "..." if the number is more than 3
         if (scanTabletIds.size() > 3) {
             List<Long> firstTenTabletIds = scanTabletIds.subList(0, 3);
@@ -1384,7 +1373,7 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("pushAggOp=").append(pushDownAggNoGroupingOp).append("\n");
         }
         if (isPointQuery()) {
-            output.append(prefix).append("SHORT-CIRCUIT");
+            output.append(prefix).append("SHORT-CIRCUIT\n");
         }
 
         if (!CollectionUtils.isEmpty(rewrittenProjectList)) {
@@ -1524,18 +1513,6 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             msg.olap_scan_node.setSortLimit(sortLimit);
         }
-        msg.olap_scan_node.setUseTopnOpt(useTopnOpt);
-        List<Integer> topnFilterSourceNodeIds = getTopnFilterSortNodes()
-                .stream()
-                .map(sortNode -> sortNode.getId().asInt())
-                .collect(Collectors.toList());
-        if (!topnFilterSourceNodeIds.isEmpty()) {
-            if (SessionVariable.enablePipelineEngineX()) {
-                msg.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
-            } else {
-                msg.olap_scan_node.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
-            }
-        }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         String tableName = olapTable.getName();
         if (selectedIndexId != -1) {
@@ -1556,6 +1533,7 @@ public class OlapScanNode extends ScanNode {
         if (shouldColoScan || SessionVariable.enablePipelineEngineX()) {
             msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
         }
+        super.toThrift(msg);
     }
 
     public void collectColumns(Analyzer analyzer, Set<String> equivalenceColumns, Set<String> unequivalenceColumns) {
@@ -1811,14 +1789,6 @@ public class OlapScanNode extends ScanNode {
     @Override
     public int getScanRangeNum() {
         return getScanTabletIds().size();
-    }
-
-    public void addTopnFilterSortNode(SortNode sortNode) {
-        topnFilterSortNodes.add(sortNode);
-    }
-
-    public List<SortNode> getTopnFilterSortNodes() {
-        return topnFilterSortNodes;
     }
 
     @Override

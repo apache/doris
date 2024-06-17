@@ -101,6 +101,62 @@ suite("iceberg_position_delete", "p2,external,iceberg,external_remote,external_r
         qt_parquet_19 """ select count(*) from iceberg_position_parquet where  name != 'final entryxxxxxx' ;""" 
         qt_parquet_20 """ select count(*) from iceberg_position_parquet; """ 
 
+
+        List<List<Object>> iceberg_position_orc = sql """ select * from iceberg_position_orc ;"""
+        List<List<Object>> iceberg_position_parquet = sql """ select * from iceberg_position_parquet;"""
+        List<List<Object>> iceberg_position_gen = sql """ select * from iceberg_position_gen_data;"""
+
+        assertTrue(iceberg_position_orc.size() == iceberg_position_gen.size())
+        assertTrue(iceberg_position_orc.size() == iceberg_position_parquet.size())
+        assertTrue(iceberg_position_orc.size() == 5632)
+
+
+        List<List<Object>> iceberg_position_orc_1 = sql  """select * from iceberg_position_orc where id != 1;"""
+        List<List<Object>> iceberg_position_orc_2 = sql """select * from iceberg_position_orc where name != "hello word" ;"""
+        List<List<Object>> iceberg_position_orc_3 = sql """select id from iceberg_position_orc where id != 1;"""
+        List<List<Object>> iceberg_position_orc_4 = sql """select name from iceberg_position_orc where id != 1;"""
+        List<List<Object>> iceberg_position_orc_5 = sql """select name from iceberg_position_orc where name != "hello word" ;"""
+        List<List<Object>> iceberg_position_orc_6 = sql """select id from iceberg_position_orc where name != "hello word" ;"""
+        List<List<Object>> iceberg_position_orc_7 = sql """select * from iceberg_position_orc where id != 1 and name != "33333";"""
+        assertTrue(iceberg_position_orc_1.size() == 5632)
+        assertTrue(iceberg_position_orc_2.size() == 5632)
+        assertTrue(iceberg_position_orc_3.size() == 5632)
+        assertTrue(iceberg_position_orc_4.size() == 5632)
+        assertTrue(iceberg_position_orc_5.size() == 5632)
+        assertTrue(iceberg_position_orc_6.size() == 5632)
+        assertTrue(iceberg_position_orc_7.size() == 5632)
+
+
+        List<List<Object>> iceberg_position_gen_1 = sql """select * from iceberg_position_gen_data where id != 1 and name != "hello";"""
+        assertTrue(iceberg_position_gen_1.size() == 5632)
+
+        List<List<Object>> iceberg_position_gen_2 = sql """select * from iceberg_position_gen_data where id != 2;"""
+        assertTrue(iceberg_position_gen_2.size() == 5120)
+        
+        List<List<Object>> iceberg_position_gen_22 = sql """select * from iceberg_position_gen_data where id != 5;"""
+        assertTrue(iceberg_position_gen_22.size() == 5632)
+
+        List<List<Object>> iceberg_position_gen_3 = sql """select * from iceberg_position_gen_data where name != "hello word" ;"""
+        assertTrue(iceberg_position_gen_3.size() == 5632)
+        
+        List<List<Object>> iceberg_position_gen_4 = sql """select id from iceberg_position_gen_data where id != 2;"""
+        assertTrue(iceberg_position_gen_4.size() == 5120)
+        
+        List<List<Object>> iceberg_position_gen_44 = sql """select id from iceberg_position_gen_data where id != 5;"""
+        assertTrue(iceberg_position_gen_44.size() == 5632)
+        
+        List<List<Object>> iceberg_position_gen_5 = sql """select name from iceberg_position_gen_data where id != 2;"""
+        assertTrue(iceberg_position_gen_5.size() == 5120)
+        
+        List<List<Object>> iceberg_position_gen_55 = sql """select name from iceberg_position_gen_data where id != 5;"""
+        assertTrue(iceberg_position_gen_55.size() == 5632)
+        
+        List<List<Object>> iceberg_position_gen_6 = sql """select name from iceberg_position_gen_data where name != "hello wordxx" ;"""
+        assertTrue(iceberg_position_gen_6.size() == 5632)
+        
+        List<List<Object>> iceberg_position_gen_7 = sql """select id from iceberg_position_gen_data where name != "hello word" ;"""
+        assertTrue(iceberg_position_gen_7.size() == 5632)
+
         sql """drop catalog ${catalog_name}"""
     }
 }

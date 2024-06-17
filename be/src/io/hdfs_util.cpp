@@ -23,9 +23,9 @@
 #include <ostream>
 
 #include "common/logging.h"
-#include "gutil/hash/hash.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_builder.h"
+#include "vec/common/string_ref.h"
 
 namespace doris::io {
 namespace {
@@ -41,17 +41,24 @@ Status create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name
     return Status::OK();
 }
 
-uint64 hdfs_hash_code(const THdfsParams& hdfs_params) {
-    uint64 hash_code = 0;
-    hash_code ^= Fingerprint(hdfs_params.fs_name);
+uint64_t hdfs_hash_code(const THdfsParams& hdfs_params, const std::string& fs_name) {
+    uint64_t hash_code = 0;
+    // The specified fsname is used first.
+    // If there is no specified fsname, the default fsname is used
+    if (!fs_name.empty()) {
+        hash_code ^= crc32_hash(fs_name);
+    } else if (hdfs_params.__isset.fs_name) {
+        hash_code ^= crc32_hash(hdfs_params.fs_name);
+    }
+
     if (hdfs_params.__isset.user) {
-        hash_code ^= Fingerprint(hdfs_params.user);
+        hash_code ^= crc32_hash(hdfs_params.user);
     }
     if (hdfs_params.__isset.hdfs_kerberos_principal) {
-        hash_code ^= Fingerprint(hdfs_params.hdfs_kerberos_principal);
+        hash_code ^= crc32_hash(hdfs_params.hdfs_kerberos_principal);
     }
     if (hdfs_params.__isset.hdfs_kerberos_keytab) {
-        hash_code ^= Fingerprint(hdfs_params.hdfs_kerberos_keytab);
+        hash_code ^= crc32_hash(hdfs_params.hdfs_kerberos_keytab);
     }
     if (hdfs_params.__isset.hdfs_conf) {
         std::map<std::string, std::string> conf_map;
@@ -59,8 +66,8 @@ uint64 hdfs_hash_code(const THdfsParams& hdfs_params) {
             conf_map[conf.key] = conf.value;
         }
         for (auto& conf : conf_map) {
-            hash_code ^= Fingerprint(conf.first);
-            hash_code ^= Fingerprint(conf.second);
+            hash_code ^= crc32_hash(conf.first);
+            hash_code ^= crc32_hash(conf.second);
         }
     }
     return hash_code;
@@ -80,7 +87,7 @@ bvar::LatencyRecorder hdfs_hsync_latency("hdfs_hsync");
 }; // namespace hdfs_bvar
 
 void HdfsHandlerCache::_clean_invalid() {
-    std::vector<uint64> removed_handle;
+    std::vector<uint64_t> removed_handle;
     for (auto& item : _cache) {
         if (item.second.use_count() == 1 && item.second->invalid()) {
             removed_handle.emplace_back(item.first);
@@ -93,7 +100,7 @@ void HdfsHandlerCache::_clean_invalid() {
 
 void HdfsHandlerCache::_clean_oldest() {
     uint64_t oldest_time = ULONG_MAX;
-    uint64 oldest = 0;
+    uint64_t oldest = 0;
     for (auto& item : _cache) {
         if (item.second.use_count() == 1 && item.second->last_access_time() < oldest_time) {
             oldest_time = item.second->last_access_time();
@@ -105,7 +112,7 @@ void HdfsHandlerCache::_clean_oldest() {
 
 Status HdfsHandlerCache::get_connection(const THdfsParams& hdfs_params, const std::string& fs_name,
                                         std::shared_ptr<HdfsHandler>* fs_handle) {
-    uint64 hash_code = hdfs_hash_code(hdfs_params);
+    uint64_t hash_code = hdfs_hash_code(hdfs_params, fs_name);
     {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _cache.find(hash_code);

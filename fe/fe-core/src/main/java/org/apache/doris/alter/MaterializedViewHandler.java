@@ -114,7 +114,6 @@ public class MaterializedViewHandler extends AlterHandler {
 
     @Override
     public void addAlterJobV2(AlterJobV2 alterJob) throws AnalysisException {
-        alterJob = AlterJobV2Factory.rebuildAlterJobV2(alterJob);
         super.addAlterJobV2(alterJob);
         addAlterJobV2ToTableNotFinalStateJobMap(alterJob);
     }
@@ -485,8 +484,8 @@ public class MaterializedViewHandler extends AlterHandler {
         if (olapTable.hasMaterializedIndex(addMVClause.getMVName())) {
             throw new DdlException("Materialized view[" + addMVClause.getMVName() + "] already exists");
         }
-        if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new DdlException("MergeOnWrite table can't create materialized view.");
+        if (olapTable.getRowStoreCol() != null) {
+            throw new DdlException("RowStore table can't create materialized view.");
         }
         // check if mv columns are valid
         // a. Aggregate table:
@@ -644,6 +643,9 @@ public class MaterializedViewHandler extends AlterHandler {
             throws DdlException {
         if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
             throw new DdlException("MergeOnWrite table can't create materialized view.");
+        }
+        if (olapTable.getRowStoreCol() != null) {
+            throw new DdlException("RowStore table can't create materialized view.");
         }
         String rollupIndexName = addRollupClause.getRollupName();
         List<String> rollupColumnNames = addRollupClause.getColumnNames();
@@ -1117,7 +1119,6 @@ public class MaterializedViewHandler extends AlterHandler {
     // replay the alter job v2
     @Override
     public void replayAlterJobV2(AlterJobV2 alterJob) throws AnalysisException {
-        alterJob = AlterJobV2Factory.rebuildAlterJobV2(alterJob);
         super.replayAlterJobV2(alterJob);
         if (!alterJob.isDone()) {
             addAlterJobV2ToTableNotFinalStateJobMap(alterJob);

@@ -24,6 +24,7 @@
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/DorisExternalService_types.h>
 #include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Planner_types.h>
 #include <gen_cpp/Status_types.h>
@@ -69,9 +70,11 @@
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/arrow/row_batch.h"
 #include "util/defer_op.h"
+#include "util/runtime_profile.h"
 #include "util/threadpool.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
+#include "util/url_coding.h"
 
 namespace apache {
 namespace thrift {
@@ -263,24 +266,24 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             estimate_timeout = config::download_low_speed_time;
         }
 
-        auto local_segment_path = BetaRowset::segment_file_path(
-                local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
+        auto segment_path = local_segment_path(local_tablet->tablet_path(),
+                                               rowset_meta->rowset_id().to_string(), segment_index);
         LOG(INFO) << fmt::format("download segment file from {} to {}", get_segment_file_url,
-                                 local_segment_path);
-        auto get_segment_file_cb = [&get_segment_file_url, &local_segment_path, segment_file_size,
+                                 segment_path);
+        auto get_segment_file_cb = [&get_segment_file_url, &segment_path, segment_file_size,
                                     estimate_timeout, &download_success_files](HttpClient* client) {
             RETURN_IF_ERROR(client->init(get_segment_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
-            RETURN_IF_ERROR(client->download(local_segment_path));
-            download_success_files.push_back(local_segment_path);
+            RETURN_IF_ERROR(client->download(segment_path));
+            download_success_files.push_back(segment_path);
 
             std::error_code ec;
             // Check file length
-            uint64_t local_file_size = std::filesystem::file_size(local_segment_path, ec);
+            uint64_t local_file_size = std::filesystem::file_size(segment_path, ec);
             if (ec) {
                 LOG(WARNING) << "download file error" << ec.message();
-                return Status::IOError("can't retrive file_size of {}, due to {}",
-                                       local_segment_path, ec.message());
+                return Status::IOError("can't retrive file_size of {}, due to {}", segment_path,
+                                       ec.message());
             }
             if (local_file_size != segment_file_size) {
                 LOG(WARNING) << "download file length error"
@@ -289,7 +292,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                              << ", local_file_size=" << local_file_size;
                 return Status::InternalError("downloaded file size is not equal");
             }
-            return io::global_local_filesystem()->permission(local_segment_path,
+            return io::global_local_filesystem()->permission(segment_path,
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };
 
@@ -329,10 +332,13 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                             RETURN_IF_ERROR(client->head());
                             return client->get_content_length(&segment_index_file_size);
                         };
-                auto index_file = InvertedIndexDescriptor::inverted_index_file_path(
-                        local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index,
-                        index_id, index.get_index_suffix());
-                segment_index_file_names.push_back(index_file);
+
+                auto segment_path =
+                        local_segment_path(local_tablet->tablet_path(),
+                                           rowset_meta->rowset_id().to_string(), segment_index);
+                segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_path_v1(
+                        InvertedIndexDescriptor::get_index_path_prefix(segment_path), index_id,
+                        index.get_index_suffix()));
 
                 status = HttpClient::execute_with_retry(max_retry, 1,
                                                         get_segment_index_file_size_cb);
@@ -365,10 +371,11 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                             RETURN_IF_ERROR(client->head());
                             return client->get_content_length(&segment_index_file_size);
                         };
-                auto local_segment_path = BetaRowset::segment_file_path(
-                        local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
-                auto index_file = InvertedIndexDescriptor::get_index_file_name(local_segment_path);
-                segment_index_file_names.push_back(index_file);
+                auto segment_path =
+                        local_segment_path(local_tablet->tablet_path(),
+                                           rowset_meta->rowset_id().to_string(), segment_index);
+                segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_path_v2(
+                        InvertedIndexDescriptor::get_index_path_prefix(segment_path)));
 
                 status = HttpClient::execute_with_retry(max_retry, 1,
                                                         get_segment_index_file_size_cb);
@@ -748,10 +755,40 @@ void BaseBackendService::open_scanner(TScanOpenResult& result_, const TScanOpenP
     } else {
         p_context->keep_alive_min = 5;
     }
+
+    Status exec_st;
+    TQueryPlanInfo t_query_plan_info;
+    {
+        const std::string& opaqued_query_plan = params.opaqued_query_plan;
+        std::string query_plan_info;
+        // base64 decode query plan
+        if (!base64_decode(opaqued_query_plan, &query_plan_info)) {
+            LOG(WARNING) << "open context error: base64_decode decode opaqued_query_plan failure";
+            std::stringstream msg;
+            msg << "query_plan_info: " << query_plan_info
+                << " validate error, should not be modified after returned Doris FE processed";
+            exec_st = Status::InvalidArgument(msg.str());
+        }
+
+        const uint8_t* buf = (const uint8_t*)query_plan_info.data();
+        uint32_t len = query_plan_info.size();
+        // deserialize TQueryPlanInfo
+        auto st = deserialize_thrift_msg(buf, &len, false, &t_query_plan_info);
+        if (!st.ok()) {
+            LOG(WARNING) << "open context error: deserialize TQueryPlanInfo failure";
+            std::stringstream msg;
+            msg << "query_plan_info: " << query_plan_info
+                << " deserialize error, should not be modified after returned Doris FE processed";
+            exec_st = Status::InvalidArgument(msg.str());
+        }
+        p_context->query_id = t_query_plan_info.query_id;
+    }
     std::vector<TScanColumnDesc> selected_columns;
-    // start the scan procedure
-    Status exec_st = _exec_env->fragment_mgr()->exec_external_plan_fragment(
-            params, fragment_instance_id, &selected_columns);
+    if (exec_st.ok()) {
+        // start the scan procedure
+        exec_st = _exec_env->fragment_mgr()->exec_external_plan_fragment(
+                params, t_query_plan_info, fragment_instance_id, &selected_columns);
+    }
     exec_st.to_thrift(&t_status);
     //return status
     // t_status.status_code = TStatusCode::OK;
@@ -1168,9 +1205,18 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
     if (!request.__isset.id) {
         LOG_WARNING("Invalidate argument, id is empty");
         response.__set_status(Status::InvalidArgument("id is empty").to_thrift());
+        return;
     }
 
-    LOG_INFO("Getting realtime exec status of query {}", print_id(request.id));
+    RuntimeProfile::Counter get_realtime_timer {TUnit::TIME_NS};
+
+    Defer _print_log([&]() {
+        LOG_INFO("Getting realtime exec status of query {} , cost time {}", print_id(request.id),
+                 PrettyPrinter::print(get_realtime_timer.value(), get_realtime_timer.type()));
+    });
+
+    SCOPED_TIMER(&get_realtime_timer);
+
     std::unique_ptr<TReportExecStatusParams> report_exec_status_params =
             std::make_unique<TReportExecStatusParams>();
     Status st = ExecEnv::GetInstance()->fragment_mgr()->get_realtime_exec_status(
@@ -1186,7 +1232,6 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
 
     response.__set_status(Status::OK().to_thrift());
     response.__set_report_exec_status_params(*report_exec_status_params);
-    return;
 }
 
 } // namespace doris

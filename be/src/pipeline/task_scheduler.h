@@ -61,8 +61,6 @@ public:
 
     void stop();
 
-    TaskQueue* task_queue() const { return _task_queue.get(); }
-
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
     std::shared_ptr<TaskQueue> _task_queue;

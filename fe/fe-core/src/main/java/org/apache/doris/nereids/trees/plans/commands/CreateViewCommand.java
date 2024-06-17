@@ -36,6 +36,7 @@ public class CreateViewCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        executor.checkBlockRules();
         createViewInfo.init(ctx);
         createViewInfo.validate(ctx);
         CreateViewStmt createViewStmt = createViewInfo.translateToLegacyStmt(ctx);

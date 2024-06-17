@@ -28,9 +28,7 @@ public class DeepCopyTest {
     @Test
     public void test() {
         TableInfo info = TableInfo.createForTableRename(1, 2, "newTbl");
-        TableInfo copied = new TableInfo();
-        boolean res = DeepCopy.copy(info, copied, TableInfo.class, FeConstants.meta_version);
-        Assert.assertTrue(res);
+        TableInfo copied = DeepCopy.copy(info, TableInfo.class, FeConstants.meta_version);
         Assert.assertEquals(1, copied.getDbId());
         Assert.assertEquals(2, copied.getTableId());
         Assert.assertEquals("newTbl", copied.getNewTableName());

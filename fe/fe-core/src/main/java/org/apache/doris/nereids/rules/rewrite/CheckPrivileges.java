@@ -26,6 +26,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -81,6 +82,11 @@ public class CheckPrivileges extends ColumnPruning {
         for (Slot requiredSlot : requiredSlots) {
             Slot slot = idToSlot.get(requiredSlot.getExprId().asInt());
             if (slot != null) {
+                // don't check privilege for hidden column, e.g. __DORIS_DELETE_SIGN__
+                if (slot instanceof SlotReference && ((SlotReference) slot).getColumn().isPresent()
+                        && !((SlotReference) slot).getColumn().get().isVisible()) {
+                    continue;
+                }
                 usedColumns.add(slot.getName());
             }
         }

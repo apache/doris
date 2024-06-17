@@ -32,6 +32,7 @@ suite("query91") {
     sql 'set runtime_filter_type=8'
     sql 'set dump_nereids_memo=false'
     sql 'set enable_bucket_shuffle_downgrade=true'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     def ds = """select  
         cc_call_center_id Call_Center,
         cc_name Call_Center_Name,

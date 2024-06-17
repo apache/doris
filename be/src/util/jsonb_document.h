@@ -498,7 +498,7 @@ public:
     bool isNull() const { return (type_ == JsonbType::T_Null); }
     bool isTrue() const { return (type_ == JsonbType::T_True); }
     bool isFalse() const { return (type_ == JsonbType::T_False); }
-    bool isInt() const { return isInt8() || isInt16() || isInt32() || isInt64(); }
+    bool isInt() const { return isInt8() || isInt16() || isInt32() || isInt64() || isInt128(); }
     bool isInt8() const { return (type_ == JsonbType::T_Int8); }
     bool isInt16() const { return (type_ == JsonbType::T_Int16); }
     bool isInt32() const { return (type_ == JsonbType::T_Int32); }

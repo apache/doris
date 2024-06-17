@@ -318,16 +318,6 @@ public:
                 condition.__set_condition_op("match_regexp");
             } else if (value.first == MatchType::MATCH_PHRASE_EDGE) {
                 condition.__set_condition_op("match_phrase_edge");
-            } else if (value.first == MatchType::MATCH_ELEMENT_EQ) {
-                condition.__set_condition_op("match_element_eq");
-            } else if (value.first == MatchType::MATCH_ELEMENT_LT) {
-                condition.__set_condition_op("match_element_lt");
-            } else if (value.first == MatchType::MATCH_ELEMENT_GT) {
-                condition.__set_condition_op("match_element_gt");
-            } else if (value.first == MatchType::MATCH_ELEMENT_LE) {
-                condition.__set_condition_op("match_element_le");
-            } else if (value.first == MatchType::MATCH_ELEMENT_GE) {
-                condition.__set_condition_op("match_element_ge");
             }
             condition.condition_values.push_back(
                     cast_to_string<primitive_type, CppType>(value.second, _scale));
@@ -519,13 +509,14 @@ private:
 
 using ColumnValueRangeType = std::variant<
         ColumnValueRange<TYPE_TINYINT>, ColumnValueRange<TYPE_SMALLINT>, ColumnValueRange<TYPE_INT>,
-        ColumnValueRange<TYPE_BIGINT>, ColumnValueRange<TYPE_LARGEINT>, ColumnValueRange<TYPE_CHAR>,
-        ColumnValueRange<TYPE_VARCHAR>, ColumnValueRange<TYPE_STRING>, ColumnValueRange<TYPE_DATE>,
-        ColumnValueRange<TYPE_DATEV2>, ColumnValueRange<TYPE_DATETIME>,
-        ColumnValueRange<TYPE_DATETIMEV2>, ColumnValueRange<TYPE_DECIMALV2>,
-        ColumnValueRange<TYPE_BOOLEAN>, ColumnValueRange<TYPE_HLL>,
-        ColumnValueRange<TYPE_DECIMAL32>, ColumnValueRange<TYPE_DECIMAL64>,
-        ColumnValueRange<TYPE_DECIMAL128I>, ColumnValueRange<TYPE_DECIMAL256>>;
+        ColumnValueRange<TYPE_BIGINT>, ColumnValueRange<TYPE_LARGEINT>, ColumnValueRange<TYPE_IPV4>,
+        ColumnValueRange<TYPE_IPV6>, ColumnValueRange<TYPE_CHAR>, ColumnValueRange<TYPE_VARCHAR>,
+        ColumnValueRange<TYPE_STRING>, ColumnValueRange<TYPE_DATE>, ColumnValueRange<TYPE_DATEV2>,
+        ColumnValueRange<TYPE_DATETIME>, ColumnValueRange<TYPE_DATETIMEV2>,
+        ColumnValueRange<TYPE_DECIMALV2>, ColumnValueRange<TYPE_BOOLEAN>,
+        ColumnValueRange<TYPE_HLL>, ColumnValueRange<TYPE_DECIMAL32>,
+        ColumnValueRange<TYPE_DECIMAL64>, ColumnValueRange<TYPE_DECIMAL128I>,
+        ColumnValueRange<TYPE_DECIMAL256>>;
 
 template <PrimitiveType primitive_type>
 const typename ColumnValueRange<primitive_type>::CppType
@@ -702,14 +693,15 @@ bool ColumnValueRange<primitive_type>::convert_to_close_range(
         bool is_empty = false;
 
         if (!is_begin_include()) {
-            if (_low_value == TYPE_MIN) {
+            if (_low_value == TYPE_MAX) {
                 is_empty = true;
             } else {
                 ++_low_value;
             }
         }
+
         if (!is_end_include()) {
-            if (_high_value == TYPE_MAX) {
+            if (_high_value == TYPE_MIN) {
                 is_empty = true;
             } else {
                 --_high_value;

@@ -18,14 +18,16 @@
 suite("test_subquery") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     qt_sql1 """
-        select c1, c3, m2 from 
-            (select c1, c3, max(c2) m2 from 
-                (select c1, c2, c3 from 
-                    (select k3 c1, k2 c2, max(k1) c3 from nereids_test_query_db.test 
-                     group by 1, 2 order by 1 desc, 2 desc limit 5) x 
+        select c1, c3, m2 from
+            (select c1, c3, max(c2) m2 from
+                (select c1, c2, c3 from
+                    (select k3 c1, k2 c2, max(k1) c3 from nereids_test_query_db.test
+                     group by 1, 2 order by 1 desc, 2 desc limit 5) x
                 ) x2 group by c1, c3 limit 10
-            ) t 
+            ) t
         where c1>0 order by 2 , 1 limit 3
     """
 
@@ -55,7 +57,7 @@ suite("test_subquery") {
     // test uncorrelated subquery in having
     sql """
         select count(*) from nereids_test_query_db.baseall
-        group by k0 
+        group by k0
         having min(k0) in (select k0 from nereids_test_query_db.baseall)
     """
 
@@ -111,16 +113,16 @@ suite("test_subquery") {
         sql """
             SELECT `col_bigint_undef_signed` '00:39:36' , `col_bigint_undef_signed` '11:19:45', `col_bigint_undef_signed` '11:55:37', `col_bigint_undef_signed2` '19:01:23'
                 FROM table_1000_undef_undef2
-                WHERE EXISTS 
+                WHERE EXISTS
                     (SELECT `col_bigint_undef_signed` '17:38:13' , `col_bigint_undef_signed2` '17:36:21'
                     FROM table_1000_undef_undef2
-                    WHERE `col_bigint_undef_signed2` NOT IN 
+                    WHERE `col_bigint_undef_signed2` NOT IN
                         (SELECT `col_bigint_undef_signed`
                         FROM table_1000_undef_undef2
-                        WHERE `col_bigint_undef_signed2` < 
+                        WHERE `col_bigint_undef_signed2` <
                             (SELECT AVG(`col_bigint_undef_signed`)
                             FROM table_1000_undef_undef2
-                            WHERE `col_bigint_undef_signed2` < 2)) ) ; 
+                            WHERE `col_bigint_undef_signed2` < 2)) ) ;
         """
         contains("VAGGREGATE")
     }
@@ -136,7 +138,7 @@ suite("test_subquery") {
     sql """drop table if exists test_one_row_relation;"""
     sql """
         CREATE TABLE `test_one_row_relation` (
-        `user_id` int(11) NULL 
+        `user_id` int(11) NULL
         )
         UNIQUE KEY(`user_id`)
         COMMENT 'test'
@@ -147,7 +149,7 @@ suite("test_subquery") {
     """
 
     sql """ set enable_nereids_dml=true; """
-    
+
     sql """insert into test_one_row_relation select (select 1);"""
 
     qt_sql_subquery_one_row_relation """select * from test_one_row_relation;"""
@@ -175,7 +177,7 @@ suite("test_subquery") {
         sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
                 where
                     not (
-                            exists(select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 5) 
+                            exists(select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 5)
                             and
                             exists(select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6)
                         ); """)
@@ -184,9 +186,9 @@ suite("test_subquery") {
     explain {
         sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
                 where
-                    not ( 
-                            subquery_test_t1.id > 10 
-                            and 
+                    not (
+                            subquery_test_t1.id > 10
+                            and
                             exists(select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6)
                         );""")
         contains("isMarkJoin=true")
@@ -194,9 +196,9 @@ suite("test_subquery") {
     explain {
         sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
                 where
-                    not ( 
-                            subquery_test_t1.id > 10 
-                            and 
+                    not (
+                            subquery_test_t1.id > 10
+                            and
                             subquery_test_t1.id in (select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6)
                         );  """)
         contains("isMarkJoin=true")
@@ -204,9 +206,9 @@ suite("test_subquery") {
     explain {
         sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
                 where
-                    not ( 
-                            subquery_test_t1.id > 10 
-                            and 
+                    not (
+                            subquery_test_t1.id > 10
+                            and
                             subquery_test_t1.id in (select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6)
                         ); """)
         contains("isMarkJoin=true")
@@ -214,9 +216,9 @@ suite("test_subquery") {
     explain {
         sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
                 where
-                    not ( 
-                            subquery_test_t1.id > 10 
-                            and 
+                    not (
+                            subquery_test_t1.id > 10
+                            and
                             ( subquery_test_t1.id < 100 or subquery_test_t1.id in (select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6) )
                         ); """)
         contains("isMarkJoin=true")
@@ -224,9 +226,9 @@ suite("test_subquery") {
     explain {
         sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
                 where
-                    not ( 
-                            subquery_test_t1.id > 10 
-                            and 
+                    not (
+                            subquery_test_t1.id > 10
+                            and
                             ( subquery_test_t1.id < 100 or case when subquery_test_t1.id in (select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6) then 1 else 0 end )
                         );""")
         contains("isMarkJoin=true")
@@ -276,7 +278,8 @@ suite("test_subquery") {
     sql """SELECT count(1) as c FROM table_100_undef_partitions2_keys3_properties4_distributed_by5 HAVING c IN (select col_int_undef_signed from table_100_undef_partitions2_keys3_properties4_distributed_by5);"""
     sql """drop table if exists table_100_undef_partitions2_keys3_properties4_distributed_by5"""
     sql """drop table if exists table_5_undef_partitions2_keys3_properties4_distributed_by5"""
-    
+
+    sql "set disable_nereids_rules=''"
     sql """drop table if exists scalar_subquery_t"""
     sql """create table scalar_subquery_t (id int , name varchar(32), dt datetime) 
             partition by range(dt) (from ('2024-02-01 00:00:00') to ('2024-02-07 00:00:00') interval 1 day) 

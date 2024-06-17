@@ -113,16 +113,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
             // this means one stage gather agg, usually bad pattern
             return false;
         }
-        // forbid three or four stage distinct agg inter by distribute
-        if (agg.getAggMode() == AggMode.BUFFER_TO_BUFFER && children.get(0).getPlan() instanceof PhysicalDistribute) {
-            // if distinct without group by key, we prefer three or four stage distinct agg
-            // because the second phase of multi-distinct only have one instance, and it is slow generally.
-            if (agg.getGroupByExpressions().size() == 1
-                    && agg.getOutputExpressions().size() == 1) {
-                return true;
-            }
-            return false;
-        }
 
         // forbid TWO_PHASE_AGGREGATE_WITH_DISTINCT after shuffle
         // TODO: this is forbid good plan after cte reuse by mistake
@@ -497,16 +487,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
             boolean isSatisfy = true;
             for (int i = 0; i < shuffleSideOutputList.size() && isSatisfy; i++) {
                 ExprId shuffleSideExprId = shuffleSideOutputList.get(i);
-                boolean found = false;
-                for (int j = 0; j < notShuffleSideOutputList.size() && !found; j++) {
-                    ExprId notShuffleSideExprId = notShuffleSideOutputList.get(j);
-                    if (shuffleSideExprId.equals(notShuffleSideExprId)
-                            || shuffleSideOutput.getEquivalenceExprIdsOf(shuffleSideExprId)
-                            .contains(notShuffleSideExprId)) {
-                        found = true;
-                    }
-                }
-                if (!found) {
+                ExprId notShuffleSideExprId = notShuffleSideOutputList.get(i);
+                if (!(shuffleSideExprId.equals(notShuffleSideExprId)
+                        || shuffleSideOutput.getEquivalenceExprIdsOf(shuffleSideExprId)
+                        .contains(notShuffleSideExprId))) {
                     isSatisfy = false;
                 }
             }

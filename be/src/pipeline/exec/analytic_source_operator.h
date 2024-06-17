@@ -27,6 +27,8 @@ class RuntimeState;
 
 namespace pipeline {
 
+enum AnalyticFnScope { PARTITION, RANGE, ROWS };
+
 class AnalyticSourceOperatorX;
 class AnalyticLocalState final : public PipelineXLocalState<AnalyticSharedState> {
 public:
@@ -41,7 +43,7 @@ public:
 
     Status output_current_block(vectorized::Block* block);
 
-    bool init_next_partition(vectorized::BlockRowPos found_partition_end);
+    bool init_next_partition(BlockRowPos found_partition_end);
 
 private:
     Status _get_next_for_rows(size_t rows);
@@ -64,11 +66,10 @@ private:
         }
         return need_more_input;
     }
-    vectorized::BlockRowPos _get_partition_by_end();
-    vectorized::BlockRowPos _compare_row_to_find_end(int idx, vectorized::BlockRowPos start,
-                                                     vectorized::BlockRowPos end,
-                                                     bool need_check_first = false);
-    bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
+    BlockRowPos _get_partition_by_end();
+    BlockRowPos _compare_row_to_find_end(int idx, BlockRowPos start, BlockRowPos end,
+                                         bool need_check_first = false);
+    bool _whether_need_next_partition(BlockRowPos& found_partition_end);
 
     void _reset_agg_status();
     void _create_agg_status();
@@ -88,9 +89,9 @@ private:
     bool _agg_functions_created;
     bool _current_window_empty = false;
 
-    vectorized::BlockRowPos _order_by_start;
-    vectorized::BlockRowPos _order_by_end;
-    vectorized::BlockRowPos _partition_by_start;
+    BlockRowPos _order_by_start;
+    BlockRowPos _order_by_end;
+    BlockRowPos _partition_by_start;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
 
@@ -139,7 +140,7 @@ private:
 
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
 
-    vectorized::AnalyticFnScope _fn_scope;
+    AnalyticFnScope _fn_scope;
 
     TupleDescriptor* _intermediate_tuple_desc = nullptr;
     TupleDescriptor* _output_tuple_desc = nullptr;

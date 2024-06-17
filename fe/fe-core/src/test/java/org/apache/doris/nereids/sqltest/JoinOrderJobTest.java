@@ -111,6 +111,7 @@ public class JoinOrderJobTest extends SqlTestBase {
 
     @Test
     protected void testCountJoin() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select count(*) \n"
                 + "from \n"
                 + "T1, \n"

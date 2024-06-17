@@ -22,12 +22,8 @@ import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 /**
@@ -54,10 +50,6 @@ public class ShowStorageVaultStmt extends ShowStmt {
             }
         }
         super.analyze(analyzer);
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-        }
     }
 
     @Override

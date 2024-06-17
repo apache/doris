@@ -492,11 +492,6 @@ public:
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
 
-    //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
-
-    template <typename Type>
-    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
-
     void insert_default() override { offsets.push_back(chars.size()); }
 
     void insert_many_defaults(size_t length) override {
@@ -551,15 +546,10 @@ public:
         __builtin_unreachable();
     }
 
-    // should replace according to 0,1,2... ,size,0,1,2...
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data_default is not supported for ColumnString";
-        __builtin_unreachable();
-    }
-
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
+
     MutableColumnPtr get_shinked_column() const {
         auto shrinked_column = ColumnStr<T>::create();
         for (int i = 0; i < size(); i++) {
@@ -568,18 +558,6 @@ public:
                     ->insert_data(str.data, strnlen(str.data, str.size));
         }
         return shrinked_column;
-    }
-
-    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        return this->template get_indices_of_non_default_rows_impl<ColumnStr<T>>(indices, from,
-                                                                                 limit);
-    }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
-
-    double get_ratio_of_default_rows(double sample_ratio) const override {
-        return this->template get_ratio_of_default_rows_impl<ColumnStr<T>>(sample_ratio);
     }
 
     ColumnPtr convert_column_if_overflow() override;

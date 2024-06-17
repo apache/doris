@@ -72,6 +72,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -226,6 +227,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             BinlogConfig binlogConfig = new BinlogConfig(tbl.getBinlogConfig());
+            Map<Object, Object> objectPool = new HashMap<Object, Object>();
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 if (partition == null) {
@@ -275,14 +277,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                     tbl.getTimeSeriesCompactionLevelThreshold(),
                                     tbl.storeRowColumn(),
-                                    binlogConfig);
+                                    binlogConfig, objectPool);
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
                             if (this.storageFormat != null) {
                                 createReplicaTask.setStorageFormat(this.storageFormat);
                             }
-
+                            createReplicaTask.setInvertedIndexStorageFormat(tbl.getInvertedIndexStorageFormat());
                             batchTask.addTask(createReplicaTask);
                         } // end for rollupReplicas
                     } // end for rollupTablets
@@ -430,30 +432,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
-
-            Map<String, Expr> defineExprs = Maps.newHashMap();
-            List<Column> fullSchema = tbl.getBaseSchema(true);
-            DescriptorTable descTable = new DescriptorTable();
-            TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
-            for (Column column : fullSchema) {
-                SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
-                destSlotDesc.setIsMaterialized(true);
-                destSlotDesc.setColumn(column);
-                destSlotDesc.setIsNullable(column.isAllowNull());
-
-                if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
-                    Column newColumn = indexColumnMap.get(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
-                    if (newColumn.getType() != column.getType()) {
-                        try {
-                            SlotRef slot = new SlotRef(destSlotDesc);
-                            slot.setCol(column.getName());
-                            defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
-                        } catch (AnalysisException e) {
-                            throw new AlterCancelException(e.getMessage());
-                        }
-                    }
-                }
-            }
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
@@ -467,6 +445,30 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     long shadowIdxId = entry.getKey();
                     MaterializedIndex shadowIdx = entry.getValue();
                     long originIdxId = indexIdMap.get(shadowIdxId);
+                    Map<String, Expr> defineExprs = Maps.newHashMap();
+                    List<Column> fullSchema = tbl.getSchemaByIndexId(originIdxId, true);
+                    DescriptorTable descTable = new DescriptorTable();
+                    TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
+                    for (Column column : fullSchema) {
+                        SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
+                        destSlotDesc.setIsMaterialized(true);
+                        destSlotDesc.setColumn(column);
+                        destSlotDesc.setIsNullable(column.isAllowNull());
+
+                        if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
+                            Column newColumn = indexColumnMap.get(
+                                    SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
+                            if (newColumn.getType() != column.getType()) {
+                                try {
+                                    SlotRef slot = new SlotRef(destSlotDesc);
+                                    slot.setCol(column.getName());
+                                    defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
+                                } catch (AnalysisException e) {
+                                    throw new AlterCancelException(e.getMessage());
+                                }
+                            }
+                        }
+                    }
                     int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                     int originSchemaHash = tbl.getSchemaHashByIndexId(indexIdMap.get(shadowIdxId));
                     List<Column> originSchemaColumns = tbl.getSchemaByIndexId(originIdxId, true);

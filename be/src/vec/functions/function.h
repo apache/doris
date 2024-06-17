@@ -54,6 +54,11 @@ namespace doris::vectorized {
     return is_nullable || !is_datev2 ? make_nullable(std::make_shared<TYPE>())           \
                                      : std::make_shared<TYPE>();
 
+#define SET_NULLMAP_IF_FALSE(EXPR) \
+    if (!EXPR) [[unlikely]] {      \
+        null_map[i] = true;        \
+    }
+
 class Field;
 
 // Only use dispose the variadic argument
@@ -514,7 +519,8 @@ public:
     bool can_fast_execute() const override {
         auto function_name = function->get_name();
         return function_name == "eq" || function_name == "ne" || function_name == "lt" ||
-               function_name == "gt" || function_name == "le" || function_name == "ge";
+               function_name == "gt" || function_name == "le" || function_name == "ge" ||
+               function_name == "in";
     }
 
     Status eval_inverted_index(FunctionContext* context,

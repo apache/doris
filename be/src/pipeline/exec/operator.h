@@ -32,11 +32,11 @@
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/local_exchange/local_exchanger.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/runtime/vdata_stream_recvr.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class DataSink;
@@ -99,22 +99,7 @@ public:
     // Prepare for running. (e.g. resource allocation, etc.)
     [[nodiscard]] virtual Status prepare(RuntimeState* state) = 0;
     [[nodiscard]] virtual std::string get_name() const = 0;
-
-    /**
-     * Allocate resources needed by this operator.
-     *
-     * This is called when current pipeline is scheduled first time.
-     * e.g. If we got three pipeline and dependencies are A -> B, B-> C, all operators' `open`
-     * method in pipeline C will be called once pipeline A and B finished.
-     *
-     * Now we have only one task per pipeline, so it has no problem，
-     * But if one pipeline have multi task running in parallel, we need to rethink this logic.
-     */
     [[nodiscard]] virtual Status open(RuntimeState* state) = 0;
-
-    /**
-     * Release all resources once this operator done its work.
-     */
     [[nodiscard]] virtual Status close(RuntimeState* state);
 
     [[nodiscard]] virtual Status set_child(OperatorXPtr child) {
@@ -124,13 +109,11 @@ public:
 
     [[nodiscard]] bool is_closed() const { return _is_closed; }
 
-    [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
-
-    [[nodiscard]] virtual int id() const = 0;
-
     virtual size_t revocable_mem_size(RuntimeState* state) const { return 0; }
 
-    virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); };
+    virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
+    [[nodiscard]] virtual bool require_data_distribution() const { return false; }
+    OperatorXPtr child_x() { return _child_x; }
 
 protected:
     OperatorXPtr _child_x = nullptr;
@@ -330,6 +313,7 @@ public:
     // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
+    [[nodiscard]] virtual bool is_finished() const { return false; }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level) const = 0;
 
@@ -463,6 +447,13 @@ public:
 
     Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
+    [[nodiscard]] bool is_finished(RuntimeState* state) const {
+        auto result = state->get_sink_local_state_result();
+        if (!result) {
+            return result.error();
+        }
+        return result.value()->is_finished();
+    }
 
     [[nodiscard]] virtual Status sink(RuntimeState* state, vectorized::Block* block, bool eos) = 0;
 
@@ -510,19 +501,13 @@ public:
         return result.value()->close(state, exec_status);
     }
 
-    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Runtime Profile is not owned by operator");
-        return nullptr;
-    }
-
-    [[nodiscard]] int id() const override { return node_id(); }
-
     [[nodiscard]] int operator_id() const { return _operator_id; }
 
     [[nodiscard]] const std::vector<int>& dests_id() const { return _dests_id; }
 
     void set_dests_id(const std::vector<int>& dest_id) { _dests_id = dest_id; }
+
+    [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
     [[nodiscard]] int node_id() const { return _node_id; }
 
@@ -539,6 +524,7 @@ protected:
     // _dests_id : the target _operator_id of the sink, for example, in the case of a multi-sink, there are multiple targets.
     const int _operator_id;
     const int _node_id;
+    int _nereids_id = -1;
     std::vector<int> _dests_id;
     std::string _name;
 
@@ -655,11 +641,6 @@ public:
         LOG(FATAL) << "should not reach here!";
         return Status::OK();
     }
-    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Runtime Profile is not owned by operator");
-        return nullptr;
-    }
     [[noreturn]] virtual const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
     }
@@ -669,15 +650,13 @@ public:
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
     }
-    [[nodiscard]] virtual bool need_data_from_children(RuntimeState* state) const {
-        return is_source() ? true : _child_x == nullptr || _child_x->need_data_from_children(state);
-    }
     [[nodiscard]] virtual bool ignore_data_distribution() const {
         return _child_x ? _child_x->ignore_data_distribution() : _ignore_data_distribution;
     }
     [[nodiscard]] bool ignore_data_hash_distribution() const {
         return _child_x ? _child_x->ignore_data_hash_distribution() : _ignore_data_distribution;
     }
+    [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
     void set_ignore_data_distribution() { _ignore_data_distribution = true; }
 
     Status prepare(RuntimeState* state) override;
@@ -737,9 +716,9 @@ public:
     [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
     [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
 
-    [[nodiscard]] int id() const override { return node_id(); }
     [[nodiscard]] int operator_id() const { return _operator_id; }
     [[nodiscard]] int node_id() const { return _node_id; }
+    [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
     [[nodiscard]] int64_t limit() const { return _limit; }
 
@@ -771,6 +750,7 @@ protected:
     friend class VScanner;
     const int _operator_id;
     const int _node_id; // unique w/in single plan tree
+    int _nereids_id = -1;
     TPlanNodeType::type _type;
     ObjectPool* _pool = nullptr;
     std::vector<TupleId> _tuple_ids;
@@ -858,16 +838,7 @@ public:
                                       bool* eos) const = 0;
     [[nodiscard]] virtual Status push(RuntimeState* state, vectorized::Block* input_block,
                                       bool eos) const = 0;
-
-    [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const = 0;
-
-    bool need_data_from_children(RuntimeState* state) const override {
-        if (need_more_input_data(state)) {
-            return OperatorX<LocalStateType>::_child_x->need_data_from_children(state);
-        } else {
-            return false;
-        }
-    }
+    bool need_more_input_data(RuntimeState* state) const override { return true; }
 };
 
 template <typename Writer, typename Parent>

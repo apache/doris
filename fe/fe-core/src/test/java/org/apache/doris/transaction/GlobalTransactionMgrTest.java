@@ -71,7 +71,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.InvocationTargetException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -89,7 +88,8 @@ public class GlobalTransactionMgrTest {
     private static Env masterEnv;
     private static Env slaveEnv;
 
-    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
+    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(
+            TransactionState.TxnSourceType.FE, 0, "localfe", System.currentTimeMillis());
     protected static List<Long> allBackends = Lists.newArrayList(CatalogTestUtil.testBackendId1,
             CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3);
 
@@ -303,7 +303,9 @@ public class GlobalTransactionMgrTest {
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, Lists.newArrayList(1L), 1L, "label", null,
-                LoadJobSourceType.ROUTINE_LOAD_TASK, new TxnCoordinator(TxnSourceType.BE, "be1"), routineLoadJob.getId(),
+                LoadJobSourceType.ROUTINE_LOAD_TASK,
+                new TxnCoordinator(TxnSourceType.BE, 0, "be1", System.currentTimeMillis()),
+                routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
         masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
@@ -367,7 +369,9 @@ public class GlobalTransactionMgrTest {
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, Lists.newArrayList(1L), 1L, "label", null,
-                LoadJobSourceType.ROUTINE_LOAD_TASK, new TxnCoordinator(TxnSourceType.BE, "be1"), routineLoadJob.getId(),
+                LoadJobSourceType.ROUTINE_LOAD_TASK,
+                new TxnCoordinator(TxnSourceType.BE, 0, "be1", System.currentTimeMillis()),
+                routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
         masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
@@ -1104,7 +1108,8 @@ public class GlobalTransactionMgrTest {
 
     protected static List<SubTransactionState> generateSubTransactionStates(GlobalTransactionMgr masterTransMgr,
             TransactionState transactionState, List<SubTransactionInfo> subTransactionInfos) {
-        List<SubTransactionState> subTransactionStates = new ArrayList<>();
+        transactionState.resetSubTransactionStates();
+        List<SubTransactionState> subTransactionStates = transactionState.getSubTransactionStates();
         for (int i = 0; i < subTransactionInfos.size(); i++) {
             SubTransactionInfo subTransactionInfo = subTransactionInfos.get(i);
             Table table = subTransactionInfo.table;
@@ -1117,7 +1122,7 @@ public class GlobalTransactionMgrTest {
             subTransactionStates.add(generateSubTransactionState(transactionState, subTxnId, table,
                     tabletId, backends, addTableId));
         }
-        transactionState.setSubTransactionStates(subTransactionStates);
+        transactionState.resetSubTxnIds();
         LOG.info("sub txn states={}", transactionState.getSubTransactionStates());
         return subTransactionStates;
     }

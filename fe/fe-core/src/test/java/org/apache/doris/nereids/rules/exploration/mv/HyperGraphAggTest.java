@@ -37,6 +37,7 @@ import java.util.Objects;
 class HyperGraphAggTest extends SqlTestBase {
     @Test
     void testJoinWithAgg() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         CascadesContext c2 = createCascadesContext(
                 "select * from T1 inner join"
                         + "("

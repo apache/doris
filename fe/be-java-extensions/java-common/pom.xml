@@ -35,10 +35,6 @@ under the License.
 
     <dependencies>
         <dependency>
-            <groupId>com.vesoft</groupId>
-            <artifactId>client</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>

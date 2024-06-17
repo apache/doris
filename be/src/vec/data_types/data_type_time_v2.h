@@ -83,6 +83,7 @@ public:
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    std::string to_string(UInt32 int_val) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     MutableColumnPtr create_column() const override;
@@ -125,6 +126,7 @@ public:
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    std::string to_string(UInt64 int_val) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeDateTimeV2SerDe>(_scale, nesting_level);

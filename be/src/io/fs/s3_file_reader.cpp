@@ -33,6 +33,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "io/fs/err_utils.h"
+#include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_common.h"
 #include "util/bvar_helper.h"
 #include "util/doris_metrics.h"
@@ -48,7 +49,7 @@ bvar::LatencyRecorder s3_bytes_per_read("s3_file_reader", "bytes_per_read"); // 
 bvar::PerSecond<bvar::Adder<uint64_t>> s3_read_througthput("s3_file_reader", "s3_read_throughput",
                                                            &s3_bytes_read_total);
 
-Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const S3ClientHolder> client,
+Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolder> client,
                                             std::string bucket, std::string key,
                                             int64_t file_size) {
     if (file_size < 0) {
@@ -64,7 +65,7 @@ Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const S3ClientHolder
                                           file_size);
 }
 
-S3FileReader::S3FileReader(std::shared_ptr<const S3ClientHolder> client, std::string bucket,
+S3FileReader::S3FileReader(std::shared_ptr<const ObjClientHolder> client, std::string bucket,
                            std::string key, size_t file_size)
         : _path(fmt::format("s3://{}/{}", bucket, key)),
           _file_size(file_size),
@@ -108,22 +109,18 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         return Status::OK();
     }
 
-    Aws::S3::Model::GetObjectRequest request;
-    request.WithBucket(_bucket).WithKey(_key);
-    request.SetRange(fmt::format("bytes={}-{}", offset, offset + bytes_req - 1));
-    request.SetResponseStreamFactory(AwsWriteableStreamFactory(to, bytes_req));
-
     auto client = _client->get();
     if (!client) {
         return Status::InternalError("init s3 client error");
     }
-    SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
-    auto outcome = client->GetObject(request);
-    if (!outcome.IsSuccess()) {
-        return s3fs_error(outcome.GetError(),
-                          fmt::format("failed to read from {}", _path.native()));
+    // clang-format off
+    auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
+            to, offset, bytes_req, bytes_read);
+    // clang-format on
+    if (resp.status.code != ErrorCode::OK) {
+        return std::move(Status(resp.status.code, std::move(resp.status.msg))
+                                 .append(fmt::format("failed to read from {}", _path.native())));
     }
-    *bytes_read = outcome.GetResult().GetContentLength();
     if (*bytes_read != bytes_req) {
         return Status::InternalError("failed to read from {}(bytes read: {}, bytes req: {})",
                                      _path.native(), *bytes_read, bytes_req);

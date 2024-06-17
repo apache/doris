@@ -99,6 +99,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -191,6 +192,10 @@ public class RestoreJob extends AbstractJob {
         this.state = RestoreJobState.PENDING;
         this.metaVersion = metaVersion;
         this.reserveReplica = reserveReplica;
+        // if backup snapshot is come from a cluster with force replication allocation, ignore the origin allocation
+        if (jobInfo.isForceReplicationAllocation) {
+            this.reserveReplica = false;
+        }
         this.reserveDynamicPartitionEnable = reserveDynamicPartitionEnable;
         this.isBeingSynced = isBeingSynced;
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
@@ -819,7 +824,11 @@ public class RestoreJob extends AbstractJob {
                     }
                 }
                 // set restored table's new name after all 'genFileMapping'
-                restoreTbl.setName(jobInfo.getAliasByOriginNameIfSet(restoreTbl.getName()));
+                String tableName = jobInfo.getAliasByOriginNameIfSet(restoreTbl.getName());
+                if (Env.isStoredTableNamesLowerCase()) {
+                    tableName = tableName.toLowerCase();
+                }
+                restoreTbl.setName(tableName);
             }
 
             if (LOG.isDebugEnabled()) {
@@ -1062,6 +1071,7 @@ public class RestoreJob extends AbstractJob {
         } finally {
             localTbl.readUnlock();
         }
+        Map<Object, Object> objectPool = new HashMap<Object, Object>();
         for (MaterializedIndex restoredIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
             List<Index> indexes = restoredIdx.getId() == localTbl.getBaseIndexId()
@@ -1095,8 +1105,8 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             localTbl.getTimeSeriesCompactionLevelThreshold(),
                             localTbl.storeRowColumn(),
-                            binlogConfig);
-
+                            binlogConfig, objectPool);
+                    task.setInvertedIndexStorageFormat(localTbl.getInvertedIndexStorageFormat());
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
                 }
@@ -1773,13 +1783,14 @@ public class RestoreJob extends AbstractJob {
 
                     // update partition visible version
                     part.updateVersionForRestore(entry.getValue());
+                    long visibleVersion = part.getVisibleVersion();
 
                     // we also need to update the replica version of these overwritten restored partitions
                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!replica.checkVersionCatchUp(part.getVisibleVersion(), false)) {
-                                    replica.updateVersion(part.getVisibleVersion());
+                                if (!replica.checkVersionCatchUp(visibleVersion, false)) {
+                                    replica.updateVersion(visibleVersion);
                                 }
                             }
                         }
@@ -2019,6 +2030,7 @@ public class RestoreJob extends AbstractJob {
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
             Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
             if (tbl == null) {
+                LOG.warn("table {} is not found and skip set state to normal", tableName);
                 continue;
             }
 
@@ -2033,6 +2045,7 @@ public class RestoreJob extends AbstractJob {
             try {
                 if (olapTbl.getState() == OlapTableState.RESTORE
                         || olapTbl.getState() == OlapTableState.RESTORE_WITH_LOAD) {
+                    LOG.info("table {} set state from {} to normal", tableName, olapTbl.getState());
                     olapTbl.setState(OlapTableState.NORMAL);
                 }
 
@@ -2041,6 +2054,8 @@ public class RestoreJob extends AbstractJob {
                     String partitionName = partitionEntry.getKey();
                     Partition partition = olapTbl.getPartition(partitionName);
                     if (partition == null) {
+                        LOG.warn("table {} partition {} is not found and skip set state to normal",
+                                tableName, partitionName);
                         continue;
                     }
                     if (partition.getState() == PartitionState.RESTORE) {

@@ -32,7 +32,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -41,9 +40,9 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Objects;
@@ -51,7 +50,7 @@ import java.util.Objects;
 /**
  * Most predicates with two operands..
  */
-public class BinaryPredicate extends Predicate implements Writable {
+public class BinaryPredicate extends Predicate {
 
     // true if this BinaryPredicate is inferred from slot equivalences, false otherwise.
     private boolean isInferred = false;
@@ -65,8 +64,11 @@ public class BinaryPredicate extends Predicate implements Writable {
         GT(">", "gt", TExprOpcode.GT),
         EQ_FOR_NULL("<=>", "eq_for_null", TExprOpcode.EQ_FOR_NULL);
 
+        @SerializedName("desc")
         private final String description;
+        @SerializedName("name")
         private final String name;
+        @SerializedName("opcode")
         private final TExprOpcode opcode;
 
         Operator(String description,
@@ -149,6 +151,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
+    @SerializedName("op")
     private Operator op;
     // check if left is slot and right isnot slot.
     private Boolean slotIsleft = null;
@@ -713,70 +716,6 @@ public class BinaryPredicate extends Predicate implements Writable {
             case NE:
             default:
                 return null;
-        }
-    }
-
-    //    public static enum Operator2 {
-    //        EQ("=", FunctionOperator.EQ, FunctionOperator.FILTER_EQ),
-    //        NE("!=", FunctionOperator.NE, FunctionOperator.FILTER_NE),
-    //        LE("<=", FunctionOperator.LE, FunctionOperator.FILTER_LE),
-    //        GE(">=", FunctionOperator.GE, FunctionOperator.FILTER_GE),
-    //        LT("<", FunctionOperator.LT, FunctionOperator.FILTER_LT),
-    //        GT(">", FunctionOperator.GT, FunctionOperator.FILTER_LE);
-    //
-    //        private final String           description;
-    //        private final FunctionOperator functionOp;
-    //        private final FunctionOperator filterFunctionOp;
-    //
-    //        private Operator(String description,
-    //                         FunctionOperator functionOp,
-    //                         FunctionOperator filterFunctionOp) {
-    //            this.description = description;
-    //            this.functionOp = functionOp;
-    //            this.filterFunctionOp = filterFunctionOp;
-    //        }
-    //
-    //        @Override
-    //        public String toString() {
-    //            return description;
-    //        }
-    //
-    //        public FunctionOperator toFunctionOp() {
-    //            return functionOp;
-    //        }
-    //
-    //        public FunctionOperator toFilterFunctionOp() {
-    //            return filterFunctionOp;
-    //        }
-    //    }
-
-    /*
-     * the follow persistence code is only for TableFamilyDeleteInfo.
-     * Maybe useless
-     */
-    @Override
-    public void write(DataOutput out) throws IOException {
-        boolean isWritable = true;
-        Expr left = this.getChild(0);
-        if (!(left instanceof SlotRef)) {
-            isWritable = false;
-        }
-
-        Expr right = this.getChild(1);
-        if (!(right instanceof StringLiteral)) {
-            isWritable = false;
-        }
-
-        if (isWritable) {
-            out.writeInt(1);
-            // write op
-            Text.writeString(out, op.name());
-            // write left
-            Text.writeString(out, ((SlotRef) left).getColumnName());
-            // write right
-            Text.writeString(out, ((StringLiteral) right).getStringValue());
-        } else {
-            out.writeInt(0);
         }
     }
 

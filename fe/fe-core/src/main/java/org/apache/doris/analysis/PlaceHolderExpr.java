@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -26,7 +27,6 @@ import org.apache.doris.thrift.TExprNode;
 import com.google.common.base.Preconditions;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
@@ -60,7 +60,7 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     public LiteralExpr createLiteralFromType() throws AnalysisException {
         Preconditions.checkState(mysqlTypeCode > 0);
-        return LiteralExpr.getLiteralByMysqlType(mysqlTypeCode);
+        return LiteralExpr.getLiteralByMysqlType(mysqlTypeCode, isUnsigned());
     }
 
     public static PlaceHolderExpr create(String value, Type type) throws AnalysisException {
@@ -85,6 +85,10 @@ public class PlaceHolderExpr extends LiteralExpr {
     @Override
     public boolean isMinValue() {
         return lExpr.isMinValue();
+    }
+
+    public boolean isUnsigned() {
+        return MysqlColType.isUnsigned(mysqlTypeCode);
     }
 
     @Override
@@ -130,6 +134,11 @@ public class PlaceHolderExpr extends LiteralExpr {
         return "?";
     }
 
+    @Override
+    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
+        return this.lExpr.uncheckedCastTo(targetType);
+    }
+
     // Swaps the sign of numeric literals.
     // Throws for non-numeric literals.
     public void swapSign() throws NotImplementedException {
@@ -138,12 +147,7 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     @Override
     public boolean supportSerializable() {
-        return true;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Preconditions.checkState(false, "should not implement this in derived class. " + this.type.toSql());
+        return false;
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -181,7 +185,7 @@ public class PlaceHolderExpr extends LiteralExpr {
         return "\"" + getStringValue() + "\"";
     }
 
-    public void setupParamFromBinary(ByteBuffer data) {
-        lExpr.setupParamFromBinary(data);
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
+        lExpr.setupParamFromBinary(data, isUnsigned);
     }
 }

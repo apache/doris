@@ -75,7 +75,7 @@ public class Status {
     // TODO add a unit test to ensure all TStatusCode is subset of PStatus error code.
     public PStatus toPStatus() {
         return PStatus.newBuilder().setStatusCode(errorCode.getValue())
-                .setErrorMsgs(0, errorMsg).build();
+                .addErrorMsgs(errorMsg).build();
     }
 
     public void updateStatus(TStatusCode code, String errorMessage) {

@@ -205,7 +205,7 @@ public:
 
 private:
     TypeIndex type = TypeIndex::Nothing;
-    bool have_nulls;
+    bool have_nulls = false;
 };
 
 /// Visitor that allows to get type of scalar field
@@ -512,10 +512,6 @@ MutableColumnPtr ColumnObject::apply_for_subcolumns(Func&& func) const {
     }
     return res;
 }
-ColumnPtr ColumnObject::index(const IColumn& indexes, size_t limit) const {
-    return apply_for_subcolumns(
-            [&](const auto& subcolumn) { return subcolumn.index(indexes, limit); });
-}
 
 bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
     if (num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
@@ -749,8 +745,15 @@ void ColumnObject::insert_from(const IColumn& src, size_t n) {
 void ColumnObject::try_insert(const Field& field) {
     if (field.get_type() != Field::Types::VariantMap) {
         auto* root = get_subcolumn({});
-        if (!root) {
-            doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Failed to find root column_path");
+        // Insert to an emtpy ColumnObject may result root null,
+        // so create a root column of Variant is expected.
+        if (root == nullptr) {
+            bool succ = add_sub_column({}, num_rows);
+            if (!succ) {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Failed to add root sub column {}");
+            }
+            root = get_subcolumn({});
         }
         root->insert(field);
         ++num_rows;
@@ -1017,7 +1020,7 @@ void ColumnObject::Subcolumn::wrapp_array_nullable() {
         auto new_null_map = ColumnUInt8::create();
         new_null_map->reserve(result_column->size());
         auto& null_map_data = new_null_map->get_data();
-        auto array = static_cast<const ColumnArray*>(result_column.get());
+        const auto* array = static_cast<const ColumnArray*>(result_column.get());
         for (size_t i = 0; i < array->size(); ++i) {
             null_map_data.push_back(array->is_default_at(i));
         }
@@ -1290,9 +1293,11 @@ Status ColumnObject::merge_sparse_to_root_column() {
                                        parser.getWriter().getOutput()->getSize());
         result_column_nullable->get_null_map_data().push_back(0);
     }
-
-    // assign merged column
-    subcolumns.get_mutable_root()->data.get_finalized_column_ptr() = mresult->get_ptr();
+    subcolumns.get_mutable_root()->data.get_finalized_column().clear();
+    // assign merged column, do insert_range_from to make a copy, instead of replace the ptr itselft
+    // to make sure the root column ptr is not changed
+    subcolumns.get_mutable_root()->data.get_finalized_column().insert_range_from(
+            *mresult->get_ptr(), 0, num_rows);
     return Status::OK();
 }
 
@@ -1601,10 +1606,6 @@ Status ColumnObject::sanitize() const {
 
 void ColumnObject::replace_column_data(const IColumn& col, size_t row, size_t self_row) {
     LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
-}
-
-void ColumnObject::replace_column_data_default(size_t self_row) {
-    LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
 }
 
 } // namespace doris::vectorized

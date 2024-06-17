@@ -166,8 +166,14 @@ public class TransactionState implements Writable {
     public static class TxnCoordinator {
         @SerializedName(value = "sourceType")
         public TxnSourceType sourceType;
+        // backendId for backend, 0 for frontend
+        @SerializedName(value = "id")
+        public long id = 0;
         @SerializedName(value = "ip")
         public String ip;
+        // frontend/backend start time
+        @SerializedName(value = "st")
+        public long startTime = 0;
         // True if this txn if created by system(such as writing data to audit table)
         @SerializedName(value = "ii")
         public boolean isFromInternal = false;
@@ -175,9 +181,11 @@ public class TransactionState implements Writable {
         public TxnCoordinator() {
         }
 
-        public TxnCoordinator(TxnSourceType sourceType, String ip) {
+        public TxnCoordinator(TxnSourceType sourceType, long id, String ip, long startTime) {
             this.sourceType = sourceType;
+            this.id = id;
             this.ip = ip;
+            this.startTime = startTime;
         }
 
         @Override
@@ -272,9 +280,9 @@ public class TransactionState implements Writable {
     private Map<Long, Set<Long>> loadedTblIndexes = Maps.newHashMap();
 
     /**
-     * the value is the num delta rows of all replicas in each table
+     * the value is the num delta rows of all replicas in each tablet
      */
-    private final Map<Long, Long> tableIdToTotalNumDeltaRows = Maps.newHashMap();
+    private final Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows = Maps.newHashMap();
 
     private String errorLogUrl = null;
 
@@ -319,7 +327,8 @@ public class TransactionState implements Writable {
         this.transactionId = -1;
         this.label = "";
         this.idToTableCommitInfos = Maps.newHashMap();
-        this.txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1"); // mocked, to avoid NPE
+        // mocked, to avoid NPE
+        this.txnCoordinator = new TxnCoordinator(TxnSourceType.FE, 0, "127.0.0.1", System.currentTimeMillis());
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = LoadJobSourceType.FRONTEND;
         this.prepareTime = -1;
@@ -689,7 +698,7 @@ public class TransactionState implements Writable {
         sb.append(", db id: ").append(dbId);
         sb.append(", table id list: ").append(StringUtils.join(tableIdList, ","));
         sb.append(", callback id: ").append(callbackId);
-        sb.append(", coordinator: ").append(txnCoordinator.toString());
+        sb.append(", coordinator: ").append(txnCoordinator);
         sb.append(", transaction status: ").append(transactionStatus);
         sb.append(", error replicas num: ").append(errorReplicas.size());
         sb.append(", replica ids: ").append(Joiner.on(",").join(errorReplicas.stream().limit(5).toArray()));
@@ -758,7 +767,7 @@ public class TransactionState implements Writable {
             TableCommitInfo info = TableCommitInfo.read(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
-        txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), Text.readString(in));
+        txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), 0, Text.readString(in), 0);
         transactionStatus = TransactionStatus.valueOf(in.readInt());
         sourceType = LoadJobSourceType.valueOf(in.readInt());
         prepareTime = in.readLong();
@@ -785,12 +794,12 @@ public class TransactionState implements Writable {
         }
     }
 
-    public Map<Long, Long> getTableIdToTotalNumDeltaRows() {
-        return tableIdToTotalNumDeltaRows;
+    public Map<Long, Map<Long, Long>> getTableIdToTabletDeltaRows() {
+        return tableIdToTabletDeltaRows;
     }
 
-    public void setTableIdToTotalNumDeltaRows(Map<Long, Long> tableIdToTotalNumDeltaRows) {
-        this.tableIdToTotalNumDeltaRows.putAll(tableIdToTotalNumDeltaRows);
+    public void setTableIdToTabletDeltaRows(Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows) {
+        this.tableIdToTabletDeltaRows.putAll(tableIdToTabletDeltaRows);
     }
 
     public void setErrorMsg(String errMsg) {
@@ -808,7 +817,7 @@ public class TransactionState implements Writable {
     // reduce memory
     public void pruneAfterVisible() {
         publishVersionTasks.clear();
-        tableIdToTotalNumDeltaRows.clear();
+        tableIdToTabletDeltaRows.clear();
         // TODO if subTransactionStates can be cleared?
     }
 
@@ -855,8 +864,15 @@ public class TransactionState implements Writable {
         return true;
     }
 
+    public void resetSubTransactionStates() {
+        this.subTransactionStates = new ArrayList<>();
+    }
+
     public void setSubTransactionStates(List<SubTransactionState> subTransactionStates) {
         this.subTransactionStates = subTransactionStates;
+    }
+
+    public void resetSubTxnIds() {
         this.subTxnIds = subTransactionStates.stream().map(SubTransactionState::getSubTransactionId)
                 .collect(Collectors.toList());
     }

@@ -163,6 +163,11 @@ public class ResourceMgr implements Writable {
     }
 
     public Resource getResource(String name) {
+        // nameToResource == null iff this is in replay thread
+        // just return null to ignore this.
+        if (nameToResource == null) {
+            return null;
+        }
         return nameToResource.get(name);
     }
 

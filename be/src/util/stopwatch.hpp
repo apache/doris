@@ -78,7 +78,7 @@ public:
     }
 
     // Returns time in nanosecond.
-    uint64_t elapsed_time_seconds(timespec end) const {
+    int64_t elapsed_time_seconds(timespec end) const {
         if (!_running) {
             return _total_time / 1000L / 1000L / 1000L;
         }

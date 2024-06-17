@@ -53,7 +53,7 @@ Status VRowDistribution::_save_missing_values(
         int col_size, Block* block, std::vector<int64_t> filter,
         const std::vector<const NullMap*>& col_null_maps) {
     // de-duplication for new partitions but save all rows.
-    _batching_block->add_rows(block, filter);
+    RETURN_IF_ERROR(_batching_block->add_rows(block, filter));
     std::vector<TNullableStringLiteral> cur_row_values;
     for (int row = 0; row < col_strs[0].size(); ++row) {
         cur_row_values.clear();

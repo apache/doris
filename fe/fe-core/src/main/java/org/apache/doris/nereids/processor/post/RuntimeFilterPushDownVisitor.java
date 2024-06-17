@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
@@ -188,6 +189,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation scan, PushDownContext ctx) {
+        if (scan instanceof PhysicalSchemaScan) {
+            return false;
+        }
         Preconditions.checkArgument(ctx.isValid(),
                 "runtime filter pushDownContext is invalid");
         PhysicalRelation relation = ctx.finalTarget.first;
@@ -389,7 +393,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         List<NamedExpression> output = setOperation.getOutputs();
         for (int j = 0; j < output.size(); j++) {
             NamedExpression expr = output.get(j);
-            if (expr.getName().equals(probeSlot.getName())) {
+            if (expr.getExprId().equals(probeSlot.getExprId())) {
                 projIndex = j;
                 break;
             }
@@ -397,10 +401,10 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         if (projIndex == -1) {
             return false;
         }
+        // probeExpr only has one input slot
         for (int i = 0; i < setOperation.children().size(); i++) {
             Map<Expression, Expression> map = Maps.newHashMap();
-            // probeExpr only has one input slot
-            map.put(ctx.probeExpr.getInputSlots().iterator().next(),
+            map.put(probeSlot,
                     setOperation.getRegularChildrenOutputs().get(i).get(projIndex));
             Expression newProbeExpr = ctx.probeExpr.accept(ExpressionVisitors.EXPRESSION_MAP_REPLACER, map);
             PushDownContext childPushDownContext = ctx.withNewProbeExpression(newProbeExpr);

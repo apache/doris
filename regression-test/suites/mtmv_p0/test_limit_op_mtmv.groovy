@@ -191,27 +191,6 @@ suite("test_limit_op_mtmv") {
         log.info(e.getMessage())
     }
 
-
-    // not allow add rollup
-    try {
-        sql """
-            alter table ${mvName} ADD ROLLUP example_rollup_index(num, k3);;
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
-    // not allow drop rollup
-    try {
-        sql """
-            alter table ${mvName} drop ROLLUP example_rollup_index;
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
     // allow modify comment
     try {
         sql """
@@ -222,26 +201,36 @@ suite("test_limit_op_mtmv") {
         Assert.fail();
     }
 
-    // allow add index
-    try {
-        sql """
-            CREATE INDEX index1 ON ${mvName} (num) USING INVERTED;
-            """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        Assert.fail();
+    // not allow modify engine
+    test {
+        sql """ALTER TABLE ${mvName} MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");"""
+        exception "Not allowed"
     }
 
-    // allow drop index
-    try {
-        sql """
-            DROP INDEX index1 ON ${mvName};
-            """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        Assert.fail();
+    // not allow enable batch delete
+    test {
+        sql """ALTER TABLE ${mvName} ENABLE FEATURE "BATCH_DELETE";"""
+        exception "only supported in unique tables"
     }
 
+    // not allow dynamic_partition
+    test {
+        sql """ALTER TABLE ${mvName} set ("dynamic_partition.enable" = "true")"""
+        exception "dynamic"
+        }
+    sql """drop materialized view if exists ${mvName};"""
+    test {
+          sql """
+              CREATE MATERIALIZED VIEW ${mvName}
+              BUILD DEFERRED REFRESH AUTO ON MANUAL
+              partition by(`k3`)
+              DISTRIBUTED BY RANDOM BUCKETS 2
+              PROPERTIES ('replication_num' = '1','dynamic_partition.enable'='true')
+              AS
+              SELECT * FROM ${tableName};
+          """
+          exception "dynamic"
+      }
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 }

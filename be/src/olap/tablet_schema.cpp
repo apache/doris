@@ -53,6 +53,8 @@
 
 namespace doris {
 
+static bvar::Adder<size_t> g_total_tablet_schema_num("doris_total_tablet_schema_num");
+
 FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     switch (primitiveType) {
     case PrimitiveType::INVALID_TYPE:
@@ -820,6 +822,14 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
     }
 }
 
+TabletSchema::TabletSchema() {
+    g_total_tablet_schema_num << 1;
+}
+
+TabletSchema::~TabletSchema() {
+    g_total_tablet_schema_num << -1;
+}
+
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     if (column.is_key()) {
         _num_key_columns++;
@@ -846,7 +856,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     _cols.push_back(std::make_shared<TabletColumn>(std::move(column)));
     // The dropped column may have same name with exsiting column, so that
     // not add to name to index map, only for uid to index map
-    if (col_type == ColumnType::VARIANT || _cols.back()->is_variant_type()) {
+    if (col_type == ColumnType::VARIANT || _cols.back()->is_variant_type() ||
+        _cols.back()->is_extracted_column()) {
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
         _field_path_to_index[_cols.back()->path_info_ptr().get()] = _num_columns;
     } else if (col_type == ColumnType::NORMAL) {
@@ -985,6 +996,24 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     _table_id = tablet_schema.table_id();
 }
 
+void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
+    for (auto& col : _cols) {
+        if (col->unique_id() < 0) {
+            continue;
+        }
+        const auto iter = tablet_schema._field_id_to_index.find(col->unique_id());
+        if (iter == tablet_schema._field_id_to_index.end()) {
+            continue;
+        }
+        auto col_idx = iter->second;
+        if (col_idx < 0 || col_idx >= tablet_schema._cols.size()) {
+            continue;
+        }
+        col->set_is_bf_column(tablet_schema._cols[col_idx]->is_bf_column());
+        col->set_has_bitmap_index(tablet_schema._cols[col_idx]->has_bitmap_index());
+    }
+}
+
 std::string TabletSchema::to_key() const {
     TabletSchemaPB pb;
     to_schema_pb(&pb);
@@ -1086,7 +1115,7 @@ void TabletSchema::merge_dropped_columns(const TabletSchema& src_schema) {
     }
 }
 
-TabletSchemaSPtr TabletSchema::copy_without_extracted_columns() {
+TabletSchemaSPtr TabletSchema::copy_without_variant_extracted_columns() {
     TabletSchemaSPtr copy = std::make_shared<TabletSchema>();
     TabletSchemaPB tablet_schema_pb;
     this->to_schema_pb(&tablet_schema_pb);
@@ -1099,9 +1128,9 @@ TabletSchemaSPtr TabletSchema::copy_without_extracted_columns() {
 bool TabletSchema::is_dropped_column(const TabletColumn& col) const {
     CHECK(_field_id_to_index.find(col.unique_id()) != _field_id_to_index.end())
             << "could not find col with unique id = " << col.unique_id()
-            << " and name = " << col.name();
-    return _field_name_to_index.find(StringRef(col.name())) == _field_name_to_index.end() ||
-           column(col.name()).unique_id() != col.unique_id();
+            << " and name = " << col.name() << " table_id=" << _table_id;
+    auto it = _field_name_to_index.find(StringRef {col.name()});
+    return it == _field_name_to_index.end() || _cols[it->second]->unique_id() != col.unique_id();
 }
 
 void TabletSchema::copy_extracted_columns(const TabletSchema& src_schema) {
@@ -1241,11 +1270,16 @@ Status TabletSchema::have_column(const std::string& field_name) const {
     return Status::OK();
 }
 
-const TabletColumn& TabletSchema::column(const std::string& field_name) const {
-    DCHECK(_field_name_to_index.contains(StringRef(field_name)) != 0)
-            << ", field_name=" << field_name << ", field_name_to_index=" << get_all_field_names();
-    const auto& found = _field_name_to_index.find(StringRef(field_name));
-    return *_cols[found->second];
+Result<const TabletColumn*> TabletSchema::column(const std::string& field_name) const {
+    auto it = _field_name_to_index.find(StringRef {field_name});
+    if (it == _field_name_to_index.end()) {
+        DCHECK(false) << "field_name=" << field_name << ", table_id=" << _table_id
+                      << ", field_name_to_index=" << get_all_field_names();
+        return ResultError(
+                Status::InternalError("column not found, name={}, table_id={}, schema_version={}",
+                                      field_name, _table_id, _schema_version));
+    }
+    return _cols[it->second].get();
 }
 
 std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(
@@ -1295,7 +1329,7 @@ bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
     return false;
 }
 
-bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id,
+bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id,
                                                     const std::string& suffix_name) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED &&
@@ -1307,7 +1341,7 @@ bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id,
 }
 
 const TabletIndex* TabletSchema::get_inverted_index_with_index_id(
-        int32_t index_id, const std::string& suffix_name) const {
+        int64_t index_id, const std::string& suffix_name) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED &&
             _indexes[i].get_index_suffix() == suffix_name && _indexes[i].index_id() == index_id) {

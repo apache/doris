@@ -109,7 +109,7 @@ public abstract class DataType {
      * @param types data type in string representation
      * @return data type in Nereids
      */
-    public static DataType convertPrimitiveFromStrings(List<String> types, boolean unsigned) {
+    public static DataType convertPrimitiveFromStrings(List<String> types) {
         String type = types.get(0).toLowerCase().trim();
         DataType dataType;
         switch (type) {
@@ -303,11 +303,7 @@ public abstract class DataType {
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
-        if (unsigned) {
-            return dataType.promotion();
-        } else {
-            return dataType;
-        }
+        return dataType;
     }
 
     /**
@@ -577,6 +573,10 @@ public abstract class DataType {
 
     public boolean isIPv4Type() {
         return this instanceof IPv4Type;
+    }
+
+    public boolean isIPType() {
+        return isIPv4Type() || isIPv6Type();
     }
 
     public boolean isIPv6Type() {

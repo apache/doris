@@ -44,12 +44,6 @@ public abstract class QueryTableValueFunction extends TableValuedFunctionIf {
     protected final String query;
 
     public QueryTableValueFunction(Map<String, String> params) throws AnalysisException {
-        if (params.size() != 2) {
-            throw new AnalysisException("Query TableValueFunction must have 2 arguments: 'catalog' and 'query'");
-        }
-        if (!params.containsKey(CATALOG) || !params.containsKey(QUERY)) {
-            throw new AnalysisException("Query TableValueFunction must have 2 arguments: 'catalog' and 'query'");
-        }
         String catalogName = params.get(CATALOG);
         this.query = params.get(QUERY);
         this.catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
@@ -57,6 +51,12 @@ public abstract class QueryTableValueFunction extends TableValuedFunctionIf {
 
     public static QueryTableValueFunction createQueryTableValueFunction(Map<String, String> params)
             throws AnalysisException {
+        if (params.size() != 2) {
+            throw new AnalysisException("Query TableValueFunction must have 2 arguments: 'catalog' and 'query'");
+        }
+        if (!params.containsKey(CATALOG) || !params.containsKey(QUERY)) {
+            throw new AnalysisException("Query TableValueFunction must have 2 arguments: 'catalog' and 'query'");
+        }
         String catalogName = params.get(CATALOG);
 
         // check priv

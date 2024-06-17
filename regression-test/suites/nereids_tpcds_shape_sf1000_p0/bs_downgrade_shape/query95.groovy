@@ -32,6 +32,7 @@ suite("query95") {
     sql 'set runtime_filter_type=8'
     sql 'set dump_nereids_memo=false'
     sql 'set enable_bucket_shuffle_downgrade=true'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     def ds = """with ws_wh as
 (select ws1.ws_order_number,ws1.ws_warehouse_sk wh1,ws2.ws_warehouse_sk wh2
  from web_sales ws1,web_sales ws2

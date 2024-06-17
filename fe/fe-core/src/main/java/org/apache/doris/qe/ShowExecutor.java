@@ -96,6 +96,7 @@ import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowStageStmt;
 import org.apache.doris.analysis.ShowStmt;
+import org.apache.doris.analysis.ShowStoragePolicyUsingStmt;
 import org.apache.doris.analysis.ShowStorageVaultStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowSyncJobStmt;
@@ -115,7 +116,7 @@ import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
-import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
@@ -218,6 +219,8 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AutoAnalysisPendingJob;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.PartitionColumnStatistic;
+import org.apache.doris.statistics.PartitionColumnStatisticCacheKey;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.TableStatsMeta;
@@ -458,6 +461,8 @@ public class ShowExecutor {
             handleShowCreateMaterializedView();
         } else if (stmt instanceof ShowPolicyStmt) {
             handleShowPolicy();
+        } else if (stmt instanceof ShowStoragePolicyUsingStmt) {
+            handleShowStoragePolicyUsing();
         } else if (stmt instanceof ShowCatalogStmt) {
             handleShowCatalogs();
         } else if (stmt instanceof ShowCreateCatalogStmt) {
@@ -2205,7 +2210,7 @@ public class ShowExecutor {
         backendInfos.sort(new Comparator<List<String>>() {
             @Override
             public int compare(List<String> o1, List<String> o2) {
-                return Integer.parseInt(o1.get(0)) - Integer.parseInt(o2.get(0));
+                return Long.compare(Long.parseLong(o1.get(0)), Long.parseLong(o2.get(0)));
             }
         });
 
@@ -2626,19 +2631,32 @@ public class ShowExecutor {
 
     private void handleShowColumnStats() throws AnalysisException {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
-        TableName tableName = showColumnStatsStmt.getTableName();
         TableIf tableIf = showColumnStatsStmt.getTable();
         List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics = new ArrayList<>();
         Set<String> columnNames = showColumnStatsStmt.getColumnNames();
         PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
         boolean showCache = showColumnStatsStmt.isCached();
         boolean isAllColumns = showColumnStatsStmt.isAllColumns();
-        if (isAllColumns && !showCache && partitionNames == null) {
-            getStatsForAllColumns(columnStatistics, tableIf);
+        if (partitionNames != null) {
+            List<String> partNames = partitionNames.getPartitionNames() == null
+                    ? new ArrayList<>(tableIf.getPartitionNames())
+                    : partitionNames.getPartitionNames();
+            if (showCache) {
+                resultSet = showColumnStatsStmt.constructPartitionCachedColumnStats(
+                    getCachedPartitionColumnStats(columnNames, partNames, tableIf), tableIf);
+            } else {
+                List<ResultRow> partitionColumnStats =
+                        StatisticsRepository.queryColumnStatisticsByPartitions(tableIf, columnNames, partNames);
+                resultSet = showColumnStatsStmt.constructPartitionResultSet(partitionColumnStats, tableIf);
+            }
         } else {
-            getStatsForSpecifiedColumns(columnStatistics, columnNames, tableIf, showCache, tableName, partitionNames);
+            if (isAllColumns && !showCache) {
+                getStatsForAllColumns(columnStatistics, tableIf);
+            } else {
+                getStatsForSpecifiedColumns(columnStatistics, columnNames, tableIf, showCache);
+            }
+            resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
         }
-        resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
     }
 
     private void getStatsForAllColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
@@ -2661,8 +2679,7 @@ public class ShowExecutor {
     }
 
     private void getStatsForSpecifiedColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
-            Set<String> columnNames, TableIf tableIf, boolean showCache,
-            TableName tableName, PartitionNames partitionNames)
+            Set<String> columnNames, TableIf tableIf, boolean showCache)
             throws AnalysisException {
         for (String colName : columnNames) {
             // Olap base index use -1 as index id.
@@ -2682,26 +2699,53 @@ public class ShowExecutor {
                     continue;
                 }
                 // Show column statistics in columnStatisticsCache.
+                ColumnStatistic columnStatistic;
                 if (showCache) {
-                    ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-                            tableIf.getDatabase().getCatalog().getId(),
-                            tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
-                    columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
-                } else if (partitionNames == null) {
-                    ColumnStatistic columnStatistic =
-                            StatisticsRepository.queryColumnStatisticsByName(
-                                    tableIf.getDatabase().getCatalog().getId(),
-                                    tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
-                    columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
+                    columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+                        tableIf.getDatabase().getCatalog().getId(),
+                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
                 } else {
-                    String finalIndexName = indexName;
-                    columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
-                                    colName, partitionNames.getPartitionNames())
-                            .stream().map(s -> Pair.of(Pair.of(finalIndexName, colName), s))
-                            .collect(Collectors.toList()));
+                    columnStatistic = StatisticsRepository.queryColumnStatisticsByName(
+                        tableIf.getDatabase().getCatalog().getId(),
+                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
+                }
+                columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
+            }
+        }
+    }
+
+    private Map<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> getCachedPartitionColumnStats(
+            Set<String> columnNames, List<String> partitionNames, TableIf tableIf) {
+        Map<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> ret = new HashMap<>();
+        long catalogId = tableIf.getDatabase().getCatalog().getId();
+        long dbId = tableIf.getDatabase().getId();
+        long tableId = tableIf.getId();
+        for (String colName : columnNames) {
+            // Olap base index use -1 as index id.
+            List<Long> indexIds = Lists.newArrayList();
+            if (tableIf instanceof OlapTable) {
+                indexIds = ((OlapTable) tableIf).getMvColumnIndexIds(colName);
+            } else {
+                indexIds.add(-1L);
+            }
+            for (long indexId : indexIds) {
+                String indexName = tableIf.getName();
+                if (tableIf instanceof OlapTable) {
+                    OlapTable olapTable = (OlapTable) tableIf;
+                    indexName = olapTable.getIndexNameById(indexId == -1 ? olapTable.getBaseIndexId() : indexId);
+                }
+                if (indexName == null) {
+                    continue;
+                }
+                for (String partName : partitionNames) {
+                    PartitionColumnStatistic partitionStatistics = Env.getCurrentEnv().getStatisticsCache()
+                            .getPartitionColumnStatistics(catalogId, dbId, tableId, indexId, partName, colName);
+                    ret.put(new PartitionColumnStatisticCacheKey(catalogId, dbId, tableId, indexId, partName, colName),
+                            partitionStatistics);
                 }
             }
         }
+        return ret;
     }
 
     public void handleShowColumnHist() {
@@ -2827,6 +2871,11 @@ public class ShowExecutor {
     public void handleShowPolicy() throws AnalysisException {
         ShowPolicyStmt showStmt = (ShowPolicyStmt) stmt;
         resultSet = Env.getCurrentEnv().getPolicyMgr().showPolicy(showStmt);
+    }
+
+    public void handleShowStoragePolicyUsing() throws AnalysisException {
+        ShowStoragePolicyUsingStmt showStmt = (ShowStoragePolicyUsingStmt) stmt;
+        resultSet = Env.getCurrentEnv().getPolicyMgr().showStoragePolicyUsing(showStmt);
     }
 
     public void handleShowCatalogs() throws AnalysisException {
@@ -3232,8 +3281,13 @@ public class ShowExecutor {
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
                     .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+            Auth auth = Env.getCurrentEnv().getAuth();
+            UserIdentity user = ctx.getCurrentUserIdentity();
             rows = resp.getStorageVaultList().stream()
-                            .map(StorageVault::convertToShowStorageVaultProperties)
+                    .filter(storageVault -> auth.checkStorageVaultPriv(user, storageVault.getName(),
+                            PrivPredicate.USAGE)
+                    )
+                    .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
             if (resp.hasDefaultStorageVaultId()) {
                 StorageVault.setDefaultVaultToShowVaultResult(rows, resp.getDefaultStorageVaultId());

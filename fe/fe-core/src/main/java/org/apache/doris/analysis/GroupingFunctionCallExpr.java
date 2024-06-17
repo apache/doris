@@ -116,4 +116,9 @@ public class GroupingFunctionCallExpr extends FunctionCallExpr {
     public List<Expr> getRealChildren() {
         return realChildren;
     }
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
+    }
 }

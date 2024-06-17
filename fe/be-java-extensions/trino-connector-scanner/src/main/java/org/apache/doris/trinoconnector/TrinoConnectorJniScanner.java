@@ -31,6 +31,7 @@ import io.airlift.json.ObjectMapperProvider;
 import io.trino.Session;
 import io.trino.SystemSessionProperties;
 import io.trino.SystemSessionPropertiesProvider;
+import io.trino.block.BlockJsonSerde;
 import io.trino.client.ClientCapabilities;
 import io.trino.connector.CatalogServiceProviderModule;
 import io.trino.execution.DynamicFilterConfig;
@@ -40,8 +41,10 @@ import io.trino.execution.TaskManagerConfig;
 import io.trino.execution.scheduler.NodeSchedulerConfig;
 import io.trino.memory.MemoryManagerConfig;
 import io.trino.memory.NodeMemoryConfig;
+import io.trino.metadata.BlockEncodingManager;
 import io.trino.metadata.HandleJsonModule;
 import io.trino.metadata.HandleResolver;
+import io.trino.metadata.InternalBlockEncodingSerde;
 import io.trino.metadata.SessionPropertyManager;
 import io.trino.plugin.base.TypeDeserializer;
 import io.trino.spi.Page;
@@ -82,7 +85,7 @@ import java.util.stream.Collectors;
 public class TrinoConnectorJniScanner extends JniScanner {
     private static volatile int physicalProcessorCount = -1;
     private static final Logger LOG = LoggerFactory.getLogger(TrinoConnectorJniScanner.class);
-    private static final String TRINO_CONNECTOR_OPTION_PREFIX = "trino_connector_option_prefix.";
+    private static final String TRINO_CONNECTOR_PROPERTIES_PREFIX = "trino.";
     private final QueryIdGenerator queryIdGenerator = new QueryIdGenerator();
 
 
@@ -134,16 +137,22 @@ public class TrinoConnectorJniScanner extends JniScanner {
         connectorColumnMetadataString = params.get("trino_connector_column_metadata");
         connectorPredicateString = params.get("trino_connector_predicate");
         connectorTrascationHandleString = params.get("trino_connector_trascation_handle");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("TrinoConnectorJniScanner connectorSplitString = " + connectorSplitString
+                    + " ; connectorTableHandleString = " + connectorTableHandleString
+                    + " ; connectorColumnHandleString = " + connectorColumnHandleString
+                    + " ; connectorColumnMetadataString = " + connectorColumnMetadataString
+                    + " ; connectorPredicateString = " + connectorPredicateString
+                    + " ; connectorTrascationHandleString = " + connectorTrascationHandleString);
+        }
 
 
         trinoConnectorOptionParams = params.entrySet().stream()
-                .filter(kv -> kv.getKey().startsWith(TRINO_CONNECTOR_OPTION_PREFIX))
+                .filter(kv -> kv.getKey().startsWith(TRINO_CONNECTOR_PROPERTIES_PREFIX))
                 .collect(Collectors
-                        .toMap(kv1 -> kv1.getKey().substring(TRINO_CONNECTOR_OPTION_PREFIX.length()),
+                        .toMap(kv1 -> kv1.getKey().substring(TRINO_CONNECTOR_PROPERTIES_PREFIX.length()),
                                 kv1 -> kv1.getValue()));
         catalogCreateTime = trinoConnectorOptionParams.remove("create_time");
-        trinoConnectorOptionParams.remove("type");
-        trinoConnectorOptionParams.remove("use_meta_cache");
     }
 
     @Override
@@ -225,7 +234,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
             Objects.requireNonNull(connectorPageSourceProvider,
                     String.format("Connector '%s' returned a null page source provider", catalogNameString));
         } catch (UnsupportedOperationException ignored) {
-            LOG.warn("exception when getPageSourceProvider: " + ignored.getMessage());
+            LOG.debug("exception when getPageSourceProvider: " + ignored.getMessage());
         }
 
         try {
@@ -238,15 +247,13 @@ public class TrinoConnectorJniScanner extends JniScanner {
             }
             connectorPageSourceProvider = new RecordPageSourceProvider(connectorRecordSetProvider);
         } catch (UnsupportedOperationException ignored) {
-            LOG.warn("exception when getRecordSetProvider: " + ignored.getMessage());
+            LOG.debug("exception when getRecordSetProvider: " + ignored.getMessage());
         }
 
         return connectorPageSourceProvider;
     }
 
     private ObjectMapperProvider generateObjectMapperProvider() {
-        TypeManager typeManager = new InternalTypeManager(
-                TrinoConnectorPluginLoader.getTrinoConnectorPluginManager().getTypeRegistry());
         ObjectMapperProvider objectMapperProvider = new ObjectMapperProvider();
         Set<Module> modules = new HashSet<Module>();
         modules.add(HandleJsonModule.tableHandleModule(handleResolver));
@@ -259,8 +266,15 @@ public class TrinoConnectorJniScanner extends JniScanner {
         // modules.add(HandleJsonModule.indexHandleModule(handleResolver));
         // modules.add(HandleJsonModule.partitioningHandleModule(handleResolver));
         objectMapperProvider.setModules(modules);
-        objectMapperProvider.setJsonDeserializers(
-                ImmutableMap.of(io.trino.spi.type.Type.class, new TypeDeserializer(typeManager)));
+
+        // set json deserializers
+        TypeManager typeManager = new InternalTypeManager(
+                TrinoConnectorPluginLoader.getTrinoConnectorPluginManager().getTypeRegistry());
+        InternalBlockEncodingSerde blockEncodingSerde = new InternalBlockEncodingSerde(new BlockEncodingManager(),
+                typeManager);
+        objectMapperProvider.setJsonDeserializers(ImmutableMap.of(
+                io.trino.spi.type.Type.class, new TypeDeserializer(typeManager),
+                Block.class, new BlockJsonSerde.Deserializer(blockEncodingSerde)));
         return objectMapperProvider;
     }
 
@@ -320,9 +334,6 @@ public class TrinoConnectorJniScanner extends JniScanner {
             trinoTypeList.add(columnMetadataList.get(index).getType());
             String hiveType = TrinoTypeToHiveTypeTranslator.fromTrinoTypeToHiveType(trinoTypeList.get(i));
             columnTypes[i] = ColumnType.parseType(fields[i], hiveType);
-
-            // LOG.info(String.format("Trino type: [%s], hive type: [%s], columnTypes: [%s].",
-            //         trinoTypeList.get(i), hiveType, columnTypes[i]));
         }
         super.types = columnTypes;
     }

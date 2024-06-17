@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
@@ -167,6 +168,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterViewCommand(AlterViewCommand alterViewCommand, C context) {
         return visitCommand(alterViewCommand, context);
+    }
+
+    default R visitDropCatalogRecycleBinCommand(DropCatalogRecycleBinCommand dropCatalogRecycleBinCommand, C context) {
+        return visitCommand(dropCatalogRecycleBinCommand, context);
     }
 
     default R visitUnsupportedCommand(UnsupportedCommand unsupportedCommand, C context) {

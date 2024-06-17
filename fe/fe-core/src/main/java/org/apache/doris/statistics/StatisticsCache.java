@@ -58,15 +58,17 @@ public class StatisticsCache {
             = ThreadPoolManager.newDaemonFixedThreadPool(
             10, Integer.MAX_VALUE, "STATS_FETCH", true);
 
-    private final ColumnStatisticsCacheLoader columnStatisticsCacheLoader = new ColumnStatisticsCacheLoader();
+    private final ColumnStatisticsCacheLoader columnStatisticCacheLoader = new ColumnStatisticsCacheLoader();
     private final HistogramCacheLoader histogramCacheLoader = new HistogramCacheLoader();
+    private final PartitionColumnStatisticCacheLoader partitionColumnStatisticCacheLoader
+            = new PartitionColumnStatisticCacheLoader();
 
     private final AsyncLoadingCache<StatisticsCacheKey, Optional<ColumnStatistic>> columnStatisticsCache =
             Caffeine.newBuilder()
                     .maximumSize(Config.stats_cache_size)
                     .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
                     .executor(threadPool)
-                    .buildAsync(columnStatisticsCacheLoader);
+                    .buildAsync(columnStatisticCacheLoader);
 
     private final AsyncLoadingCache<StatisticsCacheKey, Optional<Histogram>> histogramCache =
             Caffeine.newBuilder()
@@ -74,6 +76,14 @@ public class StatisticsCache {
                     .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
                     .executor(threadPool)
                     .buildAsync(histogramCacheLoader);
+
+    private final AsyncLoadingCache<PartitionColumnStatisticCacheKey, Optional<PartitionColumnStatistic>>
+            partitionColumnStatisticCache =
+            Caffeine.newBuilder()
+                .maximumSize(Config.stats_cache_size)
+                .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
+                .executor(threadPool)
+                .buildAsync(partitionColumnStatisticCacheLoader);
 
     public ColumnStatistic getColumnStatistics(long catalogId, long dbId, long tblId, long idxId, String colName) {
         ConnectContext ctx = ConnectContext.get();
@@ -90,6 +100,25 @@ public class StatisticsCache {
             LOG.warn("Unexpected exception while returning ColumnStatistic", e);
         }
         return ColumnStatistic.UNKNOWN;
+    }
+
+    public PartitionColumnStatistic getPartitionColumnStatistics(long catalogId, long dbId, long tblId, long idxId,
+                                                  String partName, String colName) {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getSessionVariable().internalSession) {
+            return PartitionColumnStatistic.UNKNOWN;
+        }
+        PartitionColumnStatisticCacheKey k = new PartitionColumnStatisticCacheKey(
+                catalogId, dbId, tblId, idxId, partName, colName);
+        try {
+            CompletableFuture<Optional<PartitionColumnStatistic>> f = partitionColumnStatisticCache.get(k);
+            if (f.isDone()) {
+                return f.get().orElse(PartitionColumnStatistic.UNKNOWN);
+            }
+        } catch (Exception e) {
+            LOG.warn("Unexpected exception while returning ColumnStatistic", e);
+        }
+        return PartitionColumnStatistic.UNKNOWN;
     }
 
     public Histogram getHistogram(long ctlId, long dbId, long tblId, String colName) {
@@ -113,8 +142,21 @@ public class StatisticsCache {
         return Optional.empty();
     }
 
-    public void invalidate(long ctlId, long dbId, long tblId, long idxId, String colName) {
+    public void invalidateColumnStatsCache(long ctlId, long dbId, long tblId, long idxId, String colName) {
         columnStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
+    }
+
+    public void invalidatePartitionColumnStatsCache(long ctlId, long dbId, long tblId, long idxId,
+                                                    String partId, String colName) {
+        if (partId == null) {
+            return;
+        }
+        partitionColumnStatisticCache.synchronous().invalidate(
+            new PartitionColumnStatisticCacheKey(ctlId, dbId, tblId, idxId, partId, colName));
+    }
+
+    public void invalidateAllPartitionStatsCache() {
+        partitionColumnStatisticCache.synchronous().invalidateAll();
     }
 
     public void updateColStatsCache(long ctlId, long dbId, long tblId, long idxId, String colName,
@@ -178,7 +220,10 @@ public class StatisticsCache {
                 }
                 putCache(k, c);
             } catch (Throwable t) {
-                LOG.warn("Error when preheating stats cache. Row:[{}]", r, t);
+                LOG.warn("Error when preheating stats cache. reason: [{}]. Row:[{}]", t.getMessage(), r);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(t);
+                }
             }
         }
     }
@@ -192,7 +237,7 @@ public class StatisticsCache {
                 statsId.idxId, statsId.colId);
         ColumnStatistic columnStatistic = data.toColumnStatistic();
         if (columnStatistic == ColumnStatistic.UNKNOWN) {
-            invalidate(k.catalogId, k.dbId, k.tableId, k.idxId, k.colName);
+            invalidateColumnStatsCache(k.catalogId, k.dbId, k.tableId, k.idxId, k.colName);
         } else {
             putCache(k, columnStatistic);
         }

@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -38,14 +40,23 @@ import java.util.List;
  * ScalarFunction 'days_add'.
  */
 public class YearsAdd extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
+        implements BinaryExpression, ExplicitlyCastableSignature,
+        ComputeSignatureForDateArithmetic, PropagateNullableOnDateLikeV2Args {
 
-    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+    // When enable_date_conversion is true, we prefer to V2 signature.
+    // This preference follows original planner. refer to ScalarType.getDefaultDateType()
+    private static final List<FunctionSignature> SIGNATURES = Config.enable_date_conversion ? ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
                     .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE, IntegerType.INSTANCE)
+    ) : ImmutableList.of(
+            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
+                    .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE),
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE)
     );
 
     public YearsAdd(Expression arg0, Expression arg1) {

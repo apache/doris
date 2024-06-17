@@ -152,3 +152,6 @@ hdfs_port=8020
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
+
+// trino-connector catalog test config
+enableTrinoConnectorTest = true

@@ -34,8 +34,10 @@ import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptim
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
+import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
+import org.apache.doris.nereids.rules.rewrite.AdjustPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.CTEInline;
@@ -82,9 +84,11 @@ import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
+import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
 import org.apache.doris.nereids.rules.rewrite.MergeAggregate;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
+import org.apache.doris.nereids.rules.rewrite.MergePercentileToArray;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
@@ -391,9 +395,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                     custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
             ),
+            topic("adjust preagg status",
+                    topDown(new AdjustPreAggStatus())
+            ),
             topic("topn optimize",
                     topDown(new DeferMaterializeTopNResult())
             ),
+            topic("Point query short circuit",
+                    topDown(new LogicalResultSinkToShortCircuitPointQuery())),
             topic("eliminate",
                     // SORT_PRUNING should be applied after mergeLimit
                     custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
@@ -401,7 +410,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
             topic("agg rewrite",
                 // these rules should be put after mv optimization to avoid mv matching fail
-                topDown(new SumLiteralRewrite())
+                topDown(new SumLiteralRewrite(),
+                        new MergePercentileToArray())
+            ),
+            topic("add projection for join",
+                    custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
+                    topDown(new MergeProjects())
             ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
@@ -473,7 +487,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(jobs))
                 ),
                 topic("or expansion",
-                        topDown(new OrExpansion())),
+                        custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE)),
                 topic("whole plan check",
                         custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
                 )

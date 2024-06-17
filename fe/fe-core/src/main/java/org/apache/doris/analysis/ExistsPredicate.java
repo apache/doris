@@ -86,4 +86,9 @@ public class ExistsPredicate extends Predicate {
     public int hashCode() {
         return 31 * super.hashCode() + Boolean.hashCode(notExists);
     }
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
+    }
 }

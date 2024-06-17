@@ -21,11 +21,6 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.exploration.mv.ComparisonResult;
 import org.apache.doris.nereids.rules.exploration.mv.HyperGraphComparator;
-import org.apache.doris.nereids.rules.exploration.mv.LogicalCompatibilityContext;
-import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
-import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
-import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
-import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -33,11 +28,10 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.BitSet;
-
 class PullupExpressionTest extends SqlTestBase {
     @Test
     void testPullUpQueryFilter() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 join T2 on T1.id = T2.id where T1.id = 1",
                 connectContext
@@ -57,13 +51,14 @@ class PullupExpressionTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.builderForMv(p1).build();
         HyperGraph h2 = HyperGraph.builderForMv(p2).build();
-        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
         Assertions.assertEquals(1, res.getQueryExpressions().size());
         Assertions.assertEquals("(id = 1)", res.getQueryExpressions().get(0).toSql());
     }
 
     @Test
     void testPullUpQueryJoinCondition() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 join T2 on T1.id = T2.id and T1.score = T2.score",
                 connectContext
@@ -83,13 +78,14 @@ class PullupExpressionTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.builderForMv(p1).build();
         HyperGraph h2 = HyperGraph.builderForMv(p2).build();
-        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
         Assertions.assertEquals(1, res.getQueryExpressions().size());
         Assertions.assertEquals("(score = score)", res.getQueryExpressions().get(0).toSql());
     }
 
     @Test
     void testPullUpViewFilter() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 join T2 on T1.id = T2.id",
                 connectContext
@@ -109,7 +105,7 @@ class PullupExpressionTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.builderForMv(p1).build();
         HyperGraph h2 = HyperGraph.builderForMv(p2).build();
-        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
         Assertions.assertEquals(2, res.getViewExpressions().size());
         Assertions.assertEquals("(id = 1)", res.getViewExpressions().get(0).toSql());
         Assertions.assertEquals("(id = 1)", res.getViewExpressions().get(1).toSql());
@@ -117,6 +113,7 @@ class PullupExpressionTest extends SqlTestBase {
 
     @Test
     void testPullUpViewJoinCondition() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 join T2 on T1.id = T2.id ",
                 connectContext
@@ -136,18 +133,8 @@ class PullupExpressionTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.builderForMv(p1).build();
         HyperGraph h2 = HyperGraph.builderForMv(p2).build();
-        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
         Assertions.assertEquals(1, res.getViewExpressions().size());
         Assertions.assertEquals("(score = score)", res.getViewExpressions().get(0).toSql());
-    }
-
-    LogicalCompatibilityContext constructContext(Plan p1, Plan p2) {
-        StructInfo st1 = MaterializedViewUtils.extractStructInfo(p1,
-                null, new BitSet()).get(0);
-        StructInfo st2 = MaterializedViewUtils.extractStructInfo(p2,
-                null, new BitSet()).get(0);
-        RelationMapping rm = RelationMapping.generate(st1.getRelations(), st2.getRelations()).get(0);
-        SlotMapping sm = SlotMapping.generate(rm);
-        return LogicalCompatibilityContext.from(rm, sm, st1, st2);
     }
 }

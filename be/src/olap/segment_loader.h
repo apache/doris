@@ -114,15 +114,20 @@ public:
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
-                         bool use_cache = false);
+                         bool use_cache = false, bool need_load_pk_index_and_bf = false);
 
     void erase_segment(const SegmentCache::CacheKey& key);
 
     void erase_segments(const RowsetId& rowset_id, int64_t num_segments);
 
+    // Just used for BE UT
+    int64_t cache_mem_usage() const { return _cache_mem_usage; }
+
 private:
     SegmentLoader();
     std::unique_ptr<SegmentCache> _segment_cache;
+    // Just used for BE UT
+    int64_t _cache_mem_usage = 0;
 };
 
 // A handle for a single rowset from segment lru cache.

@@ -92,6 +92,7 @@ suite("runtime_filter") {
     properties("replication_num" = "1");
     insert into table_20_undef_partitions2_keys3_properties4_distributed_by5(pk,col_int_undef_signed,col_varchar_10__undef_signed) values (0,null,'my'),(1,null,'a'),(2,5,''),(3,0,'that'),(4,0,'want'),(5,null,'g'),(6,null,null),(7,null,''),(8,null,null),(9,3,'b'),(10,null,'her'),(11,6,''),(12,null,'k'),(13,null,'then'),(14,2,null),(15,null,''),(16,null,'g'),(17,null,'x'),(18,null,'d'),(19,null,null);
 
+    drop table if exists table_8_undef_partitions2_keys3_properties4_distributed_by5;
     create table table_8_undef_partitions2_keys3_properties4_distributed_by5 (
     col_int_undef_signed int/*agg_type_placeholder*/   ,
     col_varchar_10__undef_signed varchar(10)/*agg_type_placeholder*/   ,
@@ -115,4 +116,20 @@ suite("runtime_filter") {
         INNER JOIN table_9_undef_partitions2_keys3_properties4_distributed_by5 AS alias2
         INNER JOIN table_20_undef_partitions2_keys3_properties4_distributed_by5 AS alias3 ON alias2.`pk` = alias3.`pk`;    
      """
+
+    // do not generate rf on schemaScan. if rf generated, following sql is blocked
+     multi_sql """
+     set runtime_filter_mode=true;
+     SELECT *
+        FROM(
+        SELECT tab.TABLE_SCHEMA, tab.TABLE_NAME
+        FROM information_schema.TABLES tab
+        WHERE TABLE_TYPE in ('BASE TABLE', 'SYSTEM VIEW')
+        AND tab.TABLE_SCHEMA in ('__internal_schema')
+        AND tab.TABLE_NAME IN ('audit_log')
+        ORDER BY tab.TABLE_SCHEMA, tab.TABLE_NAME LIMIT 0, 100) t inner join information_schema.COLUMNS col on t.TABLE_SCHEMA=col.TABLE_SCHEMA
+        AND t.TABLE_NAME=col.TABLE_NAME
+        ORDER BY col.TABLE_SCHEMA,col.TABLE_NAME,col.ORDINAL_POSITION;
+    """
+
 }

@@ -30,7 +30,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 
@@ -87,7 +86,7 @@ public class UpdateStmt extends DdlStmt {
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isInDebugMode()) {
             throw new AnalysisException("Update is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
-                    + String.join(", ", SessionVariable.DEBUG_VARIABLES));
+                    + ConnectContext.get().getSessionVariable().printDebugModeVariables());
         }
         analyzeTargetTable(analyzer);
         analyzeSetExprs(analyzer);
@@ -191,12 +190,8 @@ public class UpdateStmt extends DdlStmt {
 
         // step3: generate select list and insert column name list in insert stmt
         boolean isMow = ((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite();
-        boolean hasVariant = false;
         int setExprCnt = 0;
         for (Column column : targetTable.getColumns()) {
-            if (column.getType().isVariantType()) {
-                hasVariant = true;
-            }
             for (BinaryPredicate setExpr : setExprs) {
                 Expr lhs = setExpr.getChild(0);
                 if (((SlotRef) lhs).getColumn().equals(column)) {
@@ -204,13 +199,10 @@ public class UpdateStmt extends DdlStmt {
                 }
             }
         }
-        // 1.table with sequence col cannot use partial update cause in MOW, we encode pk
+        // table with sequence col cannot use partial update cause in MOW, we encode pk
         // with seq column but we don't know which column is sequence in update
-        // 2. variant column update schema during load, so implement partial update is complicated,
-        //  just ignore it at present
         if (isMow && ((OlapTable) targetTable).getSequenceCol() == null
-                && setExprCnt <= targetTable.getColumns().size() * 3 / 10
-                && !hasVariant) {
+                && setExprCnt <= targetTable.getColumns().size() * 3 / 10) {
             isPartialUpdate = true;
         }
         Optional<Column> sequenceMapCol = Optional.empty();

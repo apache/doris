@@ -70,7 +70,7 @@ public:
         MemCounter() : _current_value(0), _peak_value(0) {}
 
         void add(int64_t delta) {
-            auto value = _current_value.fetch_add(delta, std::memory_order_relaxed) + delta;
+            int64_t value = _current_value.fetch_add(delta, std::memory_order_relaxed) + delta;
             update_peak(value);
         }
 
@@ -79,8 +79,8 @@ public:
         }
 
         bool try_add(int64_t delta, int64_t max) {
-            auto cur_val = _current_value.load(std::memory_order_relaxed);
-            auto new_val = 0;
+            int64_t cur_val = _current_value.load(std::memory_order_relaxed);
+            int64_t new_val = 0;
             do {
                 new_val = cur_val + delta;
                 if (UNLIKELY(new_val > max)) {
@@ -100,7 +100,7 @@ public:
         }
 
         void update_peak(int64_t value) {
-            auto pre_value = _peak_value.load(std::memory_order_relaxed);
+            int64_t pre_value = _peak_value.load(std::memory_order_relaxed);
             while (value > pre_value && !_peak_value.compare_exchange_weak(
                                                 pre_value, value, std::memory_order_relaxed)) {
             }

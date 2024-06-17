@@ -29,6 +29,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -55,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -148,13 +150,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
         TableIf table = null;
-        if (!CollectionUtils.isEmpty(cascadesContext.getTables())) {
-            table = cascadesContext.getTableInMinidumpCache(tableName);
-        }
-        if (table == null) {
-            if (customTableResolver.isPresent()) {
-                table = customTableResolver.get().apply(tableQualifier);
-            }
+        if (customTableResolver.isPresent()) {
+            table = customTableResolver.get().apply(tableQualifier);
         }
         // In some cases even if we have already called the "cascadesContext.getTableByName",
         // it also gets the null. So, we just check it in the catalog again for safety.
@@ -206,7 +203,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 }
                 PreAggStatus preAggStatus
                         = olapTable.getIndexMetaByIndexId(indexId).getKeysType().equals(KeysType.DUP_KEYS)
-                        ? PreAggStatus.on()
+                        ? PreAggStatus.unset()
                         : PreAggStatus.off("For direct index scan.");
 
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
@@ -272,15 +269,24 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         Plan hiveViewPlan = parseAndAnalyzeHiveView(hmsTable, hiveCatalog, ddlSql, cascadesContext);
                         return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                     }
-                    hmsTable.setScanParams(unboundRelation.getScanParams());
-                    return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
-                            qualifierWithoutTableName, unboundRelation.getTableSample());
+                    if (hmsTable.getDlaType() == DLAType.HUDI) {
+                        LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
+                                qualifierWithoutTableName, unboundRelation.getTableSample(),
+                                unboundRelation.getTableSnapshot());
+                        hudiScan = hudiScan.withScanParams(hmsTable, unboundRelation.getScanParams());
+                        return hudiScan;
+                    } else {
+                        return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
+                                qualifierWithoutTableName, unboundRelation.getTableSample(),
+                                unboundRelation.getTableSnapshot());
+                    }
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
-                            qualifierWithoutTableName, unboundRelation.getTableSample());
+                            qualifierWithoutTableName, unboundRelation.getTableSample(),
+                            unboundRelation.getTableSnapshot());
                 case SCHEMA:
                     return new LogicalSchemaScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 case JDBC_EXTERNAL_TABLE:

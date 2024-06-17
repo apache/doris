@@ -45,6 +45,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TOlapTableLocationParam;
@@ -79,8 +80,8 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
      * constructor
      */
     public OlapInsertExecutor(ConnectContext ctx, Table table,
-            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx) {
-        super(ctx, table, labelName, planner, insertCtx);
+            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
     }
 
     public long getTxnId() {
@@ -89,10 +90,16 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     public void beginTransaction() {
+        if (isGroupCommitHttpStream()) {
+            LOG.info("skip begin transaction for group commit http stream");
+            return;
+        }
         try {
             this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                     database.getId(), ImmutableList.of(table.getId()), labelName,
-                    new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                    new TxnCoordinator(TxnSourceType.FE, 0,
+                            FrontendOptions.getLocalHostAddress(),
+                            ExecuteEnv.getInstance().getStartupTime()),
                     LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
@@ -147,13 +154,15 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
-        TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
-        if (state == null) {
-            throw new AnalysisException("txn does not exist: " + txnId);
-        }
-        addTableIndexes(state);
-        if (physicalOlapTableSink.isPartialUpdate()) {
-            state.setSchemaForPartialUpdate((OlapTable) table);
+        if (!isGroupCommitHttpStream()) {
+            TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
+            if (state == null) {
+                throw new AnalysisException("txn does not exist: " + txnId);
+            }
+            addTableIndexes(state);
+            if (physicalOlapTableSink.isPartialUpdate()) {
+                state.setSchemaForPartialUpdate((OlapTable) table);
+            }
         }
     }
 
@@ -290,5 +299,9 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
     public long getTimeout() {
         return ctx.getExecTimeout();
+    }
+
+    private boolean isGroupCommitHttpStream() {
+        return ConnectContext.get() != null && ConnectContext.get().isGroupCommit();
     }
 }
