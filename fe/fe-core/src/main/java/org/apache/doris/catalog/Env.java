@@ -6066,6 +6066,10 @@ public class Env {
         return GlobalVariable.lowerCaseTableNames == 2;
     }
 
+    public static boolean isTableNamesCaseSensitive() {
+        return GlobalVariable.lowerCaseTableNames == 0;
+    }
+
     private static void getTableMeta(OlapTable olapTable, TGetMetaDBMeta dbMeta) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get table meta. table: {}", olapTable.getName());
