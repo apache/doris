@@ -60,7 +60,7 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     @Override
     protected void analysisDone() {
-        if (!lExpr.isAnalyzed) {
+        if (lExpr != null && !lExpr.isAnalyzed) {
             lExpr.analysisDone();
         }
         if (!isAnalyzed) {
