@@ -1017,8 +1017,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringDigestOneArg<MD5Sum>>();
     factory.register_function<FunctionStringDigestSHA1>();
     factory.register_function<FunctionStringDigestSHA2>();
-    factory.register_function<FunctionReplace<ReplaceImpl, false>>();
-    factory.register_function<FunctionReplace<ReplaceEmptyImpl, true>>();
+    factory.register_function<FunctionReplace<ReplaceImpl, true>>();
+    factory.register_function<FunctionReplace<ReplaceEmptyImpl, false>>();
     factory.register_function<FunctionMask>();
     factory.register_function<FunctionMaskPartial<true>>();
     factory.register_function<FunctionMaskPartial<false>>();
