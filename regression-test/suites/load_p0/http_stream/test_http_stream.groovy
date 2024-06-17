@@ -890,7 +890,7 @@ suite("test_http_stream", "p0") {
             }
         }
 
-        qt_sql19 "select type_name, hll_union_agg(pv_hash), hll_union_agg(pv_base64) from ${tableName19} group by type_name"
+        qt_sql19 "select type_name, hll_union_agg(pv_hash), hll_union_agg(pv_base64) from ${tableName19} group by type_name  order by type_name"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName19}"
     }

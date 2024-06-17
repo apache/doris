@@ -550,7 +550,7 @@ suite("test_stream_load_new", "p0") {
             type_id int,
             type_name varchar(10),
             pv_hash hll hll_union not null,
-            pv_base64 hll hll_union null
+            pv_base64 hll hll_union not null
         )
         AGGREGATE KEY(type_id,type_name)
         DISTRIBUTED BY HASH(type_id) BUCKETS 1
@@ -577,7 +577,7 @@ suite("test_stream_load_new", "p0") {
             }
         }
         sql """ sync; """
-        qt_sql13 "select type_name, hll_union_agg(pv_hash), hll_union_agg(pv_base64) from ${tableName13} group by type_name"
+        qt_sql13 "select type_name, hll_union_agg(pv_hash), hll_union_agg(pv_base64) from ${tableName13} group by type_name order by type_name"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName13}"
     }
