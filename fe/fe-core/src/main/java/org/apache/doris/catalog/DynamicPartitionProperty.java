@@ -28,7 +28,10 @@ import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.base.Strings;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.TimeZone;
 import java.util.function.BiConsumer;
 
@@ -51,6 +54,11 @@ public class DynamicPartitionProperty {
     public static final String RESERVED_HISTORY_PERIODS = "dynamic_partition.reserved_history_periods";
     public static final String STORAGE_POLICY = "dynamic_partition.storage_policy";
     public static final String STORAGE_MEDIUM = "dynamic_partition.storage_medium";
+
+    public static final Set<String> DYNAMIC_PARTITION_PROPERTIES = new HashSet<>(
+            Arrays.asList(TIME_UNIT, START, END, PREFIX, BUCKETS, ENABLE, START_DAY_OF_WEEK, START_DAY_OF_MONTH,
+                    TIME_ZONE, REPLICATION_NUM, REPLICATION_ALLOCATION, CREATE_HISTORY_PARTITION, HISTORY_PARTITION_NUM,
+                    HOT_PARTITION_NUM, RESERVED_HISTORY_PERIODS, STORAGE_POLICY, STORAGE_MEDIUM));
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
     public static final int MAX_END_OFFSET = Integer.MAX_VALUE;

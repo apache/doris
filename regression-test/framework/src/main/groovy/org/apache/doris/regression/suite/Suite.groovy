@@ -881,6 +881,21 @@ class Suite implements GroovyInterceptable {
         return;
     }
 
+    String getProvider() {
+        String s3Endpoint = context.config.otherConfigs.get("s3Endpoint")
+        return getProvider(s3Endpoint)
+    }
+
+    String getProvider(String endpoint) {
+        def providers = ["cos", "oss", "s3", "obs", "bos"]
+        for (final def provider in providers) {
+            if (endpoint.containsIgnoreCase(provider)) {
+                return provider
+            }
+        }
+        return ""
+    }
+
     int getTotalLine(String filePath) {
         def file = new File(filePath)
         int lines = 0;
@@ -906,6 +921,33 @@ class Suite implements GroovyInterceptable {
         String hdfsUser = context.config.otherConfigs.get("hdfsUser")
         Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, dataDir)
         return hdfs.downLoad(label)
+    }
+
+    void runStreamLoadExample(String tableName, String coordidateBeHostPort = "") {
+        def backends = sql_return_maparray "show backends"
+        sql """
+                CREATE TABLE IF NOT EXISTS ${tableName} (
+                    id int,
+                    name varchar(255)
+                )
+                DISTRIBUTED BY HASH(id) BUCKETS 1
+                PROPERTIES (
+                  "replication_num" = "${backends.size()}"
+                )
+            """
+
+        streamLoad {
+            table tableName
+            set 'column_separator', ','
+            file context.config.dataPath + "/demo_p0/streamload_input.csv"
+            time 10000
+            if (!coordidateBeHostPort.equals("")) {
+                def pos = coordidateBeHostPort.indexOf(':')
+                def host = coordidateBeHostPort.substring(0, pos)
+                def httpPort = coordidateBeHostPort.substring(pos + 1).toInteger()
+                directToBe host, httpPort
+            }
+        }
     }
 
     void streamLoad(Closure actionSupplier) {

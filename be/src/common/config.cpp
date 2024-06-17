@@ -1110,6 +1110,9 @@ DEFINE_mInt64(lookup_connection_cache_capacity, "2048");
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
+// USED FOR DEBUGING
+// core directly if the compaction found there's duplicate key on mow table
+DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
