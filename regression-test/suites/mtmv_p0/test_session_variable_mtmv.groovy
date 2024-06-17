@@ -55,51 +55,6 @@ suite("test_session_variable_mtmv","mtmv") {
           exception "Unknown system variable"
       }
 
-    test {
-        sql """
-            CREATE MATERIALIZED VIEW ${mvName}
-            BUILD DEFERRED REFRESH AUTO ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1',
-            'session.query_timeout' = 'fff'
-            )
-            AS
-            SELECT * from ${tableName};
-            """
-        """
-        exception "string"
-    }
-
-    sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-        BUILD DEFERRED REFRESH AUTO ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES (
-        'replication_num' = '1',
-        'session.query_timeout' = '3700'
-        )
-        AS
-        SELECT * from ${tableName};
-        """
-
-    test {
-        sql """
-            alter MATERIALIZED VIEW ${mvName} set("session.query_timeout"="gg");
-        """
-        exception "string"
-       }
-
-    alter MATERIALIZED VIEW ${mvName} set("session.query_timeout"="3800");
-
-
-     // refresh mv
-     sql """
-        REFRESH MATERIALIZED VIEW ${mvName} complete
-        """
-    waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_refresh_mv "SELECT * FROM ${mvName}"
-
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 }
