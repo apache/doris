@@ -161,11 +161,6 @@ public:
                           const ::doris::PSyncFilterSizeRequest* request,
                           ::doris::PSyncFilterSizeResponse* response,
                           ::google::protobuf::Closure* done) override;
-
-    void apply_filter(::google::protobuf::RpcController* controller,
-                      const ::doris::PPublishFilterRequest* request,
-                      ::doris::PPublishFilterResponse* response,
-                      ::google::protobuf::Closure* done) override;
     void apply_filterv2(::google::protobuf::RpcController* controller,
                         const ::doris::PPublishFilterRequestV2* request,
                         ::doris::PPublishFilterResponse* response,
