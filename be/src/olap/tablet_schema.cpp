@@ -1289,6 +1289,7 @@ Result<const TabletColumn*> TabletSchema::column(const std::string& field_name) 
 std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(
         const TabletColumn& col) const {
     std::vector<const TabletIndex*> indexes_for_column;
+    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabltetIndex.
     if (!segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
         return indexes_for_column;
     }
@@ -1377,7 +1378,7 @@ const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id,
 const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col,
                                                     bool check_valid) const {
     // With check_valid set to true by default
-    // Some columns from the variant do not support inverted index
+    // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index
     if (check_valid && !segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
         return nullptr;
     }
