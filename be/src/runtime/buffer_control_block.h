@@ -77,7 +77,7 @@ public:
 
     Status init();
     Status add_batch(RuntimeState* state, std::unique_ptr<TFetchDataResult>& result);
-    Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result);
+    Status add_arrow_batch(RuntimeState* state, std::shared_ptr<arrow::RecordBatch>& result);
 
     void get_batch(GetResultBatchCtx* ctx);
     Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result);
@@ -123,10 +123,6 @@ protected:
 
     // protects all subsequent data in this block
     std::mutex _lock;
-    // signal arrival of new batch or the eos/cancelled condition
-    std::condition_variable _data_arrival;
-    // signal removal of data by stream consumer
-    std::condition_variable _data_removal;
 
     std::deque<GetResultBatchCtx*> _waiting_rpc;
 
@@ -134,10 +130,10 @@ protected:
     std::unique_ptr<QueryStatistics> _query_statistics;
     // instance id to dependency
     std::unordered_map<TUniqueId, std::shared_ptr<pipeline::Dependency>> _result_sink_dependencys;
+    std::unordered_map<TUniqueId, size_t> _instance_rows;
+    std::list<std::unordered_map<TUniqueId, size_t>> _instance_rows_in_queue;
 
     int _batch_size;
-    int _waiting_size = 0;
-    TUniqueId _last_ready_id {};
 };
 
 } // namespace doris

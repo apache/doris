@@ -124,9 +124,12 @@ Status BufferControlBlock::add_batch(RuntimeState* state,
             back_rows.insert(back_rows.end(), std::make_move_iterator(result_rows.begin()),
                              std::make_move_iterator(result_rows.end()));
         } else {
+            _instance_rows_in_queue.emplace_back();
             _fe_result_batch_queue.push_back(std::move(result));
         }
         _buffer_rows += num_rows;
+        _instance_rows[state->fragment_instance_id()] += num_rows;
+        _instance_rows_in_queue.back()[state->fragment_instance_id()] += num_rows;
     } else {
         auto* ctx = _waiting_rpc.front();
         _waiting_rpc.pop_front();
@@ -134,17 +137,12 @@ Status BufferControlBlock::add_batch(RuntimeState* state,
         _packet_num++;
     }
 
-    _waiting_size -= _batch_size;
-    //auto it = _result_sink_dependencys.find(state->fragment_instance_id());
-    //if (it != _result_sink_dependencys.end()) {
-    //    it->second->block();
-    //}
-
     _update_dependency();
     return Status::OK();
 }
 
-Status BufferControlBlock::add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result) {
+Status BufferControlBlock::add_arrow_batch(RuntimeState* state,
+                                           std::shared_ptr<arrow::RecordBatch>& result) {
     std::unique_lock<std::mutex> l(_lock);
 
     if (_is_cancelled) {
@@ -152,10 +150,6 @@ Status BufferControlBlock::add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& 
     }
 
     int num_rows = result->num_rows();
-
-    while ((!_arrow_flight_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
-        _data_removal.wait_for(l, std::chrono::seconds(1));
-    }
 
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
@@ -165,7 +159,9 @@ Status BufferControlBlock::add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& 
 
     _arrow_flight_batch_queue.push_back(std::move(result));
     _buffer_rows += num_rows;
-    _data_arrival.notify_one();
+    _instance_rows_in_queue.emplace_back();
+    _instance_rows[state->fragment_instance_id()] += num_rows;
+    _instance_rows_in_queue.back()[state->fragment_instance_id()] += num_rows;
     _update_dependency();
     return Status::OK();
 }
@@ -187,7 +183,10 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
         std::unique_ptr<TFetchDataResult> result = std::move(_fe_result_batch_queue.front());
         _fe_result_batch_queue.pop_front();
         _buffer_rows -= result->result_batch.rows.size();
-        _data_removal.notify_one();
+        for (auto it : _instance_rows_in_queue.front()) {
+            _instance_rows[it.first] -= it.second;
+        }
+        _instance_rows_in_queue.pop_front();
 
         ctx->on_data(result, _packet_num);
         _packet_num++;
@@ -213,10 +212,6 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
         return Status::Cancelled("Cancelled");
     }
 
-    while (_arrow_flight_batch_queue.empty() && !_is_cancelled && !_is_close) {
-        _data_arrival.wait_for(l, std::chrono::seconds(1));
-    }
-
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
     }
@@ -225,7 +220,10 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
         *result = std::move(_arrow_flight_batch_queue.front());
         _arrow_flight_batch_queue.pop_front();
         _buffer_rows -= (*result)->num_rows();
-        _data_removal.notify_one();
+        for (auto it : _instance_rows_in_queue.front()) {
+            _instance_rows[it.first] -= it.second;
+        }
+        _instance_rows_in_queue.pop_front();
         _packet_num++;
         _update_dependency();
         return Status::OK();
@@ -241,7 +239,6 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
 
 Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
     std::unique_lock<std::mutex> l(_lock);
-    _waiting_size -= _batch_size;
     auto it = _result_sink_dependencys.find(id);
     if (it != _result_sink_dependencys.end()) {
         it->second->set_always_ready();
@@ -254,8 +251,6 @@ Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
     _is_close = true;
     _status = exec_status;
 
-    // notify blocked get thread
-    _data_arrival.notify_all();
     if (!_waiting_rpc.empty()) {
         if (_status.ok()) {
             for (auto& ctx : _waiting_rpc) {
@@ -274,8 +269,6 @@ Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
 void BufferControlBlock::cancel() {
     std::unique_lock<std::mutex> l(_lock);
     _is_cancelled = true;
-    _data_removal.notify_all();
-    _data_arrival.notify_all();
     for (auto& ctx : _waiting_rpc) {
         ctx->on_failure(Status::Cancelled("Cancelled"));
     }
@@ -287,30 +280,23 @@ void BufferControlBlock::set_dependency(
         const TUniqueId& id, std::shared_ptr<pipeline::Dependency> result_sink_dependency) {
     std::unique_lock<std::mutex> l(_lock);
     _result_sink_dependencys[id] = result_sink_dependency;
-    _waiting_size += _batch_size;
     _update_dependency();
 }
 
 void BufferControlBlock::_update_dependency() {
     if (_is_cancelled) {
-        for (auto dependency : _result_sink_dependencys) {
-            dependency.second->set_ready();
+        for (auto it : _result_sink_dependencys) {
+            it.second->set_ready();
         }
         return;
     }
 
-    auto it = _result_sink_dependencys.find(_last_ready_id);
-    int loop_cnt = _result_sink_dependencys.size();
-    while (loop_cnt--) {
-        if (it == _result_sink_dependencys.end()) {
-            it = _result_sink_dependencys.begin();
+    for (auto it : _result_sink_dependencys) {
+        if (_instance_rows[it.first] > _batch_size) {
+            it.second->block();
+        } else {
+            it.second->set_ready();
         }
-        if (it->second->ready()) {
-            continue;
-        }
-        it->second->set_ready();
-        _waiting_size += _batch_size;
-        _last_ready_id = it->first;
     }
 }
 

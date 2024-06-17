@@ -80,7 +80,7 @@ Status VArrowFlightResultWriter::write(RuntimeState* state, Block& input_block) 
         SCOPED_TIMER(_result_send_timer);
         // If this is a dry run task, no need to send data block
         if (!_is_dry_run) {
-            status = _sinker->add_arrow_batch(result);
+            status = _sinker->add_arrow_batch(state, result);
         }
         if (status.ok()) {
             _written_rows += num_rows;
