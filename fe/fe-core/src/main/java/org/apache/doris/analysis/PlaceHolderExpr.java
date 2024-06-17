@@ -59,10 +59,18 @@ public class PlaceHolderExpr extends LiteralExpr {
         this.type = literal.getType();
     }
 
+    public LiteralExpr getLiteral() {
+        return lExpr;
+    }
+
     @Override
     protected void analysisDone() {
-        lExpr.analysisDone();
-        super.analysisDone();
+        if (lExpr != null && !lExpr.isAnalyzed) {
+            lExpr.analysisDone();
+        }
+        if (!isAnalyzed) {
+            super.analysisDone();
+        }
     }
 
     public LiteralExpr createLiteralFromType() throws AnalysisException {
