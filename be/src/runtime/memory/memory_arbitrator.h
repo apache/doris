@@ -15,27 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/action/shrink_mem_action.h"
+#pragma once
 
-#include <fmt/core.h>
-
-#include "http/http_channel.h"
-#include "http/http_request.h"
-#include "runtime/exec_env.h"
-#include "runtime/memory/memory_arbitrator.h"
-#include "util/brpc_client_cache.h"
-#include "util/mem_info.h"
-#include "util/string_util.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 
 namespace doris {
-void ShrinkMemAction::handle(HttpRequest* req) {
-    LOG(INFO) << "begin shrink memory";
-    /* this interface might be ready for cloud in the near future
-     * int freed_mem = 0;
-     * doris::MemInfo::process_cache_gc(&freed_mem); */
-    MemoryArbitrator::process_minor_gc();
-    LOG(INFO) << "shrink memory triggered, using Process Minor GC Free Memory";
-    HttpChannel::send_reply(req, HttpStatus::OK, "shrinking");
-}
+
+class MemoryArbitrator {
+public:
+    static bool process_minor_gc(
+            std::string mem_info =
+                    doris::GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str());
+    static bool process_full_gc(
+            std::string mem_info =
+                    doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
+
+    static int64_t tg_disable_overcommit_group_gc();
+    static int64_t tg_enable_overcommit_group_gc(int64_t request_free_memory,
+                                                 RuntimeProfile* profile, bool is_minor_gc);
+
+private:
+};
 
 } // namespace doris
