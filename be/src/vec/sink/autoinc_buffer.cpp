@@ -65,10 +65,12 @@ Status AutoIncIDBuffer::sync_request_ids(size_t length,
             return _rpc_status;
         }
 
+        DCHECK(_is_backend_buffer_full);
         {
             std::lock_guard<std::mutex> lock(_backend_buffer_latch);
             std::swap(_front_buffer, _backend_buffer);
         }
+        _is_backend_buffer_full = false;
 
         DCHECK_LE(length, _front_buffer.second);
         if (length > _front_buffer.second) {
@@ -84,20 +86,19 @@ Status AutoIncIDBuffer::sync_request_ids(size_t length,
 }
 
 Status AutoIncIDBuffer::_prefetch_ids(size_t length) {
-    if (_front_buffer.second > _low_water_level_mark() || _is_fetching) {
+    if (_front_buffer.second > _low_water_level_mark() || _is_fetching || _is_backend_buffer_full) {
         return Status::OK();
     }
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
-    _is_fetching = true;
     RETURN_IF_ERROR(_rpc_token->submit_func([=, this]() {
         TAutoIncrementRangeRequest request;
         TAutoIncrementRangeResult result;
+        TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
         request.__set_db_id(_db_id);
         request.__set_table_id(_table_id);
         request.__set_column_id(_column_id);
         request.__set_length(length);
 
-        int64_t get_auto_inc_range_rpc_ns;
+        int64_t get_auto_inc_range_rpc_ns = 0;
         {
             SCOPED_RAW_TIMER(&get_auto_inc_range_rpc_ns);
             _rpc_status = ThriftRpcHelper::rpc<FrontendServiceClient>(
@@ -109,9 +110,16 @@ Status AutoIncIDBuffer::_prefetch_ids(size_t length) {
         LOG(INFO) << "[auto-inc-range][start=" << result.start << ",length=" << result.length
                   << "][elapsed=" << get_auto_inc_range_rpc_ns / 1000000 << " ms]";
 
-        if (!_rpc_status.ok() || result.length <= 0) {
+        if (!_rpc_status.ok()) {
             LOG(WARNING) << "Failed to fetch auto-incremnt range, encounter rpc failure."
                          << "errmsg=" << _rpc_status.to_string();
+            return;
+        }
+        if (result.length != length) [[unlikely]] {
+            _rpc_status = Status::RpcError<true>(
+                    "Failed to fetch auto-incremnt range, request length={}, but get "
+                    "result.length={}",
+                    length, result.length);
             return;
         }
 
@@ -119,8 +127,10 @@ Status AutoIncIDBuffer::_prefetch_ids(size_t length) {
             std::lock_guard<std::mutex> lock(_backend_buffer_latch);
             _backend_buffer = {result.start, result.length};
         }
+        _is_backend_buffer_full = true;
         _is_fetching = false;
     }));
+    _is_fetching = true;
     return Status::OK();
 }
 

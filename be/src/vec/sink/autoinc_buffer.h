@@ -81,7 +81,9 @@ private:
 
     std::unique_ptr<ThreadPoolToken> _rpc_token;
     Status _rpc_status {Status::OK()};
+
     std::atomic<bool> _is_fetching {false};
+    std::atomic<bool> _is_backend_buffer_full {false};
 
     std::pair<int64_t, size_t> _front_buffer {0, 0};
     std::pair<int64_t, size_t> _backend_buffer {0, 0};
@@ -115,8 +117,7 @@ public:
         auto key = std::make_tuple(db_id, table_id, column_id);
         auto it = _buffers.find(key);
         if (it == _buffers.end()) {
-            _buffers.emplace(std::make_pair(
-                    key, AutoIncIDBuffer::create_shared(db_id, table_id, column_id)));
+            _buffers.emplace(key, AutoIncIDBuffer::create_shared(db_id, table_id, column_id));
         }
         return _buffers[{db_id, table_id, column_id}];
     }
