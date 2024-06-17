@@ -36,9 +36,11 @@ suite("test_session_variable_mtmv","mtmv") {
             "replication_num" = "1"
         );
         """
+
      sql """
         insert into ${tableName} values(1,1),(2,2),(3,3);
         """
+
     test {
           sql """
               CREATE MATERIALIZED VIEW ${mvName}
@@ -51,7 +53,6 @@ suite("test_session_variable_mtmv","mtmv") {
               AS
               SELECT * from ${tableName};
               """
-          """
           exception "Unknown system variable"
       }
 
