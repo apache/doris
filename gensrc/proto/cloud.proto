@@ -270,6 +270,8 @@ enum TxnStatusPB {
 message TxnCoordinatorPB {
     optional TxnSourceTypePB sourceType = 1;
     optional string ip = 2;
+    optional int64 id = 3;
+    optional int64 start_time = 4;
 }
 
 message RoutineLoadProgressPB {

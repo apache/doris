@@ -44,11 +44,11 @@ suite("txn_insert_with_schema_change") {
             properties("replication_num" = "1"); 
         """
     }
-    sql """ insert into ${table}_0 values(0, '0', 0) """
-    sql """ insert into ${table}_1 values(0, '0', 0) """
-    sql """ insert into ${table}_2 values(0, '0', 0) """
-    sql """ insert into ${table}_3 values(1, '1', 1), (2, '2', 2) """
-    sql """ insert into ${table}_4 values(3, '3', 3), (4, '4', 4), (5, '5', 5) """
+    sql """ insert into ${table}_0 values(0, '20', 10) """
+    sql """ insert into ${table}_1 values(0, '20', 10) """
+    sql """ insert into ${table}_2 values(0, '20', 10) """
+    sql """ insert into ${table}_3 values(1, '21', 11), (2, '22', 12) """
+    sql """ insert into ${table}_4 values(3, '23', 13), (4, '24', 14), (5, '25', 15) """
 
     def getAlterTableState = { tName, job_state ->
         def retry = 0
@@ -118,11 +118,6 @@ suite("txn_insert_with_schema_change") {
 
     for (int i = 0; i < sqls.size(); i++) {
         def insert_sqls = sqls[i]
-        // TODO skip because it will cause ms core
-        if (isCloudMode() && insert_sqls[1].startsWith("delete")) {
-            continue
-        }
-
         logger.info("insert sqls: ${insert_sqls}")
         // 1. do light weight schema change: add column
         if (true) {
@@ -158,6 +153,24 @@ suite("txn_insert_with_schema_change") {
             order_qt_select3 """select id, name, score from ${table}_${i} """
             getAlterTableState("${table}_${i}", "FINISHED")
             order_qt_select4 """select id, name, score from ${table}_${i} """
+        }
+
+        // 3. do hard weight schema change: change type
+        if (true) {
+            insertLatch = new CountDownLatch(1)
+            schemaChangeLatch = new CountDownLatch(1)
+            Thread insert_thread = new Thread(() -> txnInsert(insert_sqls))
+            Thread schema_change_thread = new Thread(() -> schemaChange("alter table ${table}_${i} MODIFY column name int(11)", "${table}_${i}", "WAITING_TXN"))
+            insert_thread.start()
+            schema_change_thread.start()
+            insert_thread.join()
+            schema_change_thread.join()
+
+            logger.info("errors: " + errors)
+            assertEquals(0, errors.size())
+            order_qt_select5 """select id, name, score from ${table}_${i} """
+            getAlterTableState("${table}_${i}", "FINISHED")
+            order_qt_select6 """select id, name, score from ${table}_${i} """
         }
         check_table_version_continuous(dbName, table + "_" + i)
     }

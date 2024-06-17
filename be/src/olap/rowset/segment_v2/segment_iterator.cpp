@@ -343,6 +343,34 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             _storage_name_and_type[i] = std::make_pair(col->name(), storage_type);
         }
     }
+
+    // find columns that definitely require reading data, such as functions that are not pushed down.
+    {
+        std::set<std::string> push_down_preds;
+        for (auto* pred : _col_predicates) {
+            if (!_check_apply_by_inverted_index(pred)) {
+                continue;
+            }
+            push_down_preds.insert(_gen_predicate_result_sign(pred));
+        }
+        for (auto* pred : _col_preds_except_leafnode_of_andnode) {
+            if (!_check_apply_by_inverted_index(pred)) {
+                continue;
+            }
+            push_down_preds.insert(_gen_predicate_result_sign(pred));
+        }
+        for (auto& preds_in_remaining_vconjuct : _column_pred_in_remaining_vconjunct) {
+            const auto& column_name = preds_in_remaining_vconjuct.first;
+            for (auto& pred_info : preds_in_remaining_vconjuct.second) {
+                auto column_sign = _gen_predicate_result_sign(&pred_info);
+                if (!push_down_preds.contains(column_sign)) {
+                    auto cid = _opts.tablet_schema->field_index(column_name);
+                    _need_read_data_indices[cid] = true;
+                }
+            }
+        }
+    }
+
     return Status::OK();
 }
 
@@ -751,7 +779,9 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
 
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
+        auto slot_expr = std::dynamic_pointer_cast<doris::vectorized::VSlotRef>(expr);
         _column_predicate_info->column_name = expr->expr_name();
+        _column_predicate_info->column_id = slot_expr->column_id();
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = std::dynamic_pointer_cast<doris::vectorized::VLiteral>(expr);
         _column_predicate_info->query_values.insert(v_literal_expr->value());
@@ -771,6 +801,7 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         // get child condition result in compound conditions
         auto pred_result_sign = _gen_predicate_result_sign(_column_predicate_info.get());
         _column_predicate_info.reset(new ColumnPredicateInfo());
+        VLOG_DEBUG << "_gen_predicate_result_sign " << pred_result_sign;
         if (_rowid_result_for_index.count(pred_result_sign) > 0 &&
             _rowid_result_for_index[pred_result_sign].first) {
             auto apply_result = _rowid_result_for_index[pred_result_sign].second;
@@ -978,18 +1009,38 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predica
     auto column_desc = _schema->column(predicate->column_id());
     auto pred_type = predicate->type();
     auto predicate_params = predicate->predicate_params();
-    pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_desc->name() + "_" +
+
+    std::string col_name = column_desc->name();
+
+    if (column_desc->path() != nullptr && !_storage_name_and_type.empty()) {
+        const static std::string pattern = "(CAST {}(Nullable(Variant)) TO {})";
+        // indicate a subcolumn access for variant, using the expression pattern as pred result sign name
+        col_name = fmt::format(pattern, col_name,
+                               _storage_name_and_type[predicate->column_id()].second->get_name());
+    }
+
+    pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + col_name + "_" +
                        predicate->pred_type_string(pred_type) + "_" +
                        join(predicate_params->values, ",");
-
+    VLOG_DEBUG << "_gen_predicate_result_sign: " << pred_result_sign;
     return pred_result_sign;
 }
 
 std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* predicate_info) {
+    auto column_desc = _schema->column(_schema->column_id(predicate_info->column_id));
+    std::string col_name = predicate_info->column_name;
+    if (column_desc->path() != nullptr && !_storage_name_and_type.empty()) {
+        const static std::string pattern = "(CAST {}(Nullable(Variant)) TO {})";
+        // indicate a subcolumn access for variant, using the expression pattern as pred result sign name
+        col_name = fmt::format(pattern, col_name,
+                               _storage_name_and_type[_schema->column_id(predicate_info->column_id)]
+                                       .second->get_name());
+    }
     std::string pred_result_sign;
-    pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + predicate_info->column_name + "_" +
+    pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + col_name + "_" +
                        predicate_info->query_op + "_" +
                        boost::join(predicate_info->query_values, ",");
+    VLOG_DEBUG << "_gen_predicate_result_sign: " << pred_result_sign;
     return pred_result_sign;
 }
 
@@ -2667,7 +2718,7 @@ bool SegmentIterator::_check_column_pred_all_push_down(const std::string& column
         auto preds_in_remaining_vconjuct = _column_pred_in_remaining_vconjunct[column_name];
         for (auto pred_info : preds_in_remaining_vconjuct) {
             auto column_sign = _gen_predicate_result_sign(&pred_info);
-            if (_rowid_result_for_index.count(column_sign) < 1) {
+            if (!_rowid_result_for_index.contains(column_sign)) {
                 return false;
             }
         }
@@ -2692,13 +2743,16 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
 
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
+        auto slot_expr = std::dynamic_pointer_cast<doris::vectorized::VSlotRef>(expr);
         if (_column_predicate_info->column_name.empty()) {
             _column_predicate_info->column_name = expr->expr_name();
+            _column_predicate_info->column_id = slot_expr->column_id();
         } else {
             // If column name already exists, create a new ColumnPredicateInfo
             // if expr is columnA > columnB, then column name will exist, in this situation, we need to add it to _column_pred_in_remaining_vconjunct
             auto new_column_pred_info = std::make_shared<ColumnPredicateInfo>();
             new_column_pred_info->column_name = expr->expr_name();
+            new_column_pred_info->column_id = slot_expr->column_id();
             _column_pred_in_remaining_vconjunct[new_column_pred_info->column_name].push_back(
                     *new_column_pred_info);
         }

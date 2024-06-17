@@ -92,29 +92,27 @@ suite("test_partition_stats") {
 
     // Test show cached partition stats.
     sql """analyze table part with sync;"""
-    result = sql """show column cached stats part(id) partition(p1)"""
-    assertEquals(1, result.size())
-    Thread.sleep(1000)
     for (int i = 0; i < 20; i++) {
-        result = sql """show column cached stats part(id) partition(p1)"""
-        if (result[0][3] == "6.0") {
+        result = sql """show column cached stats part partition(*)"""
+        if (result.size() == 27) {
             logger.info("cache is ready.")
-            assertEquals("id", result[0][0])
-            assertEquals("p1", result[0][1])
-            assertEquals("part", result[0][2])
-            assertEquals("6.0", result[0][3])
-            assertEquals("6", result[0][4])
-            assertEquals("0.0", result[0][5])
-            assertEquals("1.0", result[0][6])
-            assertEquals("6.0", result[0][7])
-            assertEquals("24.0", result[0][8])
-            assertEquals("N/A", result[0][10])
-            assertEquals("N/A", result[0][11])
             break;
         }
         logger.info("cache is not ready yet.")
         Thread.sleep(1000)
     }
+    result = sql """show column cached stats part(id) partition(p1)"""
+    assertEquals("id", result[0][0])
+    assertEquals("p1", result[0][1])
+    assertEquals("part", result[0][2])
+    assertEquals("6.0", result[0][3])
+    assertEquals("6", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("1.0", result[0][6])
+    assertEquals("6.0", result[0][7])
+    assertEquals("24.0", result[0][8])
+    assertEquals("N/A", result[0][10])
+    assertEquals("N/A", result[0][11])
     result = sql """show column cached stats part partition(p1)"""
     assertEquals(9, result.size())
     result = sql """show column cached stats part partition(*)"""
@@ -367,6 +365,53 @@ suite("test_partition_stats") {
     assertEquals(27, result.size())
     result = sql """show column stats part4 partition(p1)"""
     assertEquals(9, result.size())
+
+    // Test update partition cache while analyzing
+    sql """CREATE TABLE `part5` (
+        `id` INT NULL,
+        `colint` INT NULL,
+        `coltinyint` tinyint NULL,
+        `colsmallint` smallINT NULL,
+        `colbigint` bigINT NULL,
+        `collargeint` largeINT NULL,
+        `colfloat` float NULL,
+        `coldouble` double NULL,
+        `coldecimal` decimal(27, 9) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT 'OLAP'
+    PARTITION BY RANGE(`id`)
+    (
+        PARTITION p1 VALUES [("-2147483648"), ("10000")),
+        PARTITION p2 VALUES [("10000"), ("20000")),
+        PARTITION p3 VALUES [("20000"), ("30000"))
+    )
+    DISTRIBUTED BY HASH(`id`) BUCKETS 3
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    )"""
+    sql """Insert into part5 values (1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1), (2, 2, 2, 2, 2, 2, 2.2, 2.2, 2.2), (3, 3, 3, 3, 3, 3, 3.3, 3.3, 3.3),(4, 4, 4, 4, 4, 4, 4.4, 4.4, 4.4),(5, 5, 5, 5, 5, 5, 5.5, 5.5, 5.5),(6, 6, 6, 6, 6, 6, 6.6, 6.6, 6.6),(1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1), (2, 2, 2, 2, 2, 2, 2.2, 2.2, 2.2), (3, 3, 3, 3, 3, 3, 3.3, 3.3, 3.3),(4, 4, 4, 4, 4, 4, 4.4, 4.4, 4.4),(5, 5, 5, 5, 5, 5, 5.5, 5.5, 5.5),(6, 6, 6, 6, 6, 6, 6.6, 6.6, 6.6),(10001, 10001, 10001, 10001, 10001, 10001, 10001.10001, 10001.10001, 10001.10001),(10002, 10002, 10002, 10002, 10002, 10002, 10002.10002, 10002.10002, 10002.10002),(10003, 10003, 10003, 10003, 10003, 10003, 10003.10003, 10003.10003, 10003.10003),(10004, 10004, 10004, 10004, 10004, 10004, 10004.10004, 10004.10004, 10004.10004),(10005, 10005, 10005, 10005, 10005, 10005, 10005.10005, 10005.10005, 10005.10005),(10006, 10006, 10006, 10006, 10006, 10006, 10006.10006, 10006.10006, 10006.10006),(20001, 20001, 20001, 20001, 20001, 20001, 20001.20001, 20001.20001, 20001.20001),(20002, 20002, 20002, 20002, 20002, 20002, 20002.20002, 20002.20002, 20002.20002),(20003, 20003, 20003, 20003, 20003, 20003, 20003.20003, 20003.20003, 20003.20003),(20004, 20004, 20004, 20004, 20004, 20004, 20004.20004, 20004.20004, 20004.20004),(20005, 20005, 20005, 20005, 20005, 20005, 20005.20005, 20005.20005, 20005.20005),(20006, 20006, 20006, 20006, 20006, 20006, 20006.20006, 20006.20006, 20006.20006)"""
+    sql """analyze table part5 with sync"""
+    result = sql """show column cached stats part5 partition(*)"""
+    assertEquals(27, result.size())
+    result = sql """show column cached stats part5(id) partition(*)"""
+    assertEquals(3, result.size())
+    result = sql """show column cached stats part5(id) partition(p1)"""
+    assertEquals(1, result.size())
+    assertEquals("id", result[0][0])
+    assertEquals("p1", result[0][1])
+    assertEquals("part5", result[0][2])
+    assertEquals("12.0", result[0][3])
+    assertEquals("6", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("1.0", result[0][6])
+    assertEquals("6.0", result[0][7])
+    assertEquals("48.0", result[0][8])
+    sql """drop stats part5 partition(p1)"""
+    result = sql """show column cached stats part5(id) partition(p1)"""
+    assertEquals(0, result.size())
+    result = sql """show column cached stats part5(id) partition(*)"""
+    assertEquals(2, result.size())
 
     sql """drop database test_partition_stats"""
 }

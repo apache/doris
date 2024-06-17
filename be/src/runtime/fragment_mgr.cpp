@@ -529,7 +529,7 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
     TUniqueId query_id;
     query_id.__set_hi(request->query_id().hi());
     query_id.__set_lo(request->query_id().lo());
-    if (auto q_ctx = get_or_erase_query_ctx(query_id)) {
+    if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
         q_ctx->set_ready_to_execute(Status::OK());
     } else {
         return Status::InternalError(
@@ -560,7 +560,7 @@ void FragmentMgr::remove_pipeline_context(
     }
 }
 
-std::shared_ptr<QueryContext> FragmentMgr::get_or_erase_query_ctx(TUniqueId query_id) {
+std::shared_ptr<QueryContext> FragmentMgr::_get_or_erase_query_ctx(const TUniqueId& query_id) {
     auto search = _query_ctx_map.find(query_id);
     if (search != _query_ctx_map.end()) {
         if (auto q_ctx = search->second.lock()) {
@@ -575,13 +575,19 @@ std::shared_ptr<QueryContext> FragmentMgr::get_or_erase_query_ctx(TUniqueId quer
     return nullptr;
 }
 
+std::shared_ptr<QueryContext> FragmentMgr::get_or_erase_query_ctx_with_lock(
+        const TUniqueId& query_id) {
+    std::unique_lock<std::mutex> lock(_lock);
+    return _get_or_erase_query_ctx(query_id);
+}
+
 template <typename Params>
 Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                                    std::shared_ptr<QueryContext>& query_ctx) {
     if (params.is_simplified_param) {
         // Get common components from _query_ctx_map
         std::lock_guard<std::mutex> lock(_lock);
-        if (auto q_ctx = get_or_erase_query_ctx(query_id)) {
+        if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
             return Status::InternalError(
@@ -593,7 +599,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         // Find _query_ctx_map, in case some other request has already
         // create the query fragments context.
         std::lock_guard<std::mutex> lock(_lock);
-        if (auto q_ctx = get_or_erase_query_ctx(query_id)) {
+        if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
             return Status::OK();
         }
@@ -691,7 +697,7 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
 }
 
 std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
-    if (auto q_ctx = get_or_erase_query_ctx(query_id)) {
+    if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
         return q_ctx->print_all_pipeline_context();
     } else {
         return fmt::format("Query context (query id = {}) not found. \n", print_id(query_id));
@@ -787,23 +793,12 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
 #endif
 }
 
-Status FragmentMgr::get_query_context(const TUniqueId& query_id,
-                                      std::shared_ptr<QueryContext>* query_ctx) {
-    std::lock_guard<std::mutex> state_lock(_lock);
-    if (auto q_ctx = get_or_erase_query_ctx(query_id)) {
-        *query_ctx = q_ctx;
-    } else {
-        return Status::InternalError("Query context not found for query {}", print_id(query_id));
-    }
-    return Status::OK();
-}
-
 void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
     std::shared_ptr<QueryContext> query_ctx = nullptr;
     std::vector<TUniqueId> all_instance_ids;
     {
         std::lock_guard<std::mutex> state_lock(_lock);
-        if (auto q_ctx = get_or_erase_query_ctx(query_id)) {
+        if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
             // Copy instanceids to avoid concurrent modification.
             // And to reduce the scope of lock.
@@ -1034,38 +1029,6 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     return exec_plan_fragment(exec_fragment_params);
 }
 
-Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
-                                 butil::IOBufAsZeroCopyInputStream* attach_data) {
-    bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
-
-    UniqueId fragment_instance_id = request->fragment_instance_id();
-    TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
-
-    std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
-    QueryThreadContext query_thread_context;
-
-    RuntimeFilterMgr* runtime_filter_mgr = nullptr;
-    if (is_pipeline) {
-        std::unique_lock<std::mutex> lock(_lock);
-        auto iter = _pipeline_map.find(tfragment_instance_id);
-        if (iter == _pipeline_map.end()) {
-            VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
-            return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
-        }
-        pip_context = iter->second;
-
-        DCHECK(pip_context != nullptr);
-        runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
-        query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                pip_context->get_query_ctx()->query_mem_tracker};
-    } else {
-        return Status::InternalError("Non-pipeline is disabled!");
-    }
-
-    SCOPED_ATTACH_TASK(query_thread_context);
-    return runtime_filter_mgr->update_filter(request, attach_data);
-}
-
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                                    butil::IOBufAsZeroCopyInputStream* attach_data) {
     bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
@@ -1137,7 +1100,7 @@ Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
         query_id.__set_hi(queryid.hi);
         query_id.__set_lo(queryid.lo);
         std::lock_guard<std::mutex> lock(_lock);
-        if (auto q_ctx = get_or_erase_query_ctx(query_id)) {
+        if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
             return Status::InvalidArgument("Query context (query-id: {}) not found",
@@ -1156,7 +1119,7 @@ Status FragmentMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
         query_id.__set_hi(queryid.hi);
         query_id.__set_lo(queryid.lo);
         std::lock_guard<std::mutex> lock(_lock);
-        if (auto q_ctx = get_or_erase_query_ctx(query_id)) {
+        if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
             return Status::InvalidArgument("Query context (query-id: {}) not found",
@@ -1178,7 +1141,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         query_id.__set_hi(queryid.hi);
         query_id.__set_lo(queryid.lo);
         std::lock_guard<std::mutex> lock(_lock);
-        if (auto q_ctx = get_or_erase_query_ctx(query_id)) {
+        if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
             return Status::InvalidArgument("Query context (query-id: {}) not found",
@@ -1219,7 +1182,7 @@ Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
 
     {
         std::lock_guard<std::mutex> lock(_lock);
-        if (auto q_ctx = get_or_erase_query_ctx(query_id)) {
+        if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_context = q_ctx;
         } else {
             return Status::NotFound("Query {} has been released", print_id(query_id));
