@@ -772,8 +772,7 @@ public class PropertyAnalyzer {
     }
 
     public static List<String> analyzeRowStoreColumns(Map<String, String> properties,
-            List<String> columns,
-             boolean stripProperty) throws AnalysisException {
+            List<String> columns) throws AnalysisException {
         List<String> rowStoreColumns = Lists.newArrayList();
         String value = properties.get(PROPERTIES_ROW_STORE_COLUMNS);
         // set empty row store columns by default

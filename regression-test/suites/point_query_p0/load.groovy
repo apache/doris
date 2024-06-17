@@ -144,7 +144,7 @@ suite("test_load_and_schema_change_row_store", "p0") {
     wait_job_done.call("tbl_scalar_types_dup_1")
     qt_sql "select sum(length(__DORIS_ROW_STORE_COL__)) from tbl_scalar_types_dup_1"
     test {
-        sql "select /*+ SET_VAR(enable_nereids_planner=false)*/ * from tbl_scalar_types_dup_1 where k1 = -2147303679"
+        sql "select /*+ SET_VAR(enable_nereids_planner=false,enable_short_circuit_query_access_column_store=false)*/ * from tbl_scalar_types_dup_1 where k1 = -2147303679"
         exception("Not support column store")
     }
     explain {
