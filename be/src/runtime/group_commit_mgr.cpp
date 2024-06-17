@@ -205,6 +205,7 @@ Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
                                             load_instance_id.to_string());
     }
     _load_ids.emplace(load_id);
+    group_commit_load_count.fetch_add(1);
     return Status::OK();
 }
 
