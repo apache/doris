@@ -18,6 +18,7 @@
 #include "spill_sort_source_operator.h"
 
 #include "common/status.h"
+#include "runtime/fragment_mgr.h"
 #include "sort_source_operator.h"
 #include "util/runtime_profile.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -67,8 +68,7 @@ Status SpillSortLocalState::close(RuntimeState* state) {
     if (Base::_shared_state->enable_spill) {
         dec_running_big_mem_op_num(state);
     }
-    RETURN_IF_ERROR(Base::close(state));
-    return Status::OK();
+    return Base::close(state);
 }
 int SpillSortLocalState::_calc_spill_blocks_to_merge() const {
     int count = _external_sort_bytes_threshold / SpillSortSharedState::SORT_BLOCK_SPILL_BATCH_BYTES;
@@ -79,13 +79,6 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
     VLOG_DEBUG << "query " << print_id(state->query_id()) << " sort node " << _parent->node_id()
                << " merge spill data";
     _dependency->Dependency::block();
-
-    Status status;
-    Defer defer {[&]() {
-        if (!status.ok()) {
-            _dependency->Dependency::set_ready();
-        }
-    }};
 
     auto execution_context = state->get_task_execution_context();
     /// Resources in shared state will be released when the operator is closed,
@@ -158,10 +151,24 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                     merge_sorted_block.clear_column_data();
                     {
                         SCOPED_TIMER(Base::_spill_recover_time);
-                        _status = _merger->get_next(&merge_sorted_block, &eos);
+                        DBUG_EXECUTE_IF("fault_inject::spill_sort_source::recover_spill_data", {
+                            _status = Status::Error<INTERNAL_ERROR>(
+                                    "fault_inject spill_sort_source "
+                                    "recover_spill_data failed");
+                        });
+                        if (_status.ok()) {
+                            _status = _merger->get_next(&merge_sorted_block, &eos);
+                        }
                     }
                     RETURN_IF_ERROR(_status);
                     _status = tmp_stream->spill_block(state, merge_sorted_block, eos);
+                    if (_status.ok()) {
+                        DBUG_EXECUTE_IF("fault_inject::spill_sort_source::spill_merged_data", {
+                            _status = Status::Error<INTERNAL_ERROR>(
+                                    "fault_inject spill_sort_source "
+                                    "spill_merged_data failed");
+                        });
+                    }
                     RETURN_IF_ERROR(_status);
                 }
             }
@@ -190,6 +197,11 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
         _status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return spill_func(); }); }();
     };
 
+    DBUG_EXECUTE_IF("fault_inject::spill_sort_source::merge_sort_spill_data_submit_func", {
+        return Status::Error<INTERNAL_ERROR>(
+                "fault_inject spill_sort_source "
+                "merge_sort_spill_data submit_func failed");
+    });
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
             exception_catch_func);
 }

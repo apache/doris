@@ -361,7 +361,8 @@ public abstract class BaseAnalysisTask {
         deleteNotExistPartitionStats();
         Map<String, String> params = buildSqlParams();
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
-        Set<String> partitionNames = tbl.getPartitionNames();
+        boolean isAllPartitions = info.partitionNames.isEmpty();
+        Set<String> partitionNames = isAllPartitions ? tbl.getPartitionNames() : info.partitionNames;
         List<String> sqls = Lists.newArrayList();
         int count = 0;
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
@@ -376,6 +377,7 @@ public abstract class BaseAnalysisTask {
         // For sync job, get jobInfo from job.jobInfo.
         boolean isSync = jobInfo == null;
         jobInfo = isSync ? job.jobInfo : jobInfo;
+        StatisticsCache cache = Env.getCurrentEnv().getStatisticsCache();
         for (String part : partitionNames) {
             // External table partition is null.
             Partition partition = tbl.getPartition(part);
@@ -409,6 +411,9 @@ public abstract class BaseAnalysisTask {
             params.put("partitionInfo", getPartitionInfo(part));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             sqls.add(stringSubstitutor.replace(PARTITION_ANALYZE_TEMPLATE));
+            // TODO: invalidate remote FE's cache.
+            cache.invalidatePartitionColumnStatsCache(
+                    info.catalogId, info.dbId, info.tblId, info.indexId, part, col.getName());
             count++;
             if (count == PARTITION_BATCH_SIZE) {
                 String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
@@ -434,11 +439,15 @@ public abstract class BaseAnalysisTask {
                 doSample();
             }
         } else {
-            params = buildSqlParams();
-            params.put("min", castToNumeric("min"));
-            params.put("max", castToNumeric("max"));
-            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
+            if (isAllPartitions) {
+                params = buildSqlParams();
+                params.put("min", castToNumeric("min"));
+                params.put("max", castToNumeric("max"));
+                StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+                runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
+            } else {
+                job.taskDoneWithoutData(this);
+            }
         }
     }
 

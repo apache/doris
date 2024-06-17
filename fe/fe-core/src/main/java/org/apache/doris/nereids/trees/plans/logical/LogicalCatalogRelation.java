@@ -128,18 +128,21 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     @Override
     public void computeUnique(DataTrait.Builder builder) {
         Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
-        if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
-            ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
-            for (Slot slot : outputSet) {
-                if (!(slot instanceof SlotReference)) {
-                    continue;
+        if (table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
+            if (olapTable.getKeysType().isAggregationFamily() && !olapTable.isRandomDistribution()) {
+                ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
+                for (Slot slot : outputSet) {
+                    if (!(slot instanceof SlotReference)) {
+                        continue;
+                    }
+                    SlotReference slotRef = (SlotReference) slot;
+                    if (slotRef.getColumn().isPresent() && slotRef.getColumn().get().isKey()) {
+                        uniqSlots.add(slot);
+                    }
                 }
-                SlotReference slotRef = (SlotReference) slot;
-                if (slotRef.getColumn().isPresent() && slotRef.getColumn().get().isKey()) {
-                    uniqSlots.add(slot);
-                }
+                builder.addUniqueSlot(uniqSlots.build());
             }
-            builder.addUniqueSlot(uniqSlots.build());
         }
 
         for (PrimaryKeyConstraint c : table.getPrimaryKeyConstraints()) {

@@ -84,6 +84,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String ANALYZE_TIMEOUT = "analyze_timeout";
 
+    public static final String INTERNAL_CACHE_HOT_SPOT_TIMEOUT = "cache_hot_spot_insert_timeout_second";
+
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
@@ -131,7 +133,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String INSERT_MAX_FILTER_RATIO = "insert_max_filter_ratio";
     public static final String ENABLE_SPILLING = "enable_spilling";
-    public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
+    public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_point_query";
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
@@ -192,6 +194,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
 
     public static final String ENABLE_SYNC_RUNTIME_FILTER_SIZE = "enable_sync_runtime_filter_size";
+
+    public static final String ENABLE_PARALLEL_RESULT_SINK = "enable_parallel_result_sink";
 
     public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
 
@@ -651,8 +655,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_EXCHANGE_NODE_PARALLEL_MERGE)
-    public boolean enableExchangeNodeParallelMerge = false;
+    @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY)
+    public boolean enableShortCircuitQuery = true;
 
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
@@ -666,6 +670,10 @@ public class SessionVariable implements Serializable, Writable {
     // query timeout in second.
     @VariableMgr.VarAttr(name = ANALYZE_TIMEOUT, flag = VariableMgr.GLOBAL, needForward = true)
     public int analyzeTimeoutS = 43200;
+
+    // insert timeout in second
+    @VariableMgr.VarAttr(name = INTERNAL_CACHE_HOT_SPOT_TIMEOUT, flag = VariableMgr.GLOBAL, needForward = true)
+    public int cacheHotSpotTimeoutS = 300;
 
     // The global max_execution_time value provides the default for the session value for new connections.
     // The session value applies to SELECT executions executed within the session that include
@@ -1047,6 +1055,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true)
     private boolean enableSyncRuntimeFilterSize = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
+    private boolean enableParallelResultSink = true;
 
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
@@ -1942,6 +1953,7 @@ public class SessionVariable implements Serializable, Writable {
         this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         // this.enableHashJoinEarlyStartProbe = random.nextBoolean();
+        this.enableParallelResultSink = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -2047,7 +2059,7 @@ public class SessionVariable implements Serializable, Writable {
 
         // for spill to disk
         if (Config.pull_request_id > 10000) {
-            if (Config.pull_request_id % 2 == 1) {
+            if (Config.pull_request_id % 2 == 0) {
                 this.enableJoinSpill = true;
                 this.enableSortSpill = true;
                 this.enableAggSpill = true;
@@ -3337,7 +3349,6 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         tResult.setEnableSpilling(enableSpilling);
-        tResult.setEnableEnableExchangeNodeParallelMerge(enableExchangeNodeParallelMerge);
 
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
@@ -3418,6 +3429,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
 
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);
+        tResult.setEnableParallelResultSink(enableParallelResultSink);
         return tResult;
     }
 
@@ -3759,6 +3771,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnablePipelineXEngine() {
         return enablePipelineXEngine || enablePipelineEngine;
+    }
+
+    public boolean enableParallelResultSink() {
+        return enableParallelResultSink;
+    }
+
+    public void setParallelResultSink(Boolean enableParallelResultSink) {
+        this.enableParallelResultSink   = enableParallelResultSink;
     }
 
     public boolean enableSyncRuntimeFilterSize() {
