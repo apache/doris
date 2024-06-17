@@ -46,6 +46,7 @@ public:
 
     Status close(RuntimeState* state, Status exec_status) override;
     Dependency* finishdependency() override { return _finish_dependency.get(); }
+    std::string debug_string(int indentation_level) const override;
 
 private:
     friend class GroupCommitBlockSinkOperatorX;
