@@ -42,6 +42,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -364,6 +365,7 @@ public abstract class BaseAnalysisTask {
         boolean isAllPartitions = info.partitionNames.isEmpty();
         Set<String> partitionNames = isAllPartitions ? tbl.getPartitionNames() : info.partitionNames;
         List<String> sqls = Lists.newArrayList();
+        Set<String> partNames = Sets.newHashSet();
         int count = 0;
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = analysisManager.findTableStatsStatus(tbl.getId());
@@ -415,10 +417,14 @@ public abstract class BaseAnalysisTask {
             cache.invalidatePartitionColumnStatsCache(
                     info.catalogId, info.dbId, info.tblId, info.indexId, part, col.getName());
             count++;
+            partNames.add(part);
             if (count == PARTITION_BATCH_SIZE) {
                 String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
                         + Joiner.on(" UNION ALL ").join(sqls);
                 runInsert(sql);
+                analysisManager.updatePartitionStatsCache(info.catalogId, info.dbId, info.tblId, info.indexId,
+                        partNames, info.colName);
+                partNames.clear();
                 sqls.clear();
                 count = 0;
             }
@@ -427,6 +433,8 @@ public abstract class BaseAnalysisTask {
             String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
                     + Joiner.on(" UNION ALL ").join(sqls);
             runInsert(sql);
+            analysisManager.updatePartitionStatsCache(info.catalogId, info.dbId, info.tblId, info.indexId,
+                    partNames, info.colName);
         }
         if (hasHughPartition) {
             tableSample = new TableSample(false, StatisticsUtil.getHugeTableSampleRows());
@@ -509,5 +517,4 @@ public abstract class BaseAnalysisTask {
             }
         }
     }
-
 }
