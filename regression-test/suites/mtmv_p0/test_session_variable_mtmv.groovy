@@ -90,8 +90,9 @@ suite("test_session_variable_mtmv","mtmv") {
         exception "string"
        }
 
-    alter MATERIALIZED VIEW ${mvName} set("session.query_timeout"="3800");
-
+    sql """
+        alter MATERIALIZED VIEW ${mvName} set("session.query_timeout"="3800");
+    """
 
      // refresh mv
      sql """
