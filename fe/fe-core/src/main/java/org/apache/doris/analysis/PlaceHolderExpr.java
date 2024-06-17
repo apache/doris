@@ -58,6 +58,16 @@ public class PlaceHolderExpr extends LiteralExpr {
         this.type = literal.getType();
     }
 
+    @Override
+    protected void analysisDone() {
+        if (!lExpr.isAnalyzed) {
+            lExpr.analysisDone();
+        }
+        if (!isAnalyzed) {
+            isAnalyzed = true;
+        }
+    }
+
     public LiteralExpr createLiteralFromType() throws AnalysisException {
         Preconditions.checkState(mysqlTypeCode > 0);
         return LiteralExpr.getLiteralByMysqlType(mysqlTypeCode, isUnsigned());
