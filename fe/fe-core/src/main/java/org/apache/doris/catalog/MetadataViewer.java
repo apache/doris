@@ -241,7 +241,6 @@ public class MetadataViewer {
                 row.add(graph(sizeMap.get(beId), totalReplicaSize));
                 row.add(totalReplicaSize == sizeMap.get(beId) ? (totalReplicaSize == 0 ? "0.00%" : "100.00%")
                         : df.format((double) sizeMap.get(beId) / totalReplicaSize));
-                row.add(String.valueOf(Config.isCloudMode()));
                 if (Config.isNotCloudMode()) {
                     row.add("");
                     row.add("");
