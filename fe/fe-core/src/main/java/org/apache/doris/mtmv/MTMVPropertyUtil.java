@@ -26,6 +26,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
@@ -67,8 +69,11 @@ public class MTMVPropertyUtil {
         if (isSessionVariableProperty(key)) {
             Analyzer analyzer = new Analyzer(env, ctx);
             try {
-                new SetVar(getSessionVariableKey(key),
-                        new StringLiteral(value)).analyze(analyzer);
+                SetVar setVar = new SetVar(getSessionVariableKey(key),
+                        new StringLiteral(value));
+                setVar.analyze(analyzer);
+                // to verify the validity of variables
+                VariableMgr.setVar(new SessionVariable(), setVar);
             } catch (UserException e) {
                 throw new AnalysisException(e.getMessage(), e);
             }
