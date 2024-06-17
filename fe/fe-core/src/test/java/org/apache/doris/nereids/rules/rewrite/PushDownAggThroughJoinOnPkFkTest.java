@@ -23,7 +23,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
 
-class PushDownAggThroughJoinByFkTest extends TestWithFeService implements MemoPatternMatchSupported {
+class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");

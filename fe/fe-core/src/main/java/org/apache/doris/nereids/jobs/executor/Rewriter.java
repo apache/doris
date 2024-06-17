@@ -110,7 +110,7 @@ import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoOdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinByFk;
+import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
@@ -351,7 +351,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             // this rule should be invoked after topic "Join pull up"
             topic("eliminate Aggregate according to fd items",
                     topDown(new EliminateGroupByKey()),
-                    topDown(new PushDownAggThroughJoinByFk())
+                    topDown(new PushDownAggThroughJoinOnPkFk())
             ),
 
             topic("Limit optimization",

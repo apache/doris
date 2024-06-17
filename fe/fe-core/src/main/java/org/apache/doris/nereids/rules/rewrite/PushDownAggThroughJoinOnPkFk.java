@@ -52,7 +52,7 @@ import java.util.Set;
  *  |      |
  *  pk    fk
  */
-public class PushDownAggThroughJoinByFk implements RewriteRuleFactory {
+public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
@@ -64,7 +64,7 @@ public class PushDownAggThroughJoinByFk implements RewriteRuleFactory {
                         .when(agg -> agg.getGroupByExpressions().stream().allMatch(Slot.class::isInstance)
                                     && agg.getOutputExpressions().stream().allMatch(Slot.class::isInstance))
                         .thenApply(ctx -> pushAgg(ctx.root, ctx.root.child()))
-                        .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_FK_JOIN),
+                        .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ON_PKFK),
                 logicalAggregate(
                         logicalProject(
                                 innerLogicalJoin()
@@ -74,7 +74,7 @@ public class PushDownAggThroughJoinByFk implements RewriteRuleFactory {
                                 .when(Project::isAllSlots))
                         .when(agg -> agg.getGroupByExpressions().stream().allMatch(Slot.class::isInstance))
                         .thenApply(ctx -> pushAgg(ctx.root, ctx.root.child().child()))
-                        .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_FK_JOIN)
+                        .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ON_PKFK)
         );
     }
 
