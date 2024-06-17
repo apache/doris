@@ -52,6 +52,11 @@ public class MTMVPropertyUtil {
         return key.startsWith(VARIABLE_PREFIX);
     }
 
+    public static boolean isMTMVProperty(String key) {
+        Preconditions.checkNotNull(key);
+        return mvPropertyKeys.contains(key) || isSessionVariableProperty(key);
+    }
+
     public static String getSessionVariableKey(String key) {
         Preconditions.checkState(isSessionVariableProperty(key));
         return key.substring(VARIABLE_PREFIX.length());

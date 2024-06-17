@@ -189,8 +189,8 @@ public class CreateMTMVInfo {
         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
             throw new AnalysisException("Not support dynamic partition properties on async materialized view");
         }
-        for (String key : properties.keySet()) {
-            if (MTMVPropertyUtil.mvPropertyKeys.contains(key) || MTMVPropertyUtil.isSessionVariableProperty(key)) {
+        for (String key : Sets.newHashSet(properties.keySet())) {
+            if (MTMVPropertyUtil.isMTMVProperty(key)) {
                 MTMVPropertyUtil.analyzeProperty(key, properties.get(key), ctx, Env.getCurrentEnv());
                 mvProperties.put(key, properties.get(key));
                 properties.remove(key);
