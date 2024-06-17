@@ -373,7 +373,7 @@ public:
     const TabletIndex* get_inverted_index_with_index_id(int64_t index_id,
                                                         const std::string& suffix_name) const;
     // check_valid: check if this column supports inverted index
-    // Some columns from the variant do not support index, but they are listed in TabletIndex.
+    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
     // If returned, the index file will not be found.
     const TabletIndex* get_inverted_index(const TabletColumn& col, bool check_valid = true) const;
     const TabletIndex* get_inverted_index(int32_t col_unique_id,

@@ -1289,6 +1289,9 @@ Result<const TabletColumn*> TabletSchema::column(const std::string& field_name) 
 std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(
         const TabletColumn& col) const {
     std::vector<const TabletIndex*> indexes_for_column;
+    if (!segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
+        return indexes_for_column;
+    }
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path =
             col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
@@ -1375,7 +1378,7 @@ const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col,
                                                     bool check_valid) const {
     // With check_valid set to true by default
     // Some columns from the variant do not support inverted index
-    if (check_valid && !segment_v2::InvertedIndexColumnWriter::check_column_valid(col)) {
+    if (check_valid && !segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
         return nullptr;
     }
     // TODO use more efficient impl
