@@ -343,6 +343,34 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             _storage_name_and_type[i] = std::make_pair(col->name(), storage_type);
         }
     }
+
+    // find columns that definitely require reading data, such as functions that are not pushed down.
+    {
+        std::set<std::string> push_down_preds;
+        for (auto* pred : _col_predicates) {
+            if (!_check_apply_by_inverted_index(pred)) {
+                continue;
+            }
+            push_down_preds.insert(_gen_predicate_result_sign(pred));
+        }
+        for (auto* pred : _col_preds_except_leafnode_of_andnode) {
+            if (!_check_apply_by_inverted_index(pred)) {
+                continue;
+            }
+            push_down_preds.insert(_gen_predicate_result_sign(pred));
+        }
+        for (auto& preds_in_remaining_vconjuct : _column_pred_in_remaining_vconjunct) {
+            const auto& column_name = preds_in_remaining_vconjuct.first;
+            for (auto& pred_info : preds_in_remaining_vconjuct.second) {
+                auto column_sign = _gen_predicate_result_sign(&pred_info);
+                if (!push_down_preds.contains(column_sign)) {
+                    auto cid = _opts.tablet_schema->field_index(column_name);
+                    _need_read_data_indices[cid] = true;
+                }
+            }
+        }
+    }
+
     return Status::OK();
 }
 
