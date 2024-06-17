@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -266,7 +267,7 @@ public class MaterializedViewUtils {
      */
     public static List<Expression> extractNondeterministicFunction(Plan plan) {
         NondeterministicFunctionCollector.FunctionCollectContext collectContext =
-                NondeterministicFunctionCollector.FunctionCollectContext.of();
+                NondeterministicFunctionCollector.FunctionCollectContext.of(ImmutableSet.of(FunctionTrait.class));
         plan.accept(NondeterministicFunctionCollector.INSTANCE, collectContext);
         return collectContext.getCollectedExpressions();
     }

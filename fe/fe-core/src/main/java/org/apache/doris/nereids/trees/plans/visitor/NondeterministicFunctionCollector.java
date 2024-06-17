@@ -22,6 +22,8 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector.FunctionCollectContext;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -43,7 +45,14 @@ public class NondeterministicFunctionCollector
         }
         for (Expression expression : expressions) {
             Set<Expression> nondeterministicFunctions =
-                    expression.collect(expr -> !((ExpressionTrait) expr).isDeterministic());
+                    expression.collect(expr -> {
+                        boolean containsNondeterministic = !((ExpressionTrait) expr).isDeterministic();
+                        if (!collectContext.getCollectExpressionTypes().isEmpty()) {
+                            containsNondeterministic &= collectContext.getCollectExpressionTypes().stream()
+                                    .anyMatch(type -> type.isAssignableFrom(expr.getClass()));
+                        }
+                        return containsNondeterministic;
+                    });
             collectContext.addAllExpressions(nondeterministicFunctions);
         }
         return super.visit(plan, collectContext);
@@ -55,12 +64,23 @@ public class NondeterministicFunctionCollector
      */
     public static class FunctionCollectContext {
         private final List<Expression> collectedExpressions = new ArrayList<>();
+        /**
+         * Collected expression target type, if empty, will collect all nondeterministic expression
+         * Such as both current_date() and (current_date() < 2023-01-01) would be collected
+         * if collectExpressionTypes is (FunctionTrait.class), only current_date() would be collected
+         */
+        private final Set<Class<? extends ExpressionTrait>> collectExpressionTypes;
 
-        private FunctionCollectContext() {
+        private FunctionCollectContext(Set<Class<? extends ExpressionTrait>> collectExpressionTypes) {
+            this.collectExpressionTypes = collectExpressionTypes;
+        }
+
+        public static FunctionCollectContext of(Set<Class<? extends ExpressionTrait>> targetExpressionTypes) {
+            return new FunctionCollectContext(targetExpressionTypes);
         }
 
         public static FunctionCollectContext of() {
-            return new FunctionCollectContext();
+            return new FunctionCollectContext(ImmutableSet.of());
         }
 
         public void addExpression(Expression expression) {
@@ -77,6 +97,10 @@ public class NondeterministicFunctionCollector
 
         public List<Expression> getCollectedExpressions() {
             return collectedExpressions;
+        }
+
+        public Set<Class<? extends ExpressionTrait>> getCollectExpressionTypes() {
+            return collectExpressionTypes;
         }
     }
 }

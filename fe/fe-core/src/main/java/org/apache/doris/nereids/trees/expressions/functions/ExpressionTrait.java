@@ -26,6 +26,7 @@ import org.apache.doris.nereids.types.DataType;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * ExpressionTrait.
@@ -81,6 +82,20 @@ public interface ExpressionTrait extends TreeNode<Expression> {
      * Identify the expression is deterministic or not
      */
     default boolean isDeterministic() {
-        return true;
+        boolean isDeterministic = true;
+        List<Expression> children = this.children();
+        if (children.isEmpty()) {
+            return isDeterministic;
+        }
+        for (Expression child : children) {
+            Optional<ExpressionTrait> nonDeterministic =
+                    child.collectFirst(expressionTreeNode -> expressionTreeNode instanceof ExpressionTrait
+                    && !((ExpressionTrait) expressionTreeNode).isDeterministic());
+            if (nonDeterministic.isPresent()) {
+                isDeterministic = false;
+                break;
+            }
+        }
+        return isDeterministic;
     }
 }
