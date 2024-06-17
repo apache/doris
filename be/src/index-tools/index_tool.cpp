@@ -460,8 +460,7 @@ int main(int argc, char** argv) {
         for (int i = 0; i < dest_segment_num; ++i) {
             // format: rowsetId_segmentId_columnId
             auto path = tablet_path + "/" + dest_index_files[i] + "_" + std::to_string(index_id);
-            dest_index_dirs[i] =
-                    DorisFSDirectoryFactory::getDirectory(fs, path.c_str(), true);
+            dest_index_dirs[i] = DorisFSDirectoryFactory::getDirectory(fs, path.c_str(), true);
         }
 
         index_writer->indexCompaction(src_index_dirs, dest_index_dirs, trans_vec,
