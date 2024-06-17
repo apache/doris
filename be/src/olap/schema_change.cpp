@@ -1319,10 +1319,10 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
     // if new tablet enable row store, or new tablet has different row store columns
     if ((!base_tablet_schema->have_column(BeConsts::ROW_STORE_COL) &&
          new_tablet_schema->have_column(BeConsts::ROW_STORE_COL)) ||
-        !std::equal(new_tablet_schema->row_columns_cids().begin(),
-                    new_tablet_schema->row_columns_cids().end(),
-                    base_tablet_schema->row_columns_cids().begin(),
-                    base_tablet_schema->row_columns_cids().end())) {
+        !std::equal(new_tablet_schema->row_columns_uids().begin(),
+                    new_tablet_schema->row_columns_uids().end(),
+                    base_tablet_schema->row_columns_uids().begin(),
+                    base_tablet_schema->row_columns_uids().end())) {
         *sc_directly = true;
     }
 

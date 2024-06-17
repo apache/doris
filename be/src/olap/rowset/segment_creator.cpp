@@ -100,7 +100,7 @@ Status SegmentFlusher::_parse_variant_columns(vectorized::Block& block) {
     }
 
     vectorized::schema_util::ParseContext ctx;
-    ctx.record_raw_json_column = _context.tablet_schema->has_full_row_store_column();
+    ctx.record_raw_json_column = _context.tablet_schema->has_row_store_for_all_columns();
     RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(block, variant_column_pos, ctx));
     return Status::OK();
 }

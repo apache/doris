@@ -345,8 +345,8 @@ public:
     }
     bool enable_single_replica_compaction() const { return _enable_single_replica_compaction; }
     // indicate if full row store column(all the columns encodes as row) exists
-    bool has_full_row_store_column() const {
-        return _store_row_column && row_columns_cids().empty();
+    bool has_row_store_for_all_columns() const {
+        return _store_row_column && row_columns_uids().empty();
     }
     void set_skip_write_index_on_load(bool skip) { _skip_write_index_on_load = skip; }
     bool skip_write_index_on_load() const { return _skip_write_index_on_load; }
@@ -478,7 +478,7 @@ public:
     void update_tablet_columns(const TabletSchema& tablet_schema,
                                const std::vector<TColumn>& t_columns);
 
-    const std::vector<int32_t>& row_columns_cids() const { return _rowstore_column_cids; }
+    const std::vector<int32_t>& row_columns_uids() const { return _row_store_column_unique_ids; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -524,7 +524,7 @@ private:
 
     // Contains column ids of which columns should be encoded into row store.
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
-    std::vector<int32_t> _rowstore_column_cids;
+    std::vector<int32_t> _row_store_column_unique_ids;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

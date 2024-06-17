@@ -1324,9 +1324,9 @@ public class SchemaChangeHandler extends AlterHandler {
         List<String> rsColumns = Lists.newArrayList();
         boolean storeRowColumn = false;
         try {
-            storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(propertyMap, true);
+            storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(propertyMap);
             rsColumns = PropertyAnalyzer.analyzeRowStoreColumns(propertyMap,
-                        olapTable.getColumns().stream().map(Column::getName).collect(Collectors.toList()), true);
+                        olapTable.getColumns().stream().map(Column::getName).collect(Collectors.toList()));
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }

@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_load_and_schema_change_row_store", "p0,nonConcurrent") {
+suite("test_load_and_schema_change_row_store", "p0") {
     def dataFile = """${getS3Url()}/regression/datatypes/test_scalar_types_10w.csv"""
 
     // define dup key table1
@@ -49,6 +49,7 @@ suite("test_load_and_schema_change_row_store", "p0,nonConcurrent") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1", "row_store_columns" = "k1,c_bool,c_tinyint,c_bigint,c_decimal,c_decimalv3,c_datev2,c_string");
         """
+
 
     // load data
     streamLoad {
@@ -155,8 +156,8 @@ suite("test_load_and_schema_change_row_store", "p0,nonConcurrent") {
     sql """alter table tbl_scalar_types_dup_1 set ("row_store_columns" = "k1,c_decimalv3")"""    
     wait_job_done.call("tbl_scalar_types_dup_1")
     test {
-        sql "select /*+ SET_VAR(enable_nereids_planner=false)*/ k1,c_datetimev2 from tbl_scalar_types_dup_1 where k1 = -2147303679"
+        sql "select /*+ SET_VAR(enable_nereids_planner=false,enable_short_circuit_query_access_column_store=false)*/ k1,c_datetimev2 from tbl_scalar_types_dup_1 where k1 = -2147303679"
         exception("Not support column store")
     }
-    qt_sql "select /*+ SET_VAR(enable_nereids_planner=false)*/ k1, c_decimalv3 from tbl_scalar_types_dup_1 where k1 = -2147303679"
+    qt_sql "select /*+ SET_VAR(enable_nereids_planner=false,enable_short_circuit_query_access_column_store=false)*/ k1, c_decimalv3 from tbl_scalar_types_dup_1 where k1 = -2147303679"
 }

@@ -305,8 +305,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
     }
     if (tablet_schema.__isset.row_store_col_cids) {
-        schema->mutable_row_store_column_cids()->Add(tablet_schema.row_store_col_cids.begin(),
-                                                     tablet_schema.row_store_col_cids.end());
+        schema->mutable_row_store_column_unique_ids()->Add(tablet_schema.row_store_col_cids.begin(),
+                                                           tablet_schema.row_store_col_cids.end());
     }
     if (binlog_config.has_value()) {
         BinlogConfig tmp_binlog_config;

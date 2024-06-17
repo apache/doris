@@ -405,7 +405,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                         row_loc.segment_id(), row_loc.ordinal_id());
         // fetch by row store, more effcient way
         if (request.fetch_row_store()) {
-            CHECK(tablet->tablet_schema()->has_full_row_store_column());
+            CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
             RowLocation loc(rowset_id, segment->id(), row_loc.ordinal_id());
             string* value = response->add_binary_row_data();
             RETURN_IF_ERROR(scope_timer_run(

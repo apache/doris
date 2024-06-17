@@ -1170,7 +1170,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableShortCircuitQuery = true;
 
     @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE)
-    private boolean enableShortCircuitQueryAcessColumnStore = false;
+    private boolean enableShortCircuitQueryAcessColumnStore = true;
 
     @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
     private boolean checkOverflowForDecimal = true;

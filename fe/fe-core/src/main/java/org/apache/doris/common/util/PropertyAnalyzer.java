@@ -780,9 +780,7 @@ public class PropertyAnalyzer {
         if (null == value) {
             return null;
         }
-        if (stripProperty) {
-            properties.remove(PROPERTIES_ROW_STORE_COLUMNS);
-        }
+        properties.remove(PROPERTIES_ROW_STORE_COLUMNS);
         String[] rsColumnArr = value.split(COMMA_SEPARATOR);
         rowStoreColumns.addAll(Arrays.asList(rsColumnArr));
         if (rowStoreColumns.isEmpty()) {
@@ -793,11 +791,6 @@ public class PropertyAnalyzer {
                 .filter(expectedColName -> columns.stream().noneMatch(
                         column -> column.equalsIgnoreCase(expectedColName)))
                 .collect(Collectors.toList());
-        // if (invalidColumns.size() == 1 && invalidColumns.get(0).equalsIgnoreCase("__all__")) {
-        //     // __all__ represents all the columns are encoded to row store
-        //     rowStoreColumns.clear();
-        //     return rowStoreColumns;
-        //
         if (!invalidColumns.isEmpty()) {
             throw new AnalysisException(
                     "Column does not exist in table. Invalid columns: "
@@ -806,8 +799,8 @@ public class PropertyAnalyzer {
         return rowStoreColumns;
     }
 
-    public static Boolean analyzeStoreRowColumn(Map<String, String> properties,
-                       boolean stripProperty) throws AnalysisException {
+    public static Boolean analyzeStoreRowColumn(Map<String, String> properties)
+                        throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return false;
         }
@@ -816,9 +809,7 @@ public class PropertyAnalyzer {
         if (null == value) {
             return false;
         }
-        if (stripProperty) {
-            properties.remove(PROPERTIES_STORE_ROW_COLUMN);
-        }
+        properties.remove(PROPERTIES_STORE_ROW_COLUMN);
         if (value.equalsIgnoreCase("true")) {
             return true;
         } else if (value.equalsIgnoreCase("false")) {

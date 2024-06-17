@@ -266,7 +266,7 @@ void VerticalSegmentWriter::_maybe_invalid_row_cache(const std::string& key) con
     // Just invalid row cache for simplicity, since the rowset is not visible at present.
     // If we update/insert cache, if load failed rowset will not be visible but cached data
     // will be visible, and lead to inconsistency.
-    if (!config::disable_storage_row_cache && _tablet_schema->has_full_row_store_column() &&
+    if (!config::disable_storage_row_cache && _tablet_schema->has_row_store_for_all_columns() &&
         _opts.write_type == DataWriteType::TYPE_DIRECT) {
         // invalidate cache
         RowCache::instance()->erase({_opts.rowset_ctx->tablet_id, key});
@@ -287,8 +287,8 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
             row_store_column->clear();
             vectorized::DataTypeSerDeSPtrs serdes =
                     vectorized::create_data_type_serdes(block.get_data_types());
-            std::unordered_set<int> row_store_cids_set(_tablet_schema->row_columns_cids().begin(),
-                                                       _tablet_schema->row_columns_cids().end());
+            std::unordered_set<int> row_store_cids_set(_tablet_schema->row_columns_uids().begin(),
+                                                       _tablet_schema->row_columns_uids().end());
             vectorized::JsonbSerializeUtil::block_to_jsonb(
                     *_tablet_schema, block, *row_store_column, _tablet_schema->num_columns(),
                     serdes, row_store_cids_set);
@@ -562,7 +562,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
     auto old_value_block = _tablet_schema->create_block_by_cids(missing_cids);
     CHECK_EQ(missing_cids.size(), old_value_block.columns());
     auto mutable_old_columns = old_value_block.mutate_columns();
-    bool has_row_column = _tablet_schema->has_full_row_store_column();
+    bool has_row_column = _tablet_schema->has_row_store_for_all_columns();
     // record real pos, key is input line num, value is old_block line num
     std::map<uint32_t, uint32_t> read_index;
     size_t read_idx = 0;

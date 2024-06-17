@@ -318,7 +318,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     // Just invalid row cache for simplicity, since the rowset is not visible at present.
     // If we update/insert cache, if load failed rowset will not be visible but cached data
     // will be visible, and lead to inconsistency.
-    if (!config::disable_storage_row_cache && _tablet_schema->has_full_row_store_column() &&
+    if (!config::disable_storage_row_cache && _tablet_schema->has_row_store_for_all_columns() &&
         _opts.write_type == DataWriteType::TYPE_DIRECT) {
         // invalidate cache
         RowCache::instance()->erase({_opts.rowset_ctx->tablet_id, key});
@@ -448,8 +448,8 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
             vectorized::JsonbSerializeUtil::block_to_jsonb(
                     *_tablet_schema, block, *row_store_column, _tablet_schema->num_columns(),
                     serdes,
-                    {_tablet_schema->row_columns_cids().begin(),
-                     _tablet_schema->row_columns_cids().end()});
+                    {_tablet_schema->row_columns_uids().begin(),
+                     _tablet_schema->row_columns_uids().end()});
             break;
         }
     }
@@ -734,7 +734,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
     CHECK_EQ(cids_missing.size(), old_value_block.columns());
-    bool has_row_column = _tablet_schema->has_full_row_store_column();
+    bool has_row_column = _tablet_schema->has_row_store_for_all_columns();
     // record real pos, key is input line num, value is old_block line num
     std::map<uint32_t, uint32_t> read_index;
     size_t read_idx = 0;

@@ -2553,7 +2553,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // analyze row store columns
         try {
             boolean storeRowColumn = false;
-            storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(properties, true);
+            storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(properties);
             if (storeRowColumn && !enableLightSchemaChange) {
                 throw new DdlException(
                         "Row store column rely on light schema change, enable light schema change first");
@@ -2562,7 +2562,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             List<String> rowStoreColumns;
             try {
                 rowStoreColumns = PropertyAnalyzer.analyzeRowStoreColumns(properties,
-                            baseSchema.stream().map(Column::getName).collect(Collectors.toList()), true);
+                            baseSchema.stream().map(Column::getName).collect(Collectors.toList()));
                 if (rowStoreColumns != null && rowStoreColumns.isEmpty()) {
                     rowStoreColumns = null;
                 }

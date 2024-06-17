@@ -417,11 +417,11 @@ public class CreateTableInfo {
             if (properties != null) {
                 try {
                     storeRowColumn =
-                            PropertyAnalyzer.analyzeStoreRowColumn(Maps.newHashMap(properties), true);
+                            PropertyAnalyzer.analyzeStoreRowColumn(Maps.newHashMap(properties));
                     rowStoreColumns = PropertyAnalyzer.analyzeRowStoreColumns(Maps.newHashMap(properties),
                                 columns.stream()
                                         .map(ColumnDefinition::getName)
-                                        .collect(Collectors.toList()), true);
+                                        .collect(Collectors.toList()));
                 } catch (Exception e) {
                     throw new AnalysisException(e.getMessage(), e.getCause());
                 }

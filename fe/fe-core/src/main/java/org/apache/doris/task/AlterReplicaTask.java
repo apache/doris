@@ -69,7 +69,7 @@ public class AlterReplicaTask extends AgentTask {
             long baseIndexId, long rollupTabletId, long baseTabletId, long newReplicaId, int newSchemaHash,
             int baseSchemaHash, long version, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defineExprs,
             DescriptorTable descTable, List<Column> baseSchemaColumns, Map<Object, Object> objectPool,
-            Expr whereClause, long expiration, String vaultIds) {
+            Expr whereClause, long expiration, String vaultId) {
         super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
@@ -172,8 +172,7 @@ public class AlterReplicaTask extends AgentTask {
             if (value == null) {
                 List<TColumn> columns = new ArrayList<TColumn>();
                 for (Column column : baseSchemaColumns) {
-                    TColumn tColumn = column.toThrift();
-                    columns.add(tColumn);
+                    columns.add(column.toThrift());
                 }
                 objectPool.put(baseSchemaColumns, columns);
                 req.setColumns(columns);

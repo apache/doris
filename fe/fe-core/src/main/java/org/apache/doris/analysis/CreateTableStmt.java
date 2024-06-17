@@ -448,7 +448,7 @@ public class CreateTableStmt extends DdlStmt {
             }
         }
         // add a hidden column as row store
-        if (properties != null && PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties), true)) {
+        if (properties != null && PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties))) {
             if (keysDesc != null && keysDesc.getKeysType() == KeysType.AGG_KEYS) {
                 throw new AnalysisException("Aggregate table can't support row column now");
             }

@@ -385,7 +385,7 @@ public class CreateMTMVInfo {
         if (properties != null) {
             try {
                 boolean storeRowColumn =
-                        PropertyAnalyzer.analyzeStoreRowColumn(Maps.newHashMap(properties), true);
+                        PropertyAnalyzer.analyzeStoreRowColumn(Maps.newHashMap(properties));
                 if (storeRowColumn) {
                     columns.add(ColumnDefinition.newRowStoreColumnDefinition(null));
                 }

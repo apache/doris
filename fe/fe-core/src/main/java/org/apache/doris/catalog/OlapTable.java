@@ -1232,10 +1232,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         getOrCreatTableProperty().setRowStoreColumns(rowStoreColumns);
     }
 
-    public List<Integer> getRowStoreColumnsUniqueIds(List<String> rsColumnNames) {
+    public List<Integer> getRowStoreColumnsUniqueIds(List<String> rowStoreColumns) {
         List<Integer> columnIds = Lists.newArrayList();
-        if (rsColumnNames != null) {
-            for (String colName : rsColumnNames) {
+        if (rowStoreColumns != null) {
+            for (String colName : rowStoreColumns) {
                 Column col = nameToColumn.get(colName);
                 Preconditions.checkNotNull(col);
                 columnIds.add(col.getUniqueId());

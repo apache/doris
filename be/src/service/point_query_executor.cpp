@@ -79,11 +79,11 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
     const TabletColumn& target_rs_column = schema.column_by_uid(target_rs_column_id);
     DCHECK(target_rs_column.is_row_store_column());
     // The full column group is considered a full match, thus no missing cids
-    if (schema.row_columns_cids().empty()) {
+    if (schema.row_columns_uids().empty()) {
         missing_cids.clear();
         return;
     }
-    for (int cid : schema.row_columns_cids()) {
+    for (int cid : schema.row_columns_uids()) {
         missing_cids.erase(cid);
         include_cids.insert(cid);
     }
@@ -416,8 +416,7 @@ Status PointQueryExecutor::_lookup_row_data() {
         std::string value;
         // fill block by row store
         if (_reusable->rs_column_uid() != -1) {
-            bool use_row_cache = !config::disable_storage_row_cache &&
-                                 _tablet->tablet_schema()->row_columns_cids().empty();
+            bool use_row_cache = !config::disable_storage_row_cache;
             RETURN_IF_ERROR(_tablet->lookup_row_data(
                     _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location.value(),
                     *(_row_read_ctxs[i]._rowset_ptr), _reusable->tuple_desc(),

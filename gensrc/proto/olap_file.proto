@@ -381,7 +381,7 @@ message TabletSchemaPB {
     repeated int32 cluster_key_idxes = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
     // column unique ids for row store columns
-    repeated int32 row_store_column_cids = 26;
+    repeated int32 row_store_column_unique_ids = 26;
 }
 
 message TabletSchemaCloudPB {
@@ -409,7 +409,7 @@ message TabletSchemaCloudPB {
     repeated int32 cluster_key_idxes = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
     // column unique ids for row store columns
-    repeated int32 row_store_column_cids = 26;
+    repeated int32 row_store_column_unique_ids = 26;
 
     optional bool is_dynamic_schema = 100 [default=false];
 }

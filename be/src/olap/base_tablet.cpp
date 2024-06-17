@@ -61,7 +61,7 @@ Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
                             const PartialUpdateReadPlan& read_plan,
                             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                             vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index) {
-    bool has_row_column = tablet_schema->has_full_row_store_column();
+    bool has_row_column = tablet_schema->has_row_store_for_all_columns();
     auto mutable_columns = block.mutate_columns();
     size_t read_idx = 0;
     for (auto rs_it : read_plan) {
@@ -873,7 +873,7 @@ Status BaseTablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
 
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
     CHECK(rowset);
-    CHECK(tablet_schema.has_full_row_store_column());
+    CHECK(tablet_schema.has_row_store_for_all_columns());
     SegmentCacheHandle segment_cache_handle;
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     OlapReaderStatistics stats;
