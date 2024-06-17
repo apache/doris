@@ -209,13 +209,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         return !_filter_map[row] && (null_map == nullptr || null_map[j] == 0);
     };
 
-    switch (type.type) {
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING: {
-        const auto column_string =
-                assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
-
+    auto string_column_checker = [&](const ColumnString* column_string) {
         size_t limit = config::string_type_length_soft_limit_bytes;
         // when type.len is negative, std::min will return overflow value, so we need to check it
         if (type.len > 0) {
@@ -257,6 +251,16 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
                 }
             }
         }
+        return Status::OK();
+    };
+
+    switch (type.type) {
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING: {
+        const auto column_string =
+                assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
+        RETURN_IF_ERROR(string_column_checker(column_string));
         break;
     }
     case TYPE_JSONB: {
@@ -415,6 +419,13 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
                                              column_struct->get_column_ptr(sc), slot_index,
                                              stop_processing, error_prefix,
                                              column_struct->get_column_ptr(sc)->size()));
+        }
+        break;
+    }
+    case TYPE_AGG_STATE: {
+        auto* column_string = vectorized::check_and_get_column<ColumnString>(*real_column_ptr);
+        if (column_string) {
+            RETURN_IF_ERROR(string_column_checker(column_string));
         }
         break;
     }

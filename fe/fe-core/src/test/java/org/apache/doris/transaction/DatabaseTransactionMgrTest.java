@@ -67,8 +67,8 @@ public class DatabaseTransactionMgrTest {
     private static Env slaveEnv;
     private static Map<String, Long> LabelToTxnId;
 
-    private TransactionState.TxnCoordinator transactionSource =
-            new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
+    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(
+            TransactionState.TxnSourceType.FE, 0, "localfe", System.currentTimeMillis());
 
     public static void setTransactionFinishPublish(TransactionState transactionState, List<Long> backendIds) {
         if (transactionState.getSubTransactionStates() != null) {
@@ -141,7 +141,8 @@ public class DatabaseTransactionMgrTest {
         labelToTxnId.put(CatalogTestUtil.testTxnLabel1, transactionId1);
 
         // txn 2, 3, 4
-        TransactionState.TxnCoordinator beTransactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.BE, "be1");
+        TransactionState.TxnCoordinator beTransactionSource = new TransactionState.TxnCoordinator(
+                TransactionState.TxnSourceType.BE, 0, "be1", System.currentTimeMillis());
         long transactionId2 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
                 CatalogTestUtil.testTxnLabel2,
                 beTransactionSource,
@@ -221,7 +222,7 @@ public class DatabaseTransactionMgrTest {
     @Test
     public void testGetTransactionIdByCoordinateBe() throws UserException {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
-        List<Pair<Long, Long>> transactionInfoList = masterDbTransMgr.getTransactionIdByCoordinateBe("be1", 10);
+        List<Pair<Long, Long>> transactionInfoList = masterDbTransMgr.getPrepareTransactionIdByCoordinateBe(0, "be1", 10);
         Assert.assertEquals(3, transactionInfoList.size());
         Assert.assertEquals(CatalogTestUtil.testDbId1, transactionInfoList.get(0).first.longValue());
         Assert.assertEquals(TransactionStatus.PREPARE,

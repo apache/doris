@@ -68,7 +68,6 @@ Status TaskScheduler::start() {
 
 Status TaskScheduler::schedule_task(PipelineTask* task) {
     return _task_queue->push_back(task);
-    // TODO control num of task
 }
 
 // after _close_task, task maybe destructed.
@@ -168,11 +167,6 @@ void TaskScheduler::_do_work(size_t index) {
         fragment_ctx->trigger_report_if_necessary();
 
         if (eos) {
-            // TODO: pipeline parallel need to wait the last task finish to call finalize
-            //  and find_p_dependency
-            VLOG_DEBUG << fmt::format("Try close task: {}, fragment_ctx->is_canceled(): {}",
-                                      print_id(task->query_context()->query_id()),
-                                      fragment_ctx->is_canceled());
             // is pending finish will add the task to dependency's blocking queue, and then the task will be
             // added to running queue when dependency is ready.
             if (task->is_pending_finish()) {

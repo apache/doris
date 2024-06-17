@@ -22,6 +22,7 @@ import org.apache.doris.common.io.Writable;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -29,19 +30,28 @@ import java.io.IOException;
 import java.util.List;
 
 public class SnapshotInfo implements Writable {
+    @SerializedName("db")
     private long dbId;
+    @SerializedName("tbl")
     private long tblId;
+    @SerializedName("p")
     private long partitionId;
+    @SerializedName("ind")
     private long indexId;
+    @SerializedName("tab")
     private long tabletId;
+    @SerializedName("be")
     private long beId;
+    @SerializedName("sh")
     private int schemaHash;
     // eg: /path/to/your/be/data/snapshot/20180410102311.0.86400/
+    @SerializedName("path")
     private String path;
     // eg:
     // 10006_0_1_0_0.dat
     // 10006_2_2_0_0.idx
     // 10006.hdr
+    @SerializedName("f")
     private List<String> files = Lists.newArrayList();
 
     public SnapshotInfo() {
