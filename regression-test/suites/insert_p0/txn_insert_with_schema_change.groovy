@@ -154,6 +154,24 @@ suite("txn_insert_with_schema_change") {
             getAlterTableState("${table}_${i}", "FINISHED")
             order_qt_select4 """select id, name, score from ${table}_${i} """
         }
+
+        // 3. do hard weight schema change: change type
+        if (true) {
+            insertLatch = new CountDownLatch(1)
+            schemaChangeLatch = new CountDownLatch(1)
+            Thread insert_thread = new Thread(() -> txnInsert(insert_sqls))
+            Thread schema_change_thread = new Thread(() -> schemaChange("alter table ${table}_${i} MODIFY column name int(11)", "${table}_${i}", "WAITING_TXN"))
+            insert_thread.start()
+            schema_change_thread.start()
+            insert_thread.join()
+            schema_change_thread.join()
+
+            logger.info("errors: " + errors)
+            assertEquals(0, errors.size())
+            order_qt_select5 """select id, name, score from ${table}_${i} """
+            getAlterTableState("${table}_${i}", "FINISHED")
+            order_qt_select6 """select id, name, score from ${table}_${i} """
+        }
         check_table_version_continuous(dbName, table + "_" + i)
     }
 }

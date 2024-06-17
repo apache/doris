@@ -1356,7 +1356,7 @@ public class DatabaseTransactionMgr {
                 }
             }
 
-            boolean alterReplicaLoadedTxn = isAlterReplicaLoadedTxn(transactionState.getTransactionId(), table);
+            long maxAlterWaterschedTxnId = getMaxAlterWaterschedTxnId(table);
 
             // check success replica number for each tablet.
             // a success replica means:
@@ -1377,11 +1377,10 @@ public class DatabaseTransactionMgr {
                         if (publishVersionTasks != null) {
                             publishVersionTask = publishVersionTasks.get(0);
                         }
-                        checkReplicaContinuousVersionSucc(tablet.getId(), replica, alterReplicaLoadedTxn,
-                                newVersion, publishVersionTask,
-                                errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
-                                tabletVersionFailedReplicas);
-
+                        checkReplicaContinuousVersionSucc(Lists.newArrayList(transactionState.getTransactionId()),
+                                maxAlterWaterschedTxnId, tablet.getId(), replica, newVersion, newVersion,
+                                Lists.newArrayList(publishVersionTask), errorReplicaIds, tabletSuccReplicas,
+                                tabletWriteFailedReplicas, tabletVersionFailedReplicas);
                     }
 
                     publishResult = checkQuorumReplicas(transactionState, tableId, partition, tablet,
@@ -1404,75 +1403,18 @@ public class DatabaseTransactionMgr {
         return publishResult;
     }
 
-    private List<AlterJobV2> getUnfinishedAlterJobs(OlapTable table) {
+    private long getMaxAlterWaterschedTxnId(OlapTable table) {
+        List<AlterJobV2> unfinishedAlterJobs;
         if (table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
-            return Env.getCurrentEnv().getAlterInstance().getSchemaChangeHandler()
+            unfinishedAlterJobs = Env.getCurrentEnv().getAlterInstance().getSchemaChangeHandler()
                     .getUnfinishedAlterJobV2ByTableId(table.getId());
         } else if (table.getState() == OlapTable.OlapTableState.ROLLUP) {
-            return Env.getCurrentEnv().getAlterInstance().getMaterializedViewHandler()
+            unfinishedAlterJobs = Env.getCurrentEnv().getAlterInstance().getMaterializedViewHandler()
                     .getUnfinishedAlterJobV2ByTableId(table.getId());
         } else {
-            return Lists.newArrayList();
+            unfinishedAlterJobs = Lists.newArrayList();
         }
-    }
-
-    private boolean isAlterReplicaLoadedTxn(long transactionId, OlapTable table) {
-        List<AlterJobV2> unfinishedAlterJobs = getUnfinishedAlterJobs(table);
-        return unfinishedAlterJobs.stream().allMatch(job -> transactionId > job.getWatershedTxnId());
-    }
-
-    private long getMaxAlterWaterschedTxnId(OlapTable table) {
-        List<AlterJobV2> unfinishedAlterJobs = getUnfinishedAlterJobs(table);
         return unfinishedAlterJobs.stream().mapToLong(AlterJobV2::getWatershedTxnId).max().orElse(-1);
-    }
-
-    private void checkReplicaContinuousVersionSucc(long tabletId, Replica replica, boolean alterReplicaLoadedTxn,
-            long version, PublishVersionTask backendPublishTask,
-            Set<Long> errorReplicaIds, List<Replica> tabletSuccReplicas,
-            List<Replica> tabletWriteFailedReplicas, List<Replica> tabletVersionFailedReplicas) {
-        if (backendPublishTask == null || !backendPublishTask.isFinished()) {
-            errorReplicaIds.add(replica.getId());
-        } else {
-            Map<Long, Long> backendSuccTablets = backendPublishTask.getSuccTablets();
-            // new doris BE will report succ tablets
-            if (backendSuccTablets != null) {
-                if (backendSuccTablets.containsKey(tabletId)) {
-                    errorReplicaIds.remove(replica.getId());
-                } else {
-                    errorReplicaIds.add(replica.getId());
-                }
-            } else {
-                // for compatibility, old doris BE report only error tablets
-                List<Long> backendErrorTablets = backendPublishTask.getErrorTablets();
-                if (backendErrorTablets != null && backendErrorTablets.contains(tabletId)) {
-                    errorReplicaIds.add(replica.getId());
-                }
-            }
-        }
-
-        // Schema change and rollup has a sched watermark,
-        // it's ensure that alter replicas will load those txns whose txn id > sched watermark.
-        // But for txns before the sched watermark, the alter replicas maynot load the txns,
-        // publish will ignore checking them and treat them as success in advance.
-        // Later be will fill the alter replicas's history data which before sched watermark.
-        // If failed to fill, fe will set the alter replica bad.
-        if (replica.getState() == Replica.ReplicaState.ALTER
-                && (!alterReplicaLoadedTxn || !Config.publish_version_check_alter_replica)) {
-            errorReplicaIds.remove(replica.getId());
-        }
-
-        if (!errorReplicaIds.contains(replica.getId())) {
-            if (replica.checkVersionCatchUp(version - 1, true)) {
-                tabletSuccReplicas.add(replica);
-            } else {
-                tabletVersionFailedReplicas.add(replica);
-            }
-        } else if (replica.getVersion() >= version) {
-            tabletSuccReplicas.add(replica);
-            errorReplicaIds.remove(replica.getId());
-        } else {
-            tabletWriteFailedReplicas.add(replica);
-        }
     }
 
     private void checkReplicaContinuousVersionSucc(List<Long> subTxnIds, long alterWaterschedTxnId, long tabletId,
@@ -1484,7 +1426,7 @@ public class DatabaseTransactionMgr {
             PublishVersionTask task = replicaPublishTasks.get(i);
             success = (task != null && task.isFinished() && task.getSuccTablets().containsKey(tabletId)) || (
                     replica.getState() == Replica.ReplicaState.ALTER && (!Config.publish_version_check_alter_replica
-                            || subTxnIds.get(i) < alterWaterschedTxnId));
+                            || subTxnIds.get(i) < alterWaterschedTxnId || alterWaterschedTxnId == -1));
             if (!success) {
                 break;
             }
