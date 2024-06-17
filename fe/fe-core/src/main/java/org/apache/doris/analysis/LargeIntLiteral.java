@@ -261,4 +261,9 @@ public class LargeIntLiteral extends LiteralExpr {
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(value);
     }
+
+    @Override
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
+        value = new BigInteger(Long.toUnsignedString(data.getLong()));
+    }
 }
