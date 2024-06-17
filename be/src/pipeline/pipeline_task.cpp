@@ -273,6 +273,8 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
+    DEFER_RELEASE_RESERVED();
+    doris::thread_context()->try_reserve_memory(10000);
     _eos = _sink->is_finished(_state) || _eos;
     *eos = _eos;
     if (_eos) {
