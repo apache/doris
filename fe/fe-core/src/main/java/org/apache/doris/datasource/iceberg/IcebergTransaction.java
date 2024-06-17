@@ -51,6 +51,7 @@ public class IcebergTransaction implements Transaction {
 
     private final IcebergMetadataOps ops;
     private SimpleTableInfo tableInfo;
+    private Table table;
 
 
     private org.apache.iceberg.Transaction transaction;
@@ -66,12 +67,13 @@ public class IcebergTransaction implements Transaction {
         }
     }
 
-    public void pendingCommit(SimpleTableInfo tableInfo) {
+    public void beginInsert(SimpleTableInfo tableInfo) {
         this.tableInfo = tableInfo;
-        this.transaction = getNativeTable(tableInfo).newTransaction();
+        this.table = getNativeTable(tableInfo);
+        this.transaction = table.newTransaction();
     }
 
-    public void preCommit(SimpleTableInfo tableInfo, Optional<InsertCommandContext> insertCtx) {
+    public void finishInsert(SimpleTableInfo tableInfo, Optional<InsertCommandContext> insertCtx) {
 
         LOG.info("iceberg table {} insert table finished!", tableInfo);
 
@@ -85,8 +87,6 @@ public class IcebergTransaction implements Transaction {
     }
 
     private void updateManifestAfterInsert(TUpdateMode updateMode) {
-
-        Table table = getNativeTable(tableInfo);
         PartitionSpec spec = table.spec();
         FileFormat fileFormat = IcebergUtils.getFileFormat(table);
 
@@ -118,11 +118,15 @@ public class IcebergTransaction implements Transaction {
         //do nothing
     }
 
+    public long getUpdateCnt() {
+        return commitDataList.stream().mapToLong(TIcebergCommitData::getRowCount).sum();
+    }
+
 
     private synchronized Table getNativeTable(SimpleTableInfo tableInfo) {
         Objects.requireNonNull(tableInfo);
         IcebergExternalCatalog externalCatalog = ops.getExternalCatalog();
-        return IcebergUtils.getIcebergTable(externalCatalog, tableInfo);
+        return IcebergUtils.getAndCloneTable(externalCatalog, tableInfo);
     }
 
     private void partitionManifestUp(TUpdateMode updateMode, Table table, List<WriteResult> pendingResults) {

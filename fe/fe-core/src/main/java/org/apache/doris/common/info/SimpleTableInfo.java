@@ -41,6 +41,11 @@ public class SimpleTableInfo {
     }
 
     @Override
+    public int hashCode() {
+        return Objects.hash(dbName, tbName);
+    }
+
+    @Override
     public boolean equals(Object other) {
         if (this == other) {
             return true;

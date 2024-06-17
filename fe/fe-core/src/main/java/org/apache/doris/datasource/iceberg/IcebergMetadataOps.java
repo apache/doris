@@ -178,6 +178,4 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         db.setUnInitialized(true);
     }
 
-
-
 }

@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TIcebergCommitData;
 import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
+import org.apache.commons.lang.SerializationUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileScanTask;
@@ -49,6 +50,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -185,7 +187,7 @@ public class IcebergTransactionTest {
 
         new MockUp<IcebergUtils>() {
             @Mock
-            public Table getIcebergTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
+            public Table getAndCloneTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
                 return table;
             }
         };
@@ -193,8 +195,8 @@ public class IcebergTransactionTest {
         IcebergTransaction txn = getTxn();
         txn.updateIcebergCommitData(ctdList);
         SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
-        txn.pendingCommit(tableInfo);
-        txn.preCommit(tableInfo, Optional.empty());
+        txn.beginInsert(tableInfo);
+        txn.finishInsert(tableInfo, Optional.empty());
         txn.commit();
 
         checkSnapshotProperties(table.currentSnapshot().summary(), "6", "2", "6");
@@ -296,7 +298,7 @@ public class IcebergTransactionTest {
         Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
         new MockUp<IcebergUtils>() {
             @Mock
-            public Table getIcebergTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
+            public Table getAndCloneTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
                 return table;
             }
         };
@@ -305,8 +307,8 @@ public class IcebergTransactionTest {
             IcebergTransaction txn = getTxn();
             txn.updateIcebergCommitData(ctdList);
             SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
-            txn.pendingCommit(tableInfo);
-            txn.preCommit(tableInfo, Optional.empty());
+            txn.beginInsert(tableInfo);
+            txn.finishInsert(tableInfo, Optional.empty());
             txn.commit();
         } catch (Exception e) {
             e.printStackTrace();
@@ -315,7 +317,11 @@ public class IcebergTransactionTest {
         checkSnapshotProperties(table.currentSnapshot().summary(), "6", "2", "6");
     }
 
-    public void checkSnapshotProperties(Map<String, String> props,
+    private IcebergTransaction getTxn() {
+        return new IcebergTransaction(ops);
+    }
+
+    private void checkSnapshotProperties(Map<String, String> props,
             String addRecords,
             String addFileCnt,
             String addFileSize) {
@@ -324,24 +330,31 @@ public class IcebergTransactionTest {
         Assert.assertEquals(addFileSize, props.get("added-files-size"));
     }
 
-    public String numToYear(Integer num) {
+    private String numToYear(Integer num) {
         Transform<Object, Integer> year = Transforms.year();
         return year.toHumanString(Types.IntegerType.get(), num);
     }
 
-    public String numToMonth(Integer num) {
+    private String numToMonth(Integer num) {
         Transform<Object, Integer> month = Transforms.month();
         return month.toHumanString(Types.IntegerType.get(), num);
     }
 
-    public String numToDay(Integer num) {
+    private String numToDay(Integer num) {
         Transform<Object, Integer> day = Transforms.day();
         return day.toHumanString(Types.IntegerType.get(), num);
     }
 
-    public String numToHour(Integer num) {
+    private String numToHour(Integer num) {
         Transform<Object, Integer> hour = Transforms.hour();
         return hour.toHumanString(Types.IntegerType.get(), num);
+    }
+
+    @Test
+    public void tableCloneTest() {
+        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        Table cloneTable = (Table) SerializationUtils.clone((Serializable) table);
+        Assert.assertNotNull(cloneTable);
     }
 
     @Test
@@ -359,7 +372,4 @@ public class IcebergTransactionTest {
         Assert.assertEquals("2024-12-11", numToDay(dt));
     }
 
-    public IcebergTransaction getTxn() {
-        return new IcebergTransaction(ops);
-    }
 }

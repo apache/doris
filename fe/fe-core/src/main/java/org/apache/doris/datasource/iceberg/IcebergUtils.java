@@ -538,16 +538,22 @@ public class IcebergUtils {
         }
     }
 
-    public static org.apache.iceberg.Table getIcebergTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
-        return getIcebergTable(catalog, tableInfo.getDbName(), tableInfo.getTbName());
-    }
-
 
     public static org.apache.iceberg.Table getIcebergTable(ExternalCatalog catalog, String dbName, String tblName) {
-        return Env.getCurrentEnv()
+        return getIcebergTable0(catalog, dbName, tblName, false);
+    }
+
+    public static org.apache.iceberg.Table getAndCloneTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
+        return getIcebergTable0(catalog, tableInfo.getDbName(), tableInfo.getTbName(), true);
+    }
+
+    private static org.apache.iceberg.Table getIcebergTable0(ExternalCatalog catalog, String dbName, String tblName,
+            boolean isClone) {
+        IcebergMetadataCache metadataCache = Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
-                .getIcebergMetadataCache()
-                .getIcebergTable(catalog, dbName, tblName);
+                .getIcebergMetadataCache();
+        return isClone ? metadataCache.getAndCloneTable(catalog, dbName, tblName)
+                : metadataCache.getIcebergTable(catalog, dbName, tblName);
     }
 
     /**

@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TIcebergMetadataParams;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang.SerializationUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.iceberg.ManifestFiles;
@@ -40,6 +41,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -85,6 +87,24 @@ public class IcebergMetadataCache {
         return tableCache.get(key);
     }
 
+    public Table getAndCloneTable(CatalogIf catalog, String dbName, String tbName) {
+        Table restTable;
+        synchronized (this) {
+            Table table = getIcebergTable(catalog, dbName, tbName);
+            if (Objects.isNull(table)) {
+                restTable = null;
+            } else {
+                if (Serializable.class.isAssignableFrom(table.getClass())) {
+                    restTable = (Table) SerializationUtils.clone((Serializable) table);
+                } else {
+                    throw new IllegalStateException(
+                            String.format("%s is not inherit Serializable cannot be deeply copied", table.getClass()));
+                }
+            }
+        }
+        return restTable;
+    }
+
     @NotNull
     private List<Snapshot> loadSnapshots(IcebergMetadataCacheKey key) {
         Table icebergTable = getIcebergTable(key.catalog, key.dbName, key.tableName);
@@ -116,7 +136,7 @@ public class IcebergMetadataCache {
     public void invalidateCatalogCache(long catalogId) {
         snapshotListCache.asMap().keySet().stream()
                 .filter(key -> key.catalog.getId() == catalogId)
-            .forEach(snapshotListCache::invalidate);
+                .forEach(snapshotListCache::invalidate);
 
         tableCache.asMap().entrySet().stream()
                 .filter(entry -> entry.getKey().catalog.getId() == catalogId)
@@ -130,7 +150,7 @@ public class IcebergMetadataCache {
         snapshotListCache.asMap().keySet().stream()
                 .filter(key -> key.catalog.getId() == catalogId && key.dbName.equals(dbName) && key.tableName.equals(
                         tblName))
-            .forEach(snapshotListCache::invalidate);
+                .forEach(snapshotListCache::invalidate);
 
         tableCache.asMap().entrySet().stream()
                 .filter(entry -> {
