@@ -75,6 +75,9 @@ public class Group {
 
     private int chosenGroupExpressionId = -1;
 
+    private List<PhysicalProperties> chosenEnforcerPropertiesList = new ArrayList<>();
+    private List<Integer> chosenEnforcerIdList = new ArrayList<>();
+
     private StructInfoMap structInfoMap = new StructInfoMap();
 
     /**
@@ -458,6 +461,13 @@ public class Group {
         for (GroupExpression enforcer : enforcers) {
             str.append("    ").append(enforcer).append("\n");
         }
+        if (!chosenEnforcerIdList.isEmpty()) {
+            str.append("  chosen enforcer(id, requiredProperties):\n");
+            for (int i = 0; i < chosenEnforcerIdList.size(); i++) {
+                str.append("      (").append(i).append(")").append(chosenEnforcerIdList.get(i)).append(",  ")
+                        .append(chosenEnforcerPropertiesList.get(i)).append("\n");
+            }
+        }
         if (chosenGroupExpressionId != -1) {
             str.append("  chosen expression id: ").append(chosenGroupExpressionId).append("\n");
             str.append("  chosen properties: ").append(chosenProperties).append("\n");
@@ -559,11 +569,17 @@ public class Group {
         this.chosenProperties = chosenProperties;
     }
 
-    public int getChosenGroupExpressionId() {
-        return chosenGroupExpressionId;
+    public void setChosenGroupExpressionId(int chosenGroupExpressionId) {
+        Preconditions.checkArgument(this.chosenGroupExpressionId == -1,
+                "chosenGroupExpressionId is already set");
+        this.chosenGroupExpressionId = chosenGroupExpressionId;
     }
 
-    public void setChosenGroupExpressionId(int chosenGroupExpressionId) {
-        this.chosenGroupExpressionId = chosenGroupExpressionId;
+    public void addChosenEnforcerProperties(PhysicalProperties chosenEnforcerProperties) {
+        this.chosenEnforcerPropertiesList.add(chosenEnforcerProperties);
+    }
+
+    public void addChosenEnforcerId(int chosenEnforcerId) {
+        this.chosenEnforcerIdList.add(chosenEnforcerId);
     }
 }
