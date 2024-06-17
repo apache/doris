@@ -936,6 +936,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return distributionColumnNames;
     }
 
+    public boolean isRandomDistribution() {
+        return defaultDistributionInfo instanceof RandomDistributionInfo;
+    }
+
     public void renamePartition(String partitionName, String newPartitionName) {
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // bug fix
