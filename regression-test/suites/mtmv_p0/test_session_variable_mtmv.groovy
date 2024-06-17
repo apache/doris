@@ -46,7 +46,7 @@ suite("test_session_variable_mtmv","mtmv") {
               DISTRIBUTED BY RANDOM BUCKETS 2
               PROPERTIES (
               'replication_num' = '1',
-              'session.gggg'='fff'
+              'session.gggg' = 'fff'
               )
               AS
               SELECT * from ${tableName};
@@ -62,7 +62,7 @@ suite("test_session_variable_mtmv","mtmv") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES (
             'replication_num' = '1',
-            'session.query_timeout'='fff'
+            'session.query_timeout' = 'fff'
             )
             AS
             SELECT * from ${tableName};
@@ -77,7 +77,7 @@ suite("test_session_variable_mtmv","mtmv") {
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
         'replication_num' = '1',
-        'session.query_timeout'='3700'
+        'session.query_timeout' = '3700'
         )
         AS
         SELECT * from ${tableName};
