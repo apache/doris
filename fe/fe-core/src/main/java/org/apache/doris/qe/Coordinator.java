@@ -215,7 +215,7 @@ public class Coordinator implements CoordInterface {
 
     private final Map<Pair<Integer, Long>, PipelineExecContext> pipelineExecContexts = new HashMap<>();
     private final List<PipelineExecContext> needCheckPipelineExecContexts = Lists.newArrayList();
-    private ResultReceiver receiver;
+    private List<ResultReceiver> receivers = Lists.newArrayList();
     protected final List<ScanNode> scanNodes;
     private int scanRangeNum = 0;
     // number of instances of this query, equals to
@@ -635,11 +635,8 @@ public class Coordinator implements CoordInterface {
                         throw new UserException("could not find query queue");
                     }
                     queueToken = queryQueue.getToken();
-                    if (!queueToken.waitSignal(this.queryOptions.getExecutionTimeout() * 1000)) {
-                        LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + queueToken.getOfferResultDetail());
-                        queryQueue.returnToken(queueToken);
-                        throw new UserException(queueToken.getOfferResultDetail());
-                    }
+                    queueToken.get(DebugUtil.printId(queryId),
+                            this.queryOptions.getExecutionTimeout() * 1000);
                 }
             } else {
                 context.setWorkloadGroupName("");
@@ -652,7 +649,7 @@ public class Coordinator implements CoordInterface {
     public void close() {
         if (queryQueue != null && queueToken != null) {
             try {
-                queryQueue.returnToken(queueToken);
+                queryQueue.releaseAndNotify(queueToken);
             } catch (Throwable t) {
                 LOG.error("error happens when coordinator close ", t);
             }
@@ -682,13 +679,27 @@ public class Coordinator implements CoordInterface {
         DataSink topDataSink = topParams.fragment.getSink();
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
+            Boolean enableParallelResultSink = queryOptions.isEnableParallelResultSink()
+                    && topDataSink instanceof ResultSink;
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
-            receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
-                    addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline,
-                    context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+            Set<TNetworkAddress> addrs = new HashSet<>();
+            for (FInstanceExecParam param : topParams.instanceExecParams) {
+                if (addrs.contains(param.host)) {
+                    continue;
+                }
+                addrs.add(param.host);
+                receivers.add(new ResultReceiver(queryId, param.instanceId, addressToBackendID.get(param.host),
+                        toBrpcHost(param.host), this.timeoutDeadline,
+                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver(), enableParallelResultSink));
+            }
 
             if (!context.isReturnResultFromLocal()) {
                 Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
+                if (enableParallelResultSink) {
+                    context.setFinstId(queryId);
+                } else {
+                    context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
+                }
                 context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
                 context.setResultFlightServerAddr(toArrowFlightHost(execBeAddr));
                 context.setResultInternalServiceAddr(toBrpcHost(execBeAddr));
@@ -1084,13 +1095,13 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public RowBatch getNext() throws Exception {
-        if (receiver == null) {
+        if (receivers.isEmpty()) {
             throw new UserException("There is no receiver.");
         }
 
         RowBatch resultBatch;
         Status status = new Status();
-        resultBatch = receiver.getNext(status);
+        resultBatch = receivers.get(receivers.size() - 1).getNext(status);
         if (!status.ok()) {
             LOG.warn("Query {} coordinator get next fail, {}, need cancel.",
                     DebugUtil.printId(queryId), status.getErrorMsg());
@@ -1129,7 +1140,12 @@ public class Coordinator implements CoordInterface {
         }
 
         if (resultBatch.isEos()) {
-            this.returnedAllResults = true;
+            receivers.remove(receivers.size() - 1);
+            if (receivers.isEmpty()) {
+                returnedAllResults = true;
+            } else {
+                resultBatch.setEos(false);
+            }
 
             // if this query is a block query do not cancel.
             Long numLimitRows = fragments.get(0).getPlanRoot().getLimit();
@@ -1202,7 +1218,7 @@ public class Coordinator implements CoordInterface {
     public void cancel() {
         cancel(new Status(TStatusCode.CANCELLED, "query is cancelled by user"));
         if (queueToken != null) {
-            queueToken.signalForCancel();
+            queueToken.cancel();
         }
     }
 
@@ -1250,7 +1266,7 @@ public class Coordinator implements CoordInterface {
     }
 
     private void cancelInternal(Status cancelReason) {
-        if (null != receiver) {
+        for (ResultReceiver receiver : receivers) {
             receiver.cancel(cancelReason);
         }
         if (null != pointExec) {
@@ -1814,9 +1830,9 @@ public class Coordinator implements CoordInterface {
                                 leftMostNode.getNumInstances());
                         boolean forceToLocalShuffle = context != null
                                 && context.getSessionVariable().isForceToLocalShuffle();
-                        boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
-                                .allMatch(scanNode -> scanNode.ignoreStorageDataDistribution(context,
-                                        addressToBackendID.size())) && useNereids);
+                        boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream().allMatch(
+                                scanNode -> scanNode.ignoreStorageDataDistribution(context, addressToBackendID.size()))
+                                && useNereids);
                         if (node.isPresent() && (!node.get().shouldDisableSharedScan(context)
                                 || ignoreStorageDataDistribution)) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);

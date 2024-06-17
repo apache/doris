@@ -40,6 +40,8 @@ public:
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const override;
 
+    std::vector<Dependency*> dependencies() const override;
+
 private:
     friend class LocalExchangeSourceOperatorX;
     friend class ExchangerBase;

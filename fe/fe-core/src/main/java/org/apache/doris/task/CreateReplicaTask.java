@@ -47,6 +47,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -123,6 +124,8 @@ public class CreateReplicaTask extends AgentTask {
     private BinlogConfig binlogConfig;
     private List<Integer> clusterKeyIndexes;
 
+    private Map<Object, Object> objectPool;
+
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
                              KeysType keysType, TStorageType storageType,
@@ -144,7 +147,8 @@ public class CreateReplicaTask extends AgentTask {
                              long timeSeriesCompactionEmptyRowsetsThreshold,
                              long timeSeriesCompactionLevelThreshold,
                              boolean storeRowColumn,
-                             BinlogConfig binlogConfig) {
+                             BinlogConfig binlogConfig,
+                             Map<Object, Object> objectPool) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -188,6 +192,7 @@ public class CreateReplicaTask extends AgentTask {
         this.timeSeriesCompactionLevelThreshold = timeSeriesCompactionLevelThreshold;
         this.storeRowColumn = storeRowColumn;
         this.binlogConfig = binlogConfig;
+        this.objectPool = objectPool;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -260,21 +265,32 @@ public class CreateReplicaTask extends AgentTask {
         int deleteSign = -1;
         int sequenceCol = -1;
         int versionCol = -1;
-        List<TColumn> tColumns = new ArrayList<TColumn>();
+        List<TColumn> tColumns = null;
+        Object tCols = objectPool.get(columns);
+        if (tCols != null) {
+            tColumns = (List<TColumn>) tCols;
+        } else {
+            tColumns = new ArrayList<>();
+            for (int i = 0; i < columns.size(); i++) {
+                Column column = columns.get(i);
+                TColumn tColumn = column.toThrift();
+                // is bloom filter column
+                if (bfColumns != null && bfColumns.contains(column.getName())) {
+                    tColumn.setIsBloomFilterColumn(true);
+                }
+                // when doing schema change, some modified column has a prefix in name.
+                // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
+                if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                    tColumn.setColumnName(
+                            column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
+                }
+                tColumn.setVisible(column.isVisible());
+                tColumns.add(tColumn);
+            }
+            objectPool.put(columns, tColumns);
+        }
         for (int i = 0; i < columns.size(); i++) {
             Column column = columns.get(i);
-            TColumn tColumn = column.toThrift();
-            // is bloom filter column
-            if (bfColumns != null && bfColumns.contains(column.getName())) {
-                tColumn.setIsBloomFilterColumn(true);
-            }
-            // when doing schema change, some modified column has a prefix in name.
-            // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-            if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
-                tColumn.setColumnName(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
-            }
-            tColumn.setVisible(column.isVisible());
-            tColumns.add(tColumn);
             if (column.isDeleteSignColumn()) {
                 deleteSign = i;
             }
@@ -296,9 +312,15 @@ public class CreateReplicaTask extends AgentTask {
             }
         }
         if (CollectionUtils.isNotEmpty(indexes)) {
-            List<TOlapTableIndex> tIndexes = new ArrayList<>();
-            for (Index index : indexes) {
-                tIndexes.add(index.toThrift());
+            List<TOlapTableIndex> tIndexes = null;
+            Object value = objectPool.get(indexes);
+            if (value != null) {
+                tIndexes = (List<TOlapTableIndex>) value;
+            } else {
+                tIndexes = new ArrayList<>();
+                for (Index index : indexes) {
+                    tIndexes.add(index.toThrift());
+                }
             }
             tSchema.setIndexes(tIndexes);
             storageFormat = TStorageFormat.V2;

@@ -47,6 +47,7 @@ import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -481,6 +482,9 @@ public class StatisticsUtil {
             return false;
         }
         if (Config.isCloudMode()) {
+            if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).availableBackendsExists()) {
+                return false;
+            }
             try (AutoCloseConnectContext r = buildConnectContext()) {
                 r.connectContext.getCloudCluster();
                 for (OlapTable table : statsTbls) {
@@ -861,6 +865,16 @@ public class StatisticsUtil {
             LOG.warn("Failed to get value of huge_table_lower_bound_size_in_bytes, return default", e);
         }
         return StatisticConstants.HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES;
+    }
+
+    public static long getHugePartitionLowerBoundRows() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_PARTITION_LOWER_BOUND_ROWS)
+                .hugePartitionLowerBoundRows;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of huge_partition_lower_bound_rows, return default", e);
+        }
+        return StatisticConstants.HUGE_PARTITION_LOWER_BOUND_ROWS;
     }
 
     public static long getHugeTableAutoAnalyzeIntervalInMillis() {

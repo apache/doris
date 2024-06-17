@@ -60,14 +60,14 @@ public class ExpressionCostEvaluator extends ExpressionVisitor<Double, Void> {
         for (Expression child : expr.children()) {
             cost += child.accept(this, context);
             // the more children, the more computing cost
-            cost += 0.1;
+            cost += dataTypeCost.getOrDefault(child.getDataType().getClass(), 0.1);
         }
         return cost;
     }
 
     @Override
     public Double visitSlotReference(SlotReference slot, Void context) {
-        return dataTypeCost.getOrDefault(slot.getDataType().getClass(), 0.0);
+        return 0.0;
     }
 
     @Override
