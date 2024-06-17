@@ -33,15 +33,17 @@ import java.util.Optional;
 public class Placeholder extends Expression implements LeafExpression {
     private final PlaceholderId placeholderId;
     private final Optional<MysqlColType> mysqlColType;
+    private int mysqlTypeCode = -1;
 
     public Placeholder(PlaceholderId placeholderId) {
         this.placeholderId = placeholderId;
         this.mysqlColType = Optional.empty();
     }
 
-    public Placeholder(PlaceholderId placeholderId, MysqlColType mysqlColType) {
+    public Placeholder(PlaceholderId placeholderId, int mysqlTypeCode) {
         this.placeholderId = placeholderId;
-        this.mysqlColType = Optional.of(mysqlColType);
+        this.mysqlColType = Optional.of(MysqlColType.fromCode(mysqlTypeCode));
+        this.mysqlTypeCode = mysqlTypeCode;
     }
 
     public PlaceholderId getPlaceholderId() {
@@ -68,8 +70,12 @@ public class Placeholder extends Expression implements LeafExpression {
         return NullType.INSTANCE;
     }
 
-    public Placeholder withNewMysqlColType(MysqlColType mysqlColType) {
-        return new Placeholder(getPlaceholderId(), mysqlColType);
+    public Placeholder withNewMysqlColType(int mysqlTypeCode) {
+        return new Placeholder(getPlaceholderId(), mysqlTypeCode);
+    }
+
+    public boolean isUnsigned() {
+        return MysqlColType.isUnsigned(mysqlTypeCode);
     }
 
     public MysqlColType getMysqlColType() {

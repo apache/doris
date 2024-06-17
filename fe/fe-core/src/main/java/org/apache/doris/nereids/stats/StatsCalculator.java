@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -315,6 +316,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitLogicalFileScan(LogicalFileScan fileScan, Void context) {
         fileScan.getExpressions();
+        return computeCatalogRelation(fileScan);
+    }
+
+    @Override
+    public Statistics visitLogicalHudiScan(LogicalHudiScan fileScan, Void context) {
         return computeCatalogRelation(fileScan);
     }
 
