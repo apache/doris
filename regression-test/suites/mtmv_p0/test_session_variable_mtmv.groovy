@@ -21,6 +21,7 @@ suite("test_session_variable_mtmv","mtmv") {
     String suiteName = "test_session_variable_mtmv"
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
+    def dbName = "regression_test_mtmv_p0"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
@@ -100,6 +101,28 @@ suite("test_session_variable_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_mv "SELECT * FROM ${mvName}"
+
+    sql """drop materialized view if exists ${mvName};"""
+
+
+     sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+        BUILD DEFERRED REFRESH AUTO ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+        'replication_num' = '1',
+        'session.workload_group' = 'group_not_exist'
+        )
+        AS
+        SELECT * from ${tableName};
+        """
+     // refresh mv
+      sql """
+         REFRESH MATERIALIZED VIEW ${mvName} complete
+         """
+     def jobName = getJobName(dbName, mvName);
+     waitingMTMVTaskFinishedNotNeedSuccess(jobName)
+     order_qt_refresh_group "select Status,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime DESC limit 1"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
