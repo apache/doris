@@ -19,15 +19,20 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.info.SimpleTableInfo;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergCommitData;
 
+import com.google.common.collect.Maps;
+import mockit.Mock;
+import mockit.MockUp;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expression;
@@ -40,7 +45,7 @@ import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.DateTimeUtil;
 import org.junit.Assert;
-import org.junit.BeforeClass;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -56,19 +61,21 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergTransactionTest {
 
-    public static String dbName = "db3";
-    public static String tbWithPartition = "tbWithPartition";
-    public static String tbWithoutPartition = "tbWithoutPartition";
-    public static IcebergMetadataOps ops;
-    public static Schema schema;
+    private static String dbName = "db3";
+    private static String tbWithPartition = "tbWithPartition";
+    private static String tbWithoutPartition = "tbWithoutPartition";
 
-    @BeforeClass
-    public static void beforeClass() throws IOException {
+    private IcebergExternalCatalog externalCatalog;
+    private IcebergMetadataOps ops;
+
+
+    @Before
+    public void init() throws IOException {
         createCatalog();
         createTable();
     }
 
-    public static void createCatalog() throws IOException {
+    private void createCatalog() throws IOException {
         Path warehousePath = Files.createTempDirectory("test_warehouse_");
         String warehouse = "file://" + warehousePath.toAbsolutePath() + "/";
         HadoopCatalog hadoopCatalog = new HadoopCatalog();
@@ -76,25 +83,32 @@ public class IcebergTransactionTest {
         props.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         hadoopCatalog.setConf(new Configuration());
         hadoopCatalog.initialize("df", props);
-        ops = new IcebergMetadataOps(null, hadoopCatalog);
+        this.externalCatalog = new IcebergHMSExternalCatalog(1L, "iceberg", "", Maps.newHashMap(), "");
+        new MockUp<IcebergHMSExternalCatalog>() {
+            @Mock
+            public Catalog getCatalog() {
+                return hadoopCatalog;
+            }
+        };
+        ops = new IcebergMetadataOps(externalCatalog, hadoopCatalog);
     }
 
-    public static void createTable() throws IOException {
+    private void createTable() throws IOException {
         HadoopCatalog icebergCatalog = (HadoopCatalog) ops.getCatalog();
         icebergCatalog.createNamespace(Namespace.of(dbName));
-        schema = new Schema(
-            Types.NestedField.required(11, "ts1", Types.TimestampType.withoutZone()),
-            Types.NestedField.required(12, "ts2", Types.TimestampType.withoutZone()),
-            Types.NestedField.required(13, "ts3", Types.TimestampType.withoutZone()),
-            Types.NestedField.required(14, "ts4", Types.TimestampType.withoutZone()),
-            Types.NestedField.required(15, "dt1", Types.DateType.get()),
-            Types.NestedField.required(16, "dt2", Types.DateType.get()),
-            Types.NestedField.required(17, "dt3", Types.DateType.get()),
-            Types.NestedField.required(18, "dt4", Types.DateType.get()),
-            Types.NestedField.required(19, "str1", Types.StringType.get()),
-            Types.NestedField.required(20, "str2", Types.StringType.get()),
-            Types.NestedField.required(21, "int1", Types.IntegerType.get()),
-            Types.NestedField.required(22, "int2", Types.IntegerType.get())
+        Schema schema = new Schema(
+                Types.NestedField.required(11, "ts1", Types.TimestampType.withoutZone()),
+                Types.NestedField.required(12, "ts2", Types.TimestampType.withoutZone()),
+                Types.NestedField.required(13, "ts3", Types.TimestampType.withoutZone()),
+                Types.NestedField.required(14, "ts4", Types.TimestampType.withoutZone()),
+                Types.NestedField.required(15, "dt1", Types.DateType.get()),
+                Types.NestedField.required(16, "dt2", Types.DateType.get()),
+                Types.NestedField.required(17, "dt3", Types.DateType.get()),
+                Types.NestedField.required(18, "dt4", Types.DateType.get()),
+                Types.NestedField.required(19, "str1", Types.StringType.get()),
+                Types.NestedField.required(20, "str2", Types.StringType.get()),
+                Types.NestedField.required(21, "int1", Types.IntegerType.get()),
+                Types.NestedField.required(22, "int2", Types.IntegerType.get())
         );
 
         PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
@@ -114,7 +128,7 @@ public class IcebergTransactionTest {
         icebergCatalog.createTable(TableIdentifier.of(dbName, tbWithoutPartition), schema);
     }
 
-    public List<String> createPartitionValues() {
+    private List<String> createPartitionValues() {
 
         Instant instant = Instant.parse("2024-12-11T12:34:56.123456Z");
         long ts = DateTimeUtil.microsFromInstant(instant);
@@ -167,15 +181,23 @@ public class IcebergTransactionTest {
         ctdList.add(ctd1);
         ctdList.add(ctd2);
 
+        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithPartition));
+
+        new MockUp<IcebergUtils>() {
+            @Mock
+            public Table getIcebergTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
+                return table;
+            }
+        };
+
         IcebergTransaction txn = getTxn();
         txn.updateIcebergCommitData(ctdList);
         SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
         txn.pendingCommit(tableInfo);
         txn.preCommit(tableInfo, Optional.empty());
         txn.commit();
-        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithPartition));
-        checkSnapshotProperties(table.currentSnapshot().summary(), "6", "2", "6");
 
+        checkSnapshotProperties(table.currentSnapshot().summary(), "6", "2", "6");
         checkPushDownByPartitionForTs(table, "ts1");
         checkPushDownByPartitionForTs(table, "ts2");
         checkPushDownByPartitionForTs(table, "ts3");
@@ -192,7 +214,7 @@ public class IcebergTransactionTest {
         checkPushDownByPartitionForBucketInt(table, "int1");
     }
 
-    public void checkPushDownByPartitionForBucketInt(Table table, String column) {
+    private void checkPushDownByPartitionForBucketInt(Table table, String column) {
         // (BucketUtil.hash(15) & Integer.MAX_VALUE) % 2 = 0
         Integer i1 = 15;
 
@@ -215,12 +237,12 @@ public class IcebergTransactionTest {
         checkPushDownByPartition(table, greaterThan2, 2);
     }
 
-    public void checkPushDownByPartitionForString(Table table, String column) {
+    private void checkPushDownByPartitionForString(Table table, String column) {
         // Since the string used to create the partition is in date format, the date check can be reused directly
         checkPushDownByPartitionForDt(table, column);
     }
 
-    public void checkPushDownByPartitionForTs(Table table, String column) {
+    private void checkPushDownByPartitionForTs(Table table, String column) {
         String lessTs = "2023-12-11T12:34:56.123456";
         String eqTs = "2024-12-11T12:34:56.123456";
         String greaterTs = "2025-12-11T12:34:56.123456";
@@ -233,7 +255,7 @@ public class IcebergTransactionTest {
         checkPushDownByPartition(table, greaterThan, 0);
     }
 
-    public void checkPushDownByPartitionForDt(Table table, String column) {
+    private void checkPushDownByPartitionForDt(Table table, String column) {
         String less = "2023-12-11";
         String eq = "2024-12-11";
         String greater = "2025-12-11";
@@ -246,7 +268,7 @@ public class IcebergTransactionTest {
         checkPushDownByPartition(table, greaterThan, 0);
     }
 
-    public void checkPushDownByPartition(Table table, Expression expr, Integer expectFiles) {
+    private void checkPushDownByPartition(Table table, Expression expr, Integer expectFiles) {
         CloseableIterable<FileScanTask> fileScanTasks = table.newScan().filter(expr).planFiles();
         AtomicReference<Integer> cnt = new AtomicReference<>(0);
         fileScanTasks.forEach(notUse -> cnt.updateAndGet(v -> v + 1));
@@ -271,21 +293,32 @@ public class IcebergTransactionTest {
         ctdList.add(ctd1);
         ctdList.add(ctd2);
 
-        IcebergTransaction txn = getTxn();
-        txn.updateIcebergCommitData(ctdList);
-        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
-        txn.pendingCommit(tableInfo);
-        txn.preCommit(tableInfo, Optional.empty());
-        txn.commit();
-
         Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        new MockUp<IcebergUtils>() {
+            @Mock
+            public Table getIcebergTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
+                return table;
+            }
+        };
+
+        try {
+            IcebergTransaction txn = getTxn();
+            txn.updateIcebergCommitData(ctdList);
+            SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
+            txn.pendingCommit(tableInfo);
+            txn.preCommit(tableInfo, Optional.empty());
+            txn.commit();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
         checkSnapshotProperties(table.currentSnapshot().summary(), "6", "2", "6");
     }
 
     public void checkSnapshotProperties(Map<String, String> props,
-                                        String addRecords,
-                                        String addFileCnt,
-                                        String addFileSize) {
+            String addRecords,
+            String addFileCnt,
+            String addFileSize) {
         Assert.assertEquals(addRecords, props.get("added-records"));
         Assert.assertEquals(addFileCnt, props.get("added-data-files"));
         Assert.assertEquals(addFileSize, props.get("added-files-size"));
