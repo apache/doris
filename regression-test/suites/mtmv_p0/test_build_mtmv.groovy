@@ -69,7 +69,6 @@ suite("test_build_mtmv") {
     sql """drop materialized view if exists ${mvName};"""
     sql """drop materialized view if exists ${mvNameRenamed};"""
 
-    // show create table
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         (aa comment "aaa",bb)
