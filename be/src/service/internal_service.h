@@ -37,7 +37,6 @@ namespace doris {
 class ExecEnv;
 class PHandShakeRequest;
 class PHandShakeResponse;
-class LoadStreamMgr;
 class RuntimeState;
 
 class PInternalServiceImpl : public PBackendService {
@@ -279,8 +278,6 @@ private:
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
-
-    std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
 };
 
 } // namespace doris

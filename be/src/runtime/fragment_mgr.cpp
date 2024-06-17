@@ -979,6 +979,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
             for (size_t i = 0; i < target_size; i++) {
                 RETURN_IF_ERROR(_thread_pool->submit_func([&, i]() {
+                    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, query_ctx->query_id());
                     prepare_status[i] = pre_and_submit(i);
                     std::unique_lock<std::mutex> lock(m);
                     prepare_done++;
