@@ -755,8 +755,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         } else {
             if (!partitionNames.isEmpty()) {
                 PartitionColumnStatisticBuilder builder = new PartitionColumnStatisticBuilder();
-                boolean isFirst = true;
                 boolean hasUnknown = false;
+                // check if there is any unknown stats to avoid unnecessary partition column stats merge.
                 for (String partitionName : partitionNames) {
                     PartitionColumnStatistic pcolStats = Env.getCurrentEnv().getStatisticsCache()
                             .getPartitionColumnStatistics(
@@ -765,15 +765,28 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         hasUnknown = true;
                         break;
                     }
-                    if (isFirst) {
-                        builder = new PartitionColumnStatisticBuilder(pcolStats);
-                        isFirst = false;
-                    } else {
-                        builder.merge(pcolStats);
-                    }
                 }
                 if (!hasUnknown) {
-                    return builder.toColumnStatistics();
+                    boolean isFirst = true;
+                    // try to merge partition column stats
+                    for (String partitionName : partitionNames) {
+                        PartitionColumnStatistic pcolStats = Env.getCurrentEnv().getStatisticsCache()
+                                .getPartitionColumnStatistics(
+                                        catalogId, dbId, table.getId(), idxId, partitionName, colName);
+                        if (pcolStats.isUnKnown) {
+                            hasUnknown = true;
+                            break;
+                        }
+                        if (isFirst) {
+                            builder = new PartitionColumnStatisticBuilder(pcolStats);
+                            isFirst = false;
+                        } else {
+                            builder.merge(pcolStats);
+                        }
+                    }
+                    if (!hasUnknown) {
+                        return builder.toColumnStatistics();
+                    }
                 }
             }
             // if any partition-col-stats is unknown, fall back to table level col stats
