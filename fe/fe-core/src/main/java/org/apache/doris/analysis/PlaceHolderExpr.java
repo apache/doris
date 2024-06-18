@@ -48,6 +48,7 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     protected PlaceHolderExpr(LiteralExpr literal) {
         this.lExpr = literal;
+        this.type = literal.getType();
     }
 
     protected PlaceHolderExpr(PlaceHolderExpr other) {
@@ -147,11 +148,6 @@ public class PlaceHolderExpr extends LiteralExpr {
     @Override
     public String toDigestImpl() {
         return "?";
-    }
-
-    @Override
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        return this.lExpr.uncheckedCastTo(targetType);
     }
 
     // Swaps the sign of numeric literals.

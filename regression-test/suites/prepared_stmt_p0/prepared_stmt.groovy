@@ -72,7 +72,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         } else {
             stmt.setString(9, k9)
         }
-        exec stmt
+        stmt.execute()
     }
     sql """DROP TABLE IF EXISTS ${tableName} """
     sql """
