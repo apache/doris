@@ -215,6 +215,7 @@ DorisCompoundReader::~DorisCompoundReader() {
             LOG(ERROR) << "DorisCompoundReader finalize error:" << err.what();
         }
     }
+    _CLDELETE(entries)
 }
 
 const char* DorisCompoundReader::getClassName() {
@@ -302,7 +303,6 @@ void DorisCompoundReader::close() {
     }
     if (entries != nullptr) {
         entries->clear();
-        _CLDELETE(entries)
     }
     if (ram_dir) {
         ram_dir->close();
