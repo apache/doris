@@ -121,7 +121,7 @@ Status SchemaProcessListScanner::_fill_block_impl(vectorized::Block* block) {
                 auto* dv =
                         reinterpret_cast<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*>(
                                 &int_vals[row_idx]);
-                if (!dv->from_date_str(column_value.data(), column_value.size(), -1, false)) {
+                if (!dv->from_date_str(column_value.data(), column_value.size(), -1)) {
                     return Status::InternalError(
                             "process list meet invalid data, column={}, data={}, reason={}",
                             _s_processlist_columns[col_idx].name, column_value);
