@@ -66,6 +66,8 @@ public abstract class TableValuedFunctionIf {
                 return new CatalogsTableValuedFunction(params);
             case MvInfosTableValuedFunction.NAME:
                 return new MvInfosTableValuedFunction(params);
+            case PartitionsTableValuedFunction.NAME:
+                return new PartitionsTableValuedFunction(params);
             case JobsTableValuedFunction.NAME:
                 return new JobsTableValuedFunction(params);
             case TasksTableValuedFunction.NAME:

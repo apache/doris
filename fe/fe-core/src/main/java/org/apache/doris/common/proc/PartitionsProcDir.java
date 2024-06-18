@@ -221,7 +221,7 @@ public class PartitionsProcDir implements ProcDirInterface {
         return result;
     }
 
-    private List<List<Comparable>> getPartitionInfos() throws AnalysisException {
+    public List<List<Comparable>> getPartitionInfos() throws AnalysisException {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(olapTable);
         Preconditions.checkState(olapTable.isManagedTable());

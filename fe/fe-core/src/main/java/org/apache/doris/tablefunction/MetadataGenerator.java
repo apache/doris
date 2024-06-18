@@ -19,6 +19,7 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -35,6 +36,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.FrontendsProcNode;
+import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -67,6 +69,7 @@ import org.apache.doris.thrift.TMaterializedViewsMetadataParams;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPartitionsMetadataParams;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
@@ -174,6 +177,9 @@ public class MetadataGenerator {
                 break;
             case MATERIALIZED_VIEWS:
                 result = mtmvMetadataResult(params);
+                break;
+            case PARTITIONS:
+                result = partitionMetadataResult(params);
                 break;
             case JOBS:
                 result = jobMetadataResult(params);
@@ -775,6 +781,62 @@ public class MetadataGenerator {
         return result;
     }
 
+    private static TFetchSchemaTableDataResult partitionMetadataResult(TMetadataTableRequestParams params) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("partitionMetadataResult() start");
+        }
+        if (!params.isSetPartitionsMetadataParams()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Partitions metadata params is not set.");
+            }
+            return errorResult("Partitions metadata params is not set.");
+        }
+
+        TPartitionsMetadataParams partitionsMetadataParams = params.getPartitionsMetadataParams();
+        String dbName = partitionsMetadataParams.getDatabase();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("dbName: " + dbName);
+        }
+        String tableName = partitionsMetadataParams.getTable();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("tableName: " + tableName);
+        }
+        List<TRow> dataBatch = Lists.newArrayList();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        TableIf table;
+        Database db;
+        try {
+            db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
+            table = db.getTableOrAnalysisException(tableName);
+        } catch (AnalysisException e) {
+            LOG.warn(e.getMessage());
+            return errorResult(e.getMessage());
+        }
+
+        if (!(table instanceof OlapTable)) {
+            return errorResult("not olap table");
+        }
+
+        PartitionsProcDir dir = new PartitionsProcDir(db, (OlapTable) table, false);
+        List<List<Comparable>> partitionInfos = null;
+        try {
+            partitionInfos = dir.getPartitionInfos();
+        } catch (AnalysisException e) {
+            return errorResult(e.getMessage());
+        }
+        for (List<Comparable> partitionInfo : partitionInfos) {
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setStringVal(partitionInfo.get(1).toString()));
+            dataBatch.add(trow);
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("partitionMetadataResult() end");
+        }
+        return result;
+    }
+
     private static TFetchSchemaTableDataResult jobMetadataResult(TMetadataTableRequestParams params) {
         if (!params.isSetJobsMetadataParams()) {
             return errorResult("Jobs metadata params is not set.");
@@ -917,9 +979,9 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
                     trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
                     trow.addToColumnValue(
-                        new TCell().setStringVal(olapTable.getKeysType().toMetadata())); //TABLE_MODEL
+                            new TCell().setStringVal(olapTable.getKeysType().toMetadata())); // TABLE_MODEL
                     trow.addToColumnValue(
-                        new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTypes
+                            new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTypes
 
                     DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
                     if (distributionInfo.getType() == DistributionInfoType.HASH) {
@@ -936,7 +998,7 @@ public class MetadataGenerator {
                             trow.addToColumnValue(new TCell().setStringVal(""));
                         } else {
                             trow.addToColumnValue(
-                                new TCell().setStringVal(distributeKey.toString()));
+                                    new TCell().setStringVal(distributeKey.toString()));
                         }
                         trow.addToColumnValue(new TCell().setStringVal("HASH")); // DISTRIBUTE_TYPE
                     } else {
@@ -951,7 +1013,7 @@ public class MetadataGenerator {
                     } else {
                         try {
                             trow.addToColumnValue(
-                                new TCell().setStringVal(property.getPropertiesString())); // PROPERTIES
+                                    new TCell().setStringVal(property.getPropertiesString())); // PROPERTIES
                         } catch (IOException e) {
                             return errorResult(e.getMessage());
                         }
