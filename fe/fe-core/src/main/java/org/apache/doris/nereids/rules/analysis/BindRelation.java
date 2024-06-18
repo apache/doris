@@ -200,7 +200,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     throw new AnalysisException("Table " + olapTable.getName()
                         + " doesn't have materialized view " + indexName.get());
                 }
-                PreAggStatus preAggStatus = olapTable.isDupKeysOrMergeOnWrite() ? PreAggStatus.on()
+                PreAggStatus preAggStatus = olapTable.isDupKeysOrMergeOnWrite() ? PreAggStatus.unset()
                         : PreAggStatus.off("For direct index scan on mor/agg.");
 
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
