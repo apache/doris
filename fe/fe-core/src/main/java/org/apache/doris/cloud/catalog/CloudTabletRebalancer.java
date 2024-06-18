@@ -33,6 +33,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -187,9 +188,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         // 3 check whether the inflight preheating task has been completed
         checkInflghtWarmUpCacheAsync();
 
-        // TODO(merge-cloud): wait add cloud upgrade mgr
         // 4 migrate tablet for smooth upgrade
-        /*
         Pair<Long, Long> pair;
         statRouteInfo();
         while (!tabletsMigrateTasks.isEmpty()) {
@@ -201,7 +200,6 @@ public class CloudTabletRebalancer extends MasterDaemon {
             LOG.info("begin tablets migration from be {} to be {}", pair.first, pair.second);
             migrateTablets(pair.first, pair.second);
         }
-         */
 
         // 5 statistics be to tablets mapping information
         statRouteInfo();
@@ -923,14 +921,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
         }
 
-        // TODO(merge-cloud): wait add cloud upgrade mgr
-        /*
         try {
-            Env.getCurrentEnv().getCloudUpgradeMgr().registerWaterShedTxnId(srcBe);
-        } catch (AnalysisException e) {
+            ((CloudEnv) Env.getCurrentEnv()).getCloudUpgradeMgr().registerWaterShedTxnId(srcBe);
+        } catch (UserException e) {
+            LOG.warn("registerWaterShedTxnId get exception", e);
             throw new RuntimeException(e);
         }
-         */
     }
 }
 

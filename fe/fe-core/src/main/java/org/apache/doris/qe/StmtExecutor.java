@@ -189,6 +189,7 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
@@ -528,6 +529,9 @@ public class StmtExecutor {
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         TUniqueId firstQueryId = queryId;
+        if (Config.enable_print_request_before_execution) {
+            LOG.info("begin to execute query {} {}", queryId, originStmt == null ? "null" : originStmt.originStmt);
+        }
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
         for (int i = 1; i <= retryTime; i++) {
@@ -847,13 +851,13 @@ public class StmtExecutor {
                 // cloud mode retry
                 LOG.debug("due to exception {} retry {} rpc {} user {}",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
-                String msg = e.getMessage();
-                boolean isNeedRetry = true;
+                boolean isNeedRetry = false;
                 if (Config.isCloudMode()) {
                     isNeedRetry = false;
                     // errCode = 2, detailMessage = There is no scanNode Backend available.[10003: not alive]
                     List<String> bes = Env.getCurrentSystemInfo().getAllBackendIds().stream()
                                 .map(id -> Long.toString(id)).collect(Collectors.toList());
+                    String msg = e.getMessage();
                     if (e instanceof UserException
                             && msg.contains(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG)) {
                         Matcher matcher = beIpPattern.matcher(msg);
@@ -878,6 +882,8 @@ public class StmtExecutor {
                             }
                         }
                     }
+                } else {
+                    isNeedRetry = e instanceof RpcException;
                 }
                 if (i != retryTime - 1 && isNeedRetry
                         && context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
@@ -2197,9 +2203,10 @@ public class StmtExecutor {
         String label = txnEntry.getLabel();
         if (Env.getCurrentEnv().isMaster()) {
             long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                    txnConf.getDbId(), Lists.newArrayList(tblObj.getId()),
-                    label, new TransactionState.TxnCoordinator(
-                            TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                    txnConf.getDbId(), Lists.newArrayList(tblObj.getId()), label,
+                    new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
+                            FrontendOptions.getLocalHostAddress(),
+                            ExecuteEnv.getInstance().getStartupTime()),
                     sourceType, timeoutSecond);
             txnConf.setTxnId(txnId);
             String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
@@ -3339,9 +3346,14 @@ public class StmtExecutor {
             try {
                 while (true) {
                     batch = coord.getNext();
-                    if (batch == null || batch.isEos()) {
+                    Preconditions.checkNotNull(batch, "Batch is Null.");
+                    if (batch.isEos()) {
                         return resultRows;
                     } else {
+                        // For null and not EOS batch, continue to get the next batch.
+                        if (batch.getBatch() == null) {
+                            continue;
+                        }
                         resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
                     }
                 }

@@ -504,7 +504,11 @@ Status Compaction::do_inverted_index_compaction() {
                     "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
                     _stats.merged_rows, missed_rows.size(), _tablet->tablet_id(),
                     _tablet->table_id());
-            DCHECK(false) << err_msg;
+            if (config::enable_mow_compaction_correctness_check_core) {
+                CHECK(false) << err_msg;
+            } else {
+                DCHECK(false) << err_msg;
+            }
             LOG(WARNING) << err_msg;
             return Status::InternalError(err_msg);
         }
@@ -935,7 +939,11 @@ Status CompactionMixin::modify_rowsets() {
                         "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
                         _stats.merged_rows, missed_rows_size, _tablet->tablet_id(),
                         _tablet->table_id());
-                DCHECK(false) << err_msg;
+                if (config::enable_mow_compaction_correctness_check_core) {
+                    CHECK(false) << err_msg;
+                } else {
+                    DCHECK(false) << err_msg;
+                }
                 LOG(WARNING) << err_msg;
             }
         }

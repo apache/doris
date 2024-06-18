@@ -332,7 +332,7 @@ suite("test_crud_wlg") {
     test {
         sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
 
-        exception "query wait timeout"
+        exception "query queue timeout"
     }
 
     // test query queue running query/waiting num
