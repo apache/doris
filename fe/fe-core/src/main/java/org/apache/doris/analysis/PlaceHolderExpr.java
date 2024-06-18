@@ -59,6 +59,20 @@ public class PlaceHolderExpr extends LiteralExpr {
         this.type = literal.getType();
     }
 
+    public LiteralExpr getLiteral() {
+        return lExpr;
+    }
+
+    @Override
+    protected void analysisDone() {
+        if (lExpr != null && !lExpr.isAnalyzed) {
+            lExpr.analysisDone();
+        }
+        if (!isAnalyzed) {
+            super.analysisDone();
+        }
+    }
+
     public LiteralExpr createLiteralFromType() throws AnalysisException {
         Preconditions.checkState(mysqlTypeCode > 0);
         return LiteralExpr.getLiteralByMysqlType(mysqlTypeCode, isUnsigned());
@@ -133,11 +147,6 @@ public class PlaceHolderExpr extends LiteralExpr {
     @Override
     public String toDigestImpl() {
         return "?";
-    }
-
-    @Override
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        return this.lExpr.uncheckedCastTo(targetType);
     }
 
     // Swaps the sign of numeric literals.
