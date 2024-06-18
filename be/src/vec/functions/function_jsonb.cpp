@@ -1362,6 +1362,11 @@ struct JsonbContainsUtil {
             auto jsonb_value1 = jsonb_data1_column->get_data_at(i);
             auto jsonb_value2 = jsonb_data2_column->get_data_at(i);
 
+            if (jsonb_value1.size == 0 || jsonb_value2.size == 0) {
+                null_map->get_data()[i] = 1;
+                res->insert_data(nullptr, 0);
+                continue;
+            }
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
             JsonbDocument* doc1 =
                     JsonbDocument::createDocument(jsonb_value1.data, jsonb_value1.size);
@@ -1370,7 +1375,7 @@ struct JsonbContainsUtil {
 
             JsonbValue* value1 = doc1->getValue()->findValue(path, nullptr);
             JsonbValue* value2 = doc2->getValue();
-            if (UNLIKELY(jsonb_value1.size == 0 || jsonb_value2.size == 0 || !value1 || !value2)) {
+            if (!value1 || !value2) {
                 null_map->get_data()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
