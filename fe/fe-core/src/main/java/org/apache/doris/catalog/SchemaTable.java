@@ -504,7 +504,7 @@ public class SchemaTable extends Table {
                                     .column("QUERY_ID", ScalarType.createVarchar(256))
                                     .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
                                     .column("FE",
-                                            ScalarType.createVarchar(64))).build())
+                                            ScalarType.createVarchar(64)).build()))
             .put("workload_policy",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_policy", TableType.SCHEMA,
                             builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
