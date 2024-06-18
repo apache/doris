@@ -101,9 +101,9 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                         })
                         .thenApply(ctx -> {
                             Set<Integer> enableNereidsRules = ctx.cascadesContext.getConnectContext()
-                                .getSessionVariable().getEnableNereidsRules();
+                                    .getSessionVariable().getEnableNereidsRules();
                             if (!enableNereidsRules.contains(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE.type())
-                                && !RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE.checkUseCboRuleHint()) {
+                                    && !RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE.checkUseCboRuleHint()) {
                                 return null;
                             }
                             LogicalAggregate<LogicalProject<LogicalJoin<Plan, Plan>>> agg = ctx.root;

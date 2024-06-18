@@ -86,9 +86,9 @@ public class PushDownAggThroughJoin implements RewriteRuleFactory {
                         })
                         .thenApply(ctx -> {
                             Set<Integer> enableNereidsRules = ctx.cascadesContext.getConnectContext()
-                                .getSessionVariable().getEnableNereidsRules();
+                                    .getSessionVariable().getEnableNereidsRules();
                             if (!enableNereidsRules.contains(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN.type())
-                                && !RuleType.PUSH_DOWN_AGG_THROUGH_JOIN.checkUseCboRuleHint()) {
+                                    && !RuleType.PUSH_DOWN_AGG_THROUGH_JOIN.checkUseCboRuleHint()) {
                                 return null;
                             }
                             LogicalAggregate<LogicalJoin<Plan, Plan>> agg = ctx.root;
@@ -111,9 +111,9 @@ public class PushDownAggThroughJoin implements RewriteRuleFactory {
                         })
                         .thenApply(ctx -> {
                             Set<Integer> enableNereidsRules = ctx.cascadesContext.getConnectContext()
-                                .getSessionVariable().getEnableNereidsRules();
+                                    .getSessionVariable().getEnableNereidsRules();
                             if (!enableNereidsRules.contains(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN.type())
-                                && !RuleType.PUSH_DOWN_AGG_THROUGH_JOIN.checkUseCboRuleHint()) {
+                                    && !RuleType.PUSH_DOWN_AGG_THROUGH_JOIN.checkUseCboRuleHint()) {
                                 return null;
                             }
                             LogicalAggregate<LogicalProject<LogicalJoin<Plan, Plan>>> agg = ctx.root;
