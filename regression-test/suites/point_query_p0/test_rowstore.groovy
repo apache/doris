@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_rowstore", "p0") {
+suite("test_rowstore", "p0,nonConcurrent") {
     // Parse url
     String jdbcUrl = context.config.jdbcUrl
     def user = context.config.jdbcUser
@@ -262,11 +262,6 @@ suite("test_rowstore", "p0") {
         qe_point_select stmt
     }
 
-    test {
-        sql "select /*+ SET_VAR(enable_nereids_planner=false, enable_short_circuit_query_access_column_store=false)*/ * from table_with_column_group where k1 = 1"
-        exception("Not support column store")
-    }
-    
     sql "DROP TABLE IF EXISTS table_with_column_group4"
     sql """
          CREATE TABLE IF NOT EXISTS table_with_column_group4 (
@@ -286,7 +281,7 @@ suite("test_rowstore", "p0") {
                "storage_format" = "V2"
                )
     """
-    sql "select /*+ SET_VAR(enable_nereids_planner=false)*/ * from table_with_column_group where k1 = 1"
+    sql "select /*+ SET_VAR(enable_nereids_planner=true)*/ * from table_with_column_group where k1 = 1"
 
     def tableName = "rs_query"
     sql """DROP TABLE IF EXISTS ${tableName}"""
@@ -328,4 +323,11 @@ suite("test_rowstore", "p0") {
    
     sql """insert into ${tableName} values (2, 'def', 1111919.12345678919, 456, NULL)"""
     qt_sql """select * from ${tableName} where k1 = 2"""
+
+    sql "set global enable_short_circuit_query_access_column_store = false"
+    test {
+        sql "select * from table_with_column_group where k1 = 1"
+        exception("Not support column store")
+    }
+    sql "set global enable_short_circuit_query_access_column_store = true"
 }

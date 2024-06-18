@@ -62,6 +62,9 @@ namespace doris {
 
 Reusable::~Reusable() = default;
 
+// get missing and include column ids
+// input include_cids : the output expr slots columns unique ids
+// missing_cids : the output expr columns that not in row columns cids
 static void get_missing_and_include_cids(const TabletSchema& schema,
                                          const std::vector<SlotDescriptor*>& slots,
                                          int target_rs_column_id,
@@ -318,14 +321,14 @@ std::string PointQueryExecutor::print_profile() {
             ", is_binary_row:{}, output_columns:{}, total_keys:{}, row_cache_hits:{}"
             ", hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
             "io_latency:{}ns, "
-            "uncompressed_bytes_read:{}, result_data_bytes:{}"
+            "uncompressed_bytes_read:{}, result_data_bytes:{}, row_hits:{}"
             ", rs_column_uid:{}"
             "",
             total_us, init_us, init_key_us, lookup_key_us, lookup_data_us, output_data_us,
             _profile_metrics.hit_lookup_cache, _binary_row_format, _reusable->output_exprs().size(),
             _row_read_ctxs.size(), _profile_metrics.row_cache_hits, read_stats.cached_pages_num,
             read_stats.total_pages_num, read_stats.compressed_bytes_read, read_stats.io_ns,
-            read_stats.uncompressed_bytes_read, _profile_metrics.result_data_bytes,
+            read_stats.uncompressed_bytes_read, _profile_metrics.result_data_bytes, _row_hits,
             _reusable->rs_column_uid());
 }
 
@@ -393,6 +396,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         VLOG_DEBUG << "aquire rowset " << (*rowset_ptr)->rowset_id();
         _row_read_ctxs[i]._rowset_ptr = std::unique_ptr<RowsetSharedPtr, decltype(&release_rowset)>(
                 rowset_ptr.release(), &release_rowset);
+        _row_hits++;
     }
     return Status::OK();
 }
@@ -434,7 +438,8 @@ Status PointQueryExecutor::_lookup_row_data() {
                     missing_columns += _tablet->tablet_schema()->column_by_uid(cid).name() + ",";
                 }
                 return Status::InternalError(
-                        "Not support column store, set store_row_column or column_groups in table "
+                        "Not support column store, set store_row_column=true or row_store_columns "
+                        "in table "
                         "properties, missing columns: " +
                         missing_columns + " should be added to row store");
             }
@@ -460,6 +465,21 @@ Status PointQueryExecutor::_lookup_row_data() {
                 RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
                         *_tablet->tablet_schema(), _reusable->tuple_desc()->slots()[pos], row_id,
                         column, _read_stats, iter));
+            }
+        }
+    }
+    if (_result_block->columns() > _reusable->include_col_uids().size()) {
+        // Padding rows for some columns that no need to output to mysql client
+        // eg. SELECT k1,v1,v2 FROM TABLE WHERE k1 = 1, k1 is not in output slots, tuple as bellow
+        // TupleDescriptor{id=1, tbl=table_with_column_group}
+        // SlotDescriptor{id=8, col=v1, colUniqueId=1 ...}
+        // SlotDescriptor{id=9, col=v2, colUniqueId=2 ...}
+        // thus missing in include_col_uids and missing_col_uids
+        for (size_t i = 0; i < _result_block->columns(); ++i) {
+            auto column = _result_block->get_by_position(i).column;
+            int padding_rows = _row_hits - column->size();
+            if (padding_rows > 0) {
+                column->assume_mutable()->insert_many_defaults(padding_rows);
             }
         }
     }

@@ -330,6 +330,7 @@ private:
     Metrics _profile_metrics;
     bool _binary_row_format = false;
     OlapReaderStatistics _read_stats;
+    int32_t _row_hits = 0;
     // snapshot read version
     int64_t _version = -1;
 };
