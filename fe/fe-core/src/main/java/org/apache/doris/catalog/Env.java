@@ -3537,6 +3537,13 @@ public class Env {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getStorageFormat()).append("\"");
 
+            // second key
+            List<String> secondKey = olapTable.getSecondKeyList();
+            if (!secondKey.isEmpty()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SECOND_KEY).append("\" = \"");
+                sb.append(Joiner.on(",").join(secondKey)).append("\"");
+            }
+
             // inverted index storage type
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getInvertedIndexStorageFormat()).append("\"");
@@ -5068,6 +5075,26 @@ public class Env {
         if (LOG.isDebugEnabled()) {
             LOG.debug("modify table[{}] replication num to {}", table.getName(),
                     properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+        }
+    }
+
+    public void modifySecondKey(Database db, OlapTable table, Map<String, String> properties) {
+        Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
+        TableProperty tableProperty = table.getTableProperty();
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(properties);
+        } else {
+            tableProperty.modifyTableProperties(properties);
+        }
+        tableProperty.buildSecondKey();
+
+        // log
+        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
+                table.getName(), properties);
+        editLog.logModifySecondKey(info);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("modify table[{}] second key to {}", table.getName(),
+                    properties.get(PropertyAnalyzer.PROPERTIES_SECOND_KEY));
         }
     }
 

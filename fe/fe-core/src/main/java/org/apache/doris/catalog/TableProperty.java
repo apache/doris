@@ -41,7 +41,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -113,6 +116,8 @@ public class TableProperty implements Writable {
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
+    private List<String> secondKeyList = new ArrayList<>();
+
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
     }
@@ -133,6 +138,9 @@ public class TableProperty implements Writable {
                 break;
             case OperationType.OP_MODIFY_REPLICATION_NUM:
                 buildReplicaAllocation();
+                break;
+            case OperationType.OP_MODIFY_SECOND_KEY:
+                buildSecondKey();
                 break;
             case OperationType.OP_MODIFY_TABLE_PROPERTIES:
                 buildInMemory();
@@ -221,6 +229,27 @@ public class TableProperty implements Writable {
         disableAutoCompaction = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION, "false"));
         return this;
+    }
+
+    public TableProperty buildSecondKey() {
+        String property = properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_SECOND_KEY, "");
+        String[] columns = property.split(",");
+        secondKeyList = new ArrayList<>();
+        for (String column : columns) {
+            String trim = column.trim();
+            if (!trim.isEmpty()) {
+                secondKeyList.add(trim);
+            }
+        }
+        return this;
+    }
+
+    public List<String> getSecondKeyList() {
+        if (secondKeyList == null) {
+            return Collections.emptyList();
+        }
+        return secondKeyList;
     }
 
     public boolean disableAutoCompaction() {
@@ -606,6 +635,7 @@ public class TableProperty implements Writable {
                 .buildStorageFormat()
                 .buildInvertedIndexStorageFormat()
                 .buildDataSortInfo()
+                .buildSecondKey()
                 .buildCompressionType()
                 .buildStoragePolicy()
                 .buildIsBeingSynced()

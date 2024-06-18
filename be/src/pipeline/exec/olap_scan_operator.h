@@ -49,6 +49,7 @@ public:
                            std::to_string(_parent->node_id()),
                            std::to_string(_parent->nereids_id()), olap_scan_node().table_name);
     }
+    const std::set<std::string>& get_second_key() const { return _second_key; }
 
 private:
     friend class vectorized::NewOlapScanner;
@@ -192,6 +193,7 @@ private:
     RuntimeProfile::Counter* _runtime_filter_info = nullptr;
 
     std::mutex _profile_mtx;
+    std::set<std::string> _second_key;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {

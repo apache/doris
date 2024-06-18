@@ -128,6 +128,7 @@ public:
         bool start_key_include = false;
         bool end_key_include = false;
 
+        std::set<std::string> second_key;
         std::vector<TCondition> conditions;
         std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
         std::vector<std::pair<string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;

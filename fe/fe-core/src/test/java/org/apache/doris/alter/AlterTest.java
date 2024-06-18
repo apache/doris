@@ -27,6 +27,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
+import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Column;
@@ -55,6 +56,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.ShowExecutor;
+import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
@@ -244,6 +246,19 @@ public class AlterTest {
         createTable("create table test.unique_sequence_col (k1 int, v1 int, v2 date) ENGINE=OLAP "
                 + " UNIQUE KEY(`k1`)  DISTRIBUTED BY HASH(`k1`) BUCKETS 1"
                 + " PROPERTIES (\"replication_num\" = \"1\", \"function_column.sequence_col\" = \"v1\");");
+
+        createTable("CREATE TABLE test.`second_key_test` (\n"
+                + "  `page_id` bigint(20) COMMENT \"\",\n"
+                + "  `md5` varchar(1000) COMMENT \"\",\n"
+                + "  `visitor_arr` ARRAY<varchar(100)> replace COMMENT \"\",\n"
+                + "  `click_cnt` bigint sum\n"
+                + ") ENGINE=OLAP\n"
+                + "aggregate KEY(`page_id`, `md5`)\n"
+                + "DISTRIBUTED BY HASH(`page_id`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "'replication_num' = '1',"
+                + "'second_key'='visitor_arr'\n"
+                + ");");
     }
 
     @AfterClass
@@ -1432,5 +1447,47 @@ public class AlterTest {
     public void testModifySequenceCol() {
         String stmt = "alter table test.unique_sequence_col modify column v1 Date";
         alterTable(stmt, true);
+    }
+
+    @Test
+    public void testModifySecondKey() throws Exception {
+        String showSql = "SHOW CREATE table test.second_key_test;";
+        ShowCreateTableStmt showStmt = (ShowCreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(showSql, connectContext);
+        ShowExecutor executor = new ShowExecutor(connectContext, showStmt);
+        ShowResultSet result = executor.execute();
+        Assert.assertTrue(result.getResultRows().get(0).get(1).contains("\"second_key\" = \"visitor_arr\""));
+
+        String stmt = "alter table test.second_key_test drop column visitor_arr";
+        alterTable(stmt, false);
+        waitSchemaChangeJobDone(false);
+        executor = new ShowExecutor(connectContext, showStmt);
+        result = executor.execute();
+        Assert.assertFalse(result.getResultRows().get(0).get(1).contains("\"second_key\" = \"visitor_arr\""));
+
+        stmt = "alter table test.second_key_test add column visitor_arr ARRAY<varchar(100)> replace after md5";
+        alterTable(stmt, false);
+        waitSchemaChangeJobDone(false);
+        stmt = "alter table test.second_key_test set('second_key'='visitor_arr')";
+        alterTable(stmt, false);
+        waitSchemaChangeJobDone(false);
+        showStmt = (ShowCreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(showSql, connectContext);
+        executor = new ShowExecutor(connectContext, showStmt);
+        result = executor.execute();
+        Assert.assertTrue(result.getResultRows().get(0).get(1).contains("\"second_key\" = \"visitor_arr\""));
+
+        stmt = "alter table test.second_key_test set('second_key'='')";
+        alterTable(stmt, false);
+        waitSchemaChangeJobDone(false);
+        showStmt = (ShowCreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(showSql, connectContext);
+        executor = new ShowExecutor(connectContext, showStmt);
+        result = executor.execute();
+        Assert.assertFalse(result.getResultRows().get(0).get(1).contains("\"second_key\" = \"visitor_arr\""));
+
+        stmt = "alter table test.second_key_test drop column visitor_arr";
+        alterTable(stmt, false);
+        waitSchemaChangeJobDone(false);
+        executor = new ShowExecutor(connectContext, showStmt);
+        result = executor.execute();
+        Assert.assertFalse(result.getResultRows().get(0).get(1).contains("\"second_key\" = \"visitor_arr\""));
     }
 }

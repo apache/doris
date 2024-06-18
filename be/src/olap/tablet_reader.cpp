@@ -554,7 +554,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
     for (auto* predicate : predicates) {
         auto column = _tablet_schema->column(predicate->column_id());
-        if (column.aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
+        if (column.aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE &&
+            read_params.second_key.find(column.name()) == read_params.second_key.end()) {
             _value_col_predicates.push_back(predicate);
         } else {
             _col_predicates.push_back(predicate);
