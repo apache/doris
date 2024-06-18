@@ -373,11 +373,11 @@ struct TIcebergCommitData {
     6: optional list<string> referenced_data_files
 }
 
-struct TSortField {
-    1: optional i32 source_column_id
-    2: optional bool ascending
-    3: optional bool null_first
-}
+//struct TSortField {
+//    1: optional i32 source_column_id
+//    2: optional bool ascending
+//    3: optional bool null_first
+//}
 
 struct TIcebergTableSink {
     1: optional string db_name
@@ -385,7 +385,7 @@ struct TIcebergTableSink {
     3: optional string schema_json
     4: optional map<i32, string> partition_specs_json
     5: optional i32 partition_spec_id
-    6: optional list<TSortField> sort_fields
+    6: optional PlanNodes.TSortInfo sort_info
     7: optional PlanNodes.TFileFormatType file_format
     8: optional string output_path
     9: optional map<string, string> hadoop_config

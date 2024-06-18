@@ -75,6 +75,9 @@ public:
     Block& last_sorted_block() { return sorted_blocks_.back(); }
 
     std::vector<Block>& get_sorted_block() { return sorted_blocks_; }
+
+    bool unsorted_block_empty() { return unsorted_block_->empty(); }
+
     std::priority_queue<MergeSortCursor>& get_priority_queue() { return priority_queue_; }
     std::vector<MergeSortCursorImpl>& get_cursors() { return cursors_; }
     void reset();
@@ -169,6 +172,8 @@ public:
 
     Status append_block(Block* block) override;
 
+    Status sort();
+
     Status prepare_for_read() override;
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
@@ -178,6 +183,8 @@ public:
     Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
                                      int batch_size, bool* eos) override;
     void reset() override;
+
+    MergeSorterState& state() { return *_state; }
 
 private:
     bool _reach_limit() {

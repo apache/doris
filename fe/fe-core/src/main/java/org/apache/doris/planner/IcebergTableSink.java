@@ -17,6 +17,8 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -28,10 +30,8 @@ import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TIcebergTableSink;
-import org.apache.doris.thrift.TSortField;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.iceberg.NullOrder;
 import org.apache.iceberg.PartitionSpecParser;
@@ -40,10 +40,12 @@ import org.apache.iceberg.SortDirection;
 import org.apache.iceberg.SortField;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.types.Types;
+import org.apache.iceberg.types.Types.NestedField;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -51,6 +53,9 @@ import java.util.Set;
 public class IcebergTableSink extends BaseExternalTableDataSink {
 
     private final IcebergExternalTable targetTable;
+
+    private List<Expr> outputExprs;
+
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
             add(TFileFormatType.FORMAT_ORC);
             add(TFileFormatType.FORMAT_PARQUET);
@@ -59,6 +64,10 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
     public IcebergTableSink(IcebergExternalTable targetTable) {
         super();
         this.targetTable = targetTable;
+    }
+
+    public void setOutputExprs(List<Expr> outputExprs) {
+        this.outputExprs = outputExprs;
     }
 
     @Override
@@ -100,24 +109,25 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         // sort order
         if (icebergTable.sortOrder().isSorted()) {
             SortOrder sortOrder = icebergTable.sortOrder();
-            Set<Integer> baseColumnFieldIds = icebergTable.schema().columns().stream()
-                    .map(Types.NestedField::fieldId)
-                    .collect(ImmutableSet.toImmutableSet());
-            ImmutableList.Builder<TSortField> sortFields = ImmutableList.builder();
+            ArrayList<Expr> orderingExprs = Lists.newArrayList();
+            ArrayList<Boolean> isAscOrder = Lists.newArrayList();
+            ArrayList<Boolean> isNullsFirst = Lists.newArrayList();
             for (SortField sortField : sortOrder.fields()) {
                 if (!sortField.transform().isIdentity()) {
                     continue;
                 }
-                if (!baseColumnFieldIds.contains(sortField.sourceId())) {
-                    continue;
+                for (int i = 0; i < icebergTable.schema().columns().size(); ++i) {
+                    NestedField column  = icebergTable.schema().columns().get(i);
+                    if (column.fieldId() == sortField.sourceId()) {
+                        orderingExprs.add(outputExprs.get(i));
+                        isAscOrder.add(sortField.direction().equals(SortDirection.ASC));
+                        isNullsFirst.add(sortField.nullOrder().equals(NullOrder.NULLS_FIRST));
+                        break;
+                    }
                 }
-                TSortField tSortField = new TSortField();
-                tSortField.setSourceColumnId(sortField.sourceId());
-                tSortField.setAscending(sortField.direction().equals(SortDirection.ASC));
-                tSortField.setNullFirst(sortField.nullOrder().equals(NullOrder.NULLS_FIRST));
-                sortFields.add(tSortField);
             }
-            tSink.setSortFields(sortFields.build());
+            SortInfo sortInfo = new SortInfo(orderingExprs, isAscOrder, isNullsFirst);
+            tSink.setSortInfo(sortInfo.toThrift());
         }
 
         // file info

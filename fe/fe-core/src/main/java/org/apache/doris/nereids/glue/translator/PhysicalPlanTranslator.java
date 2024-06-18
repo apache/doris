@@ -481,7 +481,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             slotDesc.setIsNullable(column.isAllowNull());
             slotDesc.setAutoInc(column.isAutoInc());
         }
+        List<Expr> outputExprs = Lists.newArrayList();
+        icebergTableSink.getOutput().stream().map(Slot::getExprId)
+                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         IcebergTableSink sink = new IcebergTableSink((IcebergExternalTable) icebergTableSink.getTargetTable());
+        sink.setOutputExprs(outputExprs);
         rootFragment.setSink(sink);
         return rootFragment;
     }
