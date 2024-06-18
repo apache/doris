@@ -44,8 +44,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaProcessListScanner::_s_processlist_
         {"STATE", TYPE_VARCHAR, sizeof(StringRef), false},
         {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), false},
         {"INFO", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"FE", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"CLOUD_CLUSTER", TYPE_VARCHAR, sizeof(StringRef), false}};
+        {"FE", TYPE_VARCHAR, sizeof(StringRef), false}};
 
 SchemaProcessListScanner::SchemaProcessListScanner()
         : SchemaScanner(_s_processlist_columns, TSchemaTableType::SCH_PROCESSLIST) {}
