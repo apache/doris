@@ -303,16 +303,12 @@ public class IcebergTransactionTest {
             }
         };
 
-        try {
-            IcebergTransaction txn = getTxn();
-            txn.updateIcebergCommitData(ctdList);
-            SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
-            txn.beginInsert(tableInfo);
-            txn.finishInsert(tableInfo, Optional.empty());
-            txn.commit();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        IcebergTransaction txn = getTxn();
+        txn.updateIcebergCommitData(ctdList);
+        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
+        txn.beginInsert(tableInfo);
+        txn.finishInsert(tableInfo, Optional.empty());
+        txn.commit();
 
         checkSnapshotProperties(table.currentSnapshot().summary(), "6", "2", "6");
     }

@@ -97,12 +97,12 @@ public class IcebergTransaction implements Transaction {
 
         if (spec.isPartitioned()) {
             LOG.info("{} {} table  partition manifest ...", tableInfo, updateMode);
-            partitionManifestUp(updateMode, table, pendingResults);
+            partitionManifestUpdate(updateMode, table, pendingResults);
             LOG.info("{} {} table partition manifest  successful and writeResult : {}..", tableInfo, updateMode,
                     writeResult);
         } else {
             LOG.info("{} {} table  manifest ...", tableInfo, updateMode);
-            tableManifestUp(updateMode, table, pendingResults);
+            tableManifestUpdate(updateMode, table, pendingResults);
             LOG.info("{} {}  table  manifest  successful and writeResult : {}..", tableInfo, updateMode, writeResult);
         }
     }
@@ -129,7 +129,7 @@ public class IcebergTransaction implements Transaction {
         return IcebergUtils.getAndCloneTable(externalCatalog, tableInfo);
     }
 
-    private void partitionManifestUp(TUpdateMode updateMode, Table table, List<WriteResult> pendingResults) {
+    private void partitionManifestUpdate(TUpdateMode updateMode, Table table, List<WriteResult> pendingResults) {
         if (Objects.isNull(pendingResults) || pendingResults.isEmpty()) {
             LOG.warn("{} partitionManifestUp method call but pendingResults is null or empty!", table.name());
             return;
@@ -148,7 +148,7 @@ public class IcebergTransaction implements Transaction {
         }
     }
 
-    private void tableManifestUp(TUpdateMode updateMode, Table table, List<WriteResult> pendingResults) {
+    private void tableManifestUpdate(TUpdateMode updateMode, Table table, List<WriteResult> pendingResults) {
         if (Objects.isNull(pendingResults) || pendingResults.isEmpty()) {
             LOG.warn("{} tableManifestUp method call but pendingResults is null or empty!", table.name());
             return;

@@ -89,6 +89,8 @@ public class IcebergUtils {
     // https://iceberg.apache.org/spec/#schemas-and-data-types
     // All time and timestamp values are stored with microsecond precision
     private static final int ICEBERG_DATETIME_SCALE_MS = 6;
+    private static final String PARQUET_NAME = "parquet";
+    private static final String ORC_NAME = "orc";
 
     public static final String TOTAL_RECORDS = "total-records";
     public static final String TOTAL_POSITION_DELETES = "total-position-deletes";
@@ -540,14 +542,15 @@ public class IcebergUtils {
 
 
     public static org.apache.iceberg.Table getIcebergTable(ExternalCatalog catalog, String dbName, String tblName) {
-        return getIcebergTable0(catalog, dbName, tblName, false);
+        return getIcebergTableInternal(catalog, dbName, tblName, false);
     }
 
     public static org.apache.iceberg.Table getAndCloneTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
-        return getIcebergTable0(catalog, tableInfo.getDbName(), tableInfo.getTbName(), true);
+        return getIcebergTableInternal(catalog, tableInfo.getDbName(), tableInfo.getTbName(), true);
     }
 
-    private static org.apache.iceberg.Table getIcebergTable0(ExternalCatalog catalog, String dbName, String tblName,
+    private static org.apache.iceberg.Table getIcebergTableInternal(ExternalCatalog catalog, String dbName,
+            String tblName,
             boolean isClone) {
         IcebergMetadataCache metadataCache = Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
@@ -603,11 +606,16 @@ public class IcebergUtils {
 
     public static FileFormat getFileFormat(Table icebergTable) {
         Map<String, String> properties = icebergTable.properties();
-        String fileFormatName = properties.getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, "parquet");
+        String fileFormatName;
+        if (properties.containsKey(WRITE_FORMAT)) {
+            fileFormatName = properties.get(WRITE_FORMAT);
+        } else {
+            fileFormatName = properties.getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, PARQUET_NAME);
+        }
         FileFormat fileFormat;
-        if (fileFormatName.toLowerCase().contains("orc")) {
+        if (fileFormatName.toLowerCase().contains(ORC_NAME)) {
             fileFormat = FileFormat.ORC;
-        } else if (fileFormatName.toLowerCase().contains("parquet")) {
+        } else if (fileFormatName.toLowerCase().contains(PARQUET_NAME)) {
             fileFormat = FileFormat.PARQUET;
         } else {
             throw new RuntimeException("Unsupported input format type: " + fileFormatName);

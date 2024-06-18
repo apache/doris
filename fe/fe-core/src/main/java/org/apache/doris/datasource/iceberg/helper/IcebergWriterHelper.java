@@ -34,6 +34,7 @@ import java.util.Optional;
 
 public class IcebergWriterHelper {
 
+    private static final int DEFAULT_FILE_COUNT = 1;
 
     public static WriteResult convertToWriterResult(
             FileFormat format,
@@ -45,10 +46,9 @@ public class IcebergWriterHelper {
             String location = commitData.getFilePath();
 
             //get the commit file statistics
-            long fileCount = commitData.getReferencedDataFilesSize();
             long fileSize = commitData.getFileSize();
             long recordCount = commitData.getRowCount();
-            CommonStatistics stat = new CommonStatistics(recordCount, fileCount, fileSize);
+            CommonStatistics stat = new CommonStatistics(recordCount, DEFAULT_FILE_COUNT, fileSize);
 
             Optional<List<String>> partValues = Optional.empty();
             //get and check partitionValues when table is partitionedTable
