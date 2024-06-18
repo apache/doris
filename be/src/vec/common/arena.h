@@ -90,6 +90,7 @@ private:
     /// Last contiguous chunk of memory.
     Chunk* head = nullptr;
     size_t size_in_bytes;
+    size_t _initial_size = 4096;
     // The memory used by all chunks, excluding head.
     size_t _used_size_no_head;
 
@@ -121,6 +122,10 @@ private:
 
     /// Add next contiguous chunk of memory with size not less than specified.
     void NO_INLINE add_chunk(size_t min_size) {
+        if (UNLIKELY(head == nullptr)) {
+            head = new Chunk(min_size, nullptr);
+        }
+
         _used_size_no_head += head->used();
         head = new Chunk(next_size(min_size + pad_right), head);
         size_in_bytes += head->size();
@@ -135,15 +140,25 @@ public:
           size_t linear_growth_threshold_ = 128 * 1024 * 1024)
             : growth_factor(growth_factor_),
               linear_growth_threshold(linear_growth_threshold_),
-              head(new Chunk(initial_size_, nullptr)),
               size_in_bytes(head->size()),
+              _initial_size(initial_size_),
               _used_size_no_head(0) {}
 
-    ~Arena() { delete head; }
+    ~Arena() {
+        if (head != nullptr) {
+            delete head;
+        }
+    }
 
     /// Get piece of memory, without alignment.
     char* alloc(size_t size) {
-        if (UNLIKELY(head->pos + size > head->end)) add_chunk(size);
+        if (UNLIKELY(head == nullptr)) {
+            head = new Chunk(_initial_size, nullptr);
+        }
+
+        if (UNLIKELY(head->pos + size > head->end)) {
+            add_chunk(size);
+        }
 
         char* res = head->pos;
         head->pos += size;
@@ -153,6 +168,10 @@ public:
 
     /// Get piece of memory with alignment
     char* aligned_alloc(size_t size, size_t alignment) {
+        if (UNLIKELY(head == nullptr)) {
+            head = new Chunk(_initial_size, nullptr);
+        }
+
         do {
             void* head_pos = head->pos;
             size_t space = head->end - head->pos;
@@ -180,6 +199,10 @@ public:
 	  * the allocation it intended to roll back was indeed the last one.
       */
     void* rollback(size_t size) {
+        if (UNLIKELY(head == nullptr)) {
+            head = new Chunk(_initial_size, nullptr);
+        }
+
         head->pos -= size;
         ASAN_POISON_MEMORY_REGION(head->pos, size + pad_right);
         return head->pos;
@@ -199,6 +222,10 @@ public:
       */
     [[nodiscard]] char* alloc_continue(size_t additional_bytes, char const*& range_start,
                                        size_t start_alignment = 0) {
+        if (UNLIKELY(head == nullptr)) {
+            head = new Chunk(_initial_size, nullptr);
+        }
+
         if (!range_start) {
             // Start a new memory range.
             char* result = start_alignment ? aligned_alloc(additional_bytes, start_alignment)
@@ -291,6 +318,10 @@ public:
     * and only 128M can be reused when you apply for 4G memory again.
     */
     void clear() {
+        if (head == nullptr) {
+            return;
+        }
+
         if (head->prev) {
             delete head->prev;
             head->prev = nullptr;
@@ -303,9 +334,21 @@ public:
     /// Size of chunks in bytes.
     size_t size() const { return size_in_bytes; }
 
-    size_t used_size() const { return _used_size_no_head + head->used(); }
+    size_t used_size() const {
+        if (UNLIKELY(head == nullptr)) {
+            return 0;
+        }
 
-    size_t remaining_space_in_current_chunk() const { return head->remaining(); }
+        return _used_size_no_head + head->used();
+    }
+
+    size_t remaining_space_in_current_chunk() const {
+        if (UNLIKELY(head == nullptr)) {
+            return 0;
+        }
+
+        return head->remaining();
+    }
 };
 
 using ArenaPtr = std::shared_ptr<Arena>;
