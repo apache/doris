@@ -18,9 +18,14 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TPartitionsMetadataParams;
@@ -104,6 +109,14 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
         String tableName = validParams.get(TABLE);
         if (StringUtils.isEmpty(dbName) || StringUtils.isEmpty(tableName)) {
             throw new AnalysisException("Invalid partitions metadata query");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                        tableName, PrivPredicate.SHOW)) {
+            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SHOW PARTITIONS",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    dbName + ": " + tableName);
+            throw new AnalysisException(message);
         }
         this.databaseName = dbName;
         this.tableName = tableName;
