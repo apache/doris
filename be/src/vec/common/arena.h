@@ -144,11 +144,7 @@ public:
               _initial_size(initial_size_),
               _used_size_no_head(0) {}
 
-    ~Arena() {
-        if (head != nullptr) {
-            delete head;
-        }
-    }
+    ~Arena() { delete head; }
 
     /// Get piece of memory, without alignment.
     char* alloc(size_t size) {
