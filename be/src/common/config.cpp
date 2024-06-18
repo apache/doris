@@ -382,6 +382,7 @@ DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
+DEFINE_mInt64(base_compaction_max_rowset_num, "20");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
@@ -1300,6 +1301,10 @@ DEFINE_Bool(enable_file_logger, "true");
 
 // The minimum row group size when exporting Parquet files. default 128MB
 DEFINE_Int64(min_row_group_size, "134217728");
+
+DEFINE_mInt64(compaction_memory_bytes_limit, "2147483648");
+
+DEFINE_mInt64(compaction_batch_size, "-1");
 
 // clang-format off
 #ifdef BE_TEST

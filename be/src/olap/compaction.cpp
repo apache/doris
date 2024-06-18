@@ -149,6 +149,15 @@ void Compaction::init_profile(const std::string& label) {
     _merge_rowsets_latency_timer = ADD_TIMER(_profile, "merge_rowsets_latency");
 }
 
+int64_t Compaction::merge_way() {
+    int64_t way_num = 0;
+    for (auto&& rowset : _input_rowsets) {
+        way_num += rowset->rowset_meta()->get_merge_way_num();
+    }
+
+    return way_num;
+}
+
 Status Compaction::merge_input_rowsets() {
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
     input_rs_readers.reserve(_input_rowsets.size());
@@ -170,13 +179,15 @@ Status Compaction::merge_input_rowsets() {
         _stats.rowid_conversion = &_rowid_conversion;
     }
 
+    int64_t merge_way_num = merge_way();
+
     Status res;
     {
         SCOPED_TIMER(_merge_rowsets_latency_timer);
         if (_is_vertical) {
             res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
                                                  input_rs_readers, _output_rs_writer.get(),
-                                                 get_avg_segment_rows(), &_stats);
+                                                 get_avg_segment_rows(), merge_way_num, &_stats);
         } else {
             res = Merger::vmerge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
                                          input_rs_readers, _output_rs_writer.get(), &_stats);
