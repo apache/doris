@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -60,7 +61,7 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     public LiteralExpr createLiteralFromType() throws AnalysisException {
         Preconditions.checkState(mysqlTypeCode > 0);
-        return LiteralExpr.getLiteralByMysqlType(mysqlTypeCode);
+        return LiteralExpr.getLiteralByMysqlType(mysqlTypeCode, isUnsigned());
     }
 
     public static PlaceHolderExpr create(String value, Type type) throws AnalysisException {
@@ -85,6 +86,10 @@ public class PlaceHolderExpr extends LiteralExpr {
     @Override
     public boolean isMinValue() {
         return lExpr.isMinValue();
+    }
+
+    public boolean isUnsigned() {
+        return MysqlColType.isUnsigned(mysqlTypeCode);
     }
 
     @Override
@@ -128,6 +133,11 @@ public class PlaceHolderExpr extends LiteralExpr {
     @Override
     public String toDigestImpl() {
         return "?";
+    }
+
+    @Override
+    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
+        return this.lExpr.uncheckedCastTo(targetType);
     }
 
     // Swaps the sign of numeric literals.
@@ -181,7 +191,7 @@ public class PlaceHolderExpr extends LiteralExpr {
         return "\"" + getStringValue() + "\"";
     }
 
-    public void setupParamFromBinary(ByteBuffer data) {
-        lExpr.setupParamFromBinary(data);
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
+        lExpr.setupParamFromBinary(data, isUnsigned);
     }
 }
