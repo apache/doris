@@ -66,6 +66,7 @@ public:
     void sort_files(std::vector<FileInfo>& file_infos);
     void copyFile(const char* fileName, lucene::store::Directory* dir,
                   lucene::store::IndexOutput* output, uint8_t* buffer, int64_t bufferLength);
+    InvertedIndexStorageFormatPB get_storage_format() const { return _storage_format; }
 
 private:
     InvertedIndexDirectoryMap _indices_dirs;

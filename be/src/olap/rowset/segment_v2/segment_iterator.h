@@ -396,6 +396,13 @@ private:
     // read schema from scanner
     SchemaSPtr _schema;
     // storage type schema related to _schema, since column in segment may be different with type in _schema
+    // <field_name, storage_type> , only used in inverted index
+    // field_name is the name of inverted index document's filed
+    //     1. for inverted_index_storage_format_v1, field_name is the `column_name` in Doris
+    //     2. for inverted_index_storage_format_v2
+    //     2.1 for normal column, field_name is the `column_unique_id` in Doris
+    //     2.2 for variant column, field_name is the `parent_column_unique_id.sub_column_name` in Doris
+    // storage_type is the data type in Doris
     std::vector<vectorized::NameAndTypePair> _storage_name_and_type;
     // vector idx -> column iterarator
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
