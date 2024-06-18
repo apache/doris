@@ -74,7 +74,10 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
         // All key columns in conjuncts
         Set<String> colNames = Sets.newHashSet();
         for (Expression expr : conjuncts) {
-            colNames.add(((SlotReference) removeCast((expr.child(0)))).getName());
+            SlotReference slot = ((SlotReference) removeCast((expr.child(0))));
+            if (slot.isKeyColumnFromTable()) {
+                colNames.add(slot.getName());
+            }
         }
         // set short circuit flag and modify nothing to the plan
         if (olapTable.getBaseSchemaKeyColumns().size() <= colNames.size()) {
