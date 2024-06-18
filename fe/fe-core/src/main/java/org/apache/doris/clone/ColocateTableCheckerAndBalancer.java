@@ -410,6 +410,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             }
 
             ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
+            if (groupSchema == null) {
+                continue;
+            }
             ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
             try {
                 Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
@@ -722,6 +725,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             GlobalColocateStatistic globalColocateStatistic, List<List<Long>> balancedBackendsPerBucketSeq,
             boolean balanceBetweenGroups) {
         ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
+        if (groupSchema == null) {
+            return false;
+        }
         short replicaNum = groupSchema.getReplicaAlloc().getReplicaNumByTag(tag);
         List<List<Long>> backendsPerBucketSeq = Lists.newArrayList(
                 colocateIndex.getBackendsPerBucketSeqByTag(groupId, tag));
