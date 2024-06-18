@@ -540,7 +540,7 @@ suite("test_stream_load_2pc", "p0") {
             drop_table.call()
             create_table.call(partition, dynamic_partition[i])
 
-            streamLoadAction.call(tableName, 'k1, k2, v1, v2, v3', "test_two_phase_commit.csv", 2, tbl_2pc_expected[i])
+            streamLoadAction.call(tableName, 'k1, k2, v1, v2, v3, v4', "test_two_phase_commit.csv", 2, tbl_2pc_expected[i])
             i++
             
         }
