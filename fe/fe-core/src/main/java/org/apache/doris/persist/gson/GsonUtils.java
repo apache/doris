@@ -47,7 +47,6 @@ import org.apache.doris.analysis.LambdaFunctionCallExpr;
 import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LikePredicate;
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MapLiteral;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.MaxLiteral;
@@ -102,7 +101,6 @@ import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TemplateType;
@@ -538,7 +536,7 @@ public class GsonUtils {
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
                     new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
-            .registerTypeHierarchyAdapter(com.google.common.collect.Table.class, new GuavaTableAdapter())
+            .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
@@ -721,10 +719,6 @@ public class GsonUtils {
         private static final String EXPR_PROP = "expr";
 
         public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-            if (type.getRawType() == LiteralExpr.class) {
-                type = TypeToken.get((Class<T>) LiteralExpr.class);
-            }
-
             final Class<T> rawType = (Class<T>) type.getRawType();
             final TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
 
@@ -755,9 +749,6 @@ public class GsonUtils {
     private static class TableAdapterFactory implements TypeAdapterFactory {
 
         public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-            /*if (type.getRawType() == org.apache.doris.catalog.Table.class) {
-                type = TypeToken.get((Class<T>) TableIf.class);
-            }*/
             final Class<T> rawType = (Class<T>) type.getRawType();
             final TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
 
