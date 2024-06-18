@@ -459,14 +459,6 @@ public class MTMV extends OlapTable {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         MTMV materializedView = null;
-        /*if (FeMetaVersion < FeMetaVersion.VERSION_135) {
-            JsonElement jsonElement = JsonParser.parseString(Text.readString(in));
-            JsonObject jsonObject = jsonElement.getAsJsonObject();
-            jsonObject.addProperty("clazz", MTMV.class.getSimpleName());
-            materializedView = GsonUtils.GSON.fromJson(jsonObject, this.getClass());
-        } else {
-            materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
-        }*/
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
             materializedView = GsonUtils134.GSON.fromJson(Text.readString(in), this.getClass());
         } else {
