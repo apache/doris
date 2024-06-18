@@ -139,7 +139,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     }
 
     public UnboundFunction withIndexInSqlString(Optional<FunctionIndexInSql> functionIndexInSql) {
-        return new UnboundFunction(dbName, name, isDistinct, children, functionIndexInSql);
+        return new UnboundFunction(dbName, getName(), isDistinct, children, functionIndexInSql);
     }
 
     @Override
