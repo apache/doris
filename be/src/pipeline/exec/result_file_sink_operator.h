@@ -17,31 +17,18 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/sink/vresult_file_sink.h"
+#include "vec/sink/writer/vfile_result_writer.h"
 
-namespace doris {
-class DataSink;
+namespace doris::vectorized {
+template <typename Parent>
+class BlockSerializer;
+template <typename Parent>
+class Channel;
+class BroadcastPBlockHolder;
+} // namespace doris::vectorized
 
-namespace pipeline {
-
-class ResultFileSinkOperatorBuilder final
-        : public DataSinkOperatorBuilder<vectorized::VResultFileSink> {
-public:
-    ResultFileSinkOperatorBuilder(int32_t id, DataSink* sink);
-
-    OperatorPtr build_operator() override;
-};
-
-class ResultFileSinkOperator final : public DataSinkOperator<vectorized::VResultFileSink> {
-public:
-    ResultFileSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink);
-
-    bool can_write() override { return true; }
-};
+namespace doris::pipeline {
 
 class ResultFileSinkOperatorX;
 class ResultFileSinkLocalState final
@@ -50,6 +37,7 @@ public:
     using Base = AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
     ENABLE_FACTORY_CREATOR(ResultFileSinkLocalState);
     ResultFileSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
+    ~ResultFileSinkLocalState() override;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
@@ -76,7 +64,7 @@ private:
 
     std::vector<vectorized::Channel<ResultFileSinkLocalState>*> _channels;
     bool _only_local_exchange = false;
-    vectorized::BlockSerializer<ResultFileSinkLocalState> _serializer;
+    std::unique_ptr<vectorized::BlockSerializer<ResultFileSinkLocalState>> _serializer;
     std::shared_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
     RuntimeProfile::Counter* _brpc_wait_timer = nullptr;
     RuntimeProfile::Counter* _local_send_timer = nullptr;
@@ -100,8 +88,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
 private:
     friend class ResultFileSinkLocalState;
@@ -115,7 +102,7 @@ private:
     const std::vector<TPlanFragmentDestination> _dests;
 
     // set file options when sink type is FILE
-    std::unique_ptr<vectorized::ResultFileOptions> _file_opts;
+    std::unique_ptr<ResultFileOptions> _file_opts;
     TStorageBackendType::type _storage_type;
 
     // Owned by the RuntimeState.
@@ -128,5 +115,4 @@ private:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

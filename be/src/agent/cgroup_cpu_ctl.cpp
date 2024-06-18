@@ -22,6 +22,8 @@
 
 #include <filesystem>
 
+#include "util/defer_op.h"
+
 namespace doris {
 
 Status CgroupCpuCtl::init() {
@@ -84,6 +86,12 @@ Status CgroupCpuCtl::write_cg_sys_file(std::string file_path, int value, std::st
         return Status::InternalError<false>("open path failed, path={}", file_path);
     }
 
+    Defer defer {[&]() {
+        if (-1 == ::close(fd)) {
+            LOG(INFO) << "close file fd failed";
+        }
+    }};
+
     auto str = fmt::format("{}\n", value);
     int ret = write(fd, str.c_str(), str.size());
     if (ret == -1) {
@@ -124,7 +132,7 @@ Status CgroupV1CpuCtl::init() {
 
     if (_tg_id == -1) {
         // means current cgroup cpu ctl is just used to clear dir,
-        // it does not contains task group.
+        // it does not contains workload group.
         // todo(wb) rethinking whether need to refactor cgroup_cpu_ctl
         _init_succ = true;
         LOG(INFO) << "init cgroup cpu query path succ, path=" << _cgroup_v1_cpu_query_path;
@@ -164,7 +172,7 @@ Status CgroupV1CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_shares) {
 
 Status CgroupV1CpuCtl::modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) {
     int val = cpu_hard_limit > 0 ? (_cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100)
-                                 : CPU_HARD_LIMIT_DEFAULT_VALUE;
+                                 : CGROUP_CPU_HARD_LIMIT_DEFAULT_VALUE;
     std::string msg = "modify cpu quota value to " + std::to_string(val);
     return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_quota_file, val, msg, false);
 }

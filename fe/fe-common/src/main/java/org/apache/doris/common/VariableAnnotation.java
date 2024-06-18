@@ -27,8 +27,10 @@ public enum VariableAnnotation {
     // A previous experimental item but now it is GA.
     // it will be shown without `experimental_` prefix.
     // But user can set it with or without `experimental_` prefix, for compatibility.
-    EXPERIMENTAL_ONLINE("");
-    private String prefix = "experimental_";
+    EXPERIMENTAL_ONLINE(""),
+    // A removed item, not show in variable list, but not throw exception when user call set for it.
+    REMOVED("");
+    private final String prefix;
 
     VariableAnnotation(String prefix) {
         this.prefix = prefix;
@@ -38,4 +40,3 @@ public enum VariableAnnotation {
         return prefix;
     }
 }
-

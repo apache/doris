@@ -76,12 +76,14 @@ public:
 
     Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length);
 
-    FileSystemSPtr fs() const override { return nullptr; }
-
     size_t get_queue_size() { return _buf_queue.size(); }
 
     // used for pipeline load, which use TUniqueId(lo: query_id.lo + fragment_id, hi: query_id.hi) as pipe_id
     static TUniqueId calculate_pipe_id(const UniqueId& query_id, int32_t fragment_id);
+
+    size_t max_capacity() const { return _max_buffered_bytes; }
+
+    size_t current_capacity();
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,

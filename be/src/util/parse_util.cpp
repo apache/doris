@@ -82,12 +82,12 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, int64_t paren
         }
 
         if (multiplier != -1) {
-            bytes = multiplier * limit_val;
+            bytes = int64_t(multiplier * limit_val);
         } else if (*is_percent) {
             if (parent_limit == -1) {
-                bytes = (static_cast<double>(limit_val) / 100.0) * physical_mem;
+                bytes = int64_t(static_cast<double>(limit_val) / 100.0 * physical_mem);
             } else {
-                bytes = (static_cast<double>(limit_val) / 100.0) * parent_limit;
+                bytes = int64_t(static_cast<double>(limit_val) / 100.0 * parent_limit);
             }
         }
     } else {

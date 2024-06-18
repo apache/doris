@@ -33,6 +33,12 @@ public interface WorkloadCondition {
             return WorkloadConditionUsername.createWorkloadCondition(cm.op, cm.value);
         } else if (WorkloadMetricType.QUERY_TIME.equals(cm.metricName)) {
             return WorkloadConditionQueryTime.createWorkloadCondition(cm.op, cm.value);
+        } else if (WorkloadMetricType.BE_SCAN_ROWS.equals(cm.metricName)) {
+            return WorkloadConditionBeScanRows.createWorkloadCondition(cm.op, cm.value);
+        } else if (WorkloadMetricType.BE_SCAN_BYTES.equals(cm.metricName)) {
+            return WorkloadConditionBeScanBytes.createWorkloadCondition(cm.op, cm.value);
+        } else if (WorkloadMetricType.QUERY_BE_MEMORY_BYTES.equals(cm.metricName)) {
+            return WorkloadConditionQueryBeMemory.createWorkloadCondition(cm.op, cm.value);
         }
         throw new UserException("invalid metric name:" + cm.metricName);
     }

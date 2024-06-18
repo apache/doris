@@ -33,9 +33,9 @@ static const std::string PRIORITY_CIDR_SEPARATOR = ";";
 
 std::string BackendOptions::_s_localhost;
 std::vector<CIDR> BackendOptions::_s_priority_cidrs;
-TBackend BackendOptions::_backend;
 bool BackendOptions::_bind_ipv6 = false;
 const char* _service_bind_address = "0.0.0.0";
+int64_t BackendOptions::_s_backend_id = 0;
 
 bool BackendOptions::init() {
     if (!analyze_priority_cidrs(config::priority_networks, &_s_priority_cidrs)) {
@@ -67,11 +67,22 @@ const std::string& BackendOptions::get_localhost() {
     return _s_localhost;
 }
 
+std::string BackendOptions::get_be_endpoint() {
+    return _s_localhost + ":" + std::to_string(config::heartbeat_service_port);
+}
+
 TBackend BackendOptions::get_local_backend() {
-    _backend.__set_host(_s_localhost);
-    _backend.__set_be_port(config::be_port);
-    _backend.__set_http_port(config::webserver_port);
-    return _backend;
+    TBackend backend;
+    backend.__set_host(_s_localhost);
+    backend.__set_be_port(config::be_port);
+    backend.__set_http_port(config::webserver_port);
+    backend.__set_brpc_port(config::brpc_port);
+    backend.__set_id(_s_backend_id);
+    return backend;
+}
+
+void BackendOptions::set_backend_id(int64_t backend_id) {
+    _s_backend_id = backend_id;
 }
 
 void BackendOptions::set_localhost(const std::string& host) {
@@ -95,7 +106,7 @@ const char* BackendOptions::get_service_bind_address_without_bracket() {
 
 bool BackendOptions::analyze_priority_cidrs(const std::string& priority_networks,
                                             std::vector<CIDR>* cidrs) {
-    if (priority_networks == "") {
+    if (priority_networks.empty()) {
         return true;
     }
     LOG(INFO) << "priority cidrs: " << priority_networks;
@@ -115,7 +126,7 @@ bool BackendOptions::analyze_priority_cidrs(const std::string& priority_networks
 
 bool BackendOptions::analyze_localhost(std::string& localhost, bool& bind_ipv6,
                                        std::vector<CIDR>* cidrs, std::vector<InetAddress>* hosts) {
-    std::vector<InetAddress>::iterator addr_it = hosts->begin();
+    auto addr_it = hosts->begin();
     if (!cidrs->empty()) {
         for (; addr_it != hosts->end(); ++addr_it) {
             VLOG_CRITICAL << "check ip=" << addr_it->get_host_address();

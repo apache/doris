@@ -67,6 +67,7 @@ public class DynamicPartitionTableTest {
         FeConstants.default_scheduler_interval_millisecond = 1000;
         FeConstants.runningUnitTest = true;
         Config.disable_storage_medium_check = true;
+        Config.dynamic_partition_enable = false; // disable auto create dynamic partition
 
         UtFrameUtils.createDorisCluster(runningDir);
 
@@ -641,7 +642,8 @@ public class DynamicPartitionTableTest {
                 + ");";
         // start and history_partition_num are not set, can not create history partition
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Provide start or history_partition_num property when creating history partition",
+                "Provide start or history_partition_num property when create_history_partition=true. "
+                        + "Otherwise set create_history_partition=false",
                 () -> createTable(createOlapTblStmt));
 
         String createOlapTblStmt2 = "CREATE TABLE test.`dynamic_partition3` (\n"
@@ -721,6 +723,25 @@ public class DynamicPartitionTableTest {
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alter4));
         Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartitionFirstTime(db.getId(), tbl.getId());
         Assert.assertEquals(24, tbl.getPartitionNames().size());
+
+        String createOlapTblStmt5 =
+                "CREATE TABLE test.`dynamic_partition4` (\n" + "  `k1` datetime NULL COMMENT \"\"\n" + ")\n"
+                        + "PARTITION BY RANGE (k1)\n" + "()\n" + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                        + "PROPERTIES (\n" + "\"replication_num\" = \"1\",\n"
+                        + "\"dynamic_partition.enable\" = \"true\",\n" + "\"dynamic_partition.end\" = \"3\",\n"
+                        + "\"dynamic_partition.time_unit\" = \"day\",\n" + "\"dynamic_partition.prefix\" = \"p\",\n"
+                        + "\"dynamic_partition.buckets\" = \"1\",\n" + "\"dynamic_partition.start\" = \"-99999999\",\n"
+                        + "\"dynamic_partition.history_partition_num\" = \"5\",\n"
+                        + "\"dynamic_partition.create_history_partition\" = \"true\"\n" + ");";
+        // start and history_partition_num are set, create ok
+        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt5));
+        OlapTable tbl4 = (OlapTable) db.getTableOrAnalysisException("dynamic_partition4");
+        Assert.assertEquals(9, tbl4.getPartitionNames().size());
+
+        String alter5 = "alter table test.dynamic_partition4 set ('dynamic_partition.history_partition_num' = '3')";
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alter5));
+        Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartitionFirstTime(db.getId(), tbl4.getId());
+        Assert.assertEquals(7, tbl4.getPartitionNames().size());
     }
 
     @Test

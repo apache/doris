@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.Config;
 
 import com.google.common.collect.Lists;
 import org.json.simple.JSONObject;
@@ -110,6 +109,7 @@ public class Diagnoser {
         StringBuilder versionErr = new StringBuilder();
         StringBuilder statusErr = new StringBuilder();
         StringBuilder compactionErr = new StringBuilder();
+        long visibleVersion = partition.getVisibleVersion();
         for (Replica replica : replicas) {
             // backend
             do {
@@ -140,10 +140,10 @@ public class Diagnoser {
                 }
             } while (false);
             // version
-            if (replica.getVersion() != partition.getVisibleVersion()) {
+            if (replica.getVersion() != visibleVersion) {
                 versionErr.append("Replica on backend " + replica.getBackendId() + "'s version ("
                         + replica.getVersion() + ") does not equal"
-                        + " to partition visible version (" + partition.getVisibleVersion() + ")");
+                        + " to partition visible version (" + visibleVersion + ")");
             } else if (replica.getLastFailedVersion() != -1) {
                 versionErr.append("Replica on backend " + replica.getBackendId() + "'s last failed version is "
                         + replica.getLastFailedVersion());
@@ -154,9 +154,9 @@ public class Diagnoser {
                         + ", and is bad: " + (replica.isBad() ? "Yes" : "No")
                         + ", and is going to drop: " + (replica.isUserDrop() ? "Yes" : "No"));
             }
-            if (replica.getVersionCount() > Config.min_version_count_indicate_replica_compaction_too_slow) {
+            if (replica.tooBigVersionCount()) {
                 compactionErr.append("Replica on backend " + replica.getBackendId() + "'s version count is too high: "
-                        + replica.getVersionCount());
+                        + replica.getVisibleVersionCount());
             }
         }
         results.add(Lists.newArrayList("ReplicaBackendStatus", (backendErr.length() == 0

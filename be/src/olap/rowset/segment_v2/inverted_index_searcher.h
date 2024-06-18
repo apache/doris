@@ -17,7 +17,14 @@
 
 #pragma once
 
-#include <CLucene.h>
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
+#include <CLucene.h> // IWYU pragma: keep
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 #include <memory>
 #include <optional>
@@ -48,23 +55,27 @@ class DorisCompoundReader;
 
 class IndexSearcherBuilder {
 public:
-    virtual Status build(DorisCompoundReader* directory,
+    virtual Status build(lucene::store::Directory* directory,
                          OptionalIndexSearcherPtr& output_searcher) = 0;
     virtual ~IndexSearcherBuilder() = default;
-    virtual Result<IndexSearcherPtr> get_index_searcher(DorisCompoundReader* directory);
+    virtual Result<IndexSearcherPtr> get_index_searcher(lucene::store::Directory* directory);
     static Result<std::unique_ptr<IndexSearcherBuilder>> create_index_searcher_builder(
             InvertedIndexReaderType reader_type);
+    int64_t get_reader_size() const { return reader_size; }
+
+protected:
+    int64_t reader_size = 0;
 };
 
 class FulltextIndexSearcherBuilder : public IndexSearcherBuilder {
 public:
-    Status build(DorisCompoundReader* directory,
+    Status build(lucene::store::Directory* directory,
                  OptionalIndexSearcherPtr& output_searcher) override;
 };
 
 class BKDIndexSearcherBuilder : public IndexSearcherBuilder {
 public:
-    Status build(DorisCompoundReader* directory,
+    Status build(lucene::store::Directory* directory,
                  OptionalIndexSearcherPtr& output_searcher) override;
 };
 } // namespace doris::segment_v2

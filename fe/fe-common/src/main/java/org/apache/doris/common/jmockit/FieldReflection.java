@@ -285,4 +285,3 @@ public final class FieldReflection {
     }
 
 }
-

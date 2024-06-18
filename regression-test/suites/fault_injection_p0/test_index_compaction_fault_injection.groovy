@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_index_compaction_failure_injection", "nonConcurrent") {
+    def isCloudMode = isCloudMode()
     def tableName = "test_index_compaction_failure_injection_dups"
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -160,7 +161,11 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (1 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 1 * replicaNum)
+        }
 
         run_sql.call()
 
@@ -171,7 +176,11 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
 
         // insert 6 rows, so there are 7 rowsets.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 7 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (7 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 7 * replicaNum)
+        }
 
         // tigger full compaction for all tablets with fault injection
         try {
@@ -185,10 +194,16 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         // insert more data
         insert_data.call()
 
+        sql """ select * from ${tableName} """
+
         // after fault injection, there are still 7 rowsets.
         // and we insert 6 rows, so there are 13 rowsets.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 13 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (13 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 13 * replicaNum)
+        }
 
         logger.info("trigger_full_compaction_on_tablets normally")
         // trigger full compactions for all tablets in ${tableName}
@@ -200,25 +215,41 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (1 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 1 * replicaNum)
+        }
 
         run_sql.call()
 
         // insert more data and trigger full compaction again
         insert_data.call()
         
+        sql """ select * from ${tableName} """
+
         // insert 6 rows, so there are 7 rowsets.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 7 * replicaNum)
-
+        if (isCloudMode) {
+            assert (rowsetCount == (7 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 7 * replicaNum)
+        }
         // tigger full compaction for all tablets normally
         // this time, index compaction will be done successfully
         logger.info("trigger_full_compaction_on_tablets normally")
         trigger_full_compaction_on_tablets.call(tablets)
 
+        // wait for full compaction done
+        wait_full_compaction_done.call(tablets)
+
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (1 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 1 * replicaNum)
+        }
 
         run_sql.call()
     }
@@ -247,9 +278,15 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
             }
         }
         set_be_config.call("inverted_index_compaction_enable", "true")
+        if (isCloudMode) {
+            set_be_config.call("disable_auto_compaction", "true")
+        }
         has_update_be_config = true
         // check updated config
         check_config.call("inverted_index_compaction_enable", "true");
+        if (isCloudMode) {
+            check_config.call("disable_auto_compaction", "true")
+        }
 
 
         /**
@@ -309,6 +346,9 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
     } finally {
         if (has_update_be_config) {
             set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
+            if (isCloudMode) {
+                set_be_config.call("disable_auto_compaction", disableAutoCompaction.toString())
+            }
         }
     }
 }

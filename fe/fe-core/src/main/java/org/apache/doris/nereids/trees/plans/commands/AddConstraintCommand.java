@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -30,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -63,19 +61,16 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         Pair<ImmutableList<String>, TableIf> columnsAndTable = extractColumnsAndTable(ctx, constraint.toProject());
-        org.apache.doris.catalog.constraint.Constraint catalogConstraint = null;
         if (constraint.isForeignKey()) {
             Pair<ImmutableList<String>, TableIf> referencedColumnsAndTable
                     = extractColumnsAndTable(ctx, constraint.toReferenceProject());
-            catalogConstraint = columnsAndTable.second.addForeignConstraint(name, columnsAndTable.first,
-                    referencedColumnsAndTable.second, referencedColumnsAndTable.first);
+            columnsAndTable.second.addForeignConstraint(name, columnsAndTable.first,
+                    referencedColumnsAndTable.second, referencedColumnsAndTable.first, false);
         } else if (constraint.isPrimaryKey()) {
-            catalogConstraint = columnsAndTable.second.addPrimaryKeyConstraint(name, columnsAndTable.first);
+            columnsAndTable.second.addPrimaryKeyConstraint(name, columnsAndTable.first, false);
         } else if (constraint.isUnique()) {
-            catalogConstraint = columnsAndTable.second.addUniqueConstraint(name, columnsAndTable.first);
+            columnsAndTable.second.addUniqueConstraint(name, columnsAndTable.first, false);
         }
-        Env.getCurrentEnv().getEditLog().logAddConstraint(
-                new AlterConstraintLog(catalogConstraint, columnsAndTable.second));
     }
 
     private Pair<ImmutableList<String>, TableIf> extractColumnsAndTable(ConnectContext ctx, LogicalPlan plan) {

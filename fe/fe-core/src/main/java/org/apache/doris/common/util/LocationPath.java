@@ -43,6 +43,7 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 public class LocationPath {
     private static final Logger LOG = LogManager.getLogger(LocationPath.class);
@@ -220,7 +221,9 @@ public class LocationPath {
      * @return metadata location path. just convert when storage is compatible with s3 client.
      */
     private static String convertToS3(String location) {
-        LOG.debug("try convert location to s3 prefix: " + location);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("try convert location to s3 prefix: " + location);
+        }
         int pos = findDomainPos(location);
         return "s3" + location.substring(pos);
     }
@@ -293,8 +296,11 @@ public class LocationPath {
                 fsType = FileSystemType.S3;
                 break;
             case COSN:
+                // COSN use s3 client on FE side, because it need to complete multi-part uploading files on FE side.
+                fsType = FileSystemType.S3;
+                break;
             case OFS:
-                // ofs:// and cosn:// use the same underlying file system: Tencent Cloud HDFS, aka CHDFS)) {
+                // ofs:// use the underlying file system: Tencent Cloud HDFS, aka CHDFS)) {
                 fsType = FileSystemType.OFS;
                 break;
             case HDFS:
@@ -326,7 +332,11 @@ public class LocationPath {
             return null;
         }
         LocationPath locationPath = new LocationPath(location);
-        switch (locationPath.getLocationType()) {
+        return locationPath.getTFileTypeForBE();
+    }
+
+    public TFileType getTFileTypeForBE() {
+        switch (this.getLocationType()) {
             case S3:
             case S3A:
             case S3N:
@@ -359,7 +369,7 @@ public class LocationPath {
      *
      * @return BE scan range path
      */
-    public Path toScanRangeLocation() {
+    public Path toStorageLocation() {
         switch (locationType) {
             case S3:
             case S3A:
@@ -394,6 +404,12 @@ public class LocationPath {
 
     public Path getPath() {
         return new Path(location);
+    }
+
+    public static String getTempWritePath(String loc, String prefix) {
+        Path tempRoot = new Path(loc, prefix);
+        Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
+        return tempPath.toString();
     }
 
     @Override

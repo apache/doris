@@ -58,7 +58,7 @@ private:
                        std::string& result);
 
     std::unique_ptr<RuntimeState> _runtime_state;
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     RuntimeProfile* _runtime_profile = nullptr;
     ObjectPool _pool;
     TUniqueId _query_id;

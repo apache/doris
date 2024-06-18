@@ -62,7 +62,8 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
         return logicalJoin()
                 // TODO: we may need another rule to handle on true or on false condition
                 .when(join -> !join.getOtherJoinConjuncts().isEmpty() && !(join.getOtherJoinConjuncts().size() == 1
-                        && join.getOtherJoinConjuncts().get(0) instanceof BooleanLiteral))
+                        && join.getOtherJoinConjuncts().get(0) instanceof BooleanLiteral)
+                        && !join.isMarkJoin())
                 .then(join -> {
                     List<Expression> otherJoinConjuncts = join.getOtherJoinConjuncts();
                     List<Expression> remainingOther = Lists.newArrayList();
@@ -90,7 +91,7 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
 
                     return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
                             remainingOther, join.getMarkJoinConjuncts(), join.getDistributeHint(),
-                            join.getMarkJoinSlotReference(), left, right);
+                            join.getMarkJoinSlotReference(), left, right, join.getJoinReorderContext());
 
                 }).toRule(RuleType.PUSH_DOWN_JOIN_OTHER_CONDITION);
     }

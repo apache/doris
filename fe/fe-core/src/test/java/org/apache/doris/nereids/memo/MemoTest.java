@@ -22,7 +22,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.cost.Cost;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
@@ -69,10 +69,10 @@ class MemoTest implements MemoPatternMatchSupported {
 
     private final LogicalJoin<LogicalOlapScan, LogicalOlapScan> logicalJoinAB = new LogicalJoin<>(JoinType.INNER_JOIN,
             PlanConstructor.newLogicalOlapScan(0, "A", 0),
-            PlanConstructor.newLogicalOlapScan(1, "B", 0));
+            PlanConstructor.newLogicalOlapScan(1, "B", 0), null);
 
     private final LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> logicalJoinABC = new LogicalJoin<>(
-            JoinType.INNER_JOIN, logicalJoinAB, PlanConstructor.newLogicalOlapScan(2, "C", 0));
+            JoinType.INNER_JOIN, logicalJoinAB, PlanConstructor.newLogicalOlapScan(2, "C", 0), null);
 
     /*
      * ┌─────────────────────────┐     ┌───────────┐
@@ -90,18 +90,18 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     void testMergeGroup() {
         Group srcGroup = new Group(new GroupId(2), new GroupExpression(new FakePlan()),
-                new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
+                new LogicalProperties(ArrayList::new, () -> DataTrait.EMPTY_TRAIT));
         Group dstGroup = new Group(new GroupId(3), new GroupExpression(new FakePlan()),
-                new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
+                new LogicalProperties(ArrayList::new, () -> DataTrait.EMPTY_TRAIT));
 
         FakePlan fakePlan = new FakePlan();
         GroupExpression srcParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(srcGroup));
         Group srcParentGroup = new Group(new GroupId(0), srcParentExpression,
-                new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
+                new LogicalProperties(ArrayList::new, () -> DataTrait.EMPTY_TRAIT));
         srcParentGroup.setBestPlan(srcParentExpression, Cost.zeroV1(), PhysicalProperties.ANY);
         GroupExpression dstParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(dstGroup));
         Group dstParentGroup = new Group(new GroupId(1), dstParentExpression,
-                new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
+                new LogicalProperties(ArrayList::new, () -> DataTrait.EMPTY_TRAIT));
 
         Memo memo = new Memo();
         Map<GroupId, Group> groups = Deencapsulation.getField(memo, "groups");
@@ -160,8 +160,7 @@ class MemoTest implements MemoPatternMatchSupported {
                         // swap join's children
                         logicalJoin(logicalOlapScan(), logicalOlapScan()).then(joinBA ->
                                 // this project eliminate when copy in, because it's output same with child.
-                                new LogicalProject<>(Lists.newArrayList(joinBA.getOutput()),
-                                        new LogicalJoin<>(JoinType.INNER_JOIN, joinBA.right(), joinBA.left()))
+                                new LogicalJoin<>(JoinType.INNER_JOIN, joinBA.right(), joinBA.left(), null)
                         ))
                 .checkGroupNum(5)
                 .checkGroupExpressionNum(6)
@@ -211,7 +210,7 @@ class MemoTest implements MemoPatternMatchSupported {
         UnboundRelation scanA = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("a"));
 
         // when unboundRelation contains id, the case is illegal.
-        LogicalJoin<UnboundRelation, UnboundRelation> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanA);
+        LogicalJoin<UnboundRelation, UnboundRelation> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanA, null);
 
         Assertions.assertThrows(IllegalStateException.class, () -> PlanChecker.from(connectContext, topJoin));
     }
@@ -222,7 +221,7 @@ class MemoTest implements MemoPatternMatchSupported {
         LogicalOlapScan scanA = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), tableA);
         LogicalOlapScan scanA1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), tableA);
 
-        LogicalJoin<LogicalOlapScan, LogicalOlapScan> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanA1);
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanA1, null);
 
         PlanChecker.from(connectContext, topJoin)
                 .checkGroupNum(3)
@@ -241,7 +240,7 @@ class MemoTest implements MemoPatternMatchSupported {
         LogicalOlapScan scanA = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), tableA);
         LogicalOlapScan scanB = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), tableB);
 
-        LogicalJoin<LogicalOlapScan, LogicalOlapScan> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanB);
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanB, null);
 
         PlanChecker.from(connectContext, topJoin)
                 .checkGroupNum(3)
@@ -283,9 +282,9 @@ class MemoTest implements MemoPatternMatchSupported {
         LogicalOlapScan scanC = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), tableC);
         LogicalOlapScan scanD = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), tableD);
 
-        LogicalJoin<LogicalOlapScan, LogicalOlapScan> leftJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, scanA, scanB);
-        LogicalJoin<LogicalOlapScan, LogicalOlapScan> rightJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, scanC, scanD);
-        LogicalJoin topJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, leftJoin, rightJoin);
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> leftJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, scanA, scanB, null);
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> rightJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, scanC, scanD, null);
+        LogicalJoin topJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, leftJoin, rightJoin, null);
 
         PlanChecker.from(connectContext, topJoin)
                 .checkGroupNum(7)
@@ -1007,7 +1006,8 @@ class MemoTest implements MemoPatternMatchSupported {
                         LimitPhase.ORIGIN, new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                                 ImmutableList.of(new EqualTo(new UnboundSlot("sid"), new UnboundSlot("id"))),
                                 new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score),
-                                new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student)
+                                new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student),
+                                null
                         )
                 ))
                 .applyTopDownInMemo(

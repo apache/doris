@@ -24,11 +24,14 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
@@ -37,6 +40,8 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.scheduler.JobScheduler;
 import org.apache.doris.load.loadv2.JobState;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import lombok.extern.log4j.Log4j2;
@@ -48,6 +53,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -341,7 +347,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String dbName,
                                                       String labelValue,
                                                       boolean accurateMatch,
-                                                      JobState jobState) throws AnalysisException {
+                                                      JobState jobState, String catalogName) throws AnalysisException {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<>();
         if (!Env.getCurrentEnv().getLabelProcessor().existJobs(dbId)) {
             return loadJobInfos;
@@ -356,6 +362,12 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                     if (jobState != null && !validState(jobState, loadJob)) {
                         continue;
                     }
+                    // check auth
+                    try {
+                        checkJobAuth(catalogName, dbName, loadJob.getTableNames());
+                    } catch (AnalysisException e) {
+                        continue;
+                    }
                     // add load job info, convert String list to Comparable list
                     loadJobInfos.add(new ArrayList<>(loadJob.getShowInfo()));
                 } catch (RuntimeException e) {
@@ -366,6 +378,27 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             return loadJobInfos;
         } finally {
             readUnlock();
+        }
+    }
+
+    public void checkJobAuth(String ctlName, String dbName, Set<String> tableNames) throws AnalysisException {
+        if (tableNames.isEmpty()) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), ctlName, dbName,
+                            PrivPredicate.LOAD)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                        PrivPredicate.LOAD.getPrivs().toString(), dbName);
+            }
+        } else {
+            for (String tblName : tableNames) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), ctlName, dbName,
+                                tblName, PrivPredicate.LOAD)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                            PrivPredicate.LOAD.getPrivs().toString(), tblName);
+                    return;
+                }
+            }
         }
     }
 
@@ -411,6 +444,27 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             }
         } finally {
             readUnlock();
+        }
+        // check auth
+        if (unfinishedLoadJob.size() > 1 || unfinishedLoadJob.get(0).getTableNames().isEmpty()) {
+            if (Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                            PrivPredicate.LOAD)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, "LOAD",
+                        ConnectContext.get().getQualifiedUser(),
+                        ConnectContext.get().getRemoteIP(), dbName);
+            }
+        } else {
+            for (String tableName : unfinishedLoadJob.get(0).getTableNames()) {
+                if (Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                tableName,
+                                PrivPredicate.LOAD)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                            ConnectContext.get().getQualifiedUser(),
+                            ConnectContext.get().getRemoteIP(), dbName + ":" + tableName);
+                }
+            }
         }
         for (InsertJob loadJob : unfinishedLoadJob) {
             try {

@@ -63,4 +63,3 @@ public class StAngleSphere extends ScalarFunction
         return visitor.visitStAngleSphere(this, context);
     }
 }
-

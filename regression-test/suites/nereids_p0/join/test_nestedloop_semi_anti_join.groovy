@@ -78,6 +78,14 @@ suite("test_nestedloop_semi_anti_join", "nereids_p0") {
     qt_join """
         select * from ${tbl1} where user_id not in (select user_id from ${tbl2} where ${tbl1}.user_id >  ${tbl2}.user_id) order by ${tbl1}.user_id;
     """
+
+    qt_join_mark_join1 """
+        select * from ${tbl1} where exists (select * from ${tbl2} where ${tbl1}.user_id >  ${tbl2}.user_id) or ${tbl1}.user_id2 > 3 order by ${tbl1}.user_id;
+    """
+
+    qt_join_mark_join2 """
+        select * from ${tbl1} where not exists (select * from ${tbl2} where ${tbl1}.user_id >  ${tbl2}.user_id) or ${tbl1}.user_id2 > 3 order by ${tbl1}.user_id;
+    """
     sql "DROP TABLE IF EXISTS ${tbl1}"
     sql "DROP TABLE IF EXISTS ${tbl2}"
 }

@@ -48,8 +48,10 @@ public class AggStatsDerive extends BaseStatsDerive {
         // rowCount: product of # of distinct values produced by grouping exprs
         for (Expr groupingExpr : groupingExprs) {
             long numDistinct = groupingExpr.getNumDistinctValues();
-            LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct=" + Long.toString(
-                    numDistinct));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct=" + Long.toString(
+                        numDistinct));
+            }
             if (numDistinct == -1) {
                 rowCount = -1;
                 break;
@@ -66,7 +68,9 @@ public class AggStatsDerive extends BaseStatsDerive {
             rowCount *= numDistinct;
         }
         if (rowCount > 0) {
-            LOG.debug("sel=" + Double.toString(computeSelectivity()));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("sel=" + Double.toString(computeSelectivity()));
+            }
             applyConjunctsSelectivity();
         }
         // if we ended up with an overflow, the estimate is certain to be wrong

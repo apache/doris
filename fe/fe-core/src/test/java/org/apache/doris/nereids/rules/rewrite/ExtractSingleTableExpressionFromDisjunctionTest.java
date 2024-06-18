@@ -82,7 +82,7 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
                         new EqualTo(courseName, new StringLiteral("abc"))
                 )
         );
-        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course);
+        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null);
         LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join);
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
@@ -124,7 +124,7 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
                         new EqualTo(courseName, new StringLiteral("abc"))
                 )
         );
-        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course);
+        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null);
         LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join);
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
@@ -160,7 +160,7 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
                 ),
                 new EqualTo(studentGender, new IntegerLiteral(1))
         );
-        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course);
+        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null);
         LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join);
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())

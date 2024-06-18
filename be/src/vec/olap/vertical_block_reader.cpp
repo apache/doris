@@ -181,7 +181,7 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
             _next_row.block->create_same_struct_block(_reader_context.batch_size)->mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
-    _stored_has_string_tag.resize(_stored_data_columns.size());
+    _stored_has_variable_length_tag.resize(_stored_data_columns.size());
 
     auto& tablet_schema = *_tablet_schema;
     for (size_t idx = 0; idx < _return_columns.size(); ++idx) {
@@ -198,13 +198,8 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
         });
         _agg_places.push_back(place);
 
-        // calculate `has_string` tag.
-        _stored_has_string_tag[idx] =
-                _stored_data_columns[idx]->is_column_string() ||
-                (_stored_data_columns[idx]->is_nullable() &&
-                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
-                         ->get_nested_column_ptr()
-                         ->is_column_string());
+        // calculate `_has_variable_length_tag` tag. like string, array, map
+        _stored_has_variable_length_tag[idx] = _stored_data_columns[idx]->is_variable_length();
     }
 }
 
@@ -212,6 +207,8 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
     StorageReadOptions opts;
     _reader_context.batch_size = opts.block_row_max;
     RETURN_IF_ERROR(TabletReader::init(read_params));
+
+    _arena = std::make_unique<Arena>();
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
@@ -303,6 +300,9 @@ void VerticalBlockReader::_update_agg_data(MutableColumns& columns) {
 
 void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
                                             bool is_close) {
+    if (!_arena) [[unlikely]] {
+        return;
+    }
     for (size_t idx = 0; idx < _return_columns.size(); ++idx) {
         AggregateFunctionPtr function = _agg_functions[idx];
         AggregateDataPtr place = _agg_places[idx];
@@ -310,7 +310,7 @@ void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, 
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
-                                      &_arena, _stored_has_null_tag[idx]);
+                                      _arena.get(), _stored_has_null_tag[idx]);
         }
 
         if (is_close) {
@@ -320,7 +320,7 @@ void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, 
         }
     }
     if (is_close) {
-        _arena.clear();
+        _arena->clear();
     }
 }
 
@@ -333,12 +333,12 @@ size_t VerticalBlockReader::_copy_agg_data() {
     }
     for (size_t idx = 0; idx < _return_columns.size(); ++idx) {
         auto& dst_column = _stored_data_columns[idx];
-        if (_stored_has_string_tag[idx]) {
-            //string type should replace ordered
+        if (_stored_has_variable_length_tag[idx]) {
+            //variable length type should replace ordered
+            dst_column->clear();
             for (size_t i = 0; i < copy_size; i++) {
                 auto& ref = _stored_row_ref[i];
-                dst_column->replace_column_data(*ref.block->get_by_position(idx).column,
-                                                ref.row_pos, i);
+                dst_column->insert_from(*ref.block->get_by_position(idx).column, ref.row_pos);
             }
         } else {
             for (auto& it : _temp_ref_map) {

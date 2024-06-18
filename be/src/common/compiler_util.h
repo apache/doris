@@ -49,3 +49,5 @@
 #define MAY_ALIAS __attribute__((__may_alias__))
 
 #define ALIGN_CACHE_LINE __attribute__((aligned(CACHE_LINE_SIZE)))
+
+#define PURE __attribute__((pure))

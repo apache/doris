@@ -91,22 +91,22 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
     std::vector<void*> datas(row_num);
     // variables names
     {
-        StringRef strs[row_num];
+        std::vector<StringRef> strs(row_num);
         int idx = 0;
         for (auto& it : _var_result.variables) {
             strs[idx] = StringRef(it.first.c_str(), it.first.size());
-            datas[idx] = strs + idx;
+            datas[idx] = strs.data() + idx;
             ++idx;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
     }
     // value
     {
-        StringRef strs[row_num];
+        std::vector<StringRef> strs(row_num);
         int idx = 0;
         for (auto& it : _var_result.variables) {
             strs[idx] = StringRef(it.second.c_str(), it.second.size());
-            datas[idx] = strs + idx;
+            datas[idx] = strs.data() + idx;
             ++idx;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));

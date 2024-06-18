@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -42,6 +43,7 @@ class VerticalSegmentWriter;
 
 struct SegmentStatistics;
 class BetaRowsetWriter;
+class SegmentFileCollection;
 
 class FileWriterCreator {
 public:
@@ -87,11 +89,9 @@ private:
 
 class SegmentFlusher {
 public:
-    SegmentFlusher();
+    SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files);
 
     ~SegmentFlusher();
-
-    Status init(RowsetWriterContext& rowset_writer_context);
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
@@ -100,6 +100,10 @@ public:
 
     int64_t num_rows_written() const { return _num_rows_written; }
 
+    // for partial update
+    int64_t num_rows_updated() const { return _num_rows_updated; }
+    int64_t num_rows_deleted() const { return _num_rows_deleted; }
+    int64_t num_rows_new_added() const { return _num_rows_new_added; }
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
 
     Status close();
@@ -131,17 +135,15 @@ public:
     bool need_buffering();
 
 private:
-    Status _expand_variant_to_subcolumns(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
+    Status _parse_variant_columns(vectorized::Block& block);
     Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                      const vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
                      const vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
-                                  int32_t segment_id, bool no_compression = false,
-                                  TabletSchemaSPtr flush_schema = nullptr);
+                                  int32_t segment_id, bool no_compression = false);
     Status _create_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
-                                  int32_t segment_id, bool no_compression = false,
-                                  TabletSchemaSPtr flush_schema = nullptr);
+                                  int32_t segment_id, bool no_compression = false);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                  TabletSchemaSPtr flush_schema = nullptr,
                                  int64_t* flush_size = nullptr);
@@ -150,23 +152,22 @@ private:
                                  int64_t* flush_size = nullptr);
 
 private:
-    RowsetWriterContext* _context;
-
-    mutable SpinLock _lock; // protect following vectors.
-    std::vector<io::FileWriterPtr> _file_writers;
+    RowsetWriterContext& _context;
+    SegmentFileCollection& _seg_files;
 
     // written rows by add_block/add_row
     std::atomic<int64_t> _num_rows_written = 0;
+    std::atomic<int64_t> _num_rows_updated = 0;
+    std::atomic<int64_t> _num_rows_new_added = 0;
+    std::atomic<int64_t> _num_rows_deleted = 0;
     std::atomic<int64_t> _num_rows_filtered = 0;
 };
 
 class SegmentCreator {
 public:
-    SegmentCreator() = default;
+    SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files);
 
     ~SegmentCreator() = default;
-
-    Status init(RowsetWriterContext& rowset_writer_context);
 
     void set_segment_start_id(uint32_t start_id) { _next_segment_id = start_id; }
 
@@ -180,6 +181,10 @@ public:
 
     int64_t num_rows_written() const { return _segment_flusher.num_rows_written(); }
 
+    // for partial update
+    int64_t num_rows_updated() const { return _segment_flusher.num_rows_updated(); }
+    int64_t num_rows_deleted() const { return _segment_flusher.num_rows_deleted(); }
+    int64_t num_rows_new_added() const { return _segment_flusher.num_rows_new_added(); }
     int64_t num_rows_filtered() const { return _segment_flusher.num_rows_filtered(); }
 
     // Flush a block into a single segment, with pre-allocated segment_id.

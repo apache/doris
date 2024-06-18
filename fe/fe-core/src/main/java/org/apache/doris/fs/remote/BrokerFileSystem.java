@@ -27,7 +27,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.fs.RemoteFiles;
 import org.apache.doris.fs.operations.BrokerFileOperations;
 import org.apache.doris.fs.operations.OpParams;
 import org.apache.doris.service.FrontendOptions;
@@ -69,7 +68,6 @@ import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -156,7 +154,9 @@ public class BrokerFileSystem extends RemoteFileSystem {
 
     @Override
     public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
-        LOG.debug("download from {} to {}, file size: {}.", remoteFilePath, localFilePath, fileSize);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("download from {} to {}, file size: {}.", remoteFilePath, localFilePath, fileSize);
+        }
 
         long start = System.currentTimeMillis();
 
@@ -228,10 +228,14 @@ public class BrokerFileSystem extends RemoteFileSystem {
                             status = new Status(Status.ErrCode.COMMON_ERROR, lastErrMsg);
                         }
                         if (rep.opStatus.statusCode != TBrokerOperationStatusCode.END_OF_FILE) {
-                            LOG.debug("download. readLen: {}, read data len: {}, left size:{}. total size: {}",
-                                    readLen, rep.getData().length, leftSize, fileSize);
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("download. readLen: {}, read data len: {}, left size:{}. total size: {}",
+                                        readLen, rep.getData().length, leftSize, fileSize);
+                            }
                         } else {
-                            LOG.debug("read eof: " + remoteFilePath);
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("read eof: " + remoteFilePath);
+                            }
                         }
                         break;
                     } catch (TTransportException e) {
@@ -562,11 +566,11 @@ public class BrokerFileSystem extends RemoteFileSystem {
     }
 
     @Override
-    public RemoteFiles listLocatedFiles(String remotePath, boolean onlyFiles, boolean recursive) throws UserException {
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
         // get a proper broker
         Pair<TPaloBrokerService.Client, TNetworkAddress> pair = getBroker();
         if (pair == null) {
-            throw new UserException("failed to get broker client");
+            return new Status(Status.ErrCode.BAD_CONNECTION, "failed to get broker client");
         }
         TPaloBrokerService.Client client = pair.first;
         TNetworkAddress address = pair.second;
@@ -576,14 +580,14 @@ public class BrokerFileSystem extends RemoteFileSystem {
         try {
             TBrokerListPathRequest req = new TBrokerListPathRequest(TBrokerVersion.VERSION_ONE, remotePath,
                     recursive, properties);
-            req.setOnlyFiles(onlyFiles);
+            req.setOnlyFiles(true);
             TBrokerListResponse response = client.listLocatedFiles(req);
             TBrokerOperationStatus operationStatus = response.getOpStatus();
             if (operationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
-                throw new UserException("failed to listLocatedFiles, remote path: " + remotePath + ". msg: "
-                    + operationStatus.getMessage() + ", broker: " + BrokerUtil.printBroker(name, address));
+                return new Status(Status.ErrCode.COMMON_ERROR,
+                        "failed to listLocatedFiles, remote path: " + remotePath + ". msg: "
+                                + operationStatus.getMessage() + ", broker: " + BrokerUtil.printBroker(name, address));
             }
-            List<RemoteFile> result = new ArrayList<>();
             List<TBrokerFileStatus> fileStatus = response.getFiles();
             for (TBrokerFileStatus tFile : fileStatus) {
                 org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(tFile.path);
@@ -592,10 +596,10 @@ public class BrokerFileSystem extends RemoteFileSystem {
                 result.add(file);
             }
             LOG.info("finished to listLocatedFiles, remote path {}. get files: {}", remotePath, result);
-            return new RemoteFiles(result);
+            return Status.OK;
         } catch (TException e) {
             needReturn = false;
-            throw new UserException("failed to listLocatedFiles, remote path: "
+            return new Status(Status.ErrCode.COMMON_ERROR, "failed to listLocatedFiles, remote path: "
                 + remotePath + ". msg: " + e.getMessage() + ", broker: " + BrokerUtil.printBroker(name, address));
         } finally {
             if (needReturn) {
@@ -645,7 +649,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
 
     // List files in remotePath
     @Override
-    public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         // get a proper broker
         Pair<TPaloBrokerService.Client, TNetworkAddress> pair = getBroker();
         if (pair == null) {

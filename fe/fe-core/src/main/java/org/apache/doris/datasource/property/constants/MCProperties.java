@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.constants;
 
-import org.apache.doris.datasource.credentials.CloudCredential;
+import org.apache.doris.common.credentials.CloudCredential;
 
 import java.util.Map;
 
@@ -31,6 +31,8 @@ public class MCProperties extends BaseProperties {
     public static final String SECRET_KEY = "mc.secret_key";
     public static final String SESSION_TOKEN = "mc.session_token";
     public static final String PUBLIC_ACCESS = "mc.public_access";
+    public static final String ODPS_ENDPOINT = "mc.odps_endpoint";
+    public static final String TUNNEL_SDK_ENDPOINT = "mc.tunnel_endpoint";
 
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);

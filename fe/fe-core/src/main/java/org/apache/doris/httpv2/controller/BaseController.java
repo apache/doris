@@ -19,10 +19,13 @@ package org.apache.doris.httpv2.controller;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
@@ -67,8 +70,9 @@ public class BaseController {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
             UserIdentity currentUser = checkPassword(authInfo);
 
-            if (checkAuth) {
-                checkGlobalAuth(currentUser, PrivPredicate.ADMIN);
+            if (Config.isCloudMode() && checkAuth) {
+                checkInstanceOverdue(currentUser);
+                checkGlobalAuth(currentUser, PrivPredicate.ADMIN_OR_NODE);
             }
 
             SessionValue value = new SessionValue();
@@ -82,8 +86,10 @@ public class BaseController {
             ctx.setCurrentUserIdentity(currentUser);
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setThreadLocalInfo();
-            LOG.debug("check auth without cookie success for user: {}, thread: {}",
-                    currentUser, Thread.currentThread().getId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("check auth without cookie success for user: {}, thread: {}",
+                        currentUser, Thread.currentThread().getId());
+            }
             return authInfo;
         }
 
@@ -107,7 +113,9 @@ public class BaseController {
         cookie.setPath("/");
         cookie.setHttpOnly(true);
         response.addCookie(cookie);
-        LOG.debug("add session cookie: {} {}", PALO_SESSION_ID, key);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("add session cookie: {} {}", PALO_SESSION_ID, key);
+        }
         HttpAuthManager.getInstance().addSessionValue(key, value);
     }
 
@@ -125,10 +133,17 @@ public class BaseController {
         }
 
         if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(sessionValue.currentUser,
-                PrivPredicate.ADMIN)) {
+                PrivPredicate.ADMIN_OR_NODE)) {
             // need to check auth and check auth failed
             return null;
         }
+
+        if (Config.isCloudMode() && checkAuth && !sessionValue.currentUser.isRootUser()
+                && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
+                == Cloud.InstanceInfoPB.Status.OVERDUE) {
+            return null;
+        }
+
 
         updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
 
@@ -138,8 +153,10 @@ public class BaseController {
         ctx.setCurrentUserIdentity(sessionValue.currentUser);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();
-        LOG.debug("check cookie success for user: {}, thread: {}",
-                sessionValue.currentUser, Thread.currentThread().getId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("check cookie success for user: {}, thread: {}",
+                    sessionValue.currentUser, Thread.currentThread().getId());
+        }
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
         authInfo.remoteIp = request.getRemoteHost();
@@ -193,6 +210,15 @@ public class BaseController {
         }
     }
 
+    protected void checkInstanceOverdue(UserIdentity currentUsr) {
+        Cloud.InstanceInfoPB.Status s = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus();
+        if (!currentUsr.isRootUser()
+                && s == Cloud.InstanceInfoPB.Status.OVERDUE) {
+            LOG.warn("this warehouse is overdue root:{}, status:{}", currentUsr.isRootUser(), s);
+            throw new UnauthorizedException("The warehouse is overdue!");
+        }
+    }
+
     protected void checkGlobalAuth(UserIdentity currentUser, PrivPredicate predicate) throws UnauthorizedException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
@@ -202,7 +228,8 @@ public class BaseController {
 
     protected void checkDbAuth(UserIdentity currentUser, String db, PrivPredicate predicate)
             throws UnauthorizedException {
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUser, db, predicate)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, db, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -210,7 +237,8 @@ public class BaseController {
 
     protected void checkTblAuth(UserIdentity currentUser, String db, String tbl, PrivPredicate predicate)
             throws UnauthorizedException {
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, db, tbl, predicate)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, db, tbl, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -238,7 +266,9 @@ public class BaseController {
                     request.getHeader("Authorization"), request.getRequestURI());
             throw new UnauthorizedException("Need auth information.");
         }
-        LOG.debug("get auth info: {}", authInfo);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get auth info: {}", authInfo);
+        }
         return authInfo;
     }
 

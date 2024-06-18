@@ -40,8 +40,10 @@
 #include "common/status.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
+#include "io/fs/s3_obj_storage_client.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
@@ -51,6 +53,7 @@
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 #include "util/s3_util.h"
@@ -150,7 +153,7 @@ protected:
         rowset_writer_context->tablet_schema_hash = 1111;
         rowset_writer_context->partition_id = 10;
         rowset_writer_context->rowset_type = BETA_ROWSET;
-        rowset_writer_context->rowset_dir = kTestDir;
+        rowset_writer_context->tablet_path = kTestDir;
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
@@ -225,27 +228,33 @@ class S3ClientMockGetErrorData : public S3ClientMock {
 
 TEST_F(BetaRowsetTest, ReadTest) {
     RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
-    BetaRowset rowset(nullptr, "", rowset_meta);
-    S3Conf s3_conf;
-    s3_conf.ak = "ak";
-    s3_conf.sk = "sk";
-    s3_conf.endpoint = "endpoint";
-    s3_conf.region = "region";
-    s3_conf.bucket = "bucket";
-    s3_conf.prefix = "prefix";
+    BetaRowset rowset(nullptr, rowset_meta, "");
+    S3Conf s3_conf {.bucket = "bucket",
+                    .prefix = "prefix",
+                    .client_conf = {
+                            .endpoint = "endpoint",
+                            .region = "region",
+                            .ak = "ak",
+                            .sk = "sk",
+                    }};
     std::string resource_id = "10000";
-    std::shared_ptr<io::S3FileSystem> fs;
-    ASSERT_TRUE(io::S3FileSystem::create(std::move(s3_conf), resource_id, &fs).ok());
+    auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto fs = res.value();
+    StorageResource storage_resource(fs);
+    auto& client = fs->client_holder()->_client;
     // failed to head object
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        fs->_client.reset(
-                new S3ClientMock(aws_cred, aws_config,
-                                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, true));
+        std::shared_ptr<Aws::S3::S3Client> s3_client = std::make_shared<S3ClientMock>(
+                aws_cred, aws_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                true);
+
+        client.reset(new io::S3ObjStorageClient(std::move(s3_client)));
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_fs(fs);
+        rowset.rowset_meta()->set_remote_storage_resource(storage_resource);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
         Status st = rowset.load_segments(&segments);
@@ -256,10 +265,11 @@ TEST_F(BetaRowsetTest, ReadTest) {
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        fs->_client.reset(new S3ClientMockGetError());
+        client.reset(new io::S3ObjStorageClient(
+                std::make_shared<Aws::S3::S3Client>(S3ClientMockGetError())));
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_fs(fs);
+        rowset.rowset_meta()->set_remote_storage_resource(storage_resource);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
         Status st = rowset.load_segments(&segments);
@@ -270,10 +280,11 @@ TEST_F(BetaRowsetTest, ReadTest) {
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        fs->_client.reset(new S3ClientMockGetErrorData());
+        client.reset(new io::S3ObjStorageClient(
+                std::make_shared<Aws::S3::S3Client>(S3ClientMockGetErrorData())));
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_fs(fs);
+        rowset.rowset_meta()->set_remote_storage_resource(storage_resource);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
         Status st = rowset.load_segments(&segments);

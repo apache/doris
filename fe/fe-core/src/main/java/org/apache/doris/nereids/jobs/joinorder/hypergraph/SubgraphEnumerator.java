@@ -389,4 +389,3 @@ public class SubgraphEnumerator {
         }
     }
 }
-

@@ -124,7 +124,9 @@ public class ShowBuildIndexStmt extends ShowStmt {
         sb.append(db.getId());
         sb.append("/build_index");
 
-        LOG.debug("process SHOW PROC '{}';", sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("process SHOW PROC '{}';", sb.toString());
+        }
         // create show proc stmt
         // '/jobs/db_name/build_index/
         node = ProcService.getInstance().open(sb.toString());

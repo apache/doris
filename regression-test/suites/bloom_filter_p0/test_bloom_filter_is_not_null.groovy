@@ -33,17 +33,7 @@ suite("test_bloom_filter_is_not_null") {
 
     sql """INSERT INTO ${table_name} values (null), ('b')"""
 
-    sql 'set enable_nereids_planner=false'
     qt_select_all """select * from ${table_name} order by a"""
     qt_select_not_null """select * from ${table_name} WHERE a is not null"""
     qt_select_null """select * from ${table_name} WHERE a is null"""
-
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
-    qt_select_all """select * from ${table_name} order by a"""
-    qt_select_not_null """select * from ${table_name} WHERE a is not null"""
-    qt_select_null """select * from ${table_name} WHERE a is null"""
-
-    sql 'set enable_nereids_planner=false'
-    sql 'set enable_fallback_to_original_planner=true'
 }

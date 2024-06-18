@@ -31,7 +31,7 @@ suite("bind_priority") {
     sql """
     insert into bind_priority_tbl values(1, 2),(3, 4)
     """
-    
+
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
@@ -42,7 +42,7 @@ suite("bind_priority") {
     """
 
     qt_select """
-        select coalesce(a, 'all') as a, count(*) as cnt from (select  null as a  union all  select  'a' as a ) t group by grouping sets ((a),()) order by a;
+        select coalesce(a, 'all') as a, count(*) as cnt from (select  null as a  union all  select  'a' as a ) t group by grouping sets ((a),()) order by a, cnt;
     """
 
     qt_select """
@@ -100,17 +100,17 @@ suite("bind_priority") {
         );
     """
     sql "insert into bind_priority_tbl2 values(3,5),(2, 6),(1,4);"
-    
+
     qt_bind_order_to_project_alias """
             select bind_priority_tbl.b b, bind_priority_tbl2.b
-            from bind_priority_tbl join bind_priority_tbl2 on bind_priority_tbl.a=bind_priority_tbl2.a 
+            from bind_priority_tbl join bind_priority_tbl2 on bind_priority_tbl.a=bind_priority_tbl2.a
             order by b;
         """
 
 
     qt_bind_order_to_project_alias """
         select bind_priority_tbl.b, bind_priority_tbl2.b b
-        from bind_priority_tbl join bind_priority_tbl2 on bind_priority_tbl.a=bind_priority_tbl2.a 
+        from bind_priority_tbl join bind_priority_tbl2 on bind_priority_tbl.a=bind_priority_tbl2.a
         order by b;
         """
 
@@ -148,11 +148,193 @@ suite("bind_priority") {
               ) a
             ), tb2 as
             (
-              select * from tb1 
+              select * from tb1
             )
             select * from tb2 order by id;
             """)
 
         result([[1], [2], [3]])
     }
+
+    def testBindHaving = {
+        sql "drop table if exists test_bind_having_slots"
+
+        sql """create table test_bind_having_slots
+                (id int, age int)
+                distributed by hash(id)
+                properties('replication_num'='1');
+                """
+        sql "insert into test_bind_having_slots values(1, 10), (2, 20), (3, 30);"
+
+        order_qt_having_bind_child """
+            select id, sum(age)
+            from test_bind_having_slots s
+            group by id
+            having id = 1; -- bind id from group by
+            """
+
+        order_qt_having_bind_child2 """
+            select id + 1 as id, sum(age)
+            from test_bind_having_slots s
+            group by id
+            having id = 1; -- bind id from group by
+            """
+
+        order_qt_having_bind_child3 """
+            select id + 1 as id, sum(age)
+            from test_bind_having_slots s
+            group by id
+            having id + 1 = 2; -- bind id from group by
+            """
+
+        order_qt_having_bind_project """
+            select id + 1 as id, sum(age)
+            from test_bind_having_slots s
+            group by id + 1
+            having id = 2; -- bind id from project
+            """
+
+        order_qt_having_bind_project2 """
+            select id + 1 as id, sum(age)
+            from test_bind_having_slots s
+            group by id + 1
+            having id + 1 = 2;  -- bind id from project
+            """
+
+        order_qt_having_bind_project3 """
+            select id + 1 as id, sum(age + 1) as age
+            from test_bind_having_slots s
+            group by id
+            having age = 10; -- bind age from project
+            """
+
+        order_qt_having_bind_project4 """
+            select id + 1 as id, sum(age + 1) as age
+            from test_bind_having_slots s
+            group by id
+            having age = 11; -- bind age from project
+            """
+
+        order_qt_having_bind_child4 """
+            select id + 1 as id, sum(age + 1) as age
+            from test_bind_having_slots s
+            group by id
+            having sum(age) = 10; -- bind age from s
+            """
+
+        order_qt_having_bind_child5 """
+            select id + 1 as id, sum(age + 1) as age
+            from test_bind_having_slots s
+            group by id
+            having sum(age + 1) = 11 -- bind age from s
+            """
+
+
+
+
+        sql "drop table if exists test_bind_having_slots2"
+        sql """create table test_bind_having_slots2
+                (id int)
+                distributed by hash(id)
+                properties('replication_num'='1');
+                """
+        sql "insert into test_bind_having_slots2 values(1), (2), (3), (2);"
+
+        order_qt_having_bind_agg_fun """
+               select id, abs(sum(id)) as id
+                from test_bind_having_slots2
+                group by id
+                having sum(id) + id  >= 7
+                """
+
+        order_qt_having_bind_agg_fun """
+               select id, abs(sum(id)) as id
+                from test_bind_having_slots2
+                group by id
+                having sum(id) + id  >= 6
+                """
+
+
+
+
+
+        sql "drop table if exists test_bind_having_slots3"
+
+        sql """CREATE TABLE `test_bind_having_slots3`(pk int, pk2 int)
+                    DUPLICATE KEY(`pk`)
+                    DISTRIBUTED BY HASH(`pk`) BUCKETS 10
+                    properties('replication_num'='1');
+                    """
+        sql "insert into test_bind_having_slots3 values(1, 1), (2, 2), (2, 2), (3, 3), (3, 3), (3, 3);"
+
+        order_qt_having_bind_group_by """
+                SELECT pk + 6 as ps, COUNT(pk )  *  3 as pk
+                FROM test_bind_having_slots3  tbl_alias1
+                GROUP by pk
+                HAVING  pk = 1
+                """
+
+        order_qt_having_bind_group_by """
+                SELECT pk + 6 as pk, COUNT(pk )  *  3 as pk
+                FROM test_bind_having_slots3  tbl_alias1
+                GROUP by pk + 6
+                HAVING  pk = 7
+                """
+
+        order_qt_having_bind_group_by """
+                SELECT pk + 6, COUNT(pk )  *  3 as pk
+                FROM test_bind_having_slots3  tbl_alias1
+                GROUP by pk + 6
+                HAVING  pk = 3
+                """
+
+        order_qt_having_bind_group_by """
+                select pk + 1 as pk, pk + 2 as pk, count(*)
+                from test_bind_having_slots3
+                group by pk + 1, pk + 2
+                having pk = 4;
+                """
+
+        order_qt_having_bind_group_by """
+                select count(*) pk, pk + 1 as pk
+                from test_bind_having_slots3
+                group by pk + 1, pk + 2
+                having pk = 1;
+                """
+
+        order_qt_having_bind_group_by """
+                select pk + 1 as pk, count(*) pk
+                from test_bind_having_slots3
+                group by pk + 1, pk + 2
+                having pk = 2;
+                """
+    }()
+
+    def bindGroupBy = {
+        sql "drop table if exists test_bind_groupby_slots"
+
+        sql """create table test_bind_groupby_slots
+                (id int, age int)
+                distributed by hash(id)
+                properties('replication_num'='1');
+                """
+        sql "insert into test_bind_groupby_slots values(1, 10), (2, 20), (3, 30);"
+
+        order_qt_sql "select MIN (LENGTH (cast(age as varchar))), 1 AS col2 from test_bind_groupby_slots group by 2"
+    }()
+
+
+
+    def bindOrderBy = {
+        sql "drop table if exists test_bind_orderby_slots"
+
+        sql """create table test_bind_orderby_slots
+                (id int, age int)
+                distributed by hash(id)
+                properties('replication_num'='1');
+                """
+        sql "insert into test_bind_orderby_slots values(1, 10), (2, 20), (3, 30);"
+
+        order_qt_sql "select MIN (LENGTH (cast(age as varchar))), 1 AS col2 from test_bind_orderby_slots order by 2"
+    }()
 }

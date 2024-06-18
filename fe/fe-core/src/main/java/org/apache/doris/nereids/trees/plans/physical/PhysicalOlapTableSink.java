@@ -21,16 +21,16 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
@@ -41,19 +41,15 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * physical olap table sink for insert command
  */
-public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHILD_TYPE> implements Sink {
+public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTableSink<CHILD_TYPE> implements Sink {
 
     private final Database database;
     private final OlapTable targetTable;
@@ -169,19 +165,6 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
     }
 
     @Override
-    public List<Slot> getOutput() {
-        return computeOutput();
-    }
-
-    /**
-     * override function of AbstractPlan.
-     */
-    @Override
-    public Set<Slot> getOutputSet() {
-        return ImmutableSet.copyOf(getOutput());
-    }
-
-    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitPhysicalOlapTableSink(this, context);
     }
@@ -218,23 +201,15 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
         if (targetTable.isPartitionDistributed()) {
             DistributionInfo distributionInfo = targetTable.getDefaultDistributionInfo();
             if (distributionInfo instanceof HashDistributionInfo) {
-                HashDistributionInfo hashDistributionInfo
-                        = ((HashDistributionInfo) targetTable.getDefaultDistributionInfo());
-                List<Column> distributedColumns = hashDistributionInfo.getDistributionColumns();
-                List<Integer> columnIndexes = Lists.newArrayList();
-                int idx = 0;
-                for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
-                    if (targetTable.getFullSchema().get(i).equals(distributedColumns.get(idx))) {
-                        columnIndexes.add(i);
-                        idx++;
-                        if (idx == distributedColumns.size()) {
-                            break;
-                        }
+                // Do not enable shuffle for duplicate key tables when its tablet num is less than threshold.
+                if (targetTable.getKeysType() == KeysType.DUP_KEYS) {
+                    final long partitionNums = targetTable.getPartitionInfo().getAllPartitions().size();
+                    final long tabletNums = partitionNums * distributionInfo.getBucketNum();
+                    if (tabletNums < Config.min_tablets_for_dup_table_shuffle) {
+                        return PhysicalProperties.ANY;
                     }
                 }
-                return PhysicalProperties.createHash(columnIndexes.stream()
-                        .map(colIdx -> child().getOutput().get(colIdx).getExprId())
-                        .collect(Collectors.toList()), ShuffleType.NATURAL);
+                return PhysicalProperties.TABLET_ID_SHUFFLE;
             } else if (distributionInfo instanceof RandomDistributionInfo) {
                 return PhysicalProperties.ANY;
             } else {

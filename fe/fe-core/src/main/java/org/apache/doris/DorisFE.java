@@ -21,8 +21,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
+import org.apache.doris.common.LogUtils;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.JdkUtils;
@@ -77,6 +79,16 @@ public class DorisFE {
     private static FileLock processFileLock;
 
     public static void main(String[] args) {
+        // Every doris version should have a final meta version, it should not change
+        // between small releases. Add a check here to avoid mistake.
+        if (Version.DORIS_FE_META_VERSION > 0
+                && FeMetaVersion.VERSION_CURRENT != Version.DORIS_FE_META_VERSION) {
+            System.err.println("This release's fe meta version should be "
+                    + Version.DORIS_FE_META_VERSION
+                    + " but it is " + FeMetaVersion.VERSION_CURRENT
+                    + ". It should not change, or FE could not rollback in this version");
+            return;
+        }
         StartupOptions options = new StartupOptions();
         options.enableHttpServer = true;
         options.enableQeService = true;
@@ -101,33 +113,19 @@ public class DorisFE {
         CommandLineOptions cmdLineOpts = parseArgs(args);
 
         try {
-            if (cmdLineOpts.isVersion()) {
-                printVersion();
-                System.exit(0);
-            }
-
-            // pid file
-            if (!createAndLockPidFile(pidDir + "/fe.pid")) {
-                throw new IOException("pid file is already locked.");
-            }
-
             // init config
             Config config = new Config();
             config.init(dorisHomeDir + "/conf/fe.conf");
             // Must init custom config after init config, separately.
             // Because the path of custom config file is defined in fe.conf
             config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
-            LOCK_FILE_PATH = Config.meta_dir + "/" + LOCK_FILE_NAME;
-            try {
-                tryLockProcess();
-            } catch (Exception e) {
-                LOG.error("start doris failed.", e);
-                System.exit(-1);
-            }
+
             LdapConfig ldapConfig = new LdapConfig();
             if (new File(dorisHomeDir + "/conf/ldap.conf").exists()) {
                 ldapConfig.init(dorisHomeDir + "/conf/ldap.conf");
             }
+
+            overwriteConfigs();
 
             // check it after Config is initialized, otherwise the config 'check_java_version' won't work.
             if (!JdkUtils.checkJavaVersion()) {
@@ -140,8 +138,20 @@ public class DorisFE {
             // set dns cache ttl
             java.security.Security.setProperty("networkaddress.cache.ttl", "60");
 
+            // pid file
+            if (!cmdLineOpts.isVersion() && !createAndLockPidFile(pidDir + "/fe.pid")) {
+                throw new IOException("pid file is already locked.");
+            }
+
             // check command line options
             checkCommandLineOptions(cmdLineOpts);
+
+            try {
+                tryLockProcess();
+            } catch (Exception e) {
+                LOG.error("start doris failed.", e);
+                System.exit(-1);
+            }
 
             LOG.info("Doris FE starting...");
 
@@ -217,6 +227,11 @@ public class DorisFE {
     }
 
     private static void checkAllPorts() throws IOException {
+        if (Config.enable_check_compatibility_mode) {
+            // The compatibility mode does not need to listen ports.
+            return;
+        }
+
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
                 "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.edit_log_port + " already in use");
@@ -377,11 +392,17 @@ public class DorisFE {
     }
 
     private static void printVersion() {
-        System.out.println("Build version: " + Version.DORIS_BUILD_VERSION);
-        System.out.println("Build time: " + Version.DORIS_BUILD_TIME);
-        System.out.println("Build info: " + Version.DORIS_BUILD_INFO);
-        System.out.println("Build hash: " + Version.DORIS_BUILD_HASH);
-        System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
+        LogUtils.stdout("Build version: " + Version.DORIS_BUILD_VERSION);
+        LogUtils.stdout("Build time: " + Version.DORIS_BUILD_TIME);
+        LogUtils.stdout("Build info: " + Version.DORIS_BUILD_INFO);
+        LogUtils.stdout("Build hash: " + Version.DORIS_BUILD_HASH);
+        LogUtils.stdout("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
+
+        LOG.info("Build version: {}", Version.DORIS_BUILD_VERSION);
+        LOG.info("Build time: {}", Version.DORIS_BUILD_TIME);
+        LOG.info("Build info: {}", Version.DORIS_BUILD_INFO);
+        LOG.info("Build hash: {}", Version.DORIS_BUILD_HASH);
+        LOG.info("Java compile version: {}", Version.DORIS_JAVA_COMPILE_VERSION);
     }
 
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {
@@ -398,23 +419,23 @@ public class DorisFE {
         } else if (cmdLineOpts.runImageTool()) {
             File imageFile = new File(cmdLineOpts.getImagePath());
             if (!imageFile.exists()) {
-                System.out.println("image does not exist: " + imageFile.getAbsolutePath()
+                LogUtils.stderr("image does not exist: " + imageFile.getAbsolutePath()
                         + " . Please put an absolute path instead");
                 System.exit(-1);
             } else {
-                System.out.println("Start to load image: ");
+                LogUtils.stdout("Start to load image: ");
                 try {
                     MetaReader.read(imageFile, Env.getCurrentEnv());
-                    System.out.println("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
+                    LogUtils.stdout("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
                 } catch (Exception e) {
-                    System.out.println("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
+                    LogUtils.stderr("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
                     LOG.warn("", e);
                 } finally {
                     System.exit(0);
                 }
             }
         }
-
+        printVersion();
         // go on
     }
 
@@ -448,6 +469,7 @@ public class DorisFE {
      */
     private static void tryLockProcess() {
         try {
+            LOCK_FILE_PATH = Config.meta_dir + "/" + LOCK_FILE_NAME;
             processLockFileChannel = FileChannel.open(new File(LOCK_FILE_PATH).toPath(), StandardOpenOption.WRITE,
                     StandardOpenOption.CREATE);
             processFileLock = processLockFileChannel.tryLock();
@@ -465,9 +487,7 @@ public class DorisFE {
                 + "same time");
     }
 
-
     private static void releaseFileLockAndCloseFileChannel() {
-
         if (processFileLock != null && processFileLock.isValid()) {
             try {
                 processFileLock.release();
@@ -482,7 +502,13 @@ public class DorisFE {
                 LOG.warn("release process lock file failed", ignored);
             }
         }
+    }
 
+    public static void overwriteConfigs() {
+        if (Config.isCloudMode() && Config.enable_feature_binlog) {
+            Config.enable_feature_binlog = false;
+            LOG.warn("Force set enable_feature_binlog=false because it is not supported in the cloud mode yet");
+        }
     }
 
     public static class StartupOptions {

@@ -17,7 +17,7 @@
 
 package org.apache.doris.spi;
 
-import org.apache.doris.planner.external.SplitWeight;
+import org.apache.doris.datasource.SplitWeight;
 
 import java.util.List;
 
@@ -49,4 +49,3 @@ public interface Split {
     void setAlternativeHosts(List<String> alternativeHosts);
 
 }
-

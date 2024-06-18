@@ -164,9 +164,9 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-void BlockReader::_init_agg_state(const ReaderParams& read_params) {
+Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     if (_eof) {
-        return;
+        return Status::OK();
     }
 
     _stored_data_columns =
@@ -182,7 +182,14 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         AggregateFunctionPtr function =
                 column.get_aggregate_function(vectorized::AGG_READER_SUFFIX);
 
-        DCHECK(function != nullptr);
+        // to avoid coredump when something goes wrong(i.e. column missmatch)
+        if (!function) {
+            return Status::InternalError(
+                    "Failed to init reader when init agg state: "
+                    "tablet_id: {}, schema_hash: {}, reader_type: {}, version: {}",
+                    read_params.tablet->tablet_id(), read_params.tablet->schema_hash(),
+                    int(read_params.reader_type), read_params.version.to_string());
+        }
         _agg_functions.push_back(function);
         // create aggregate data
         AggregateDataPtr place = new char[function->size_of_data()];
@@ -193,27 +200,16 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         _agg_places.push_back(place);
 
         // calculate `_has_variable_length_tag` tag. like string, array, map
-        _stored_has_variable_length_tag[idx] =
-                _stored_data_columns[idx]->is_column_string() ||
-                (_stored_data_columns[idx]->is_nullable() &&
-                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
-                         ->get_nested_column_ptr()
-                         ->is_column_string()) ||
-                _stored_data_columns[idx]->is_column_array() ||
-                (_stored_data_columns[idx]->is_nullable() &&
-                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
-                         ->get_nested_column_ptr()
-                         ->is_column_array()) ||
-                _stored_data_columns[idx]->is_column_map() ||
-                (_stored_data_columns[idx]->is_nullable() &&
-                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
-                         ->get_nested_column_ptr()
-                         ->is_column_map());
+        _stored_has_variable_length_tag[idx] = _stored_data_columns[idx]->is_variable_length();
     }
+
+    return Status::OK();
 }
 
 Status BlockReader::init(const ReaderParams& read_params) {
     RETURN_IF_ERROR(TabletReader::init(read_params));
+
+    _arena = std::make_unique<Arena>();
 
     int32_t return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size());
@@ -262,7 +258,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         break;
     case KeysType::AGG_KEYS:
         _next_block_func = &BlockReader::_agg_key_next_block;
-        _init_agg_state(read_params);
+        RETURN_IF_ERROR(_init_agg_state(read_params));
         break;
     default:
         DCHECK(false) << "No next row function for type:" << tablet()->keys_type();
@@ -491,10 +487,10 @@ size_t BlockReader::_copy_agg_data() {
         auto& dst_column = _stored_data_columns[idx];
         if (_stored_has_variable_length_tag[idx]) {
             //variable length type should replace ordered
+            dst_column->clear();
             for (size_t i = 0; i < copy_size; i++) {
                 auto& ref = _stored_row_ref[i];
-                dst_column->replace_column_data(*ref.block->get_by_position(idx).column,
-                                                ref.row_pos, i);
+                dst_column->insert_from(*ref.block->get_by_position(idx).column, ref.row_pos);
             }
         } else {
             for (auto& it : _temp_ref_map) {
@@ -517,6 +513,10 @@ size_t BlockReader::_copy_agg_data() {
 }
 
 void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end, bool is_close) {
+    if (!_arena) [[unlikely]] {
+        return;
+    }
+
     for (int i = 0; i < _agg_columns_idx.size(); i++) {
         auto idx = _agg_columns_idx[i];
 
@@ -526,7 +526,7 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
-                                      &_arena, _stored_has_null_tag[idx]);
+                                      _arena.get(), _stored_has_null_tag[idx]);
         }
 
         if (is_close) {
@@ -535,8 +535,9 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
             function->reset(place);
         }
     }
+
     if (is_close) {
-        _arena.clear();
+        _arena->clear();
     }
 }
 

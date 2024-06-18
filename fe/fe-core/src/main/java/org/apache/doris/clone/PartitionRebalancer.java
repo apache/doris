@@ -106,13 +106,17 @@ public class PartitionRebalancer extends Rebalancer {
         // The balancing tasks of other cluster or medium might have failed. We use the upper limit value
         // `total num of in-progress moves` to avoid useless selections.
         if (movesCacheMap.size() > Config.max_balancing_tablets) {
-            LOG.debug("Total in-progress moves > {}", Config.max_balancing_tablets);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Total in-progress moves > {}", Config.max_balancing_tablets);
+            }
             return Lists.newArrayList();
         }
 
         NavigableSet<Long> skews = clusterBalanceInfo.partitionInfoBySkew.keySet();
-        LOG.debug("Medium {}: peek max skew {}, assume {} in-progress moves are succeeded {}", medium,
-                skews.isEmpty() ? 0 : skews.last(), movesInProgressList.size(), movesInProgressList);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Medium {}: peek max skew {}, assume {} in-progress moves are succeeded {}", medium,
+                    skews.isEmpty() ? 0 : skews.last(), movesInProgressList.size(), movesInProgressList);
+        }
 
         List<TwoDimensionalGreedyRebalanceAlgo.PartitionMove> moves
                 = algo.getNextMoves(clusterBalanceInfo, Config.partition_rebalance_max_moves_num_per_selection);
@@ -137,7 +141,9 @@ public class PartitionRebalancer extends Rebalancer {
                     tabletCandidates.put(tabletId, tabletMeta);
                 }
             }
-            LOG.debug("Find {} candidates for move {}", tabletCandidates.size(), move);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Find {} candidates for move {}", tabletCandidates.size(), move);
+            }
             if (tabletCandidates.isEmpty()) {
                 continue;
             }
@@ -146,7 +152,9 @@ public class PartitionRebalancer extends Rebalancer {
             Random rand = new SecureRandom();
             Object[] keys = tabletCandidates.keySet().toArray();
             long pickedTabletId = (long) keys[rand.nextInt(keys.length)];
-            LOG.debug("Picked tablet id for move {}: {}", move, pickedTabletId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Picked tablet id for move {}: {}", move, pickedTabletId);
+            }
 
             TabletMeta tabletMeta = tabletCandidates.get(pickedTabletId);
             TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.BALANCE,
@@ -167,7 +175,9 @@ public class PartitionRebalancer extends Rebalancer {
 
         if (moves.isEmpty()) {
             // Balanced cluster should not print too much log messages, so we log it with level debug.
-            LOG.debug("Medium {}: cluster is balanced.", medium);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Medium {}: cluster is balanced.", medium);
+            }
         } else {
             LOG.info("Medium {}: get {} moves, actually select {} alternative tablets to move. Tablets detail: {}",
                     medium, moves.size(), alternativeTablets.size(),
@@ -216,9 +226,11 @@ public class PartitionRebalancer extends Rebalancer {
             // If the move was completed, remove it
             if (moveIsComplete) {
                 toDeleteKeys.add(move.tabletId);
-                LOG.debug("Move {} is completed. The cur dist: {}", move,
-                        invertedIndex.getReplicasByTabletId(move.tabletId).stream()
-                                .map(Replica::getBackendId).collect(Collectors.toList()));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Move {} is completed. The cur dist: {}", move,
+                            invertedIndex.getReplicasByTabletId(move.tabletId).stream()
+                                    .map(Replica::getBackendId).collect(Collectors.toList()));
+                }
                 counterBalanceMoveSucceeded.incrementAndGet();
             }
         }
@@ -324,8 +336,10 @@ public class PartitionRebalancer extends Rebalancer {
         movesCacheMap.updateMapping(statisticMap, Config.partition_rebalance_move_expire_after_access);
         // Perform cache maintenance
         movesCacheMap.maintain();
-        LOG.debug("Move succeeded/total :{}/{}, current {}",
-                counterBalanceMoveSucceeded.get(), counterBalanceMoveCreated.get(), movesCacheMap);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Move succeeded/total :{}/{}, current {}",
+                    counterBalanceMoveSucceeded.get(), counterBalanceMoveCreated.get(), movesCacheMap);
+        }
     }
 
     // Represents a concrete move of a tablet from one be to another.

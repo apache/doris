@@ -163,5 +163,69 @@ suite("test_schema_change_agg_check_all_types", "p0") {
         exception "Can not change FLOAT to DECIMAL32"
     }
 
+
+     // add tinyint
+    sql """ alter table ${tableName3} add column tinyint1 tinyint replace not null default "0" after k13"""
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
+    }
+    sql """ insert into ${tableName3} values (10007, 2, 3, 4, 5, 6.6, 1.7, 8.8,
+    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21,1) """
+
+    qt_add_tinyint""" select * from ${tableName3} """
+
+    //tinyint to int
+    sql """ alter table ${tableName3} modify column tinyint1 int replace not null default "0" after k13"""
+
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
+    }
+
+    sql """ insert into ${tableName3} values (10008, 2, 3, 4, 5, 6.6, 1.7, 8.8,
+    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21,1) """
+
+
+    qt_tinyint_to_int""" select * from ${tableName3} """
+
+    //int to bigint
+    sql """ alter table ${tableName3} modify column tinyint1 bigint replace not null default "0" after k13"""
+
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
+    }
+
+    sql """ insert into ${tableName3} values (10009, 2, 3, 4, 5, 6.6, 1.7, 8.8, 'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21,1) """
+
+    qt_int_to_bigint""" select * from ${tableName3} """
+
+    //bigint to largeint
+    sql """ alter table ${tableName3} modify column tinyint1 largeint replace not null default "0" after k13"""
+
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
+    }
+
+    sql """ insert into ${tableName3} values (10010, 2, 3, 4, 5, 6.6, 1.7, 8.8, 'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21,1) """
+
+    qt_bigint_to_largeint""" select * from ${tableName3} """
+
+    //largeint to double
+    sql """ alter table ${tableName3} modify column tinyint1 double replace not null default "0" after k13"""
+
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
+    }
+
+    sql """ insert into ${tableName3} values (10011, 2, 3, 4, 5, 6.6, 1.7, 8.8, 'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21,1) """
+
+    qt_largeint_to_double""" select * from ${tableName3} """
+
+
+
 }
 

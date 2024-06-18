@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "olap/olap_common.h"
+#include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/bloom_filter.h" // for BloomFilterOptions, BloomFilter
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
@@ -48,13 +49,9 @@ struct BloomFilterTraits<Slice> {
     using ValueDict = std::set<Slice, Slice::Comparator>;
 };
 
-struct Int128Comparator {
-    bool operator()(const int128_t& a, const int128_t& b) const { return a < b; }
-};
-
 template <>
 struct BloomFilterTraits<int128_t> {
-    using ValueDict = std::set<int128_t, Int128Comparator>;
+    using ValueDict = std::set<int128_t>;
 };
 
 // Builder for bloom filter. In doris, bloom filter index is used in
@@ -78,13 +75,13 @@ public:
 
     ~BloomFilterIndexWriterImpl() override = default;
 
-    void add_values(const void* values, size_t count) override {
+    Status add_values(const void* values, size_t count) override {
         const CppType* v = (const CppType*)values;
         for (int i = 0; i < count; ++i) {
             if (_values.find(*v) == _values.end()) {
                 if constexpr (_is_slice_type()) {
                     CppType new_value;
-                    _type_info->deep_copy(&new_value, v, &_arena);
+                    RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, &_arena));
                     _values.insert(new_value);
                 } else if constexpr (_is_int128()) {
                     int128_t new_value;
@@ -96,6 +93,7 @@ public:
             }
             ++v;
         }
+        return Status::OK();
     }
 
     void add_nulls(uint32_t count) override { _has_null = true; }
@@ -139,7 +137,7 @@ public:
         RETURN_IF_ERROR(bf_writer.init());
         for (auto& bf : _bfs) {
             Slice data(bf->data(), bf->size());
-            static_cast<void>(bf_writer.add(&data));
+            RETURN_IF_ERROR(bf_writer.add(&data));
         }
         RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
         return Status::OK();
@@ -174,14 +172,15 @@ private:
 
 } // namespace
 
-void PrimaryKeyBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
+Status PrimaryKeyBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
     const Slice* v = (const Slice*)values;
     for (int i = 0; i < count; ++i) {
         Slice new_value;
-        _type_info->deep_copy(&new_value, v, &_arena);
+        RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, &_arena));
         _values.push_back(new_value);
         ++v;
     }
+    return Status::OK();
 }
 
 Status PrimaryKeyBloomFilterIndexWriterImpl::flush() {
@@ -194,6 +193,10 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::flush() {
         bf->add_bytes(s->data, s->size);
     }
     _bf_buffer_size += bf->size();
+    g_pk_total_bloom_filter_num << 1;
+    g_pk_total_bloom_filter_total_bytes << bf->size();
+    g_pk_write_bloom_filter_increase_num << 1;
+    g_pk_write_bloom_filter_increase_bytes << bf->size();
     _bfs.push_back(std::move(bf));
     _values.clear();
     _has_null = false;
@@ -220,7 +223,7 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        static_cast<void>(bf_writer.add(&data));
+        RETURN_IF_ERROR(bf_writer.add(&data));
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();
@@ -242,7 +245,7 @@ NGramBloomFilterIndexWriterImpl::NGramBloomFilterIndexWriterImpl(
     static_cast<void>(BloomFilter::create(NGRAM_BLOOM_FILTER, &_bf, bf_size));
 }
 
-void NGramBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
+Status NGramBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
     const Slice* src = reinterpret_cast<const Slice*>(values);
     for (int i = 0; i < count; ++i, ++src) {
         if (src->size < _gram_size) {
@@ -250,6 +253,7 @@ void NGramBloomFilterIndexWriterImpl::add_values(const void* values, size_t coun
         }
         _token_extractor.string_to_bloom_filter(src->data, src->size, *_bf);
     }
+    return Status::OK();
 }
 
 Status NGramBloomFilterIndexWriterImpl::flush() {
@@ -277,7 +281,7 @@ Status NGramBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        static_cast<void>(bf_writer.add(&data));
+        RETURN_IF_ERROR(bf_writer.add(&data));
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();

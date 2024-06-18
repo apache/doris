@@ -53,7 +53,7 @@ public:
             TStorageMedium::type storage_medium = TStorageMedium::HDD);
     ~DataDir();
 
-    Status init();
+    Status init(bool init_meta = true);
     void stop_bg_worker();
 
     const std::string& path() const { return _path; }
@@ -144,6 +144,8 @@ public:
     // Move tablet to trash.
     Status move_to_trash(const std::string& tablet_path);
 
+    static Status delete_tablet_parent_path_if_empty(const std::string& tablet_path);
+
 private:
     Status _init_cluster_id();
     Status _init_capacity_and_create_shards();
@@ -156,11 +158,11 @@ private:
     // process will log fatal.
     Status _check_incompatible_old_format_tablet();
 
-    std::vector<std::string> _perform_path_scan();
+    int _path_gc_step {0};
 
-    void _perform_path_gc_by_tablet(std::vector<std::string>& tablet_paths);
+    void _perform_tablet_gc(const std::string& tablet_schema_hash_path, int16_t shard_name);
 
-    void _perform_path_gc_by_rowset(const std::vector<std::string>& tablet_paths);
+    void _perform_rowset_gc(const std::string& tablet_schema_hash_path);
 
 private:
     std::atomic<bool> _stop_bg_worker = false;
@@ -189,7 +191,6 @@ private:
     std::set<TabletInfo> _tablet_set;
 
     OlapMeta* _meta = nullptr;
-    RowsetIdGenerator* _id_generator = nullptr;
 
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;
     IntGauge* disks_total_capacity = nullptr;

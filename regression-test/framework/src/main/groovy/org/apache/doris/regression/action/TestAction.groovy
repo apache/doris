@@ -68,6 +68,7 @@ class TestAction implements SuiteAction {
             } else {
                 if (exception != null || result.exception != null) {
                     def msg = result.exception?.toString()
+                    log.info("Exception: ${msg}")
                     Assert.assertTrue("Expect exception msg contains '${exception}', but meet '${msg}'",
                             msg != null && exception != null && msg.contains(exception))
                 }

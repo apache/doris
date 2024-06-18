@@ -65,7 +65,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {
+    void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena*) const override {
         ++data(place).count;
     }
 
@@ -103,7 +103,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {
+    void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena*) const override {
         ++data(place).rank;
     }
 
@@ -137,6 +137,7 @@ struct DenseRankData {
     int64_t rank = 0;
     int64_t peer_group_start = 0;
 };
+
 class WindowFunctionDenseRank final
         : public IAggregateFunctionDataHelper<DenseRankData, WindowFunctionDenseRank> {
 public:
@@ -147,7 +148,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {
+    void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena*) const override {
         ++data(place).rank;
     }
 
@@ -174,6 +175,115 @@ public:
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
 };
 
+struct PercentRankData {
+    int64_t rank = 0;
+    int64_t count = 0;
+    int64_t peer_group_start = 0;
+    int64_t partition_size = 0;
+};
+
+class WindowFunctionPercentRank final
+        : public IAggregateFunctionDataHelper<PercentRankData, WindowFunctionPercentRank> {
+private:
+    static double _cal_percent(int64 rank, int64 total_rows) {
+        return total_rows <= 1 ? 0.0 : (rank - 1) * 1.0 / (total_rows - 1);
+    }
+
+public:
+    WindowFunctionPercentRank(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper(argument_types_) {}
+
+    String get_name() const override { return "percent_rank"; }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
+
+    void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena*) const override {}
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena) const override {
+        int64_t peer_group_count = frame_end - frame_start;
+        if (WindowFunctionPercentRank::data(place).peer_group_start != frame_start) {
+            WindowFunctionPercentRank::data(place).peer_group_start = frame_start;
+            WindowFunctionPercentRank::data(place).rank +=
+                    WindowFunctionPercentRank::data(place).count;
+            // some variables are partition related, but there is no chance to init them
+            // when the new partition arrives, so we calculate them every time now.
+            WindowFunctionPercentRank::data(place).partition_size = partition_end - partition_start;
+        }
+        WindowFunctionPercentRank::data(place).count = peer_group_count;
+    }
+
+    void reset(AggregateDataPtr place) const override {
+        WindowFunctionPercentRank::data(place).rank = 0;
+        WindowFunctionPercentRank::data(place).count = 1;
+        WindowFunctionPercentRank::data(place).peer_group_start = -1;
+        WindowFunctionPercentRank::data(place).partition_size = 0;
+    }
+
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+        auto percent_rank = _cal_percent(data(place).rank, data(place).partition_size);
+        assert_cast<ColumnFloat64&>(to).get_data().push_back(percent_rank);
+    }
+
+    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
+    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
+    void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
+};
+
+struct CumeDistData {
+    int64_t numerator = 0;
+    int64_t denominator = 0;
+    int64_t peer_group_start = 0;
+};
+
+class WindowFunctionCumeDist final
+        : public IAggregateFunctionDataHelper<CumeDistData, WindowFunctionCumeDist> {
+private:
+    static void check_default(AggregateDataPtr place, int64_t partition_start,
+                              int64_t partition_end) {
+        if (data(place).denominator == 0) {
+            data(place).denominator = partition_end - partition_start;
+        }
+    }
+
+public:
+    WindowFunctionCumeDist(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper(argument_types_) {}
+
+    String get_name() const override { return "cume_dist"; }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
+
+    void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena*) const override {}
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena) const override {
+        check_default(place, partition_start, partition_end);
+        int64_t peer_group_count = frame_end - frame_start;
+        if (WindowFunctionCumeDist::data(place).peer_group_start != frame_start) {
+            WindowFunctionCumeDist::data(place).peer_group_start = frame_start;
+            WindowFunctionCumeDist::data(place).numerator += peer_group_count;
+        }
+    }
+
+    void reset(AggregateDataPtr place) const override {
+        WindowFunctionCumeDist::data(place).numerator = 0;
+        WindowFunctionCumeDist::data(place).denominator = 0;
+        WindowFunctionCumeDist::data(place).peer_group_start = -1;
+    }
+
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+        auto cume_dist = data(place).numerator * 1.0 / data(place).denominator;
+        assert_cast<ColumnFloat64&>(to).get_data().push_back(cume_dist);
+    }
+
+    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
+    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
+    void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
+};
+
 struct NTileData {
     int64_t bucket_index = 0;
     int64_t rows = 0;
@@ -189,13 +299,13 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {}
+    void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena*) const override {}
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
         // some variables are partition related, but there is no chance to init them
-        // when the new partition arrives, so we calculate them evey time now.
+        // when the new partition arrives, so we calculate them every time now.
         // Partition = big_bucket_num * big_bucket_size + small_bucket_num * small_bucket_size
         int64_t row_index = ++WindowFunctionNTile::data(place).rows - 1;
         int64_t bucket_num = columns[0]->get_int(0);
@@ -446,18 +556,22 @@ public:
         this->data(place).insert_result_into(to);
     }
 
-    void add(AggregateDataPtr place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         LOG(FATAL) << "WindowFunctionLeadLagData do not support add";
+        __builtin_unreachable();
     }
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {
         LOG(FATAL) << "WindowFunctionLeadLagData do not support merge";
+        __builtin_unreachable();
     }
     void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
         LOG(FATAL) << "WindowFunctionLeadLagData do not support serialize";
+        __builtin_unreachable();
     }
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {
         LOG(FATAL) << "WindowFunctionLeadLagData do not support deserialize";
+        __builtin_unreachable();
     }
 
 private:

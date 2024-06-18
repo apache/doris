@@ -444,7 +444,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
-            assertEquals(0, json.NumberTotalRows)
+            assertEquals(1, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
@@ -596,7 +596,9 @@ suite("test_partial_update_row_store_schema_change", "p0") {
 
     qt_sql12 " select * from ${tableName} order by c0 "
     
-    sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
+    if (!isCloudMode()) {
+        sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
+    }
 
     streamLoad {
         table "${tableName}"
@@ -1043,7 +1045,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
-            assertEquals(0, json.NumberTotalRows)
+            assertEquals(1, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
@@ -1190,7 +1192,9 @@ suite("test_partial_update_row_store_schema_change", "p0") {
 
     qt_sql25 " select * from ${tableName} order by c0 "
     
-    sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
+    if (!isCloudMode()) {
+        sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
+    }
 
     streamLoad {
         table "${tableName}"

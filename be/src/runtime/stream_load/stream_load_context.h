@@ -118,6 +118,8 @@ public:
     // also print the load source info if detail is set to true
     std::string brief(bool detail = false) const;
 
+    bool is_mow_table() const;
+
 public:
     static const int default_txn_id = -1;
     // load type, eg: ROUTINE LOAD/MANUAL LOAD
@@ -235,6 +237,10 @@ public:
     std::vector<std::string> table_list;
 
     bool memtable_on_sink_node = false;
+
+    // use for cloud cluster mode
+    std::string qualified_user;
+    std::string cloud_cluster;
 
 public:
     ExecEnv* exec_env() { return _exec_env; }

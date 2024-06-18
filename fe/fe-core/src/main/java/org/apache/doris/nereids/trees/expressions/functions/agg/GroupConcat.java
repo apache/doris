@@ -112,6 +112,15 @@ public class GroupConcat extends NullableAggregateFunction
     }
 
     @Override
+    public List<Expression> getDistinctArguments() {
+        if (distinct) {
+            return ImmutableList.of(getArgument(0));
+        } else {
+            return ImmutableList.of();
+        }
+    }
+
+    @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType typeOrArg0 = getArgumentType(0);
         if (!typeOrArg0.isStringLikeType() && !typeOrArg0.isNullType()) {

@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_delete_on_value") {
-    sql 'set enable_nereids_planner=false'
-    sql "set experimental_enable_nereids_planner=false;"
-    sql 'set enable_nereids_dml=false'
 
     sql "set skip_storage_engine_merge=false;"
     sql "set skip_delete_bitmap=false;"

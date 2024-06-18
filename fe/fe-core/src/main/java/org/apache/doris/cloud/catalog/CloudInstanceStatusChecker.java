@@ -17,9 +17,11 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 
 import org.apache.logging.log4j.LogManager;
@@ -38,13 +40,18 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     protected void runAfterCatalogReady() {
         try {
             Cloud.GetInstanceResponse response = cloudSystemInfoService.getCloudInstance();
-            LOG.debug("get from ms response {}", response);
-            if (!response.hasStatus() || !response.getStatus().hasCode()
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get from ms response {}", response);
+            }
+            if (response == null || !response.hasStatus() || !response.getStatus().hasCode()
                     || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("failed to get cloud instance due to incomplete response, "
                         + "cloud_unique_id={}, response={}", Config.cloud_unique_id, response);
             } else {
                 cloudSystemInfoService.setInstanceStatus(response.getInstance().getStatus());
+                Env.getCurrentEnv().getStorageVaultMgr().setDefaultStorageVault(
+                        Pair.of(response.getInstance().getDefaultStorageVaultName(),
+                                response.getInstance().getDefaultStorageVaultId()));
             }
         } catch (Exception e) {
             LOG.warn("get instance from ms exception", e);

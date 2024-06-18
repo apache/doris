@@ -32,6 +32,7 @@ sql 'set enable_runtime_filter_prune=false'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'SET enable_pipeline_engine = true'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     qt_ds_shape_25 '''
     explain shape plan

@@ -130,6 +130,7 @@ get_session_variable() {
 }
 backup_session_variables_file="${CURDIR}/../conf/opt/backup_session_variables.sql"
 backup_session_variables() {
+    touch "${backup_session_variables_file}"
     while IFS= read -r line; do
         k="${line/set global /}"
         k="${k%=*}"

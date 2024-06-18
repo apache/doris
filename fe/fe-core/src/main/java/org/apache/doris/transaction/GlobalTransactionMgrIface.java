@@ -20,6 +20,7 @@ package org.apache.doris.transaction;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -39,6 +40,8 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeoutException;
 
 public interface GlobalTransactionMgrIface extends Writable {
@@ -86,6 +89,9 @@ public interface GlobalTransactionMgrIface extends Writable {
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
             throws UserException;
 
+    public boolean commitAndPublishTransaction(DatabaseIf db, long transactionId,
+            List<SubTransactionState> subTransactionStates, long timeoutMillis) throws UserException;
+
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
             TxnCommitAttachment txnCommitAttachment)
@@ -107,7 +113,8 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public boolean existCommittedTxns(Long dbId, Long tableId, Long partitionId);
 
-    public void finishTransaction(long dbId, long transactionId) throws UserException;
+    public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
+            Map<Long, Set<Long>> backendPartitions) throws UserException;
 
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList)
             throws AnalysisException;
@@ -127,7 +134,9 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public void updateDatabaseUsedQuotaData(long dbId, long usedQuotaDataBytes) throws AnalysisException;
 
-    public void abortTxnWhenCoordinateBeDown(String coordinateHost, int limit);
+    public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime);
+
+    public void abortTxnWhenCoordinateBeDown(long coordinateBeId, String coordinateHost, int limit);
 
     public TransactionStatus getLabelState(long dbId, String label) throws AnalysisException;
 
@@ -151,6 +160,8 @@ public interface GlobalTransactionMgrIface extends Writable {
     public List<List<String>> getDbTransStateInfo(Long dbId) throws AnalysisException;
 
     public List<List<String>> getDbTransInfo(Long dbId, boolean running, int limit) throws AnalysisException;
+
+    public Map<Long, List<Long>> getDbRunningTransInfo(long dbId) throws AnalysisException;
 
     public List<List<Comparable>> getTableTransInfo(long dbId, long txnId) throws AnalysisException;
 
@@ -180,4 +191,10 @@ public interface GlobalTransactionMgrIface extends Writable {
     public void replayBatchRemoveTransactions(BatchRemoveTransactionsOperation operation) throws Exception;
 
     public void replayBatchRemoveTransactionV2(BatchRemoveTransactionsOperationV2 operation) throws Exception;
+
+    public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse);
+
+    public void addSubTransaction(long dbId, long transactionId, long subTransactionId);
+
+    public void removeSubTransaction(long dbId, long subTransactionId);
 }

@@ -87,8 +87,6 @@ static void set_up() {
     engine_ref = engine.get();
     Status s = engine->open();
     EXPECT_TRUE(s.ok()) << s;
-    s = engine->start_bg_threads();
-    EXPECT_TRUE(s.ok()) << s;
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     exec_env->set_storage_engine(std::move(engine));

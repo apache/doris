@@ -19,21 +19,19 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-String[] getFiles(String dirName, int num) {
-    File[] datas = new File(dirName).listFiles()
-    if (num != datas.length) {
-        throw new Exception("num not equals,expect:" + num + " vs real:" + datas.length)
-    }
-    String[] array = new String[datas.length];
-    for (int i = 0; i < datas.length; i++) {
-        array[i] = datas[i].getPath();
-    }
-    Arrays.sort(array);
-    return array;
-}
-
 suite("test_group_commit_insert_into_lineitem_multiple_table") {
     String[] file_array;
+    def getFiles = { String dirName, int num->
+        File[] datas = new File(dirName).listFiles()
+        if (num != datas.length) {
+            throw new Exception("num not equals,expect:" + num + " vs real:" + datas.length)
+        }
+        file_array = new String[datas.length];
+        for (int i = 0; i < datas.length; i++) {
+            file_array[i] = datas[i].getPath();
+        }
+        Arrays.sort(file_array);
+    }
     def prepare = {
         def dataDir = "${context.config.cacheDataPath}/insert_into_lineitem_multiple_table"
         File dir = new File(dataDir)
@@ -45,7 +43,7 @@ suite("test_group_commit_insert_into_lineitem_multiple_table") {
             def split_file = """split -l 60000 ${dataDir}/lineitem.tbl.1 ${dataDir}/""".execute().getText()
             def rm_file = """rm ${dataDir}/lineitem.tbl.1""".execute().getText()
         }
-        file_array = getFiles(dataDir, 11)
+        getFiles(dataDir, 11)
         for (String s : file_array) {
             logger.info(s)
         }
@@ -104,7 +102,6 @@ PROPERTIES (
 );
         """
         sql """ set group_commit = async_mode; """
-        sql """ set enable_nereids_dml = false; """
     }
 
     def do_insert_into = { exp_str, num ->
@@ -126,7 +123,6 @@ PROPERTIES (
 
     def insert_file = { file_name, table_name ->
         sql """ set group_commit = async_mode; """
-        sql """ set enable_nereids_dml = false; """
         logger.info("file:" + file_name)
         //read and insert
         BufferedReader reader;

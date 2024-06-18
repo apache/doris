@@ -288,7 +288,9 @@ public class SyncJobManager implements Writable {
     // Remove old sync jobs. Called periodically.
     // Stopped jobs will be removed after Config.label_keep_max_second.
     public void cleanOldSyncJobs() {
-        LOG.debug("begin to clean old sync jobs ");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("begin to clean old sync jobs ");
+        }
         cleanFinishedSyncJobsIf(job -> job.isExpired(System.currentTimeMillis()));
     }
 
@@ -301,7 +303,9 @@ public class SyncJobManager implements Writable {
         }
         writeLock();
         try {
-            LOG.debug("begin to clean finished sync jobs ");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("begin to clean finished sync jobs ");
+            }
             Deque<SyncJob> finishedJobs = idToSyncJob
                     .values()
                     .stream()

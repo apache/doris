@@ -48,11 +48,17 @@ public class User implements Comparable<User>, Writable, GsonPostProcessable {
     @SerializedName(value = "password")
     private Password password;
 
+    @SerializedName(value = "userid")
+    private String origUserId = "";
+
+    @SerializedName(value = "comment")
+    private String comment;
+
     public User() {
     }
 
     public User(UserIdentity userIdent, byte[] pwd, boolean setByResolver, UserIdentity domainUserIdent,
-            PatternMatcher hostPattern) {
+            PatternMatcher hostPattern, String comment) {
         this.isAnyHost = userIdent.getHost().equals(UserManager.ANY_HOST);
         this.userIdentity = userIdent;
         this.password = new Password(pwd);
@@ -62,7 +68,18 @@ public class User implements Comparable<User>, Writable, GsonPostProcessable {
             Preconditions.checkNotNull(domainUserIdent);
             this.domainUserIdentity = domainUserIdent;
         }
+        this.comment = comment;
     }
+
+    // ====== CLOUD ======
+    public String getUserId() {
+        return origUserId;
+    }
+
+    public void setUserId(String userId) {
+        this.origUserId = userId;
+    }
+    // ====== CLOUD ======
 
 
     public Password getPassword() {
@@ -126,6 +143,14 @@ public class User implements Comparable<User>, Writable, GsonPostProcessable {
         return password != null && password.getPassword() != null && password.getPassword().length != 0;
     }
 
+    public String getComment() {
+        return comment;
+    }
+
+    public void setComment(String comment) {
+        this.comment = comment;
+    }
+
     @Override
     public int compareTo(@NotNull User o) {
         return -userIdentity.getHost().compareTo(o.userIdentity.getHost());
@@ -135,7 +160,8 @@ public class User implements Comparable<User>, Writable, GsonPostProcessable {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("userIdentity: ").append(userIdentity).append(", isSetByDomainResolver: ")
-                .append(isSetByDomainResolver).append(", domainUserIdentity: ").append(domainUserIdentity);
+                .append(isSetByDomainResolver).append(", domainUserIdentity: ").append(domainUserIdentity)
+            .append(", userId: ").append(origUserId);
         return sb.toString();
     }
 

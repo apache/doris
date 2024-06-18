@@ -58,8 +58,7 @@ public:
     // the returned sender do not need release
     // sender is not used when call cancel or unregister
     Status create_sender(const TUniqueId& query_id, int buffer_size,
-                         std::shared_ptr<BufferControlBlock>* sender, bool enable_pipeline,
-                         int exec_timeout);
+                         std::shared_ptr<BufferControlBlock>* sender, int exec_timeout);
 
     // fetch data result to FE
     void fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx);
@@ -71,10 +70,10 @@ public:
     std::shared_ptr<arrow::Schema> find_arrow_schema(const TUniqueId& query_id);
 
     // cancel
-    Status cancel(const TUniqueId& fragment_id);
+    void cancel(const TUniqueId& fragment_id);
 
     // cancel one query at a future time.
-    Status cancel_at_time(time_t cancel_time, const TUniqueId& query_id);
+    void cancel_at_time(time_t cancel_time, const TUniqueId& query_id);
 
 private:
     using BufferMap = std::unordered_map<TUniqueId, std::shared_ptr<BufferControlBlock>>;

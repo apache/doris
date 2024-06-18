@@ -235,10 +235,12 @@ suite("modify_replica_use_partition") {
     def originSize = tablets.size()
 
     // alter change replication num
-    sql """
-    ALTER TABLE ${tableName}
-    MODIFY PARTITION (p202301, p202302) SET("replication_num"="3");
-    """
+    if (!isCloudMode()) {
+        sql """
+        ALTER TABLE ${tableName}
+        MODIFY PARTITION (p202301, p202302) SET("replication_num"="3");
+        """
+    }
 
     sql """
     select count(*) from ${tableName}
@@ -359,10 +361,12 @@ suite("modify_replica_use_partition") {
     assertTrue(RemoteDataSize1 != 0)
 
     // alter change replication num
-    sql """
-    ALTER TABLE ${tableName}
-    MODIFY PARTITION (p202301, p202302) SET("replication_num"="1");
-    """
+    if (!isCloudMode()) {
+        sql """
+        ALTER TABLE ${tableName}
+        MODIFY PARTITION (p202301, p202302) SET("replication_num"="1");
+        """
+    }
 
     sql """
     select count(*) from ${tableName}
@@ -452,15 +456,17 @@ suite("modify_replica_use_partition") {
     assertTrue(RemoteDataSize1 != 0)
 
     // alter change replication num
-    sql """
-    ALTER TABLE ${tableName}
-    MODIFY PARTITION (p202301) SET("replication_num"="1");
-    """
+    if (!isCloudMode()) {
+        sql """
+        ALTER TABLE ${tableName}
+        MODIFY PARTITION (p202301) SET("replication_num"="1");
+        """
 
-    sql """
-    ALTER TABLE ${tableName}
-    MODIFY PARTITION (p202302) SET("replication_num"="3");
-    """
+        sql """
+        ALTER TABLE ${tableName}
+        MODIFY PARTITION (p202302) SET("replication_num"="3");
+        """
+    }
 
     sql """
     select count(*) from ${tableName}

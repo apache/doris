@@ -12,12 +12,13 @@ PhysicalResultSink
 ------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF2 w_warehouse_sk->[inv_warehouse_sk]
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[inv_date_sk]
-------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = inventory.inv_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[inv_item_sk]
---------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF1 RF2
---------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------PhysicalProject
-------------------------------filter((item.i_current_price <= 1.49) and (item.i_current_price >= 0.99))
---------------------------------PhysicalOlapScan[item]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = inventory.inv_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[inv_item_sk]
+----------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF1 RF2
+----------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------PhysicalProject
+--------------------------------filter((item.i_current_price <= 1.49) and (item.i_current_price >= 0.99))
+----------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------PhysicalProject
 ----------------------------filter((date_dim.d_date <= '1999-07-22') and (date_dim.d_date >= '1999-05-23'))

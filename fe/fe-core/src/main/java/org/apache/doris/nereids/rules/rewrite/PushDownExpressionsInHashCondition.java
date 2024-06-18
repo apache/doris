@@ -120,7 +120,7 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
         return join.withHashJoinConjunctsAndChildren(
                 newHashConjuncts,
                 createChildProjectPlan(join.left(), join, leftProjectExprs),
-                createChildProjectPlan(join.right(), join, rightProjectExprs));
+                createChildProjectPlan(join.right(), join, rightProjectExprs), join.getJoinReorderContext());
 
     }
 

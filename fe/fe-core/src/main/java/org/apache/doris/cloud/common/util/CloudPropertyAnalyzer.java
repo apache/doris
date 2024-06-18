@@ -20,7 +20,6 @@ package org.apache.doris.cloud.common.util;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 
 import com.google.common.collect.ImmutableList;
 
@@ -35,19 +34,18 @@ public class CloudPropertyAnalyzer extends PropertyAnalyzer {
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY),
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME),
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM),
-                RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION, "false"),
                 RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE, "true"),
                 RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
                         String.valueOf(ReplicaAllocation.DEFAULT_ALLOCATION.getTotalReplicaNum())),
                 RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
                         ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt()),
+                RewriteProperty.delete("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM),
+                RewriteProperty.delete("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION),
                 RewriteProperty.delete(DynamicPartitionProperty.STORAGE_MEDIUM),
                 RewriteProperty.replace(DynamicPartitionProperty.REPLICATION_NUM,
                         String.valueOf(ReplicaAllocation.DEFAULT_ALLOCATION.getTotalReplicaNum())),
                 RewriteProperty.replace(DynamicPartitionProperty.REPLICATION_ALLOCATION,
-                        ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt()),
-                // FIXME: MOW is not supported in cloud mode yet.
-                RewriteProperty.replace(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false")
+                        ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt())
                 );
     }
 

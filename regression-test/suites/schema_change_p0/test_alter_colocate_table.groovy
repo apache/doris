@@ -16,6 +16,9 @@
 // under the License.
 
 suite ("test_alter_colocate_table") {
+    if (isCloudMode()) {
+        return
+    }
     def tbls = ["col_tbl1", "col_tbl2", "col_tbl3"]
     for (def tbl : tbls) {
         sql """
@@ -95,7 +98,6 @@ suite ("test_alter_colocate_table") {
             "dynamic_partition.end" = "3",
             "dynamic_partition.prefix" = "p",
             "dynamic_partition.buckets" = "3",
-            "dynamic_partition.replication_num" = "1",
             "dynamic_partition.create_history_partition"= "true",
             "dynamic_partition.replication_allocation" = "tag.location.default:${replicaNum}",
             "dynamic_partition.start" = "-3"

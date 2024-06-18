@@ -74,14 +74,15 @@ public class CreateFunctionTest {
     public void test() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         ctx.getSessionVariable().setEnableNereidsPlanner(false);
-
+        ctx.getSessionVariable().enableFallbackToOriginalPlanner = true;
+        ctx.getSessionVariable().setEnableFoldConstantByBe(false);
         // create database db1
         createDatabase(ctx, "create database db1;");
 
         createTable("create table db1.tbl1(k1 int, k2 bigint, k3 varchar(10), k4 char(5)) duplicate key(k1) "
                 + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');");
 
-        dorisAssert = new DorisAssert();
+        dorisAssert = new DorisAssert(ctx);
         dorisAssert.useDatabase("db1");
 
         Database db = Env.getCurrentInternalCatalog().getDbNullable("db1");
@@ -113,8 +114,8 @@ public class CreateFunctionTest {
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);
 
         queryStr = "select db1.id_masking(k1) from db1.tbl1";
-        Assert.assertTrue(
-                dorisAssert.query(queryStr).explainQuery().contains("concat(left(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 3), '****', right(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 4))"));
+        Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
+                "concat(left(CAST(`k1` AS VARCHAR(65533)), 3), '****', right(CAST(`k1` AS VARCHAR(65533)), 4))"));
 
         // create alias function with cast
         // cast any type to decimal with specific precision and scale
@@ -142,14 +143,16 @@ public class CreateFunctionTest {
 
         queryStr = "select db1.decimal(k3, 4, 1) from db1.tbl1;";
         if (Config.enable_decimal_conversion) {
-            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMALV3(4, 1))"));
+            Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
+                    "CAST(`k3` AS DECIMALV3(4, 1))"));
         } else {
-            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMAL(4, 1))"));
+            Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
+                    "CAST(`k3` AS DECIMAL(4, 1))"));
         }
 
         // cast any type to varchar with fixed length
-        createFuncStr = "create alias function db1.varchar(all) with parameter(text) as "
-                + "cast(text as varchar(65533));";
+        createFuncStr = "create alias function db1.varchar(all, int) with parameter(text, length) as "
+                + "cast(text as varchar(length));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Env.getCurrentEnv().createFunction(createFunctionStmt);
 
@@ -172,7 +175,8 @@ public class CreateFunctionTest {
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
 
         queryStr = "select db1.varchar(k1, 4) from db1.tbl1;";
-        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS VARCHAR(65533))"));
+        Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
+                "CAST(`k1` AS VARCHAR(65533))"));
 
         // cast any type to char with fixed length
         createFuncStr = "create alias function db1.to_char(all, int) with parameter(text, length) as "
@@ -199,13 +203,15 @@ public class CreateFunctionTest {
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
 
         queryStr = "select db1.to_char(k1, 4) from db1.tbl1;";
-        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER"));
+        Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
+                "CAST(`k1` AS CHARACTER"));
     }
 
     @Test
     public void testCreateGlobalFunction() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         ctx.getSessionVariable().setEnableNereidsPlanner(false);
+        ctx.getSessionVariable().setEnableFoldConstantByBe(false);
 
         // 1. create database db2
         createDatabase(ctx, "create database db2;");
@@ -213,7 +219,7 @@ public class CreateFunctionTest {
         createTable("create table db2.tbl1(k1 int, k2 bigint, k3 varchar(10), k4 char(5)) duplicate key(k1) "
                 + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');");
 
-        dorisAssert = new DorisAssert();
+        dorisAssert = new DorisAssert(ctx);
         dorisAssert.useDatabase("db2");
 
         Database db = Env.getCurrentInternalCatalog().getDbNullable("db2");
@@ -234,8 +240,8 @@ public class CreateFunctionTest {
         testFunctionQuery(ctx, queryStr, false);
 
         queryStr = "select id_masking(k1) from db2.tbl1";
-        Assert.assertTrue(
-                dorisAssert.query(queryStr).explainQuery().contains("concat(left(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 3), '****', right(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 4))"));
+        Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
+                "concat(left(CAST(`k1` AS VARCHAR(65533)), 3), '****', right(CAST(`k1` AS VARCHAR(65533)), 4))"));
 
         // 4. create alias function with cast
         // cast any type to decimal with specific precision and scale
@@ -252,9 +258,11 @@ public class CreateFunctionTest {
 
         queryStr = "select decimal(k3, 4, 1) from db2.tbl1;";
         if (Config.enable_decimal_conversion) {
-            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMALV3(4, 1))"));
+            Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
+                    "CAST(`k3` AS DECIMALV3(4, 1))"));
         } else {
-            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMAL(4, 1))"));
+            Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
+                    "CAST(`k3` AS DECIMAL(4, 1))"));
         }
 
         // 5. cast any type to varchar with fixed length
@@ -270,7 +278,8 @@ public class CreateFunctionTest {
         testFunctionQuery(ctx, queryStr, true);
 
         queryStr = "select varchar(k1, 4) from db2.tbl1;";
-        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS VARCHAR(65533))"));
+        Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
+                "CAST(`k1` AS VARCHAR(65533))"));
 
         // 6. cast any type to char with fixed length
         createFuncStr = "create global alias function db2.to_char(all, int) with parameter(text, length) as "
@@ -285,7 +294,8 @@ public class CreateFunctionTest {
         testFunctionQuery(ctx, queryStr, true);
 
         queryStr = "select to_char(k1, 4) from db2.tbl1;";
-        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
+        Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
+                "CAST(`k1` AS CHARACTER)"));
     }
 
     private void testFunctionQuery(ConnectContext ctx, String queryStr, Boolean isStringLiteral) throws Exception {
@@ -318,5 +328,9 @@ public class CreateFunctionTest {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Env.getCurrentEnv().createDb(createDbStmt);
         System.out.println(Env.getCurrentInternalCatalog().getDbNames());
+    }
+
+    private boolean containsIgnoreCase(String str, String sub) {
+        return str.toLowerCase().contains(sub.toLowerCase());
     }
 }

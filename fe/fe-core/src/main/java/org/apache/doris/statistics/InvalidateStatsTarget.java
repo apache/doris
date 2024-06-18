@@ -35,14 +35,14 @@ public class InvalidateStatsTarget {
     @SerializedName("columns")
     public final Set<String> columns;
 
-    public InvalidateStatsTarget(long catalogId, long dbId, long tableId, Set<String> columns, boolean isAllColumns) {
+    @SerializedName("partitions")
+    public final Set<String> partitions;
+
+    public InvalidateStatsTarget(long catalogId, long dbId, long tableId, Set<String> columns, Set<String> partitions) {
         this.catalogId = catalogId;
         this.dbId = dbId;
         this.tableId = tableId;
-        if (isAllColumns) {
-            this.columns = null;
-        } else {
-            this.columns = columns;
-        }
+        this.columns = columns;
+        this.partitions = partitions;
     }
 }

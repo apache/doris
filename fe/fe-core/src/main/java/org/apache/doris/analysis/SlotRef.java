@@ -38,13 +38,11 @@ import org.apache.doris.thrift.TSlotRef;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -53,10 +51,11 @@ import java.util.Set;
 import java.util.TreeSet;
 
 public class SlotRef extends Expr {
-    private static final Logger LOG = LogManager.getLogger(SlotRef.class);
+    @SerializedName("tn")
     private TableName tblName;
     private TableIf table = null;
     private TupleId tupleId = null;
+    @SerializedName("col")
     private String col;
     // Used in toSql
     private String label;
@@ -94,7 +93,7 @@ public class SlotRef extends Expr {
         this.desc = desc;
         this.type = desc.getType();
         // TODO(zc): label is meaningful
-        this.label = null;
+        this.label = desc.getLabel();
         if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
         }
@@ -201,21 +200,10 @@ public class SlotRef extends Expr {
         if ((thisColumnName == null) != (srcColumnName == null)) {
             return false;
         }
-        if (thisColumnName != null && !thisColumnName.toLowerCase().equals(srcColumnName.toLowerCase())) {
+        if (thisColumnName != null && !thisColumnName.equalsIgnoreCase(srcColumnName)) {
             return false;
         }
         return true;
-    }
-
-    @Override
-    public void vectorizedAnalyze(Analyzer analyzer) {
-        computeOutputColumn(analyzer);
-    }
-
-    @Override
-    public void computeOutputColumn(Analyzer analyzer) {
-        outputColumn = desc.getSlotOffset();
-        LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
     }
 
     @Override
@@ -307,7 +295,7 @@ public class SlotRef extends Expr {
             if (tableType.equals(TableType.JDBC_EXTERNAL_TABLE) || tableType.equals(TableType.JDBC) || tableType
                     .equals(TableType.ODBC)) {
                 if (inputTable instanceof JdbcTable) {
-                    return ((JdbcTable) inputTable).getProperRealColumnName(
+                    return ((JdbcTable) inputTable).getProperRemoteColumnName(
                             ((JdbcTable) inputTable).getJdbcTableType(), col);
                 } else if (inputTable instanceof OdbcTable) {
                     return JdbcTable.databaseProperName(((OdbcTable) inputTable).getOdbcTableType(), col);
@@ -362,7 +350,7 @@ public class SlotRef extends Expr {
         msg.node_type = TExprNodeType.SLOT_REF;
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
         msg.slot_ref.setColUniqueId(desc.getUniqueId());
-        msg.setOutputColumn(outputColumn);
+        msg.setLabel(label);
     }
 
     @Override
@@ -461,6 +449,11 @@ public class SlotRef extends Expr {
     @Override
     public boolean hasAggregateSlot() {
         return desc.getColumn().isAggregated();
+    }
+
+    @Override
+    public boolean hasAutoInc() {
+        return desc.getColumn().isAutoInc();
     }
 
     @Override
@@ -578,23 +571,6 @@ public class SlotRef extends Expr {
 
     public void setCol(String col) {
         this.col = col;
-    }
-
-    @Override
-    public boolean supportSerializable() {
-        return true;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        // TableName
-        if (tblName == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            tblName.write(out);
-        }
-        Text.writeString(out, col);
     }
 
     public void readFields(DataInput in) throws IOException {

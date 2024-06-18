@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 
 import com.google.common.base.Preconditions;

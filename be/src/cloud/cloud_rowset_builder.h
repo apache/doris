@@ -37,6 +37,8 @@ public:
 
     const RowsetMetaSharedPtr& rowset_meta();
 
+    Status set_txn_related_delete_bitmap();
+
 private:
     // Convert `_tablet` from `BaseTablet` to `CloudTablet`
     CloudTablet* cloud_tablet();

@@ -296,6 +296,11 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     // the entry method of submitting a backup or restore job
     public void process(AbstractBackupStmt stmt) throws DdlException {
+        if (Config.isCloudMode()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "BACKUP and RESTORE are not supported by the cloud mode yet");
+        }
+
         // check if repo exist
         String repoName = stmt.getRepoName();
         Repository repository = null;
@@ -379,14 +384,24 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Check if backup objects are valid
         // This is just a pre-check to avoid most of invalid backup requests.
         // Also calculate the signature for incremental backup check.
+        List<TableRef> tblRefsNotSupport = Lists.newArrayList();
         for (TableRef tblRef : tblRefs) {
             String tblName = tblRef.getName().getTbl();
             Table tbl = db.getTableOrDdlException(tblName);
-            if (tbl.getType() == TableType.VIEW || tbl.getType() == TableType.ODBC) {
+            if (tbl.getType() == TableType.VIEW || tbl.getType() == TableType.ODBC
+                    || tbl.getType() == TableType.MATERIALIZED_VIEW) {
                 continue;
             }
             if (tbl.getType() != TableType.OLAP) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
+                if (Config.ignore_backup_not_support_table_type) {
+                    LOG.warn("Table '{}' is a {} table, can not backup and ignore it."
+                            + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
+                            tblName, tbl.getType().toString());
+                    tblRefsNotSupport.add(tblRef);
+                    continue;
+                } else {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
+                }
             }
 
             OlapTable olapTbl = (OlapTable) tbl;
@@ -416,6 +431,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 tbl.readUnlock();
             }
         }
+
+        tblRefs.removeAll(tblRefsNotSupport);
 
         // Check if label already be used
         long repoId = -1;
@@ -732,6 +749,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public void replayAddJob(AbstractJob job) {
+        LOG.info("replay backup/restore job: {}", job);
+
         if (job.isCancelled()) {
             AbstractJob existingJob = getCurrentJob(job.getDbId());
             if (existingJob == null || existingJob.isDone()) {
@@ -751,6 +770,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             // We use replayed job, not the existing job, to do the replayRun().
             // Because if we use the existing job to run again,
             // for example: In restore job, PENDING will transfer to SNAPSHOTING, not DOWNLOAD.
+            job.setEnv(env);
             job.replayRun();
         }
 

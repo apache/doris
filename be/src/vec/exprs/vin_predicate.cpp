@@ -66,6 +66,10 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     // construct the proper function_name
     std::string head(_is_not_in ? "not_" : "");
     std::string real_function_name = head + std::string(function_name);
+    auto arg_type = remove_nullable(argument_template[0].type);
+    if (is_struct(arg_type) || is_array(arg_type) || is_map(arg_type)) {
+        real_function_name = "collection_" + real_function_name;
+    }
     _function = SimpleFunctionFactory::instance().get_function(real_function_name,
                                                                argument_template, _data_type);
     if (_function == nullptr) {
@@ -74,6 +78,9 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     VExpr::register_function_context(state, context);
     _prepare_finished = true;
+
+    _can_fast_execute = _function->can_fast_execute();
+
     return Status::OK();
 }
 
@@ -112,6 +119,16 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
+
+    if (_can_fast_execute) {
+        auto can_fast_execute = fast_execute(*block, arguments, num_columns_without_result,
+                                             block->rows(), _function->get_name());
+        if (can_fast_execute) {
+            *result_column_id = num_columns_without_result;
+            return Status::OK();
+        }
+    }
+
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;

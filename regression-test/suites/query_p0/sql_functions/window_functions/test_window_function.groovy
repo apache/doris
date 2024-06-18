@@ -289,6 +289,10 @@ suite("test_window_function") {
     qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ x, y, rank() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
     // DENSE_RANK
     qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ x, y, dense_rank() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
+    // PERCENT_RANK
+    qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ x, y, percent_rank() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
+    // CUME_DIST
+    qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ x, y, cume_dist() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
     // ROW_NUMBER
     qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ x, y, row_number() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
 
@@ -363,39 +367,27 @@ suite("test_window_function") {
     // test error
     test {
         sql("select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lag(${k2}) over (partition by ${k1} order by ${k3}) from baseall")
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception ""
     }
     test {
         sql"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lag(${k2}, -1, 1) over (partition by ${k1} order by ${k3}) from baseall"
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception ""
     }
     test {
         sql"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lag(${k2}, 1) over (partition by ${k1} order by ${k3}) from baseall"
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception ""
     }
     test {
         sql"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lead(${k2}) over (partition by ${k1} order by ${k3}) from baseall"
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception ""
     }
     test {
         sql"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lead(${k2}, -1, 1) over (partition by ${k1} order by ${k3}) from baseall"
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception ""
     }
     test {
         sql"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lead(${k2}, 1) over (partition by ${k1} order by ${k3}) from baseall"
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception ""
     }
     qt_window_error1"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, first_value(${k2}) over (partition by ${k1}) from baseall order by ${k1}"""
     qt_window_error2"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, first_value(${k2}) over (order by ${k3}) from baseall"""
@@ -404,53 +396,34 @@ suite("test_window_function") {
         sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} rows
             between current row and unbounded preceding) as wj
             from baseall order by ${k1}, wj"""
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception ""
     }
     test {
         sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} rows 
             between 0 preceding and 1 following) as wj 
             from baseall order by ${k1}, wj"""
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception ""
     }
     test {
         sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} rows 
             between unbounded following and current row) as wj 
             from baseall order by ${k1}, wj"""
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception ""
     }
     test {
         sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, rank(${k2}) over (partition by ${k1} order by ${k3}) as wj
             from baseall order by ${k1}, wj"""
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception ""
     }
     test {
         sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, max() over (partition by ${k1} order by ${k3}) as wj
             from baseall order by ${k1}, wj"""
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
-    }
-    test {
-        sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, count(*) over (partition by ${k1} order by ${k3}) as wj
-            from baseall order by ${k1}, wj"""
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception ""
     }
     test {
         sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, count(${k2}) over (order by ${k1} rows partition by ${k3}) as wj
             from baseall order by ${k1}, wj"""
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception ""
     }
 
     // test_query_rank

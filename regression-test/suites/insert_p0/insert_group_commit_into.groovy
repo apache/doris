@@ -41,13 +41,13 @@ suite("insert_group_commit_into") {
         sql "use ${dbName};"
         while (true) {
             sleep(2000)
-            def state = sql " show alter table column where tablename = '${tableName}' order by CreateTime desc "
+            def state = sql " show alter table column where tablename = '${tableName}' order by CreateTime desc limit 1"
             logger.info("alter table state: ${state}")
             if (state.size() > 0 && state[0][9] == "FINISHED") {
                 return true
             }
             retry++
-            if (retry >= 10) {
+            if (retry >= 20) {
                 return false
             }
         }
@@ -69,6 +69,24 @@ suite("insert_group_commit_into") {
         return serverInfo
     }
 
+    def group_commit_insert_with_retry = { sql, expected_row_count ->
+        def retry = 0
+        while (true){
+            try {
+                return group_commit_insert(sql, expected_row_count)
+            } catch (Exception e) {
+                logger.warn("group_commit_insert failed, retry: " + retry + ", error: " + e.getMessage())
+                retry++
+                if (e.getMessage().contains("is blocked on schema change") && retry < 20) {
+                    sleep(1500)
+                    continue
+                } else {
+                    throw e
+                }
+            }
+        }
+    }
+
     def none_group_commit_insert = { sql, expected_row_count ->
         def stmt = prepareStatement """ ${sql}  """
         def result = stmt.executeUpdate()
@@ -77,6 +95,17 @@ suite("insert_group_commit_into") {
         logger.info("result server info: " + serverInfo)
         assertEquals(result, expected_row_count)
         assertTrue(serverInfo.contains("'status':'VISIBLE'"))
+        assertTrue(!serverInfo.contains("'label':'group_commit_"))
+    }
+
+    def txn_insert = { sql, expected_row_count ->
+        def stmt = prepareStatement """ ${sql}  """
+        def result = stmt.executeUpdate()
+        logger.info("insert result: " + result)
+        def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
+        logger.info("result server info: " + serverInfo)
+        assertEquals(result, expected_row_count)
+        assertTrue(serverInfo.contains("'status':'PREPARE'"))
         assertTrue(!serverInfo.contains("'label':'group_commit_"))
     }
 
@@ -102,12 +131,12 @@ suite("insert_group_commit_into") {
             );
             """
 
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl + "&useLocalSessionState=true") {
                 sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
-                    //sql """ set enable_fallback_to_original_planner=false; """
+                    sql """ set enable_fallback_to_original_planner=false; """
                 } else {
                     sql """ set enable_nereids_dml = false; """
                 }
@@ -120,7 +149,7 @@ suite("insert_group_commit_into") {
                 group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
                 getRowCount(6)
-                qt_sql """ select * from ${table} order by id, name, score asc; """
+                order_qt_select1 """ select * from ${table} order by id, name, score asc; """
 
                 // 2. insert into and delete
                 sql """ delete from ${table} where id = 4; """
@@ -134,19 +163,19 @@ suite("insert_group_commit_into") {
                 group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
                 getRowCount(11)
-                qt_sql """ select * from ${table} order by id, name, score asc; """
+                order_qt_select2 """ select * from ${table} order by id, name, score asc; """
 
                 // 3. insert into and light schema change: add column
                 group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
                 group_commit_insert """ insert into ${table}(id) values(4);  """, 1
                 group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50);  """, 2
                 sql """ alter table ${table} ADD column age int after name; """
-                group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
-                group_commit_insert """ insert into ${table}(id) select 6; """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id) select 6; """, 1
 
                 assertTrue(getAlterTableState(), "add column should success")
                 getRowCount(17)
-                qt_sql """ select * from ${table} order by id, name,score asc; """
+                order_qt_select3 """ select * from ${table} order by id, name,score asc; """
 
                 // 4. insert into and truncate table
                 /*sql """ insert into ${table}(name, id) values('c', 3);  """
@@ -157,58 +186,70 @@ suite("insert_group_commit_into") {
                 group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
                 getRowCount(2)
-                qt_sql """ select * from ${table} order by id, name, score asc; """
+                order_qt_select4 """ select * from ${table} order by id, name, score asc; """
 
                 // 5. insert into and schema change: modify column order
                 group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
                 group_commit_insert """ insert into ${table}(id) values(4);  """, 1
-                group_commit_insert """ insert into ${table} values (1, 'a', 5, 10),(5, 'q', 6, 50);  """, 2
-                // sql """ alter table ${table} order by (id, name, score, age); """
-                group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
-                group_commit_insert """ insert into ${table}(id) select 6; """, 1
+                group_commit_insert """ insert into ${table}(id, name, age, score) values (1, 'a', 5, 10),(5, 'q', 6, 50);  """, 2
+                sql """ alter table ${table} order by (id, name, score, age); """
+                group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id) select 6; """, 1
 
-                // assertTrue(getAlterTableState(), "modify column order should success")
+                assertTrue(getAlterTableState(), "modify column order should success")
                 getRowCount(8)
-                qt_sql """ select id, name, score, age from ${table} order by id, name, score asc; """
+                order_qt_select5 """ select id, name, score, age from ${table} order by id, name, score asc; """
 
                 // 6. insert into and light schema change: drop column
                 group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
                 group_commit_insert """ insert into ${table}(id) values(4);  """, 1
-                group_commit_insert """ insert into ${table} values (1, 'a', 5, 10),(5, 'q', 6, 50);  """, 2
+                group_commit_insert """ insert into ${table}(id, name, age, score) values (1, 'a', 5, 10),(5, 'q', 6, 50);  """, 2
                 sql """ alter table ${table} DROP column age; """
-                group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
-                group_commit_insert """ insert into ${table}(id) select 6; """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id) select 6; """, 1
 
                 assertTrue(getAlterTableState(), "drop column should success")
                 getRowCount(14)
-                qt_sql """ select * from ${table} order by id, name, score asc; """
+                order_qt_select6 """ select * from ${table} order by id, name, score asc; """
 
                 // 7. insert into and add rollup
                 group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
                 group_commit_insert """ insert into ${table}(id) values(4);  """, 1
                 group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50),(101, 'a', 100);  """, 2
-                // sql """ alter table ${table} ADD ROLLUP r1(name, score); """
-                group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
-                group_commit_insert """ insert into ${table}(id) select 6; """, 1
+                sql """ alter table ${table} ADD ROLLUP r1(name, score); """
+                group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id) select 6; """, 1
 
                 getRowCount(20)
-                qt_sql """ select name, score from ${table} order by name asc; """
+                order_qt_select7 """ select name, score from ${table} order by name asc; """
+                assertTrue(getAlterTableState(), "add rollup should success")
 
-
-                /*if (item == "nereids") {
+                if (item == "nereids") {
                     group_commit_insert """ insert into ${table}(id, name, score) values(10 + 1, 'h', 100);  """, 1
                     group_commit_insert """ insert into ${table}(id, name, score) select 10 + 2, 'h', 100;  """, 1
                     group_commit_insert """ insert into ${table} with label test_gc_""" + System.currentTimeMillis() + """ (id, name, score) values(13, 'h', 100);  """, 1
                     getRowCount(23)
-                } else {*/
+                } else {
                     none_group_commit_insert """ insert into ${table}(id, name, score) values(10 + 1, 'h', 100);  """, 1
                     none_group_commit_insert """ insert into ${table}(id, name, score) select 10 + 2, 'h', 100;  """, 1
                     none_group_commit_insert """ insert into ${table} with label test_gc_""" + System.currentTimeMillis() + """ (id, name, score) values(13, 'h', 100);  """, 1
-                //}
+                }
 
                 def rowCount = sql "select count(*) from ${table}"
                 logger.info("row count: " + rowCount)
-                assertEquals(rowCount[0][0], 23)
+                assertEquals(23, rowCount[0][0])
+
+                // txn insert
+                def stmt = prepareStatement """ begin  """
+                stmt.executeUpdate()
+                txn_insert """ insert into ${table}(id, name, score) values(20, 'i', 101);  """, 1
+                txn_insert """ insert into ${table}(id, name, score) values(21, 'j', 102);  """, 1
+                stmt = prepareStatement """ commit  """
+                stmt.executeUpdate()
+
+                rowCount = sql "select count(*) from ${table}"
+                logger.info("row count: " + rowCount)
+                assertEquals(rowCount[0][0], 25)
             }
         } finally {
             // try_sql("DROP TABLE ${table}")
@@ -299,7 +340,7 @@ suite("insert_group_commit_into") {
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
-                    //sql """ set enable_fallback_to_original_planner=false; """
+                    sql """ set enable_fallback_to_original_planner=false; """
                 } else {
                     sql """ set enable_nereids_dml = false; """
                 }
@@ -317,6 +358,168 @@ suite("insert_group_commit_into") {
             }
         } finally {
             // try_sql("DROP TABLE ${table}")
+        }
+
+        // table with MaterializedView
+        tableName = "insert_group_commit_into_mv"
+        table = dbName + "." + tableName
+        def table_tmp = dbName + ".test_table_tmp"
+        try {
+            // create table
+            sql """ drop table if exists ${table}; """
+            sql """CREATE table ${table} (
+            `ordernum` varchar(65533) NOT NULL ,
+            `dnt` datetime NOT NULL ,
+            `data` json NULL 
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`ordernum`, `dnt`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`ordernum`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+            sql """drop table if exists ${table_tmp};"""
+            sql """CREATE TABLE ${table_tmp} (
+            `dnt` varchar(200) NULL,
+            `ordernum` varchar(200) NULL,
+            `type` varchar(20) NULL,
+            `powers` double SUM NULL,
+            `p0` double REPLACE NULL,
+            `heatj` double SUM NULL,
+            `j0` double REPLACE NULL,
+            `heatg` double SUM NULL,
+            `g0` double REPLACE NULL,
+            `solar` double SUM NULL
+            ) ENGINE=OLAP
+            AGGREGATE KEY(`dnt`, `ordernum`, `type`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`ordernum`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            ); """
+            sql """DROP MATERIALIZED VIEW IF EXISTS ods_zn_dnt_max1 ON ${table};"""
+            sql """create materialized view ods_zn_dnt_max1 as
+            select ordernum,max(dnt) as dnt from ${table}
+            group by ordernum
+            ORDER BY ordernum;"""
+            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+                sql """ set group_commit = async_mode; """
+                if (item == "nereids") {
+                    sql """ set enable_nereids_dml = true; """
+                    sql """ set enable_nereids_planner=true; """
+                    sql """ set enable_fallback_to_original_planner=false; """
+                } else {
+                    sql """ set enable_nereids_dml = false; """
+                }
+
+                // 1. insert into
+                int count = 0;
+                while (count < 30) {
+                    try {
+                        group_commit_insert """ 
+                insert into ${table} values('cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}');""", 1
+                        break
+                    } catch (Exception e) {
+                        logger.info("got exception:" + e)
+                        if (e.getMessage().contains("is blocked on schema change")) {
+                            Thread.sleep(1000)
+                        }
+                        count++
+                    }
+                }
+                group_commit_insert """insert into ${table} values('cib2205045_1_1s','2023/6/10 3:56:33','{"DB1":168939,"DNT":"2023-06-10 03:56:33"}');""", 1
+                group_commit_insert """insert into ${table} values('cib2205045_1_1s','2023/6/10 3:57:33','{"DB1":168939,"DNT":"2023-06-10 03:57:33"}');""", 1
+                group_commit_insert """insert into ${table} values('cib2205045_1_1s','2023/6/10 3:58:33','{"DB1":168939,"DNT":"2023-06-10 03:58:33"}');""", 1
+
+                getRowCount(4)
+
+                qt_order """select
+                '2023-06-10',
+                tmp.ordernum,
+                cast(nvl(if(tmp.p0-tmp1.p0>0,tmp.p0-tmp1.p0,tmp.p0-tmp.p1),0) as decimal(10,4)),
+                nvl(tmp.p0,0),
+                cast(nvl(if(tmp.j0-tmp1.j0>0,tmp.j0-tmp1.j0,tmp.j0-tmp.j1)*277.78,0) as decimal(10,4)),
+                nvl(tmp.j0,0),
+                cast(nvl(if(tmp.g0-tmp1.g0>0,tmp.g0-tmp1.g0,tmp.g0-tmp.g1)*277.78,0) as decimal(10,4)),
+                nvl(tmp.g0,0),
+                cast(nvl(tmp.solar,0) as decimal(20,4)),
+                'day'
+                from 
+                (
+                select
+                    ordernum,
+                    max(ljrl1) g0,min(ljrl1) g1,
+                    max(ljrl2) j0,min(ljrl2) j1,
+                    max(db1) p0,min(db1) p1,
+                    max(fzl)*1600*0.278 solar
+                from(
+                    select ordernum,dnt,
+                            cast(if(json_extract(data,'\$.LJRL1')=0 or json_extract(data,'\$.LJRL1') like '%E%',null,json_extract(data,'\$.LJRL1')) as double) ljrl1,
+                            cast(if(json_extract(data,'\$.LJRL2')=0 or json_extract(data,'\$.LJRL2') like '%E%',null,json_extract(data,'\$.LJRL2')) as double) ljrl2,
+                            first_value(cast(if(json_extract(data,'\$.FZL')=0 or json_extract(data,'\$.FZL') like '%E%',null,
+                            json_extract(data,'\$.FZL')) as double)) over (partition by ordernum order by dnt desc) fzl,
+                            cast(if(json_extract(data,'\$.DB1')=0 or json_extract(data,'\$.DB1') like '%E%',null,json_extract(data,'\$.DB1')) as double) db1
+                    from ${table}
+                        )a1
+                group by ordernum
+                )tmp left join (
+                select
+                    ordernum,MAX(p0) p0,MAX(j0) j0,MAX(g0) g0
+                from ${table_tmp}
+                    group by ordernum
+                )tmp1
+                on tmp.ordernum=tmp1.ordernum;"""
+                qt_order2 """
+                SELECT  
+                row_number() over(partition by add_date order by pc_num desc)
+                ,row_number() over(partition by add_date order by vc_num desc)
+                ,row_number() over(partition by add_date order by vt_num desc)
+                FROM (
+                SELECT  
+                cast(dnt as datev2) add_date
+                ,row_number() over(order by dnt) pc_num
+                ,row_number() over(order by dnt) vc_num
+                ,row_number() over(order by dnt) vt_num
+                FROM ${table}
+                ) t;"""
+            }
+        } finally {
+        }
+
+        // column name contains keyword
+        tableName = "insert_group_commit_into_with_keyword"
+        table = dbName + "." + tableName
+        try {
+            // create table
+            sql """ drop table if exists ${table}; """
+            sql """
+                CREATE TABLE IF NOT EXISTS ${table}
+                (
+                    k1 INT,
+                    `or` varchar(50)
+                )
+                DUPLICATE KEY(`k1`)
+                DISTRIBUTED BY HASH(`k1`) 
+                BUCKETS 1 PROPERTIES (
+                    "replication_allocation" = "tag.location.default: 1"
+                ); 
+            """
+
+            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+                sql """ set group_commit = async_mode; """
+                if (item == "nereids") {
+                    sql """ set enable_nereids_dml = true; """
+                    sql """ set enable_nereids_planner = true; """
+                    sql """ set enable_fallback_to_original_planner = false; """
+                } else {
+                    sql """ set enable_nereids_dml = false; """
+                }
+                group_commit_insert """ insert into ${table} values(1, 'test'); """, 1
+                group_commit_insert """ insert into ${table}(k1,`or`) values (2,"or"); """, 1
+                getRowCount(2)
+                order_qt_select8 """ select * from ${table}; """
+            }
+        } finally {
         }
     }
 }

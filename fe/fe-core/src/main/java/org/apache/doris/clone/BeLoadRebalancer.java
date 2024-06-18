@@ -87,7 +87,9 @@ public class BeLoadRebalancer extends Rebalancer {
         boolean isUrgent = clusterStat.getLowHighBEsWithIsUrgent(lowBEs, highBEs, medium);
 
         if (lowBEs.isEmpty() && highBEs.isEmpty()) {
-            LOG.debug("cluster is balance with medium: {}. skip", medium);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("cluster is balance with medium: {}. skip", medium);
+            }
             return alternativeTablets;
         }
 
@@ -173,8 +175,10 @@ public class BeLoadRebalancer extends Rebalancer {
                 }
             }
 
-            LOG.debug("high be {}, medium: {}, path high: {}, remainingPaths: {}, chose high disk: {}",
-                    beStat.getBeId(), medium, pathHigh, remainingPaths, choseHighDisk);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("high be {}, medium: {}, path high: {}, remainingPaths: {}, chose high disk: {}",
+                        beStat.getBeId(), medium, pathHigh, remainingPaths, choseHighDisk);
+            }
 
             if (remainingPaths.isEmpty()) {
                 continue;
@@ -209,7 +213,12 @@ public class BeLoadRebalancer extends Rebalancer {
                     continue;
                 }
 
-                Replica replica = invertedIndex.getReplica(tabletId, beStat.getBeId());
+                Replica replica = null;
+                try {
+                    replica = invertedIndex.getReplica(tabletId, beStat.getBeId());
+                } catch (IllegalStateException e) {
+                    continue;
+                }
                 if (replica == null) {
                     continue;
                 }
@@ -218,6 +227,7 @@ public class BeLoadRebalancer extends Rebalancer {
                 // and only select it if the selected tablets num of this path
                 // does not exceed the limit (BALANCE_SLOT_NUM_FOR_PATH).
                 long replicaPathHash = replica.getPathHash();
+                long replicaDataSize = replica.getDataSize();
                 if (remainingPaths.containsKey(replicaPathHash)) {
                     TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
                     if (tabletMeta == null) {
@@ -240,7 +250,7 @@ public class BeLoadRebalancer extends Rebalancer {
                         continue;
                     }
 
-                    boolean isFit = lowBEs.stream().anyMatch(be -> be.isFit(replica.getDataSize(),
+                    boolean isFit = lowBEs.stream().anyMatch(be -> be.isFit(replicaDataSize,
                             medium, null, false) == BalanceStatus.OK);
                     if (!isFit) {
                         if (LOG.isDebugEnabled()) {
@@ -373,8 +383,10 @@ public class BeLoadRebalancer extends Rebalancer {
                 BalanceStatus bs = beStat.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), null,
                         false /* not supplement */);
                 if (bs != BalanceStatus.OK) {
-                    LOG.debug("tablet not fit in BE {}, reason: {}, {}",
-                            beStat.getBeId(), bs.getErrMsgs(), isUrgentInfo);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("tablet not fit in BE {}, reason: {}, {}",
+                                beStat.getBeId(), bs.getErrMsgs(), isUrgentInfo);
+                    }
                     continue;
                 }
 
@@ -390,7 +402,9 @@ public class BeLoadRebalancer extends Rebalancer {
 
                 PathSlot slot = backendsWorkingSlots.get(beStat.getBeId());
                 if (slot == null) {
-                    LOG.debug("BE does not have slot: {}", beStat.getBeId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("BE does not have slot: {}", beStat.getBeId());
+                    }
                     continue;
                 }
 

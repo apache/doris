@@ -197,7 +197,7 @@ suite("create_policy") {
             "AWS_MAX_CONNECTIONS" = "50",
             "AWS_REQUEST_TIMEOUT_MS" = "3000",
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-            "AWS_BUCKET" = "test-bucket",
+            "AWS_BUCKET" = "test-bucket"
         );
         """
         // errCode = 2, detailMessage = Missing [s3_validity_check] in properties.

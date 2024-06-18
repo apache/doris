@@ -479,7 +479,7 @@ public class SelectStmtTest {
 
                 + "character_set_name,\n"
 
-                + "is_default collate utf8_general_ci = 'Yes' as is_default\n"
+                + "is_default collate utf8mb4_0900_bin = 'Yes' as is_default\n"
                 + "from information_schema.collations";
         dorisAssert.query(sql).explainQuery();
     }
@@ -525,7 +525,7 @@ public class SelectStmtTest {
 
     @Test
     public void testDeleteSign() throws Exception {
-        String sql1 = "SELECT /*+ SET_VAR(enable_nereids_planner=true, ENABLE_FALLBACK_TO_ORIGINAL_PLANNER=false) */ * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        String sql1 = "SELECT /*+ SET_VAR(enable_nereids_planner=true, ENABLE_FALLBACK_TO_ORIGINAL_PLANNER=false, DISABLE_NEREIDS_RULES=PRUNE_EMPTY_PARTITION) */ * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         String explain = dorisAssert.query(sql1).explainQuery();
         Assert.assertTrue(explain
                 .contains("__DORIS_DELETE_SIGN__ = 0"));

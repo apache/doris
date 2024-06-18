@@ -78,12 +78,6 @@ ColumnPtr ColumnConst::replicate(const Offsets& offsets) const {
     return ColumnConst::create(data, replicated_size);
 }
 
-void ColumnConst::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
-    if (s == 0) return;
-    auto& res = reinterpret_cast<ColumnConst&>(column);
-    res.s = target_size;
-}
-
 ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     if (limit == 0) {
         limit = s;
@@ -97,22 +91,6 @@ ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     }
 
     return ColumnConst::create(data, limit);
-}
-
-void ColumnConst::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                           const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    DCHECK(hashes.size() == size());
-    auto real_data = data->get_data_at(0);
-    if (real_data.data == nullptr) {
-        for (auto& hash : hashes) {
-            hash.update(0);
-        }
-    } else {
-        for (auto& hash : hashes) {
-            hash.update(real_data.data, real_data.size);
-        }
-    }
 }
 
 void ColumnConst::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
@@ -148,22 +126,6 @@ void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
     }
 }
 
-MutableColumns ColumnConst::scatter(ColumnIndex num_columns, const Selector& selector) const {
-    if (s != selector.size()) {
-        LOG(FATAL) << fmt::format("Size of selector ({}) doesn't match size of column ({})",
-                                  selector.size(), s);
-    }
-
-    std::vector<size_t> counts = count_columns_size_in_selector(num_columns, selector);
-
-    MutableColumns res(num_columns);
-    for (size_t i = 0; i < num_columns; ++i) {
-        res[i] = clone_resized(counts[i]);
-    }
-
-    return res;
-}
-
 void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,
                                   Permutation& res) const {
     res.resize(s);
@@ -172,29 +134,8 @@ void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_
     }
 }
 
-void ColumnConst::get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                                  size_t limit) const {
-    if (!data->is_default_at(0)) {
-        size_t to = limit && from + limit < size() ? from + limit : size();
-        indices.reserve(indices.size() + to - from);
-        for (size_t i = from; i < to; ++i) {
-            indices.push_back(i);
-        }
-    }
-}
-
-ColumnPtr ColumnConst::index(const IColumn& indexes, size_t limit) const {
-    if (limit == 0) {
-        limit = indexes.size();
-    }
-    if (indexes.size() < limit) {
-        LOG(FATAL) << "Size of indexes  is less than required " << std::to_string(limit);
-    }
-    return ColumnConst::create(data, limit);
-}
-
 std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
-                                                                const size_t row_num) noexcept {
+                                                                size_t row_num) noexcept {
     std::pair<ColumnPtr, size_t> result;
     if (is_column_const(column)) {
         result.first = static_cast<const ColumnConst&>(column).get_data_column_ptr();
@@ -216,7 +157,7 @@ std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr& ptr) noexcept
 
 void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
                                           const std::initializer_list<size_t>& parameters,
-                                          Block& block, const ColumnNumbers& arg_indexes) noexcept {
+                                          Block& block, const ColumnNumbers& arg_indexes) {
     if (std::all_of(parameters.begin(), parameters.end(),
                     [&](size_t const_index) -> bool { return col_const[const_index]; })) {
         // only need to avoid expanding when all parameters are const

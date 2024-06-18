@@ -34,8 +34,29 @@ suite("test_dynamic_partition_with_alter") {
             "dynamic_partition.create_history_partition"="true",
             "dynamic_partition.replication_allocation" = "tag.location.default: 1")
         """
+
     result = sql "show partitions from ${tbl}"
     assertEquals(7, result.size())
+
+    try {
+        test {
+            sql "alter table ${tbl} set ('dynamic_partition.start' = '-2147483648')"
+            exception "Provide start or history_partition_num property"
+        }
+
+        test {
+            sql "alter table ${tbl} set ('dynamic_partition.start' = '-2147483647')"
+            exception "Too many dynamic partitions"
+        }
+
+        test {
+            sql "alter table ${tbl} set ('dynamic_partition.time_uint' = 'day')"
+            exception "Invalid dynamic partition properties: dynamic_partition.time_uint"
+        }
+    } catch (Exception e) {
+        sql "drop table if exists ${tbl}"
+        throw e
+    }
 
     // modify distributed column comment, then try to add too more dynamic partition
     sql """ alter table ${tbl} modify column k1 comment 'new_comment_for_k1' """

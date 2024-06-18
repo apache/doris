@@ -58,11 +58,11 @@ public class RuntimeFilter {
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
                          TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv,
-                         boolean bloomFilterSizeCalculatedByNdv,
+                         boolean bloomFilterSizeCalculatedByNdv, TMinMaxRuntimeFilterType tMinMaxType,
                          PhysicalRelation scan) {
         this(id, src, targets, targetExpressions, type, exprOrder,
                 builderNode, false, buildSideNdv, bloomFilterSizeCalculatedByNdv,
-                TMinMaxRuntimeFilterType.MIN_MAX, scan);
+                tMinMaxType, scan);
     }
 
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
@@ -170,7 +170,8 @@ public class RuntimeFilter {
         StringBuilder sb = new StringBuilder();
         sb.append("RF").append(id.asInt())
                 .append(" ").append(getSrcExpr().toSql()).append("->[").append(
-                        targetExpressions.stream().map(expr -> expr.toSql()).collect(Collectors.joining(",")))
+                        targetExpressions.stream().map(expr -> expr.toSql())
+                                .sorted().collect(Collectors.joining(",")))
                 .append("]");
         return sb.toString();
     }

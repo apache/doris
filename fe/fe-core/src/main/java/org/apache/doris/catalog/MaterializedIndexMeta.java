@@ -122,6 +122,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         return indexId;
     }
 
+    public void resetIndexIdForRestore(long id) {
+        indexId = id;
+    }
+
     public KeysType getKeysType() {
         return keysType;
     }
@@ -158,6 +162,18 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         this.schema = newSchema;
         parseStmt(null);
         initColumnNameMap();
+    }
+
+    public List<Column> getPrefixKeyColumns() {
+        List<Column> keys = Lists.newArrayList();
+        for (Column col : schema) {
+            if (col.isKey()) {
+                keys.add(col);
+            } else {
+                break;
+            }
+        }
+        return keys;
     }
 
     public void setSchemaHash(int newSchemaHash) {
@@ -345,8 +361,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
         this.schema.forEach(column -> {
             column.setUniqueId(incAndGetMaxColUniqueId());
-            LOG.debug("indexId: {},  column:{}, uniqueId:{}",
-                    indexId, column, column.getUniqueId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("indexId: {},  column:{}, uniqueId:{}",
+                        indexId, column, column.getUniqueId());
+            }
         });
     }
 

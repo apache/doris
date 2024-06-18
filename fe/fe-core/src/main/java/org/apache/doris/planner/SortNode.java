@@ -61,7 +61,7 @@ public class SortNode extends PlanNode {
     List<Expr> resolvedTupleExprs;
     private final SortInfo info;
     private final boolean  useTopN;
-    private boolean useTopnOpt;
+    private boolean useTopnOpt = false;
     private boolean useTwoPhaseReadOpt;
 
     // If mergeByexchange is set to true, the sort information is pushed to the
@@ -225,7 +225,9 @@ public class SortNode extends PlanNode {
                 cardinality = Math.min(cardinality, limit);
             }
         }
-        LOG.debug("stats Sort: cardinality=" + Double.toString(cardinality));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats Sort: cardinality=" + Double.toString(cardinality));
+        }
     }
 
     public void init(Analyzer analyzer) throws UserException {

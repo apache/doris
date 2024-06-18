@@ -13,7 +13,7 @@ CREATE TABLE `stress_destination` (
   `order_num` INT NULL
 ) ENGINE=OLAP
 UNIQUE KEY(`create_date`, `parent_org_id`, `org_id`)
-AUTO PARTITION BY RANGE date_trunc(`create_date`,'day')()
+auto partition by range (date_trunc(`create_date`,'day')) ()
 DISTRIBUTED BY HASH(`create_date`, `org_id`) BUCKETS AUTO
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1"

@@ -24,6 +24,7 @@ public enum EtlJobType {
     BROKER,
     DELETE,
     SPARK,
+    COPY,
     LOCAL_FILE,
     // create by job scheduler,inner use
     INSERT_JOB,

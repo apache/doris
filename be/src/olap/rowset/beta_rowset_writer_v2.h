@@ -39,9 +39,9 @@
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
-#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_creator.h"
 #include "segment_v2/segment.h"
@@ -108,6 +108,10 @@ public:
 
     int64_t num_rows() const override { return _segment_creator.num_rows_written(); }
 
+    // for partial update
+    int64_t num_rows_updated() const override { return _segment_creator.num_rows_updated(); }
+    int64_t num_rows_deleted() const override { return _segment_creator.num_rows_deleted(); }
+    int64_t num_rows_new_added() const override { return _segment_creator.num_rows_new_added(); }
     int64_t num_rows_filtered() const override { return _segment_creator.num_rows_filtered(); }
 
     RowsetId rowset_id() override { return _context.rowset_id; }
@@ -142,11 +146,11 @@ private:
     // record rows number of every segment already written, using for rowid
     // conversion when compaction in unique key with MoW model
     std::vector<uint32_t> _segment_num_rows;
-    std::vector<io::FileWriterPtr> _file_writers;
+
     // for unique key table with merge-on-write
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
 
-    // TODO rowset Zonemap
+    SegmentFileCollection _seg_files;
 
     SegmentCreator _segment_creator;
 

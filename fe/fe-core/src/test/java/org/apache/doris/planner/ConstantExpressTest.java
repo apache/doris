@@ -37,6 +37,7 @@ public class ConstantExpressTest {
     public static void beforeClass() throws Exception {
         UtFrameUtils.startFEServer(runningDir);
         connectContext = UtFrameUtils.createDefaultCtx();
+        connectContext.getSessionVariable().setEnableFoldConstantByBe(false);
     }
 
     private static void testConstantExpressResult(String sql, String result) throws Exception {
@@ -77,11 +78,11 @@ public class ConstantExpressTest {
 
         testConstantExpressResult(
                 "select date_add('2018-08-08', 1);",
-                "'2018-08-09 00:00:00'");
+                "'2018-08-09'");
 
         testConstantExpressResult(
                 "select date_add('2018-08-08', -1);",
-                "'2018-08-07 00:00:00'");
+                "'2018-08-07'");
 
         testConstantExpressResult(
                 "select date_sub('2018-08-08 07:16:19',1);",

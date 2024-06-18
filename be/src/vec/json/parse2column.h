@@ -23,18 +23,17 @@
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 
-namespace doris {
-namespace vectorized {
-class ColumnString;
+namespace doris::vectorized {
+
 class SimdJSONParser;
 enum class ExtractType;
 template <typename ParserImpl, bool>
 class JSONDataParser;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 using JsonParser = JSONDataParser<SimdJSONParser, false>;
+
 // parse a batch of json strings into column object, throws doris::Execption when failed
 void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column);
 

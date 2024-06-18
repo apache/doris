@@ -22,6 +22,8 @@
 
 #include <assert.h>
 
+#include <string_view>
+
 #include "vec/common/sip_hash.h"
 
 namespace doris::vectorized {
@@ -118,12 +120,15 @@ void PathInData::from_protobuf(const segment_v2::ColumnPathInfo& pb) {
     path = pb.path();
     has_nested = pb.has_has_nested();
     parts.reserve(pb.path_part_infos().size());
+    const char* begin = path.data();
     for (const segment_v2::ColumnPathPartInfo& part_info : pb.path_part_infos()) {
         Part part;
         part.is_nested = part_info.is_nested();
         part.anonymous_array_level = part_info.anonymous_array_level();
-        part.key = part_info.key();
+        // use string_view to ref data in path
+        part.key = std::string_view {begin, part_info.key().length()};
         parts.push_back(part);
+        begin += part.key.length() + 1;
     }
 }
 
@@ -158,7 +163,7 @@ void PathInData::to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_
 
 size_t PathInData::Hash::operator()(const PathInData& value) const {
     auto hash = get_parts_hash(value.parts);
-    return hash.low ^ hash.high;
+    return hash.low() ^ hash.high();
 }
 
 PathInData PathInData::copy_pop_front() const {
@@ -183,13 +188,11 @@ PathInDataBuilder& PathInDataBuilder::append(std::string_view key, bool is_array
     if (parts.empty()) {
         current_anonymous_array_level += is_array;
     }
-    if (!key.empty()) {
-        if (!parts.empty()) {
-            parts.back().is_nested = is_array;
-        }
-        parts.emplace_back(key, false, current_anonymous_array_level);
-        current_anonymous_array_level = 0;
+    if (!parts.empty()) {
+        parts.back().is_nested = is_array;
     }
+    parts.emplace_back(key, false, current_anonymous_array_level);
+    current_anonymous_array_level = 0;
     return *this;
 }
 PathInDataBuilder& PathInDataBuilder::append(const PathInData::Parts& path, bool is_array) {
@@ -210,7 +213,9 @@ PathInDataBuilder& PathInDataBuilder::append(const PathInData::Parts& path, bool
 }
 
 void PathInDataBuilder::pop_back() {
-    parts.pop_back();
+    if (!parts.empty()) {
+        parts.pop_back();
+    }
 }
 
 void PathInDataBuilder::pop_back(size_t n) {

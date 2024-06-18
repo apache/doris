@@ -26,9 +26,12 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -49,8 +52,6 @@ import java.util.Map;
  */
 public class TableProperty implements Writable {
     private static final Logger LOG = LogManager.getLogger(TableProperty.class);
-
-    public static final String DYNAMIC_PARTITION_PROPERTY_PREFIX = "dynamic_partition";
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
@@ -79,6 +80,8 @@ public class TableProperty implements Writable {
      */
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
+    private TInvertedIndexStorageFormat invertedIndexStorageFormat = TInvertedIndexStorageFormat.DEFAULT;
+
     private TCompressionType compressionType = TCompressionType.LZ4F;
 
     private boolean enableLightSchemaChange = false;
@@ -105,6 +108,9 @@ public class TableProperty implements Writable {
     private long timeSeriesCompactionEmptyRowsetsThreshold
                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE;
 
+    private long timeSeriesCompactionLevelThreshold
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -128,7 +134,7 @@ public class TableProperty implements Writable {
             case OperationType.OP_MODIFY_REPLICATION_NUM:
                 buildReplicaAllocation();
                 break;
-            case OperationType.OP_MODIFY_IN_MEMORY:
+            case OperationType.OP_MODIFY_TABLE_PROPERTIES:
                 buildInMemory();
                 buildMinLoadReplicaNum();
                 buildStorageMedium();
@@ -142,6 +148,8 @@ public class TableProperty implements Writable {
                 buildEnableSingleReplicaCompaction();
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
+                buildTimeSeriesCompactionLevelThreshold();
+                buildTTLSeconds();
                 break;
             default:
                 break;
@@ -177,10 +185,14 @@ public class TableProperty implements Writable {
     private TableProperty executeBuildDynamicProperty() {
         HashMap<String, String> dynamicPartitionProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+            if (entry.getKey().startsWith(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+                if (!DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTIES.contains(entry.getKey())) {
+                    LOG.warn("Ignore invalid dynamic property key: {}: value: {}", entry.getKey(), entry.getValue());
+                }
                 dynamicPartitionProperties.put(entry.getKey(), entry.getValue());
             }
         }
+
         dynamicPartitionProperty = EnvFactory.getInstance().createDynamicPartitionProperty(dynamicPartitionProperties);
         return this;
     }
@@ -308,6 +320,17 @@ public class TableProperty implements Writable {
         return timeSeriesCompactionEmptyRowsetsThreshold;
     }
 
+    public TableProperty buildTimeSeriesCompactionLevelThreshold() {
+        timeSeriesCompactionLevelThreshold = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long timeSeriesCompactionLevelThreshold() {
+        return timeSeriesCompactionLevelThreshold;
+    }
+
     public TableProperty buildMinLoadReplicaNum() {
         minLoadReplicaNum = Short.parseShort(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM, "-1"));
@@ -427,6 +450,13 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildInvertedIndexStorageFormat() {
+        invertedIndexStorageFormat = TInvertedIndexStorageFormat.valueOf(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
+                TInvertedIndexStorageFormat.DEFAULT.name()));
+        return this;
+    }
+
     public void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
         removeDuplicateReplicaNumProperty();
@@ -463,7 +493,7 @@ public class TableProperty implements Writable {
     public Map<String, String> getOriginDynamicPartitionProperty() {
         Map<String, String> origProp = Maps.newHashMap();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+            if (DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTIES.contains(entry.getKey())) {
                 origProp.put(entry.getKey(), entry.getValue());
             }
         }
@@ -488,6 +518,10 @@ public class TableProperty implements Writable {
             return TStorageFormat.V2;
         }
         return storageFormat;
+    }
+
+    public TInvertedIndexStorageFormat getInvertedIndexStorageFormat() {
+        return invertedIndexStorageFormat;
     }
 
     public DataSortInfo getDataSortInfo() {
@@ -570,6 +604,7 @@ public class TableProperty implements Writable {
                 .buildMinLoadReplicaNum()
                 .buildStorageMedium()
                 .buildStorageFormat()
+                .buildInvertedIndexStorageFormat()
                 .buildDataSortInfo()
                 .buildCompressionType()
                 .buildStoragePolicy()
@@ -584,7 +619,9 @@ public class TableProperty implements Writable {
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction()
-                .buildTimeSeriesCompactionEmptyRowsetsThreshold();
+                .buildTimeSeriesCompactionEmptyRowsetsThreshold()
+                .buildTimeSeriesCompactionLevelThreshold()
+                .buildTTLSeconds();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
@@ -611,6 +648,32 @@ public class TableProperty implements Writable {
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)
                 && properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
+        }
+    }
+
+    // Return null if storage vault has not been set
+    public String getStorageVaultId() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, "");
+    }
+
+    public void setStorageVaultId(String storageVaultId) {
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, storageVaultId);
+    }
+
+    public String getStorageVaultName() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
+    }
+
+    public void setStorageVaultName(String storageVaultName) {
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, storageVaultName);
+    }
+
+    public String getPropertiesString() throws IOException {
+        ObjectMapper objectMapper = new ObjectMapper();
+        try {
+            return objectMapper.writeValueAsString(properties);
+        } catch (JsonProcessingException e) {
+            throw new IOException(e);
         }
     }
 }

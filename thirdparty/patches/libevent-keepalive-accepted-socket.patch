@@ -1,0 +1,17 @@
+diff --git a/http.c b/http.c
+index 1ad60f8..267fa1f 100644
+--- a/http.c
++++ b/http.c
+@@ -4265,6 +4265,12 @@ evhttp_get_request_connection(
+ 	event_debug(("%s: new request from %s:%s on "EV_SOCK_FMT"\n",
+ 		__func__, hostname, portname, EV_SOCK_ARG(fd)));
+ 
++	if (sa->sa_family != AF_UNIX) {
++		if (evutil_set_tcp_keepalive(fd, 1, 300) < 0) {
++			return (NULL);
++		}
++	}
++
+ 	/* we need a connection object to put the http request on */
+ 	if (http->bevcb != NULL) {
+ 		bev = (*http->bevcb)(http->base, http->bevcbarg);

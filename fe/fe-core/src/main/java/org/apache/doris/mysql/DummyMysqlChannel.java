@@ -27,9 +27,6 @@ import java.nio.ByteBuffer;
  * And don't need to allocate a real ByteBuffer.
  */
 public class DummyMysqlChannel extends MysqlChannel {
-    public DummyMysqlChannel() {
-        this.serializer = MysqlSerializer.newInstance();
-    }
 
     public void setSequenceId(int sequenceId) {
         this.sequenceId = sequenceId;

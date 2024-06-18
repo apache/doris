@@ -19,7 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.planner.external.paimon.PaimonPredicateConverter;
+import org.apache.doris.datasource.paimon.source.PaimonPredicateConverter;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -55,6 +55,7 @@ public class PaimonPredicateConverterTest extends TestWithFeService {
         DataField paimonFieldV1 = new DataField(2, "v1", new IntType());
         RowType rowType = new RowType(Lists.newArrayList(paimonFieldK1, paimonFieldK2, paimonFieldV1));
         PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType);
+        connectContext.getSessionVariable().setParallelResultSink(false);
 
         // k1=1
         String sql1 = "SELECT * from db1.tbl1 where k1 = 1";

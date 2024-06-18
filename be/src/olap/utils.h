@@ -67,8 +67,8 @@ private:
 // @param base 原串
 // @param separator 分隔符
 // @param result 切分结果
-template <typename T>
-Status split_string(const std::string& base, const T separator, std::vector<std::string>* result) {
+template <typename Str, typename T>
+Status split_string(const Str& base, const T separator, std::vector<std::string>* result) {
     if (!result) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT>("split_string meet nullptr result input");
     }
@@ -84,20 +84,15 @@ Status split_string(const std::string& base, const T separator, std::vector<std:
     while (offset < base.length()) {
         size_t next = base.find(separator, offset);
         if (next == std::string::npos) {
-            result->push_back(base.substr(offset));
+            result->emplace_back(base.substr(offset));
             break;
         } else {
-            result->push_back(base.substr(offset, next - offset));
+            result->emplace_back(base.substr(offset, next - offset));
             offset = next + 1;
         }
     }
 
     return Status::OK();
-}
-
-template <typename T>
-void _destruct_object(const void* obj, void*) {
-    delete ((const T*)obj);
 }
 
 uint32_t olap_adler32_init();
@@ -262,19 +257,20 @@ constexpr bool is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_BOOL;
+           field_type == FieldType::OLAP_FIELD_TYPE_BOOL ||
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV4 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV6;
 }
 
 // Util used to get string name of thrift enum item
-#define EnumToString(enum_type, index, out)                 \
-    do {                                                    \
-        std::map<int, const char*>::const_iterator it =     \
-                _##enum_type##_VALUES_TO_NAMES.find(index); \
-        if (it == _##enum_type##_VALUES_TO_NAMES.end()) {   \
-            out = "NULL";                                   \
-        } else {                                            \
-            out = it->second;                               \
-        }                                                   \
+#define EnumToString(enum_type, index, out)                   \
+    do {                                                      \
+        auto it = _##enum_type##_VALUES_TO_NAMES.find(index); \
+        if (it == _##enum_type##_VALUES_TO_NAMES.end()) {     \
+            out = "NULL";                                     \
+        } else {                                              \
+            out = it->second;                                 \
+        }                                                     \
     } while (0)
 
 struct RowLocation {
@@ -302,9 +298,9 @@ struct RowLocation {
 };
 
 struct GlobalRowLoacation {
-    GlobalRowLoacation(uint32_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)
+    GlobalRowLoacation(int64_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)
             : tablet_id(tid), row_location(rsid, sid, rid) {}
-    uint32_t tablet_id;
+    int64_t tablet_id;
     RowLocation row_location;
 
     bool operator==(const GlobalRowLoacation& rhs) const {

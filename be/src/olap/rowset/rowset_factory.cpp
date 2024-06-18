@@ -42,7 +42,7 @@ Status RowsetFactory::create_rowset(const TabletSchemaSPtr& schema, const std::s
         return Status::Error<ROWSET_INVALID>("invalid rowset_type");
     }
     if (rowset_meta->rowset_type() == BETA_ROWSET) {
-        rowset->reset(new BetaRowset(schema, tablet_path, rowset_meta));
+        rowset->reset(new BetaRowset(schema, rowset_meta, tablet_path));
         return (*rowset)->init();
     }
     return Status::Error<ROWSET_TYPE_NOT_FOUND>("invalid rowset_type"); // should never happen
@@ -57,7 +57,7 @@ Result<std::unique_ptr<RowsetWriter>> RowsetFactory::create_rowset_writer(
     if (context.rowset_type == BETA_ROWSET) {
         std::unique_ptr<RowsetWriter> writer;
         if (is_vertical) {
-            writer = std::make_unique<VerticalBetaRowsetWriter>(engine);
+            writer = std::make_unique<VerticalBetaRowsetWriter<BetaRowsetWriter>>(engine);
         } else {
             writer = std::make_unique<BetaRowsetWriter>(engine);
         }
@@ -72,7 +72,13 @@ Result<std::unique_ptr<RowsetWriter>> RowsetFactory::create_rowset_writer(
         CloudStorageEngine& engine, const RowsetWriterContext& context, bool is_vertical) {
     DCHECK_EQ(context.rowset_type, BETA_ROWSET);
     // TODO(plat1ko): cloud vertical rowset writer
-    auto writer = std::make_unique<CloudRowsetWriter>();
+    std::unique_ptr<RowsetWriter> writer;
+    if (is_vertical) {
+        writer = std::make_unique<VerticalBetaRowsetWriter<CloudRowsetWriter>>();
+    } else {
+        writer = std::make_unique<CloudRowsetWriter>();
+    }
+
     RETURN_IF_ERROR_RESULT(writer->init(context));
     return writer;
 }

@@ -18,12 +18,13 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.DigitalMaskingConvert;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
+import org.apache.doris.nereids.rules.expression.rules.MergeDateTrunc;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
-import org.apache.doris.nereids.rules.expression.rules.ReplaceVariableByLiteral;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticComparisonRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
@@ -41,23 +42,24 @@ public class ExpressionNormalization extends ExpressionRewrite {
     // we should run supportJavaDateFormatter before foldConstantRule or be will fold
     // from_unixtime(timestamp, 'yyyyMMdd') to 'yyyyMMdd'
     public static final List<ExpressionRewriteRule> NORMALIZE_REWRITE_RULES = ImmutableList.of(
-            SupportJavaDateFormatter.INSTANCE,
-            ReplaceVariableByLiteral.INSTANCE,
-            NormalizeBinaryPredicatesRule.INSTANCE,
-            InPredicateDedup.INSTANCE,
-            InPredicateToEqualToRule.INSTANCE,
-            SimplifyNotExprRule.INSTANCE,
-            SimplifyArithmeticRule.INSTANCE,
-            FoldConstantRule.INSTANCE,
-            SimplifyCastRule.INSTANCE,
-            DigitalMaskingConvert.INSTANCE,
-            SimplifyArithmeticComparisonRule.INSTANCE,
-            SupportJavaDateFormatter.INSTANCE,
-            CheckCast.INSTANCE
+            bottomUp(
+                SupportJavaDateFormatter.INSTANCE,
+                NormalizeBinaryPredicatesRule.INSTANCE,
+                InPredicateDedup.INSTANCE,
+                InPredicateToEqualToRule.INSTANCE,
+                SimplifyNotExprRule.INSTANCE,
+                SimplifyArithmeticRule.INSTANCE,
+                FoldConstantRule.INSTANCE,
+                SimplifyCastRule.INSTANCE,
+                DigitalMaskingConvert.INSTANCE,
+                SimplifyArithmeticComparisonRule.INSTANCE,
+                ConvertAggStateCast.INSTANCE,
+                MergeDateTrunc.INSTANCE,
+                CheckCast.INSTANCE
+            )
     );
 
     public ExpressionNormalization() {
         super(new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES));
     }
 }
-

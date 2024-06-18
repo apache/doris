@@ -19,18 +19,19 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Stream;
+import java.util.function.Supplier;
 
 /**
  * The internal representation of
@@ -43,17 +44,24 @@ public class CaseWhen extends Expression {
 
     private final List<WhenClause> whenClauses;
     private final Optional<Expression> defaultValue;
+    private Supplier<List<DataType>> dataTypesForCoercion;
 
     public CaseWhen(List<WhenClause> whenClauses) {
         super((List) whenClauses);
         this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
         defaultValue = Optional.empty();
+        this.dataTypesForCoercion = computeDataTypesForCoercion();
     }
 
+    /** CaseWhen */
     public CaseWhen(List<WhenClause> whenClauses, Expression defaultValue) {
-        super(ImmutableList.<Expression>builder().addAll(whenClauses).add(defaultValue).build());
+        super(ImmutableList.<Expression>builderWithExpectedSize(whenClauses.size() + 1)
+                .addAll(whenClauses)
+                .add(defaultValue)
+                .build());
         this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
         this.defaultValue = Optional.of(Objects.requireNonNull(defaultValue));
+        this.dataTypesForCoercion = computeDataTypesForCoercion();
     }
 
     public List<WhenClause> getWhenClauses() {
@@ -64,10 +72,9 @@ public class CaseWhen extends Expression {
         return defaultValue;
     }
 
+    /** dataTypesForCoercion */
     public List<DataType> dataTypesForCoercion() {
-        return Stream.concat(whenClauses.stream(), defaultValue.map(Stream::of).orElseGet(Stream::empty))
-                .map(ExpressionTrait::getDataType)
-                .collect(ImmutableList.toImmutableList());
+        return this.dataTypesForCoercion.get();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -135,5 +142,17 @@ public class CaseWhen extends Expression {
             return new CaseWhen(whenClauseList);
         }
         return new CaseWhen(whenClauseList, defaultValue);
+    }
+
+    private Supplier<List<DataType>> computeDataTypesForCoercion() {
+        return Suppliers.memoize(() -> {
+            Builder<DataType> dataTypes = ImmutableList.builderWithExpectedSize(
+                    whenClauses.size() + (defaultValue.isPresent() ? 1 : 0));
+            for (WhenClause whenClause : whenClauses) {
+                dataTypes.add(whenClause.getDataType());
+            }
+            defaultValue.ifPresent(expression -> dataTypes.add(expression.getDataType()));
+            return dataTypes.build();
+        });
     }
 }

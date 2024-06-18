@@ -827,11 +827,50 @@ visible_functions = {
         [['array_repeat'], 'ARRAY_VARCHAR', ['VARCHAR', 'BIGINT'], 'ALWAYS_NOT_NULLABLE'],
         [['array_repeat'], 'ARRAY_STRING', ['STRING', 'BIGINT'], 'ALWAYS_NOT_NULLABLE'],
 
-        [['array_range'], 'ARRAY_INT', ['INT'], 'ALWAYS_NULLABLE'],
-        [['array_range'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
-        [['array_range'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_INT', ['INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2', 'INT'], 'ALWAYS_NULLABLE'],
 
         [['array_zip'], 'ARRAY', ['ARRAY<T>', '...'], '', ['T']],
+
+        [['array_split'], 'ARRAY_BOOLEAN',['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_TINYINT',['ARRAY_TINYINT', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_SMALLINT',['ARRAY_SMALLINT', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_INT',['ARRAY_INT', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_BIGINT',['ARRAY_BIGINT', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_LARGEINT',['ARRAY_LARGEINT', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_FLOAT',['ARRAY_FLOAT', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_DOUBLE',['ARRAY_DOUBLE', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_VARCHAR',['ARRAY_VARCHAR', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_STRING',['ARRAY_STRING', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_DECIMALV2',['ARRAY_DECIMALV2', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_DECIMAL32',['ARRAY_DECIMAL32', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_DECIMAL64',['ARRAY_DECIMAL64', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_DECIMAL128',['ARRAY_DECIMAL128', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_DATETIME',['ARRAY_DATETIME', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_DATE',['ARRAY_DATE', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_DATETIMEV2',['ARRAY_DATETIMEV2', 'ARRAY_BOOLEAN'], ''],
+        [['array_split'], 'ARRAY_DATEV2',['ARRAY_DATEV2', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_BOOLEAN',['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_TINYINT',['ARRAY_TINYINT', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_SMALLINT',['ARRAY_SMALLINT', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_INT',['ARRAY_INT', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_BIGINT',['ARRAY_BIGINT', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_LARGEINT',['ARRAY_LARGEINT', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_FLOAT',['ARRAY_FLOAT', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_DOUBLE',['ARRAY_DOUBLE', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_VARCHAR',['ARRAY_VARCHAR', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_STRING',['ARRAY_STRING', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_DECIMALV2',['ARRAY_DECIMALV2', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_DECIMAL32',['ARRAY_DECIMAL32', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_DECIMAL64',['ARRAY_DECIMAL64', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_DECIMAL128',['ARRAY_DECIMAL128', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_DATETIME',['ARRAY_DATETIME', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_DATE',['ARRAY_DATE', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_DATETIMEV2',['ARRAY_DATETIMEV2', 'ARRAY_BOOLEAN'], ''],
+        [['array_reverse_split'], 'ARRAY_DATEV2',['ARRAY_DATEV2', 'ARRAY_BOOLEAN'], ''],
 
 
         # reverse function for string builtin
@@ -1078,6 +1117,8 @@ visible_functions = {
         [['weeks_sub'], 'DATEV2', ['DATEV2', 'INT'], ''],
         [['days_add', 'date_add', 'adddate'], 'DATEV2', ['DATEV2', 'INT'], ''],
         [['days_sub', 'date_sub', 'subdate'], 'DATEV2', ['DATEV2', 'INT'], ''],
+        [['days_add', 'date_add', 'adddate'], 'DATE', ['DATE', 'INT'], ''],
+        [['days_sub', 'date_sub', 'subdate'], 'DATE', ['DATE', 'INT'], ''],
         [['hours_add'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
         [['hours_sub'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
         [['minutes_add'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
@@ -1405,8 +1446,8 @@ visible_functions = {
         [['truncate'], 'DECIMAL64', ['DECIMAL64', 'INT'], ''],
         [['truncate'], 'DECIMAL128', ['DECIMAL128', 'INT'], ''],
         
-        [['unhex'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['unhex'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE']
+        [['unhex'], 'VARCHAR', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['unhex'], 'STRING', ['STRING'], 'DEPEND_ON_ARGUMENT']
     ],
 
     # Conditional Functions
@@ -1564,7 +1605,7 @@ visible_functions = {
         [['null_or_empty'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['not_null_or_empty'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['space'], 'VARCHAR', ['INT'], ''],
-        [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
+        [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['lpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['rpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -1574,6 +1615,7 @@ visible_functions = {
         [['char_length', 'character_length'], 'INT', ['VARCHAR'], ''],
         [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'], ''],
         [['upper', 'ucase'], 'VARCHAR', ['VARCHAR'], ''],
+        [['quote'], 'VARCHAR', ['VARCHAR'], ''],
         [['initcap'], 'VARCHAR', ['VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR','VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR'], ''],
@@ -1610,11 +1652,13 @@ visible_functions = {
         [['substring_index'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['extract_url_parameter'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
         [['url_decode'], 'VARCHAR', ['VARCHAR'], ''],
+        [['random_bytes'], 'VARCHAR', ['INT'], ''],
 
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
 
         [['char'], 'VARCHAR', ['VARCHAR', 'INT', '...'], 'ALWAYS_NULLABLE'],
+        [['strcmp'], 'INT', ['VARCHAR', 'VARCHAR'], 'DEPEND_ON_ARGUMENT'],
 
         [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
@@ -1625,7 +1669,7 @@ visible_functions = {
         [['null_or_empty'], 'BOOLEAN', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['not_null_or_empty'], 'BOOLEAN', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['space'], 'STRING', ['INT'], ''],
-        [['repeat'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
+        [['repeat'], 'STRING', ['STRING', 'INT'], 'ALWAYS_NULLABLE'],
         [['lpad'], 'STRING', ['STRING', 'INT', 'STRING'], 'ALWAYS_NULLABLE'],
         [['rpad'], 'STRING', ['STRING', 'INT', 'STRING'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
@@ -1635,6 +1679,7 @@ visible_functions = {
         [['char_length', 'character_length'], 'INT', ['STRING'], ''],
         [['lower', 'lcase'], 'STRING', ['STRING'], ''],
         [['upper', 'ucase'], 'STRING', ['STRING'], ''],
+        [['quote'], 'STRING', ['STRING'], ''],
         [['trim'], 'STRING', ['STRING'], ''],
         [['trim'], 'STRING', ['STRING','STRING'], ''],
         [['ltrim'], 'STRING', ['STRING'], ''],
@@ -1664,7 +1709,9 @@ visible_functions = {
         [['money_format'], 'STRING', ['DECIMAL128'], ''],
         [['split_part'], 'STRING', ['STRING', 'STRING', 'INT'], 'ALWAYS_NULLABLE'],
         [['substring_index'], 'STRING', ['STRING', 'STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
-        [['url_decode'], 'STRING', ['STRING'], '']
+        [['url_decode'], 'STRING', ['STRING'], ''],
+        [['random_bytes'], 'STRING', ['INT'], ''],
+        [['strcmp'], 'INT', ['STRING', 'STRING'], 'DEPEND_ON_ARGUMENT']
     ],
 
 
@@ -1815,9 +1862,12 @@ visible_functions = {
     #hll function
     "Hll": [
         [['hll_cardinality'], 'BIGINT', ['HLL'], 'ALWAYS_NOT_NULLABLE'],
-        [['hll_hash'], 'HLL', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['hll_empty'], 'HLL', [], 'ALWAYS_NOT_NULLABLE'],
-        [['hll_hash'], 'HLL', ['STRING'], 'ALWAYS_NOT_NULLABLE']
+        [['hll_from_base64'], 'HLL', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['hll_from_base64'], 'HLL', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['hll_hash'], 'HLL', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['hll_hash'], 'HLL', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['hll_to_base64'], 'STRING', ['HLL'], '']
     ],
 
 
@@ -1885,7 +1935,11 @@ visible_functions = {
         [['murmur_hash3_32'], 'INT', ['VARCHAR', '...'], ''],
         [['murmur_hash3_32'], 'INT', ['STRING', '...'], ''],
         [['murmur_hash3_64'], 'BIGINT', ['VARCHAR', '...'], ''],
-        [['murmur_hash3_64'], 'BIGINT', ['STRING', '...'], '']
+        [['murmur_hash3_64'], 'BIGINT', ['STRING', '...'], ''],
+        [['xxhash_32'], 'INT', ['VARCHAR', '...'], ''],
+        [['xxhash_32'], 'INT', ['STRING', '...'], ''],
+        [['xxhash_64'], 'BIGINT', ['VARCHAR', '...'], ''],
+        [['xxhash_64'], 'BIGINT', ['STRING', '...'], '']
     ],
 
     # aes and base64 function
@@ -1908,8 +1962,8 @@ visible_functions = {
         [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['from_base64'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],
-        [['to_base64'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],
-        [['to_base64'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE']
+        [['to_base64'], 'STRING', ['STRING'], 'DEPEND_ON_ARGUMENT'],
+        [['to_base64'], 'VARCHAR', ['VARCHAR'], 'DEPEND_ON_ARGUMENT']
     ],
 
     # for compatable with MySQL
@@ -2004,7 +2058,10 @@ visible_functions = {
 
     "UUID": [
         [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE'],
-        [['uuid_numeric'], 'LARGEINT', [], 'ALWAYS_NOT_NULLABLE']
+        [['uuid_numeric'], 'LARGEINT', [], 'ALWAYS_NOT_NULLABLE'],
+        [['uuid_to_int'], 'LARGEINT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['uuid_to_int'], 'LARGEINT', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['int_to_uuid'], 'VARCHAR', ['LARGEINT'], 'DEPEND_ON_ARGUMENT']
     ],
 
     #ip functions
@@ -2022,7 +2079,6 @@ visible_functions = {
         [['ipv6_num_to_string','inet6_ntoa'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],     
         [['ipv6_num_to_string','inet6_ntoa'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],
         [['ipv6_num_to_string','inet6_ntoa'], 'VARCHAR', ['IPV6'], 'ALWAYS_NULLABLE'],
-        [['ipv6_num_to_string','inet6_ntoa'], 'STRING', ['IPV6'], 'ALWAYS_NULLABLE'],
         [['ipv6_string_to_num'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['ipv6_string_to_num'], 'STRING', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['ipv6_string_to_num_or_default'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
@@ -2037,12 +2093,12 @@ visible_functions = {
         [['is_ipv4_string'], 'BOOLEAN', ['STRING'], ''],
         [['is_ipv6_string'], 'BOOLEAN', ['VARCHAR'], ''],
         [['is_ipv6_string'], 'BOOLEAN', ['STRING'], ''],
-        [['is_ip_address_in_range'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
-        [['is_ip_address_in_range'], 'BOOLEAN', ['STRING', 'STRING'], 'ALWAYS_NOT_NULLABLE'],
-        [['ipv4_cidr_to_range'], 'STRUCT<IPV4, IPV4>', ['IPV4', 'SMALLINT'], ''],
-        [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['IPV6', 'SMALLINT'], ''],
-        [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['VARCHAR', 'SMALLINT'], ''],
-        [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['STRING', 'SMALLINT'], ''],
+        [['is_ip_address_in_range'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['is_ip_address_in_range'], 'BOOLEAN', ['STRING', 'STRING'], 'DEPEND_ON_ARGUMENT'],
+        [['ipv4_cidr_to_range'], 'STRUCT<IPV4, IPV4>', ['IPV4', 'SMALLINT'], 'DEPEND_ON_ARGUMENT'],
+        [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['IPV6', 'SMALLINT'], 'DEPEND_ON_ARGUMENT'],
+        [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['VARCHAR', 'SMALLINT'], 'DEPEND_ON_ARGUMENT'],
+        [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['STRING', 'SMALLINT'], 'DEPEND_ON_ARGUMENT'],
         [['to_ipv4'], 'IPV4', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['to_ipv4'], 'IPV4', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['to_ipv4_or_default'], 'IPV4', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
@@ -2232,6 +2288,7 @@ null_result_with_one_null_param_functions = [
     'fmod',
     'substr',
     'substring',
+    'strcmp'
     'append_trailing_char_if_absent',
     'ST_X',
     'ST_Y',

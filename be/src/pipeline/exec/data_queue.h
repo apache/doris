@@ -52,7 +52,7 @@ public:
     bool is_finish(int child_idx = 0);
     bool is_all_finish();
 
-    bool has_enough_space_to_push(int child_idx = 0);
+    bool has_enough_space_to_push();
     bool has_data_or_finished(int child_idx = 0);
     bool remaining_has_data();
 
@@ -70,12 +70,9 @@ public:
     void set_source_ready();
     void set_source_block();
 
-private:
-    friend class AggSourceDependency;
-    friend class UnionSourceDependency;
-    friend class AggSinkDependency;
-    friend class UnionSinkDependency;
+    void set_max_blocks_in_sub_queue(int64_t max_blocks) { _max_blocks_in_sub_queue = max_blocks; }
 
+private:
     std::vector<std::unique_ptr<std::mutex>> _queue_blocks_lock;
     std::vector<std::deque<std::unique_ptr<vectorized::Block>>> _queue_blocks;
 
@@ -97,6 +94,8 @@ private:
     std::atomic_int _flag_queue_idx = 0;
     // only used by streaming agg source operator
     bool _data_exhausted = false;
+
+    int64_t _max_blocks_in_sub_queue = 1;
 
     //this only use to record the queue[0] for profile
     int64_t _max_bytes_in_queue = 0;

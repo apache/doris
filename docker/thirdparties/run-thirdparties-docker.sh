@@ -33,14 +33,17 @@ Usage: $0 <options>
      [no option]        start all components
      --help,-h          show this usage
      -c mysql           start MySQL
-     -c mysql,hive      start MySQL and Hive
+     -c mysql,hive3      start MySQL and Hive3
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino,kafka,mariadb
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,lakesoul
   "
     exit 1
 }
+COMPONENTS=$2
+HELP=0
+STOP=0
 
 if ! OPTS="$(getopt \
     -n "$0" \
@@ -54,13 +57,9 @@ fi
 
 eval set -- "${OPTS}"
 
-COMPONENTS=""
-HELP=0
-STOP=0
-
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse,mariadb,iceberg"
+    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg"
 else
     while true; do
         case "$1" in
@@ -92,7 +91,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka,mariadb"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,lakesoul"
         fi
     fi
 fi
@@ -103,6 +102,7 @@ fi
 
 if [[ "${COMPONENTS}"x == ""x ]]; then
     echo "Invalid arguments"
+    echo ${COMPONENTS}
     usage
 fi
 
@@ -125,7 +125,8 @@ RUN_PG=0
 RUN_ORACLE=0
 RUN_SQLSERVER=0
 RUN_CLICKHOUSE=0
-RUN_HIVE=0
+RUN_HIVE2=0
+RUN_HIVE3=0;
 RUN_ES=0
 RUN_ICEBERG=0
 RUN_HUDI=0
@@ -133,6 +134,8 @@ RUN_TRINO=0
 RUN_KAFKA=0
 RUN_SPARK=0
 RUN_MARIADB=0
+RUN_DB2=0
+RUN_LAKESOUL=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -147,8 +150,10 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_CLICKHOUSE=1
     elif [[ "${element}"x == "es"x ]]; then
         RUN_ES=1
-    elif [[ "${element}"x == "hive"x ]]; then
-        RUN_HIVE=1
+    elif [[ "${element}"x == "hive2"x ]]; then
+        RUN_HIVE2=1
+    elif [[ "${element}"x == "hive3"x ]]; then
+        RUN_HIVE3=1
     elif [[ "${element}"x == "kafka"x ]]; then
         RUN_KAFKA=1
     elif [[ "${element}"x == "iceberg"x ]]; then
@@ -161,6 +166,10 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_SPARK=1
     elif [[ "${element}"x == "mariadb"x ]];then
         RUN_MARIADB=1
+    elif [[ "${element}"x == "db2"x ]];then
+        RUN_DB2=1
+    elif [[ "${element}"x == "lakesoul"x ]]; then
+        RUN_LAKESOUL=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -228,6 +237,18 @@ if [[ "${RUN_ORACLE}" -eq 1 ]]; then
     fi
 fi
 
+if [[ "${RUN_DB2}" -eq 1 ]]; then
+    # db2
+    cp "${ROOT}"/docker-compose/db2/db2.yaml.tpl "${ROOT}"/docker-compose/db2/db2.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/db2/db2.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/db2/db2.yaml --env-file "${ROOT}"/docker-compose/db2/db2.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo rm "${ROOT}"/docker-compose/db2/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/db2/data/
+        sudo docker compose -f "${ROOT}"/docker-compose/db2/db2.yaml --env-file "${ROOT}"/docker-compose/db2/db2.env up -d
+    fi
+fi
+
 if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
     # sqlserver
     cp "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml.tpl "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
@@ -255,74 +276,84 @@ fi
 if [[ "${RUN_KAFKA}" -eq 1 ]]; then
     # kafka
     KAFKA_CONTAINER_ID="${CONTAINER_UID}kafka"
-    eth0_num=$(ifconfig -a|grep flags=|grep -n ^eth0|awk -F ':' '{print $1}')
-    IP_HOST=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|tail -n +${eth0_num}|head -n 1)
+    eth_name=$(ifconfig -a|grep -E "^eth[0-9]"|sort -k1.4n|awk -F ':' '{print $1}'|head -n 1)
+    IP_HOST=$(ifconfig "${eth_name}"|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|head -n 1)
     cp "${ROOT}"/docker-compose/kafka/kafka.yaml.tpl "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/localhost/${IP_HOST}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env down
-    # start_kafka_producers() {
-    #     local container_id="$1"
-    #     local ip_host="$2"
-    #     local backup_dir=/home/work/pipline/backup_center
 
-    #     declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "multi_table_csv" "multi_table_csv1")
+    create_kafka_topics() {
+       local container_id="$1"
+       local ip_host="$2"
+       local backup_dir=/home/work/pipline/backup_center
 
-    #     for topic in "${topics[@]}"; do
-    #         while IFS= read -r line; do
-    #             touch ${backup_dir}/kafka_info.log
-    #             echo $(date) >> ${backup_dir}/kafka_info.log
-    #             echo "docker exec "${container_id}" bash -c echo '$line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${topic}'" >> ${backup_dir}/kafka_info.log
-    #             docker exec "${container_id}" bash -c "echo '$line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${topic}'"
-    #         done < "${ROOT}/docker-compose/kafka/scripts/${topic}.csv"
-    #     done
+        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "trino_kafka_basic_data")
 
-    #     declare -a json_topics=("basic_data_json" "basic_array_data_json" "basic_array_data_json_by_line" "basic_data_json_by_line" "multi_table_json" "multi_table_json1")
-        
-    #     for json_topic in "${json_topics[@]}"; do
-    #         echo ${json_topics}
-    #         while IFS= read -r json_line; do
-    #             docker exec "${container_id}" bash -c "echo '$json_line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${json_topic}'"
-    #             echo "echo '$json_line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${json_topic}'"
-    #         done < "${ROOT}/docker-compose/kafka/scripts/${json_topic}.json"
-    #     done
-    #     # copy kafka log to backup path
-    #     docker cp "${container_id}":/opt/kafka/logs ${backup_dir}/kafka_logs
-    # }
+        for topic in "${topics[@]}"; do
+            echo "docker exec "${container_id}" bash -c echo '/opt/bitnami/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'"
+            docker exec "${container_id}" bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'"
+        done
+
+    }
 
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env up --build --remove-orphans -d
         sleep 10s
-        # start_kafka_producers "${KAFKA_CONTAINER_ID}" "${IP_HOST}"
+        create_kafka_topics "${KAFKA_CONTAINER_ID}" "${IP_HOST}"
     fi
 fi
 
-if [[ "${RUN_HIVE}" -eq 1 ]]; then
-    # hive
+if [[ "${RUN_HIVE2}" -eq 1 ]]; then
+    # hive2
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
     #default value
     IP_HOST="127.0.0.1"
-    eth0_num=$(ifconfig -a|grep flags=|grep -n ^eth0|awk -F ':' '{print $1}')
-    IP_HOST=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|tail -n +${eth0_num}|head -n 1)
+    eth_name=$(ifconfig -a|grep -E "^eth[0-9]"|sort -k1.4n|awk -F ':' '{print $1}'|head -n 1)
+    IP_HOST=$(ifconfig "${eth_name}"|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|head -n 1)
+
     if [ "_${IP_HOST}" == "_" ];then
         echo "please set IP_HOST according to your actual situation"
+        exit -1
     fi
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
-    cp "${ROOT}"/docker-compose/hive/gen_env.sh.tpl "${ROOT}"/docker-compose/hive/gen_env.sh
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
-    cp "${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl "${ROOT}"/docker-compose/hive/hive-2x.yaml
-    cp "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl.tpl "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
-    sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
-    sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
-    sed -i "s/\${externalEnvIp}/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
-    sudo bash "${ROOT}"/docker-compose/hive/gen_env.sh
-    sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    # generate hive-2x.yaml
+    export IP_HOST=${IP_HOST}
+    export CONTAINER_UID=${CONTAINER_UID}
+    . "${ROOT}"/docker-compose/hive/hive-2x_settings.env
+    envsubst < "${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl > "${ROOT}"/docker-compose/hive/hive-2x.yaml
+    envsubst < "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl > "${ROOT}"/docker-compose/hive/hadoop-hive.env
+    sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+        sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+    fi
+fi
+
+if [[ "${RUN_HIVE3}" -eq 1 ]]; then
+    # hive3
+    # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
+    #default value
+    IP_HOST="127.0.0.1"
+    eth_name=$(ifconfig -a|grep -E "^eth[0-9]"|sort -k1.4n|awk -F ':' '{print $1}'|head -n 1)
+    IP_HOST=$(ifconfig "${eth_name}"|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|head -n 1)
+    if [ "_${IP_HOST}" == "_" ];then
+        echo "please set IP_HOST according to your actual situation"
+        exit -1
+    fi
+    # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
+    sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
+    sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
+    # generate hive-3x.yaml
+    export IP_HOST=${IP_HOST}
+    export CONTAINER_UID=${CONTAINER_UID}
+    . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
+    envsubst < "${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl > "${ROOT}"/docker-compose/hive/hive-3x.yaml
+    envsubst < "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl > "${ROOT}"/docker-compose/hive/hadoop-hive.env
+    sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
     fi
 fi
 
@@ -337,10 +368,8 @@ if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     # iceberg
     cp "${ROOT}"/docker-compose/iceberg/iceberg.yaml.tpl "${ROOT}"/docker-compose/iceberg/iceberg.yaml
     cp "${ROOT}"/docker-compose/iceberg/entrypoint.sh.tpl "${ROOT}"/docker-compose/iceberg/entrypoint.sh
-    cp "${ROOT}"/docker-compose/iceberg/spark-defaults.conf.tpl "${ROOT}"/docker-compose/iceberg/spark-defaults.conf
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/iceberg.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/entrypoint.sh
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/spark-defaults.conf
     sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env down
     sudo rm -rf "${ROOT}"/docker-compose/iceberg/data
     if [[ "${STOP}" -ne 1 ]]; then
@@ -461,4 +490,36 @@ if [[ "${RUN_MARIADB}" -eq 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/mariadb/data/* -rf
         sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env up -d
     fi
+fi
+
+if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
+    echo "RUN_LAKESOUL"
+    cp "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml.tpl "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml down
+    sudo rm -rf "${ROOT}"/docker-compose/lakesoul/data
+    if [[ "${STOP}" -ne 1 ]]; then
+        echo "PREPARE_LAKESOUL_DATA"
+        sudo docker compose -f "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml up -d
+    fi
+    ## import tpch data into lakesoul
+    ## install rustup
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y
+    ## install rust nightly-2023-05-20
+    rustup install nightly-2023-05-20
+    ## download&generate tpch data
+    mkdir -p lakesoul/test_files/tpch/data
+    git clone https://github.com/databricks/tpch-dbgen.git
+    cd tpch-dbgen
+    make
+    ./dbgen -f -s 0.1
+    mv *.tbl ../lakesoul/test_files/tpch/data
+    cd ..
+    export TPCH_DATA=`realpath lakesoul/test_files/tpch/data`
+    ## import tpch data
+    git clone https://github.com/lakesoul-io/LakeSoul.git
+#    git checkout doris_dev
+    cd LakeSoul/rust
+    cargo test load_tpch_data --package lakesoul-datafusion --features=ci -- --nocapture
+
 fi

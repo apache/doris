@@ -730,7 +730,7 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
-    using CppType = int128_t;
+    using CppType = uint128_t;
     using UnsignedCppType = uint128_t;
 };
 template <>
@@ -1236,11 +1236,11 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
         CppType tmp = *reinterpret_cast<const CppType*>(src);
         DateV2Value<DateV2ValueType> value =
                 binary_cast<CppType, DateV2Value<DateV2ValueType>>(tmp);
-        string format = "%Y-%m-%d";
-        string res;
-        res.resize(12);
-        res.reserve(12);
-        value.to_format_string(format.c_str(), format.size(), res.data());
+        std::string format = "%Y-%m-%d";
+        std::string res;
+        res.resize(12 + SAFE_FORMAT_STRING_MARGIN);
+        value.to_format_string_conservative(format.c_str(), format.size(), res.data(),
+                                            12 + SAFE_FORMAT_STRING_MARGIN);
         return res;
     }
 
@@ -1277,9 +1277,9 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
                 binary_cast<CppType, DateV2Value<DateTimeV2ValueType>>(tmp);
         string format = "%Y-%m-%d %H:%i:%s.%f";
         string res;
-        res.resize(30);
-        res.reserve(30);
-        value.to_format_string(format.c_str(), format.size(), res.data());
+        res.resize(30 + SAFE_FORMAT_STRING_MARGIN);
+        value.to_format_string_conservative(format.c_str(), format.size(), res.data(),
+                                            30 + SAFE_FORMAT_STRING_MARGIN);
         return res;
     }
 

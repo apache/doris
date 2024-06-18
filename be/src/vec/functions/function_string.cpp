@@ -21,6 +21,7 @@
 #include <math.h>
 #include <re2/stringpiece.h>
 
+#include <cstddef>
 #include <string_view>
 
 #include "common/status.h"
@@ -52,6 +53,30 @@ struct StringASCII {
         for (int i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             res[i] = (offsets[i] == offsets[i - 1]) ? 0 : static_cast<uint8_t>(raw_str[0]);
+        }
+        return Status::OK();
+    }
+};
+
+struct NameQuote {
+    static constexpr auto name = "quote";
+};
+
+struct NameQuoteImpl {
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        size_t offset_size = offsets.size();
+        size_t pos = 0;
+        res_offsets.resize(offset_size);
+        res_data.resize(data.size() + offset_size * 2);
+        for (int i = 0; i < offset_size; i++) {
+            const unsigned char* raw_str = &data[offsets[i - 1]];
+            ColumnString::Offset size = offsets[i] - offsets[i - 1];
+            res_data[pos] = '\'';
+            std::memcpy(res_data.data() + pos + 1, raw_str, size);
+            res_data[pos + size + 1] = '\'';
+            pos += size + 2;
+            res_offsets[i] = pos;
         }
         return Status::OK();
     }
@@ -140,8 +165,8 @@ struct FindInSetOp {
     using ResultDataType = DataTypeInt32;
     using ResultPaddedPODArray = PaddedPODArray<Int32>;
     static void execute(const std::string_view& strl, const std::string_view& strr, int32_t& res) {
-        for (int i = 0; i < strl.length(); ++i) {
-            if (strl[i] == ',') {
+        for (const auto& c : strl) {
+            if (c == ',') {
                 res = 0;
                 return;
             }
@@ -635,18 +660,12 @@ struct UnHexImpl {
     }
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets,
-                         NullMap& null_map) {
+                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
 
         for (int i = 0; i < rows_count; ++i) {
-            if (null_map[i]) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
-                continue;
-            }
-
-            auto source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t srclen = offsets[i] - offsets[i - 1];
 
             if (srclen == 0) {
@@ -666,17 +685,13 @@ struct UnHexImpl {
 
             int outlen = hex_decode(source, srclen, dst);
 
-            if (outlen < 0) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
-            } else {
-                StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data,
-                                            dst_offsets);
-            }
+            StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
 
         return Status::OK();
     }
 };
+
 struct NameStringSpace {
     static constexpr auto name = "space";
 };
@@ -714,22 +729,16 @@ struct ToBase64Impl {
     using ColumnType = ColumnString;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets,
-                         NullMap& null_map) {
+                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
 
         for (int i = 0; i < rows_count; ++i) {
-            if (null_map[i]) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
-                continue;
-            }
-
-            auto source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t srclen = offsets[i] - offsets[i - 1];
 
             if (srclen == 0) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
+                StringOP::push_empty_string(i, dst_data, dst_offsets);
                 continue;
             }
 
@@ -743,14 +752,9 @@ struct ToBase64Impl {
                 dst = dst_uptr.get();
             }
 
-            int outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
+            auto outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
 
-            if (outlen < 0) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
-            } else {
-                StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data,
-                                            dst_offsets);
-            }
+            StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
         return Status::OK();
     }
@@ -773,11 +777,11 @@ struct FromBase64Impl {
                 continue;
             }
 
-            auto source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t srclen = offsets[i] - offsets[i - 1];
 
             if (srclen == 0) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
+                StringOP::push_empty_string(i, dst_data, dst_offsets);
                 continue;
             }
 
@@ -790,7 +794,7 @@ struct FromBase64Impl {
                 dst_uptr.reset(new char[cipher_len]);
                 dst = dst_uptr.get();
             }
-            int outlen = base64_decode(source, srclen, dst);
+            auto outlen = base64_decode(source, srclen, dst);
 
             if (outlen < 0) {
                 StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
@@ -940,14 +944,16 @@ using FunctionStringLocate =
 using FunctionStringFindInSet =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringFindInSetImpl, NameFindInSet>;
 
+using FunctionQuote = FunctionStringToString<NameQuoteImpl, NameQuote>;
+
 using FunctionToLower = FunctionStringToString<TransferImpl<NameToLower>, NameToLower>;
 
 using FunctionToUpper = FunctionStringToString<TransferImpl<NameToUpper>, NameToUpper>;
 
 using FunctionToInitcap = FunctionStringToString<InitcapImpl, NameToInitcap>;
 
-using FunctionUnHex = FunctionStringOperateToNullType<UnHexImpl>;
-using FunctionToBase64 = FunctionStringOperateToNullType<ToBase64Impl>;
+using FunctionUnHex = FunctionStringEncode<UnHexImpl>;
+using FunctionToBase64 = FunctionStringEncode<ToBase64Impl>;
 using FunctionFromBase64 = FunctionStringOperateToNullType<FromBase64Impl>;
 
 using FunctionStringAppendTrailingCharIfAbsent =
@@ -967,6 +973,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringFindInSet>();
     factory.register_function<FunctionStringLocate>();
     factory.register_function<FunctionStringLocatePos>();
+    factory.register_function<FunctionQuote>();
     factory.register_function<FunctionReverseCommon>();
     factory.register_function<FunctionUnHex>();
     factory.register_function<FunctionToLower>();
@@ -1001,6 +1008,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionExtractURLParameter>();
     factory.register_function<FunctionStringParseUrl>();
     factory.register_function<FunctionUrlDecode>();
+    factory.register_function<FunctionRandomBytes>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt128Impl>>();
@@ -1015,14 +1023,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMaskPartial<false>>();
     factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
-
-    /// @TEMPORARY: for be_exec_version=3
-    factory.register_alternative_function<FunctionSubstringOld<Substr3ImplOld>>();
-    factory.register_alternative_function<FunctionSubstringOld<Substr2ImplOld>>();
-    factory.register_alternative_function<FunctionLeftOld>();
-    factory.register_alternative_function<FunctionRightOld>();
-    factory.register_alternative_function<FunctionSubstringIndexOld>();
-    factory.register_alternative_function<FunctionStringRepeatOld>();
+    factory.register_function<FunctionStrcmp>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");

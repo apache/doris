@@ -47,7 +47,7 @@
 using namespace doris;
 
 int main(int argc, char** argv) {
-    const std::string conf_file = "cloud.conf";
+    const std::string conf_file = "doris_cloud.conf";
     if (!cloud::config::init(conf_file.c_str(), true)) {
         std::cerr << "failed to init config file, conf=" << conf_file << std::endl;
         return -1;

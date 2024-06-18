@@ -47,8 +47,6 @@ import org.apache.spark.sql.Row;
 import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.InternalRow;
-import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder;
-import org.apache.spark.sql.catalyst.encoders.RowEncoder;
 import org.apache.spark.sql.execution.datasources.parquet.ParquetWriteSupport;
 import org.apache.spark.sql.functions;
 import org.apache.spark.sql.types.DataTypes;
@@ -190,7 +188,6 @@ public final class SparkDpp implements java.io.Serializable {
         // TODO(wb) should deal largeint as BigInteger instead of string when using biginteger as key,
         // data type may affect sorting logic
         StructType dstSchema = DppUtils.createDstTableSchema(indexMeta.columns, false, true);
-        ExpressionEncoder encoder = RowEncoder.apply(dstSchema);
 
         resultRDD.repartitionAndSortWithinPartitions(new BucketPartitioner(bucketKeyMap), new BucketComparator())
                 .foreachPartition((VoidFunction<Iterator<Tuple2<List<Object>, Object[]>>>) t -> {
@@ -254,15 +251,13 @@ public final class SparkDpp implements java.io.Serializable {
                             conf.set("spark.sql.parquet.outputTimestampType", "INT96");
                             ParquetWriteSupport.setSchema(dstSchema, conf);
                             ParquetWriteSupport parquetWriteSupport = new ParquetWriteSupport();
-                            parquetWriter = new ParquetWriter<InternalRow>(new Path(tmpPath), parquetWriteSupport,
+                            parquetWriter = new ParquetWriter<>(new Path(tmpPath), parquetWriteSupport,
                                     CompressionCodecName.SNAPPY, 256 * 1024 * 1024, 16 * 1024, 1024 * 1024, true, false,
                                     WriterVersion.PARQUET_1_0, conf);
-                            if (parquetWriter != null) {
-                                LOG.info("[HdfsOperate]>> initialize writer succeed! path:" + tmpPath);
-                            }
+                            LOG.info("[HdfsOperate]>> initialize writer succeed! path:" + tmpPath);
                             lastBucketKey = curBucketKey;
                         }
-                        InternalRow internalRow = encoder.toRow(rowWithoutBucketKey);
+                        InternalRow internalRow = InternalRow.apply(rowWithoutBucketKey.toSeq());
                         parquetWriter.write(internalRow);
                     }
                     if (parquetWriter != null) {

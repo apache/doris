@@ -31,11 +31,12 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.util.KafkaUtil;
+import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
@@ -221,7 +222,7 @@ public class KafkaRoutineLoadJobTest {
         Map<Integer, Long> partitionIdsToOffset = Maps.newHashMap();
         partitionIdsToOffset.put(100, 0L);
         KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L,
-                maxBatchIntervalS * 2 * 1000, partitionIdsToOffset, false);
+                maxBatchIntervalS * 2 * 1000, 0, partitionIdsToOffset, false);
         kafkaTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis() - maxBatchIntervalS * 2 * 1000 - 1);
         routineLoadTaskInfoList.add(kafkaTaskInfo);
 
@@ -284,6 +285,20 @@ public class KafkaRoutineLoadJobTest {
             public List<Integer> getAllKafkaPartitions(String brokerList, String topic,
                     Map<String, String> convertedCustomProperties) throws UserException {
                 return Lists.newArrayList(1, 2, 3);
+            }
+        };
+
+        new MockUp<KafkaUtil>() {
+            @Mock
+            public List<Pair<Integer, Long>> getRealOffsets(String brokerList, String topic,
+                                                             Map<String, String> convertedCustomProperties,
+                                                             List<Pair<Integer, Long>> offsetFlags)
+                                                             throws LoadException {
+                List<Pair<Integer, Long>> pairList = new ArrayList<>();
+                pairList.add(Pair.of(1, 0L));
+                pairList.add(Pair.of(2, 0L));
+                pairList.add(Pair.of(3, 0L));
+                return pairList;
             }
         };
 

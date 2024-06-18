@@ -79,7 +79,7 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
         throw new AnalysisException("Not support create policy command in Nereids now");
     }
 }
-

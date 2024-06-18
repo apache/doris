@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.processor.post.TopnFilterContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
@@ -70,7 +72,7 @@ public class PlanTranslatorContext {
     private final DescriptorTable descTable = new DescriptorTable();
 
     private final RuntimeFilterTranslator translator;
-
+    private final TopnFilterContext topnFilterContext;
     /**
      * index from Nereids' slot to legacy slot.
      */
@@ -89,7 +91,7 @@ public class PlanTranslatorContext {
     private final Map<ExprId, ColumnRefExpr> exprIdToColumnRef = Maps.newHashMap();
 
     private final List<ScanNode> scanNodes = Lists.newArrayList();
-
+    private final List<PhysicalRelation> physicalRelations = Lists.newArrayList();
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
@@ -115,12 +117,14 @@ public class PlanTranslatorContext {
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
+        this.topnFilterContext = ctx.getTopnFilterContext();
     }
 
     @VisibleForTesting
     public PlanTranslatorContext() {
         this.connectContext = null;
         this.translator = null;
+        this.topnFilterContext = new TopnFilterContext();
     }
 
     /**
@@ -187,6 +191,10 @@ public class PlanTranslatorContext {
         return Optional.ofNullable(translator);
     }
 
+    public TopnFilterContext getTopnFilterContext() {
+        return topnFilterContext;
+    }
+
     public PlanFragmentId nextFragmentId() {
         return fragmentIdGenerator.getNextId();
     }
@@ -221,8 +229,6 @@ public class PlanTranslatorContext {
         srcFragment.getBuilderRuntimeFilterIds().forEach(targetFragment::setBuilderRuntimeFilterIds);
         targetFragment.setHasColocatePlanNode(targetFragment.hasColocatePlanNode()
                 || srcFragment.hasColocatePlanNode());
-        targetFragment.setHasNullAwareLeftAntiJoin(targetFragment.isHasNullAwareLeftAntiJoin()
-                || srcFragment.isHasNullAwareLeftAntiJoin());
         this.planFragments.remove(srcFragment);
     }
 
@@ -234,8 +240,13 @@ public class PlanTranslatorContext {
         return exprIdToColumnRef.get(exprId);
     }
 
-    public void addScanNode(ScanNode scanNode) {
+    public void addScanNode(ScanNode scanNode, PhysicalRelation physicalRelation) {
         scanNodes.add(scanNode);
+        physicalRelations.add(physicalRelation);
+    }
+
+    public List<PhysicalRelation> getPhysicalRelations() {
+        return physicalRelations;
     }
 
     public ExprId findExprId(SlotId slotId) {
@@ -284,7 +295,9 @@ public class PlanTranslatorContext {
             slotRef = new SlotRef(slotDescriptor);
             if (slotReference.hasSubColPath()) {
                 slotDescriptor.setSubColLables(slotReference.getSubColPath());
-                slotDescriptor.setMaterializedColumnName(slotRef.getColumnName()
+                // use lower case name for variant's root, since backend treat parent column as lower case
+                // see issue: https://github.com/apache/doris/pull/32999/commits
+                slotDescriptor.setMaterializedColumnName(slotRef.getColumnName().toLowerCase()
                             + "." + String.join(".", slotReference.getSubColPath()));
             }
         }

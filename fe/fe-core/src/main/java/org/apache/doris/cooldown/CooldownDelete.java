@@ -43,4 +43,3 @@ public class CooldownDelete implements Writable {
         return GsonUtils.GSON.fromJson(json, CooldownConf.class);
     }
 }
-

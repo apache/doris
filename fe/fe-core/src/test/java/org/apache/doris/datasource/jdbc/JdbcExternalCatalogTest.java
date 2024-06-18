@@ -41,7 +41,24 @@ public class JdbcExternalCatalogTest {
         properties.put(JdbcResource.DRIVER_URL, "ojdbc8.jar");
         properties.put(JdbcResource.JDBC_URL, "jdbc:oracle:thin:@127.0.0.1:1521:XE");
         properties.put(JdbcResource.DRIVER_CLASS, "oracle.jdbc.driver.OracleDriver");
-        jdbcExternalCatalog = new JdbcExternalCatalog(1L, "testCatalog", null, properties, "testComment");
+        jdbcExternalCatalog = new JdbcExternalCatalog(1L, "testCatalog", null, properties, "testComment", false);
+    }
+
+    @Test
+    public void testProcessCompatibleProperties() throws DdlException {
+        // Create a properties map with lower_case_table_names
+        Map<String, String> inputProps = new HashMap<>();
+        inputProps.put("lower_case_table_names", "true");
+
+        // Call processCompatibleProperties
+        Map<String, String> resultProps = jdbcExternalCatalog.processCompatibleProperties(inputProps, true);
+
+        // Assert that lower_case_meta_names is present and has the correct value
+        Assert.assertTrue(resultProps.containsKey("lower_case_meta_names"));
+        Assert.assertEquals("true", resultProps.get("lower_case_meta_names"));
+
+        // Assert that lower_case_table_names is not present
+        Assert.assertFalse(resultProps.containsKey("lower_case_table_names"));
     }
 
     @Test
@@ -69,13 +86,13 @@ public class JdbcExternalCatalogTest {
                 exception1.getMessage());
 
         jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.ONLY_SPECIFIED_DATABASE, "true");
-        jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.LOWER_CASE_TABLE_NAMES, "1");
+        jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.LOWER_CASE_META_NAMES, "1");
         Exception exception2 = Assert.assertThrows(DdlException.class, () -> jdbcExternalCatalog.checkProperties());
-        Assert.assertEquals("errCode = 2, detailMessage = lower_case_table_names must be true or false",
+        Assert.assertEquals("errCode = 2, detailMessage = lower_case_meta_names must be true or false",
                 exception2.getMessage());
 
         jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.ONLY_SPECIFIED_DATABASE, "false");
-        jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.LOWER_CASE_TABLE_NAMES, "false");
+        jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.LOWER_CASE_META_NAMES, "false");
         jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.INCLUDE_DATABASE_LIST, "db1,db2");
         DdlException exceptione3 = Assert.assertThrows(DdlException.class, () -> jdbcExternalCatalog.checkProperties());
         Assert.assertEquals(
@@ -84,4 +101,3 @@ public class JdbcExternalCatalogTest {
 
     }
 }
-

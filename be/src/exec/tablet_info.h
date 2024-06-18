@@ -32,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
@@ -40,7 +41,6 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -92,6 +92,12 @@ public:
     std::set<std::string> partial_update_input_columns() const {
         return _partial_update_input_columns;
     }
+    std::string auto_increment_coulumn() const { return _auto_increment_column; }
+    int32_t auto_increment_column_unique_id() const { return _auto_increment_column_unique_id; }
+    void set_timestamp_ms(int64_t timestamp_ms) { _timestamp_ms = timestamp_ms; }
+    int64_t timestamp_ms() const { return _timestamp_ms; }
+    void set_timezone(std::string timezone) { _timezone = timezone; }
+    std::string timezone() const { return _timezone; }
     bool is_strict_mode() const { return _is_strict_mode; }
     std::string debug_string() const;
 
@@ -107,6 +113,10 @@ private:
     bool _is_partial_update = false;
     std::set<std::string> _partial_update_input_columns;
     bool _is_strict_mode = false;
+    std::string _auto_increment_column;
+    int32_t _auto_increment_column_unique_id;
+    int64_t _timestamp_ms = 0;
+    std::string _timezone;
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;
@@ -117,7 +127,7 @@ using OlapTableIndexTablets = TOlapTableIndexTablets;
 
 using BlockRow = std::pair<vectorized::Block*, int32_t>;
 using BlockRowWithIndicator =
-        std::tuple<vectorized::Block*, int32_t, bool>; // [block, column, is_transformed]
+        std::tuple<vectorized::Block*, int32_t, bool>; // [block, row, is_transformed]
 
 struct VOlapTablePartition {
     int64_t id = 0;
@@ -131,6 +141,7 @@ struct VOlapTablePartition {
     int64_t load_tablet_idx = -1;
 
     VOlapTablePartition(vectorized::Block* partition_block)
+            // the default value of partition bound is -1.
             : start_key {partition_block, -1}, end_key {partition_block, -1} {}
 };
 
@@ -143,7 +154,7 @@ public:
 
     // return true if lhs < rhs
     // 'row' is -1 mean maximal boundary
-    bool operator()(const BlockRowWithIndicator lhs, const BlockRowWithIndicator rhs) const;
+    bool operator()(const BlockRowWithIndicator& lhs, const BlockRowWithIndicator& rhs) const;
 
 private:
     const std::vector<uint16_t>& _slot_locs;
@@ -165,11 +176,14 @@ public:
     int64_t version() const { return _t_param.version; }
 
     // return true if we found this block_row in partition
-    //TODO: use virtual function to refactor it
     ALWAYS_INLINE bool find_partition(vectorized::Block* block, int row,
                                       VOlapTablePartition*& partition) const {
         auto it = _is_in_partition ? _partitions_map->find(std::tuple {block, row, true})
                                    : _partitions_map->upper_bound(std::tuple {block, row, true});
+        VLOG_TRACE << "find row " << row << " of\n"
+                   << block->dump_data() << "in:\n"
+                   << _partition_block.dump_data() << "result line row: " << std::get<1>(it->first);
+
         // for list partition it might result in default partition
         if (_is_in_partition) {
             partition = (it != _partitions_map->end()) ? it->second : _default_partition;
@@ -244,9 +258,15 @@ public:
     bool is_projection_partition() const { return _is_auto_partition; }
     bool is_auto_partition() const { return _is_auto_partition; }
 
+    bool is_auto_detect_overwrite() const { return _is_auto_detect_overwrite; }
+    int64_t get_overwrite_group_id() const { return _overwrite_group_id; }
+
     std::vector<uint16_t> get_partition_keys() const { return _partition_slot_locs; }
 
     Status add_partitions(const std::vector<TOlapTablePartition>& partitions);
+    // no need to del/reinsert partition keys, but change the link. reset the _partitions items
+    Status replace_partitions(std::vector<int64_t>& old_partition_ids,
+                              const std::vector<TOlapTablePartition>& new_partitions);
 
     vectorized::VExprContextSPtrs get_part_func_ctx() { return _part_func_ctx; }
     vectorized::VExprSPtrs get_partition_function() { return _partition_function; }
@@ -261,8 +281,6 @@ public:
 
 private:
     Status _create_partition_keys(const std::vector<TExprNode>& t_exprs, BlockRow* part_key);
-
-    Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key, uint16_t pos);
 
     // check if this partition contain this key
     bool _part_contains(VOlapTablePartition* part, BlockRowWithIndicator key) const;
@@ -282,6 +300,7 @@ private:
     std::vector<VOlapTablePartition*> _partitions;
     // For all partition value rows saved in this map, indicator is false. whenever we use a value to find in it, the param is true.
     // so that we can distinguish which column index to use (origin slots or transformed slots).
+    // For range partition we ONLY SAVE RIGHT ENDS. when we find a part's RIGHT by a value, check if part's left cover it then.
     std::unique_ptr<
             std::map<BlockRowWithIndicator, VOlapTablePartition*, VOlapTablePartKeyComparator>>
             _partitions_map;
@@ -291,11 +310,13 @@ private:
     // only works when using list partition, the resource is owned by _partitions
     VOlapTablePartition* _default_partition = nullptr;
 
-    // for auto partition, now only support 1 column. TODO: use vector to save them when we support multi column auto-partition.
     bool _is_auto_partition = false;
     vectorized::VExprContextSPtrs _part_func_ctx = {nullptr};
     vectorized::VExprSPtrs _partition_function = {nullptr};
     TPartitionType::type _part_type; // support list or range
+    // "insert overwrite partition(*)", detect which partitions by BE
+    bool _is_auto_detect_overwrite = false;
+    int64_t _overwrite_group_id = 0;
 };
 
 // indicate where's the tablet and all its replications (node-wise)
@@ -358,13 +379,13 @@ class DorisNodesInfo {
 public:
     DorisNodesInfo() = default;
     DorisNodesInfo(const TPaloNodesInfo& t_nodes) {
-        for (auto& node : t_nodes.nodes) {
+        for (const auto& node : t_nodes.nodes) {
             _nodes.emplace(node.id, node);
         }
     }
     void setNodes(const TPaloNodesInfo& t_nodes) {
         _nodes.clear();
-        for (auto& node : t_nodes.nodes) {
+        for (const auto& node : t_nodes.nodes) {
             _nodes.emplace(node.id, node);
         }
     }
@@ -378,7 +399,7 @@ public:
 
     void add_nodes(const std::vector<TNodeInfo>& t_nodes) {
         for (const auto& node : t_nodes) {
-            auto node_info = find_node(node.id);
+            const auto* node_info = find_node(node.id);
             if (node_info == nullptr) {
                 _nodes.emplace(node.id, node);
             }

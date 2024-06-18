@@ -107,7 +107,9 @@ private:
     // for agg mode
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;
-    Arena _arena;
+
+    // Use pointer to avoid memory allocation during construction
+    std::unique_ptr<Arena> _arena;
 
     std::vector<int> _normal_columns_idx;
     std::vector<int> _agg_columns_idx;
@@ -119,7 +121,7 @@ private:
     std::vector<IteratorRowRef> _stored_row_ref;
 
     std::vector<bool> _stored_has_null_tag;
-    std::vector<bool> _stored_has_string_tag;
+    std::vector<bool> _stored_has_variable_length_tag;
 
     phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
 

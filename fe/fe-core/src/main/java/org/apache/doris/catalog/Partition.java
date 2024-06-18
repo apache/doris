@@ -20,9 +20,12 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -37,6 +40,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Internal representation of partition-related metadata.
@@ -44,6 +48,7 @@ import java.util.Objects;
 public class Partition extends MetaObject implements Writable {
     private static final Logger LOG = LogManager.getLogger(Partition.class);
 
+    // Every partition starts from version 1, version 1 has no data
     public static final long PARTITION_INIT_VERSION = 1L;
 
     public enum PartitionState {
@@ -166,6 +171,14 @@ public class Partition extends MetaObject implements Writable {
 
     public long getVisibleVersionTime() {
         return visibleVersionTime;
+    }
+
+    public static List<Long> getVisibleVersions(List<? extends Partition> partitions) throws RpcException {
+        if (Config.isCloudMode()) {
+            return CloudPartition.getSnapshotVisibleVersion((List<CloudPartition>) partitions);
+        } else {
+            return partitions.stream().map(Partition::getVisibleVersion).collect(Collectors.toList());
+        }
     }
 
     /**

@@ -20,6 +20,7 @@
 #include <gen_cpp/Types_types.h>
 #include <netinet/in.h>
 
+#include <atomic>
 #include <charconv>
 #include <cstdint>
 #include <functional>
@@ -35,7 +36,9 @@
 
 #include "io/io_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "util/hash_util.hpp"
+#include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -202,7 +205,9 @@ constexpr bool field_is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_BOOL;
+           field_type == FieldType::OLAP_FIELD_TYPE_BOOL ||
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV4 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV6;
 }
 
 // <start_version_id, end_version_id>, such as <100, 110>
@@ -369,6 +374,10 @@ struct OlapReaderStatistics {
 
     io::FileCacheStatistics file_cache_stats;
     int64_t load_segments_timer = 0;
+
+    int64_t collect_iterator_merge_next_timer = 0;
+    int64_t collect_iterator_normal_next_timer = 0;
+    int64_t delete_bitmap_get_agg_ns = 0;
 };
 
 using ColumnId = uint32_t;
@@ -458,18 +467,7 @@ struct RowsetId {
     }
 };
 
-// used for hash-struct of hash_map<RowsetId, Rowset*>.
-struct HashOfRowsetId {
-    size_t operator()(const RowsetId& rowset_id) const {
-        size_t seed = 0;
-        seed = HashUtil::hash64(&rowset_id.hi, sizeof(rowset_id.hi), seed);
-        seed = HashUtil::hash64(&rowset_id.mi, sizeof(rowset_id.mi), seed);
-        seed = HashUtil::hash64(&rowset_id.lo, sizeof(rowset_id.lo), seed);
-        return seed;
-    }
-};
-
-using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
+using RowsetIdUnorderedSet = std::unordered_set<RowsetId>;
 
 // Extract rowset id from filename, return uninitialized rowset id if filename is invalid
 inline RowsetId extract_rowset_id(std::string_view filename) {
@@ -499,11 +497,16 @@ class DeleteBitmap;
 // merge on write context
 struct MowContext {
     MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
-               std::shared_ptr<DeleteBitmap> db)
-            : max_version(version), txn_id(txnid), rowset_ids(ids), delete_bitmap(db) {}
+               const std::vector<RowsetSharedPtr>& rowset_ptrs, std::shared_ptr<DeleteBitmap> db)
+            : max_version(version),
+              txn_id(txnid),
+              rowset_ids(ids),
+              rowset_ptrs(rowset_ptrs),
+              delete_bitmap(db) {}
     int64_t max_version;
     int64_t txn_id;
     const RowsetIdUnorderedSet& rowset_ids;
+    std::vector<RowsetSharedPtr> rowset_ptrs;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
 };
 
@@ -516,4 +519,38 @@ struct RidAndPos {
 
 using PartialUpdateReadPlan = std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>>;
 
+// used for controll compaction
+struct VersionWithTime {
+    std::atomic<int64_t> version;
+    int64_t update_ts;
+
+    VersionWithTime() : version(0), update_ts(MonotonicMillis()) {}
+
+    void update_version_monoto(int64_t new_version) {
+        int64_t cur_version = version.load(std::memory_order_relaxed);
+        while (cur_version < new_version) {
+            if (version.compare_exchange_strong(cur_version, new_version, std::memory_order_relaxed,
+                                                std::memory_order_relaxed)) {
+                update_ts = MonotonicMillis();
+                break;
+            }
+        }
+    }
+};
+
 } // namespace doris
+
+// This intended to be a "good" hash function.  It may change from time to time.
+template <>
+struct std::hash<doris::RowsetId> {
+    size_t operator()(const doris::RowsetId& rowset_id) const {
+        size_t seed = 0;
+        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.hi, sizeof(rowset_id.hi),
+                                                 seed);
+        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.mi, sizeof(rowset_id.mi),
+                                                 seed);
+        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.lo, sizeof(rowset_id.lo),
+                                                 seed);
+        return seed;
+    }
+};

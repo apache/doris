@@ -21,44 +21,16 @@
 
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
-#include "vec/exec/vset_operation_node.h"
-
-namespace doris {
-class ExecNode;
-} // namespace doris
 
 namespace doris::pipeline {
-
-template <bool is_intersect>
-SetSourceOperatorBuilder<is_intersect>::SetSourceOperatorBuilder(int32_t id, ExecNode* set_node)
-        : OperatorBuilder<vectorized::VSetOperationNode<is_intersect>>(id, builder_name, set_node) {
-}
-
-template <bool is_intersect>
-OperatorPtr SetSourceOperatorBuilder<is_intersect>::build_operator() {
-    return std::make_shared<SetSourceOperator<is_intersect>>(this, this->_node);
-}
-
-template <bool is_intersect>
-SetSourceOperator<is_intersect>::SetSourceOperator(
-        OperatorBuilderBase* builder, vectorized::VSetOperationNode<is_intersect>* set_node)
-        : SourceOperator<vectorized::VSetOperationNode<is_intersect>>(builder, set_node) {}
-
-template class SetSourceOperatorBuilder<true>;
-template class SetSourceOperatorBuilder<false>;
-template class SetSourceOperator<true>;
-template class SetSourceOperator<false>;
 
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    auto& deps = info.upstream_dependencies;
-    _shared_state->probe_finished_children_dependency.resize(deps.size(), nullptr);
-    for (auto& dep : deps) {
-        dep->set_shared_state(_dependency->shared_state());
-    }
+    SCOPED_TIMER(_init_timer);
+    _shared_state->probe_finished_children_dependency.resize(
+            _parent->cast<SetSourceOperatorX<is_intersect>>()._child_quantity, nullptr);
     return Status::OK();
 }
 
@@ -66,7 +38,7 @@ template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(PipelineXLocalState<SetSourceDependency>::open(state));
+    RETURN_IF_ERROR(Base::open(state));
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
 
     auto output_data_types = vectorized::VectorizedUtils::get_data_types(
@@ -92,7 +64,7 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
 
 template <bool is_intersect>
 Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectorized::Block* block,
-                                                   SourceState& source_state) {
+                                                   bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -101,17 +73,18 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
             [&](auto&& arg) -> Status {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    return _get_data_in_hashtable<HashTableCtxType>(
-                            local_state, arg, block, state->batch_size(), source_state);
+                    return _get_data_in_hashtable<HashTableCtxType>(local_state, arg, block,
+                                                                    state->batch_size(), eos);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    __builtin_unreachable();
                 }
             },
             *local_state._shared_state->hash_table_variants);
     RETURN_IF_ERROR(st);
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
                                                            block->columns()));
-    local_state.reached_limit(block, source_state);
+    local_state.reached_limit(block, eos);
     return Status::OK();
 }
 
@@ -135,7 +108,7 @@ template <bool is_intersect>
 template <typename HashTableContext>
 Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         SetSourceLocalState<is_intersect>& local_state, HashTableContext& hash_table_ctx,
-        vectorized::Block* output_block, const int batch_size, SourceState& source_state) {
+        vectorized::Block* output_block, const int batch_size, bool* eos) {
     int left_col_len = local_state._left_table_data_types.size();
     hash_table_ctx.init_iterator();
     auto& iter = hash_table_ctx.iterator;
@@ -155,9 +128,7 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         }
     }
 
-    if (iter == hash_table_ctx.hash_table->end()) {
-        source_state = SourceState::FINISHED;
-    }
+    *eos = iter == hash_table_ctx.hash_table->end();
     if (!output_block->mem_reuse()) {
         for (int i = 0; i < left_col_len; ++i) {
             output_block->insert(
@@ -173,22 +144,15 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
 
 template <bool is_intersect>
 void SetSourceOperatorX<is_intersect>::_add_result_columns(
-        SetSourceLocalState<is_intersect>& local_state, vectorized::RowRefListWithFlags& value,
+        SetSourceLocalState<is_intersect>& local_state, RowRefListWithFlags& value,
         int& block_size) {
     auto& build_col_idx = local_state._shared_state->build_col_idx;
     auto& build_block = local_state._shared_state->build_block;
 
     auto it = value.begin();
     for (auto idx = build_col_idx.begin(); idx != build_col_idx.end(); ++idx) {
-        auto& column = *build_block.get_by_position(idx->first).column;
-        if (local_state._mutable_cols[idx->second]->is_nullable() ^ column.is_nullable()) {
-            DCHECK(local_state._mutable_cols[idx->second]->is_nullable());
-            ((vectorized::ColumnNullable*)(local_state._mutable_cols[idx->second].get()))
-                    ->insert_from_not_nullable(column, it->row_num);
-
-        } else {
-            local_state._mutable_cols[idx->second]->insert_from(column, it->row_num);
-        }
+        auto& column = *build_block.get_by_position(idx->second).column;
+        local_state._mutable_cols[idx->first]->insert_from(column, it->row_num);
     }
     block_size++;
 }

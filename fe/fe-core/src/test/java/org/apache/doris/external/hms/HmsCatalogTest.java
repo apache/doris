@@ -24,15 +24,16 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.qe.SessionVariable;
 
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private static final String HMS_CATALOG = "hms_ctl";
@@ -90,6 +92,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private void createDbAndTableForHmsCatalog(HMSExternalCatalog hmsCatalog) {
         Deencapsulation.setField(hmsCatalog, "initialized", true);
         Deencapsulation.setField(hmsCatalog, "objectCreated", true);
+        Deencapsulation.setField(hmsCatalog, "useMetaCache", Optional.of(false));
 
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", PrimitiveType.INT));
@@ -127,6 +130,14 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 tbl.getType();
                 minTimes = 0;
                 result = TableIf.TableType.HMS_EXTERNAL_TABLE;
+
+                tbl.getDatabase();
+                minTimes = 0;
+                result = db;
+
+                tbl.getDlaType();
+                minTimes = 0;
+                result = DLAType.HIVE;
             }
         };
 
@@ -169,6 +180,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 view1.isSupportedHmsTable();
                 minTimes = 0;
                 result = true;
+
+                view1.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
@@ -211,6 +226,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 view2.isSupportedHmsTable();
                 minTimes = 0;
                 result = true;
+
+                view2.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
@@ -253,6 +272,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 view3.isSupportedHmsTable();
                 minTimes = 0;
                 result = true;
+
+                view3.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
@@ -295,6 +318,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 view4.isSupportedHmsTable();
                 minTimes = 0;
                 result = true;
+
+                view4.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 

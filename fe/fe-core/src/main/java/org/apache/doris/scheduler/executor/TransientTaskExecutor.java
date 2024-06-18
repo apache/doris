@@ -37,4 +37,3 @@ public interface TransientTaskExecutor {
 
     Long getId();
 }
-

@@ -64,6 +64,11 @@ public class ColumnRenameClause extends AlterTableClause {
     }
 
     @Override
+    public boolean allowOpMTMV() {
+        return false;
+    }
+
+    @Override
     public String toSql() {
         return "RENAME COLUMN " + colName + " " + newColName;
     }

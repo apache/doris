@@ -52,9 +52,6 @@ import javax.servlet.http.HttpServletRequest;
 public class SessionController extends RestBaseController {
 
     private static final List<String> SESSION_TABLE_HEADER = Lists.newArrayList();
-
-    private static final List<String> ALL_SESSION_TABLE_HEADER = Lists.newArrayList("FE");
-
     private static final Logger LOG = LogManager.getLogger(SessionController.class);
 
     static {
@@ -70,20 +67,21 @@ public class SessionController extends RestBaseController {
         SESSION_TABLE_HEADER.add("State");
         SESSION_TABLE_HEADER.add("QueryId");
         SESSION_TABLE_HEADER.add("Info");
-        ALL_SESSION_TABLE_HEADER.addAll(SESSION_TABLE_HEADER);
+        SESSION_TABLE_HEADER.add("FE");
+        SESSION_TABLE_HEADER.add("CloudCluster");
     }
 
     @RequestMapping(path = "/session/all", method = RequestMethod.GET)
     public Object allSession(HttpServletRequest request) {
         Map<String, Object> result = Maps.newHashMap();
-        result.put("column_names", ALL_SESSION_TABLE_HEADER);
+        result.put("column_names", SESSION_TABLE_HEADER);
         List<Map<String, String>> sessionInfo = Env.getCurrentEnv().getFrontends(null)
                 .stream()
                 .filter(Frontend::isAlive)
                 .map(frontend -> {
                     try {
                         return Env.getCurrentEnv().getSelfNode().getHost().equals(frontend.getHost())
-                            ? getSessionInfo(true)
+                            ? getSessionInfo()
                             : getOtherSessionInfo(request, frontend);
                     } catch (IOException e) {
                         LOG.warn("", e);
@@ -103,22 +101,22 @@ public class SessionController extends RestBaseController {
     public Object session() {
         Map<String, Object> result = Maps.newHashMap();
         result.put("column_names", SESSION_TABLE_HEADER);
-        result.put("rows", getSessionInfo(false));
+        result.put("rows", getSessionInfo());
         ResponseEntity entity = ResponseEntityBuilder.ok(result);
         ((ResponseBody) entity.getBody()).setCount(result.size());
         return entity;
     }
 
-    private List<Map<String, String>> getSessionInfo(boolean showFe) {
+    private List<Map<String, String>> getSessionInfo() {
         List<ConnectContext.ThreadInfo> threadInfos = ExecuteEnv.getInstance().getScheduler()
                 .listConnection("root", false);
         long nowMs = System.currentTimeMillis();
         return threadInfos.stream()
-                .map(info -> info.toRow(-1, nowMs, showFe))
+                .map(info -> info.toRow(-1, nowMs))
                 .map(row -> {
                     Map<String, String> record = new HashMap<>();
                     for (int i = 0; i < row.size(); i++) {
-                        record.put(showFe ? ALL_SESSION_TABLE_HEADER.get(i) : SESSION_TABLE_HEADER.get(i), row.get(i));
+                        record.put(SESSION_TABLE_HEADER.get(i), row.get(i));
                     }
                     return record;
                 })

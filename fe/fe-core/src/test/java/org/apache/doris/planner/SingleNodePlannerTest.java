@@ -147,10 +147,6 @@ public class SingleNodePlannerTest {
                 result = null;
                 scanNode2.getOutputSmap();
                 result = null;
-                tableRef1.getUniqueAlias();
-                result = "t1";
-                tableRef2.getUniqueAlias();
-                result = "t2";
             }
         };
         new MockUp<ExprSubstitutionMap>() {
@@ -247,10 +243,6 @@ public class SingleNodePlannerTest {
                 result = null;
                 scanNode2.getOutputSmap();
                 result = null;
-                tableRef1.getUniqueAlias();
-                result = "t1";
-                tableRef2.getUniqueAlias();
-                result = "t2";
                 tableRef1.getJoinOp();
                 result = JoinOperator.INNER_JOIN;
                 tableRef2.getJoinOp();
@@ -345,10 +337,6 @@ public class SingleNodePlannerTest {
                 result = null;
                 scanNode2.getOutputSmap();
                 result = null;
-                tableRef1.getUniqueAlias();
-                result = "t1";
-                tableRef2.getUniqueAlias();
-                result = "t2";
                 tableRef1.getJoinOp();
                 result = JoinOperator.INNER_JOIN;
                 tableRef2.getJoinOp();
@@ -497,12 +485,6 @@ public class SingleNodePlannerTest {
                 result = null;
                 scanNode2.getOutputSmap();
                 result = null;
-                tableRef1.getUniqueAlias();
-                result = "t1";
-                tableRef2.getUniqueAlias();
-                result = "t2";
-                tableRef3.getUniqueAlias();
-                result = "t3";
                 tableRef1.getJoinOp();
                 result = JoinOperator.INNER_JOIN;
                 tableRef2.getJoinOp();
@@ -659,12 +641,6 @@ public class SingleNodePlannerTest {
                 result = null;
                 scanNode2.getOutputSmap();
                 result = null;
-                tableRef1.getUniqueAlias();
-                result = "t1";
-                tableRef2.getUniqueAlias();
-                result = "t2";
-                tableRef3.getUniqueAlias();
-                result = "t3";
                 tableRef1.getJoinOp();
                 result = JoinOperator.INNER_JOIN;
                 tableRef2.getJoinOp();
@@ -846,14 +822,6 @@ public class SingleNodePlannerTest {
                 result = null;
                 scanNode4.getOutputSmap();
                 result = null;
-                tableRef1.getUniqueAlias();
-                result = "t1";
-                tableRef2.getUniqueAlias();
-                result = "t2";
-                tableRef3.getUniqueAlias();
-                result = "t3";
-                tableRef4.getUniqueAlias();
-                result = "t4";
                 tableRef1.getJoinOp();
                 result = JoinOperator.INNER_JOIN;
                 tableRef2.getJoinOp();
@@ -1053,14 +1021,6 @@ public class SingleNodePlannerTest {
                 result = null;
                 scanNode4.getOutputSmap();
                 result = null;
-                tableRef1.getUniqueAlias();
-                result = "t1";
-                tableRef2.getUniqueAlias();
-                result = "t2";
-                tableRef3.getUniqueAlias();
-                result = "t3";
-                tableRef4.getUniqueAlias();
-                result = "t4";
                 tableRef1.getJoinOp();
                 result = JoinOperator.INNER_JOIN;
                 tableRef2.getJoinOp();

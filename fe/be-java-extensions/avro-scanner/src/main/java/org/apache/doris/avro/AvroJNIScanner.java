@@ -19,7 +19,6 @@ package org.apache.doris.avro;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.thrift.TFileType;
 
@@ -173,7 +172,7 @@ public class AvroJNIScanner extends JniScanner {
         try {
             initAvroFileContext();
             initFieldInspector();
-            initTableInfo(requiredTypes, requiredFields, new ScanPredicate[0], fetchSize);
+            initTableInfo(requiredTypes, requiredFields, fetchSize);
         } catch (Exception e) {
             LOG.warn("Failed to init avro scanner. ", e);
             throw new RuntimeException(e);

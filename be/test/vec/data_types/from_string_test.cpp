@@ -16,6 +16,7 @@
 // under the License.
 
 #include "gtest/gtest_pred_impl.h"
+#include "olap/olap_common.h"
 #include "olap/wrapper_field.h"
 #include "vec/columns/column.h"
 #include "vec/core/field.h"
@@ -102,7 +103,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                          "12345678901234567.012345677", "12345678901234567.012345677",
                          "999999999999999999.999999999"},
                         {"12345678901234567.012345678", "123456789012345678.012345670",
-                         "12345678901234567.012345678", "", ""}),
+                         "12345678901234567.012345678", "12345678901234567.012345678", ""}),
                 // decimal32 ==>  decimal32(9,2)
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL32,
                                   // (7,2)         (6,3)         (7,3)           (8,1)
@@ -157,7 +158,11 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             DataTypePtr data_type_ptr;
             int precision = 0;
             int scale = 0;
-            if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
+            if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
+                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 27, 9);
+                precision = 27;
+                scale = 9;
+            } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
                 // decimal32(7, 2)
                 data_type_ptr = DataTypeFactory::instance().create_data_type(type, 9, 2);
                 precision = 9;
@@ -224,7 +229,13 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
         };
         for (auto pair : date_scala_field_types) {
             auto type = pair.first;
-            DataTypePtr data_type_ptr = DataTypeFactory::instance().create_data_type(type, 0, 0);
+            DataTypePtr data_type_ptr = nullptr;
+            if (type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2) {
+                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 0, 6);
+            } else {
+                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 0, 0);
+            }
+
             std::cout << "this type is " << data_type_ptr->get_name() << ": "
                       << fmt::format("{}", type) << std::endl;
 
@@ -261,12 +272,6 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             std::cout << "min(" << min_s << ") with datat_ype_str:" << min_s_d << std::endl;
             std::cout << "max(" << max_s << ") with datat_ype_str:" << max_s_d << std::endl;
             std::cout << "rand(" << rand_date << ") with datat_type_str:" << rand_s_d << std::endl;
-            if (FieldType::OLAP_FIELD_TYPE_DATETIMEV2 == type) {
-                // field to_string : %Y-%m-%d %H:%i:%s.%f vs data type to_string %Y-%m-%d %H:%i:%s
-                min_s = min_s.substr(0, min_s.find_last_of('.'));
-                max_s = max_s.substr(0, max_s.find_last_of('.'));
-                rand_date = rand_date.substr(0, rand_date.find_last_of('.'));
-            }
             // min wrapper field date to_string in macOS and linux system has different result
             //  macOs equals with data type to_string(0000-01-01), but in linux is (0-01-01)
             if (FieldType::OLAP_FIELD_TYPE_DATE == type ||

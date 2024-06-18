@@ -205,9 +205,11 @@ public class Subquery extends Expr {
     @Override
     public Subquery clone() {
         Subquery ret = new Subquery(this);
-        LOG.debug("SUBQUERY clone old={} new={}",
-                System.identityHashCode(this),
-                System.identityHashCode(ret));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("SUBQUERY clone old={} new={}",
+                    System.identityHashCode(this),
+                    System.identityHashCode(ret));
+        }
         return ret;
     }
 
@@ -221,4 +223,9 @@ public class Subquery extends Expr {
 
     @Override
     protected void toThrift(TExprNode msg) {}
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
+    }
 }

@@ -36,7 +36,6 @@ import java.util.stream.Collectors;
  */
 public class UnboundFunction extends Function implements Unbound, PropagateNullable {
     private final String dbName;
-    private final String name;
     private final boolean isDistinct;
 
     public UnboundFunction(String name, List<Expression> arguments) {
@@ -52,14 +51,9 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     }
 
     public UnboundFunction(String dbName, String name, boolean isDistinct, List<Expression> arguments) {
-        super(arguments);
+        super(name, arguments);
         this.dbName = dbName;
-        this.name = Objects.requireNonNull(name, "name cannot be null");
         this.isDistinct = isDistinct;
-    }
-
-    public String getName() {
-        return name;
     }
 
     @Override
@@ -87,13 +81,13 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
         String params = children.stream()
                 .map(Expression::toSql)
                 .collect(Collectors.joining(", "));
-        return name + "(" + (isDistinct ? "distinct " : "") + params + ")";
+        return getName() + "(" + (isDistinct ? "distinct " : "") + params + ")";
     }
 
     @Override
     public String toString() {
         String params = Joiner.on(", ").join(children);
-        return "'" + name + "(" + (isDistinct ? "distinct " : "") + params + ")";
+        return "'" + getName() + "(" + (isDistinct ? "distinct " : "") + params + ")";
     }
 
     @Override
@@ -103,7 +97,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
 
     @Override
     public UnboundFunction withChildren(List<Expression> children) {
-        return new UnboundFunction(dbName, name, isDistinct, children);
+        return new UnboundFunction(dbName, getName(), isDistinct, children);
     }
 
     @Override
@@ -118,11 +112,11 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
             return false;
         }
         UnboundFunction that = (UnboundFunction) o;
-        return isDistinct == that.isDistinct && name.equals(that.name);
+        return isDistinct == that.isDistinct && getName().equals(that.getName());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, isDistinct);
+        return Objects.hash(getName(), isDistinct);
     }
 }

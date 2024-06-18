@@ -116,6 +116,7 @@ public abstract class DorisHttpTestCase {
     public static int HTTP_PORT;
 
     protected static String URI;
+    protected static String CloudURI;
 
     protected String rootAuth = Credentials.basic("root", "");
 
@@ -216,11 +217,11 @@ public abstract class DorisHttpTestCase {
             //EasyMock.expect(catalog.getAuth()).andReturn(paloAuth).anyTimes();
             Database db = new Database(testDbId, "testDb");
             OlapTable table = newTable(TABLE_NAME);
-            db.createTable(table);
+            db.registerTable(table);
             OlapTable table1 = newTable(TABLE_NAME + 1);
-            db.createTable(table1);
+            db.registerTable(table1);
             EsTable esTable = newEsTable("es_table");
-            db.createTable(esTable);
+            db.registerTable(esTable);
 
             InternalCatalog internalCatalog = Deencapsulation.newInstance(InternalCatalog.class);
             new Expectations(internalCatalog) {
@@ -332,6 +333,7 @@ public abstract class DorisHttpTestCase {
             socket.setReuseAddress(true);
             HTTP_PORT = socket.getLocalPort();
             URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
+            CloudURI = "http://localhost:" + HTTP_PORT;
         } catch (Exception e) {
             throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
         } finally {

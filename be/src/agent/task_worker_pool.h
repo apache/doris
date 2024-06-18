@@ -33,6 +33,7 @@ namespace doris {
 
 class ExecEnv;
 class StorageEngine;
+class CloudStorageEngine;
 class Thread;
 class ThreadPool;
 class TMasterInfo;
@@ -78,7 +79,7 @@ private:
 
 class PriorTaskWorkerPool final : public TaskWorkerPoolIf {
 public:
-    PriorTaskWorkerPool(std::string_view name, int normal_worker_count, int high_prior_worker_conut,
+    PriorTaskWorkerPool(std::string_view name, int normal_worker_count, int high_prior_worker_count,
                         std::function<void(const TAgentTaskRequest& task)> callback);
 
     ~PriorTaskWorkerPool() override;
@@ -158,9 +159,13 @@ void clear_transaction_task_callback(StorageEngine& engine, const TAgentTaskRequ
 
 void push_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
+void cloud_push_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
 void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 
 void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
                     const TAgentTaskRequest& req);
@@ -169,10 +174,18 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
 
 void gc_binlog_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
+void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void visible_version_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
 void report_task_callback(const TMasterInfo& master_info);
 
 void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info);
 
+void report_disk_callback(CloudStorageEngine& engine, const TMasterInfo& master_info);
+
 void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_info);
+
+void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 
 } // namespace doris

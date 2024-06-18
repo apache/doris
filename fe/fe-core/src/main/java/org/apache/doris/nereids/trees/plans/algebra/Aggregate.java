@@ -29,6 +29,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Common interface for logical/physical Aggregate.
@@ -53,10 +54,40 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
         return ExpressionUtils.collect(getOutputExpressions(), AggregateFunction.class::isInstance);
     }
 
+    /** getDistinctArguments */
     default Set<Expression> getDistinctArguments() {
-        return getAggregateFunctions().stream()
-                .filter(AggregateFunction::isDistinct)
-                .flatMap(aggregateExpression -> aggregateExpression.getArguments().stream())
-                .collect(ImmutableSet.toImmutableSet());
+        ImmutableSet.Builder<Expression> distinctArguments = ImmutableSet.builder();
+        for (NamedExpression outputExpression : getOutputExpressions()) {
+            outputExpression.foreach(expr -> {
+                if (expr instanceof AggregateFunction) {
+                    AggregateFunction aggFun = (AggregateFunction) expr;
+                    if (aggFun.isDistinct()) {
+                        distinctArguments.addAll(aggFun.getDistinctArguments());
+                    }
+                }
+            });
+        }
+        return distinctArguments.build();
+    }
+
+    /** everyDistinctArgumentNumIsOne */
+    default boolean everyDistinctArgumentNumIsOne() {
+        AtomicBoolean hasDistinctArguments = new AtomicBoolean(false);
+        for (NamedExpression outputExpression : getOutputExpressions()) {
+            boolean distinctArgumentSizeNotOne = outputExpression.anyMatch(expr -> {
+                if (expr instanceof AggregateFunction) {
+                    AggregateFunction aggFun = (AggregateFunction) expr;
+                    if (aggFun.isDistinct()) {
+                        hasDistinctArguments.set(true);
+                        return aggFun.getDistinctArguments().size() != 1;
+                    }
+                }
+                return false;
+            });
+            if (distinctArgumentSizeNotOne) {
+                return false;
+            }
+        }
+        return hasDistinctArguments.get();
     }
 }

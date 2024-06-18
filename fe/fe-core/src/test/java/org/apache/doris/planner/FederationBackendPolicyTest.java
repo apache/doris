@@ -20,9 +20,9 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.external.FederationBackendPolicy;
-import org.apache.doris.planner.external.FileSplit;
-import org.apache.doris.planner.external.NodeSelectionStrategy;
+import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.datasource.FileSplit;
+import org.apache.doris.datasource.NodeSelectionStrategy;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -288,6 +288,21 @@ public class FederationBackendPolicyTest {
 
     }
 
+    public static void sortSplits(List<Split> splits) {
+        splits.sort((split1, split2) -> {
+            int pathComparison = split1.getPathString().compareTo(split2.getPathString());
+            if (pathComparison != 0) {
+                return pathComparison;
+            }
+
+            int startComparison = Long.compare(split1.getStart(), split2.getStart());
+            if (startComparison != 0) {
+                return startComparison;
+            }
+            return Long.compare(split1.getLength(), split2.getLength());
+        });
+    }
+
     @Test
     public void testGenerateRandomly() throws UserException {
         SystemInfoService service = new SystemInfoService();
@@ -367,7 +382,7 @@ public class FederationBackendPolicyTest {
             List<Split> totalSplits = new ArrayList<>();
             totalSplits.addAll(remoteSplits);
             totalSplits.addAll(localSplits);
-            Collections.shuffle(totalSplits);
+            sortSplits(totalSplits);
             Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(totalSplits);
             if (i == 0) {
                 result = ArrayListMultimap.create(assignment);
@@ -489,7 +504,7 @@ public class FederationBackendPolicyTest {
             List<Split> totalSplits = new ArrayList<>();
             totalSplits.addAll(remoteSplits);
             totalSplits.addAll(localSplits);
-            Collections.shuffle(totalSplits);
+            sortSplits(totalSplits);
             Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(totalSplits);
             if (i == 0) {
                 result = ArrayListMultimap.create(assignment);
@@ -724,4 +739,3 @@ public class FederationBackendPolicyTest {
         return entries1.containsAll(entries2) && entries2.containsAll(entries1);
     }
 }
-

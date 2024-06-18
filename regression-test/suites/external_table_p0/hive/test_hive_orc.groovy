@@ -74,11 +74,23 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
         qt_decimals4 """select * from orc_decimal_table where id > 3 order by id;"""
     }
 
+    // string col dict plain encoding mixed in different stripes
+    def string_col_dict_plain_mixed = {
+       qt_string_col_dict_plain_mixed1 """select count(col2) from string_col_dict_plain_mixed_orc where col4 = 'Additional data' and col1 like '%Test%' and col3 like '%2%';"""
+       qt_string_col_dict_plain_mixed2 """select count(col2) from string_col_dict_plain_mixed_orc where col4 = 'Additional data' and col3 like '%2%';"""
+       qt_string_col_dict_plain_mixed3 """select count(col2) from string_col_dict_plain_mixed_orc where col1 like '%Test%';"""
+    }
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String catalog_name = "hive_test_orc"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "${hivePrefix}_test_orc"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -95,6 +107,7 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
             search_mix()
             only_partition_col()
             decimals()
+            string_col_dict_plain_mixed()
 
             sql """drop catalog if exists ${catalog_name}"""
 

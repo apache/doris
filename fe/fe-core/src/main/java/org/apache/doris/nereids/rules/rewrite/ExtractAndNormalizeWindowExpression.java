@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -38,6 +40,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -49,65 +52,97 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
 
     @Override
     public Rule build() {
-        return logicalProject().when(project -> containsWindowExpression(project.getProjects())).then(project -> {
-            List<NamedExpression> outputs =
-                    ExpressionUtils.rewriteDownShortCircuit(project.getProjects(), output -> {
-                        if (output instanceof WindowExpression) {
-                            WindowExpression windowExpression = (WindowExpression) output;
-                            Expression expression = ((WindowExpression) output).getFunction();
-                            if (expression instanceof Sum || expression instanceof Max
-                                    || expression instanceof Min || expression instanceof Avg) {
-                                // sum, max, min and avg in window function should be always nullable
-                                windowExpression = ((WindowExpression) output)
-                                        .withFunction(((NullableAggregateFunction) expression)
-                                                .withAlwaysNullable(true));
-                            }
-                            // remove literal partition by and order by keys
-                            return windowExpression.withPartitionKeysOrderKeys(
-                                    windowExpression.getPartitionKeys().stream()
-                                            .filter(partitionExpr -> !partitionExpr.isConstant())
-                                            .collect(Collectors.toList()),
-                                    windowExpression.getOrderKeys().stream()
-                                            .filter(orderExpression -> !orderExpression
-                                                    .getOrderKey().getExpr().isConstant())
-                                            .collect(Collectors.toList()));
+        return logicalProject()
+                .when(project -> ExpressionUtils.containsWindowExpression(project.getProjects()))
+                .then(this::normalize)
+                .toRule(RuleType.EXTRACT_AND_NORMALIZE_WINDOW_EXPRESSIONS);
+    }
+
+    private Plan normalize(LogicalProject<Plan> project) {
+        List<NamedExpression> outputs =
+                ExpressionUtils.rewriteDownShortCircuit(project.getProjects(), output -> {
+                    if (output instanceof WindowExpression) {
+                        WindowExpression windowExpression = (WindowExpression) output;
+                        Expression expression = ((WindowExpression) output).getFunction();
+                        if (expression instanceof Sum || expression instanceof Max
+                                || expression instanceof Min || expression instanceof Avg) {
+                            // sum, max, min and avg in window function should be always nullable
+                            windowExpression = ((WindowExpression) output)
+                                    .withFunction(
+                                            ((NullableAggregateFunction) expression).withAlwaysNullable(true)
+                                    );
                         }
-                        return output;
-                    });
 
-            // 1. handle bottom projects
-            Set<Alias> existedAlias = ExpressionUtils.collect(outputs, Alias.class::isInstance);
-            Set<Expression> toBePushedDown = collectExpressionsToBePushedDown(outputs);
-            NormalizeToSlotContext context = NormalizeToSlotContext.buildContext(existedAlias, toBePushedDown);
-            // set toBePushedDown exprs as NamedExpression, e.g. (a+1) -> Alias(a+1)
-            Set<NamedExpression> bottomProjects = context.pushDownToNamedExpression(toBePushedDown);
-            Plan normalizedChild;
-            if (bottomProjects.isEmpty()) {
-                normalizedChild = project.child();
-            } else {
-                normalizedChild = project.withProjectsAndChild(
-                        ImmutableList.copyOf(bottomProjects), project.child());
-            }
+                        ImmutableList.Builder<Expression> nonLiteralPartitionKeys =
+                                ImmutableList.builderWithExpectedSize(windowExpression.getPartitionKeys().size());
+                        for (Expression partitionKey : windowExpression.getPartitionKeys()) {
+                            if (!partitionKey.isConstant()) {
+                                nonLiteralPartitionKeys.add(partitionKey);
+                            }
+                        }
 
-            // 2. handle window's outputs and windowExprs
-            // need to replace exprs with SlotReference in WindowSpec, due to LogicalWindow.getExpressions()
-            List<NamedExpression> normalizedOutputs1 = context.normalizeToUseSlotRef(outputs);
-            Set<WindowExpression> normalizedWindows =
-                    ExpressionUtils.collect(normalizedOutputs1, WindowExpression.class::isInstance);
+                        ImmutableList.Builder<OrderExpression> nonLiteralOrderExpressions =
+                                ImmutableList.builderWithExpectedSize(windowExpression.getOrderKeys().size());
+                        for (OrderExpression orderExpr : windowExpression.getOrderKeys()) {
+                            if (!orderExpr.getOrderKey().getExpr().isConstant()) {
+                                nonLiteralOrderExpressions.add(orderExpr);
+                            }
+                        }
 
-            existedAlias = ExpressionUtils.collect(normalizedOutputs1, Alias.class::isInstance);
-            NormalizeToSlotContext ctxForWindows = NormalizeToSlotContext.buildContext(
-                    existedAlias, Sets.newHashSet(normalizedWindows));
+                        // remove literal partition by and order by keys
+                        return windowExpression.withPartitionKeysOrderKeys(
+                                nonLiteralPartitionKeys.build(),
+                                nonLiteralOrderExpressions.build()
+                        );
+                    }
+                    return output;
+                });
 
-            Set<NamedExpression> normalizedWindowWithAlias = ctxForWindows.pushDownToNamedExpression(normalizedWindows);
-            // only need normalized windowExpressions
-            LogicalWindow normalizedLogicalWindow =
-                    new LogicalWindow<>(ImmutableList.copyOf(normalizedWindowWithAlias), normalizedChild);
+        // 1. handle bottom projects
+        Set<Alias> existedAlias = ExpressionUtils.collect(outputs, Alias.class::isInstance);
+        Set<Expression> toBePushedDown = collectExpressionsToBePushedDown(outputs);
+        NormalizeToSlotContext context = NormalizeToSlotContext.buildContext(existedAlias, toBePushedDown);
+        // set toBePushedDown exprs as NamedExpression, e.g. (a+1) -> Alias(a+1)
+        Set<NamedExpression> bottomProjects = context.pushDownToNamedExpression(toBePushedDown);
+        Plan normalizedChild;
+        if (bottomProjects.isEmpty()) {
+            normalizedChild = project.child();
+        } else {
+            normalizedChild = project.withProjectsAndChild(
+                    ImmutableList.copyOf(bottomProjects), project.child());
+        }
 
-            // 3. handle top projects
-            List<NamedExpression> topProjects = ctxForWindows.normalizeToUseSlotRef(normalizedOutputs1);
-            return project.withProjectsAndChild(topProjects, normalizedLogicalWindow);
-        }).toRule(RuleType.EXTRACT_AND_NORMALIZE_WINDOW_EXPRESSIONS);
+        // 2. handle window's outputs and windowExprs
+        // need to replace exprs with SlotReference in WindowSpec, due to LogicalWindow.getExpressions()
+
+        // because alias is pushed down to bottom project
+        // we need replace alias's child expr with corresponding alias's slot in output
+        // so create a customNormalizeMap alias's child -> alias.toSlot to do it
+        Map<Expression, Slot> customNormalizeMap = toBePushedDown.stream()
+                .filter(expr -> expr instanceof Alias)
+                .collect(Collectors.toMap(expr -> ((Alias) expr).child(), expr -> ((Alias) expr).toSlot(),
+                        (oldExpr, newExpr) -> oldExpr));
+
+        // customNormalizeMap is only for alias, so we just normalize alias in outputs too
+        List<NamedExpression> normalizedOutputs = context.normalizeToUseSlotRef(outputs,
+                (ctx, expr) -> expr instanceof Alias ? customNormalizeMap.getOrDefault(expr, null) : null);
+        // replace child exprs in normalizedOutputs by customNormalizeMap
+        normalizedOutputs = ExpressionUtils.replaceNamedExpressions(normalizedOutputs, customNormalizeMap);
+        Set<WindowExpression> normalizedWindows =
+                ExpressionUtils.collect(normalizedOutputs, WindowExpression.class::isInstance);
+
+        existedAlias = ExpressionUtils.collect(normalizedOutputs, Alias.class::isInstance);
+        NormalizeToSlotContext ctxForWindows = NormalizeToSlotContext.buildContext(
+                existedAlias, Sets.newHashSet(normalizedWindows));
+
+        Set<NamedExpression> normalizedWindowWithAlias = ctxForWindows.pushDownToNamedExpression(normalizedWindows);
+        // only need normalized windowExpressions
+        LogicalWindow normalizedLogicalWindow =
+                new LogicalWindow<>(ImmutableList.copyOf(normalizedWindowWithAlias), normalizedChild);
+
+        // 3. handle top projects
+        List<NamedExpression> topProjects = ctxForWindows.normalizeToUseSlotRef(normalizedOutputs);
+        return project.withProjectsAndChild(topProjects, normalizedLogicalWindow);
     }
 
     private Set<Expression> collectExpressionsToBePushedDown(List<NamedExpression> expressions) {
@@ -149,11 +184,5 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                 return ImmutableList.of(expression).stream();
             })
             .collect(ImmutableSet.toImmutableSet());
-    }
-
-    private boolean containsWindowExpression(List<NamedExpression> expressions) {
-        // WindowExpression in top LogicalProject will be normalized as Alias(SlotReference) after this rule,
-        // so it will not be normalized infinitely
-        return expressions.stream().anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance));
     }
 }

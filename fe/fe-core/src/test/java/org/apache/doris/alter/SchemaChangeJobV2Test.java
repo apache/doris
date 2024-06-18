@@ -213,8 +213,7 @@ public class SchemaChangeJobV2Test {
         MaterializedIndex shadowIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
         for (Tablet shadowTablet : shadowIndex.getTablets()) {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
-                shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(), shadowReplica.getDataSize(),
-                        shadowReplica.getRemoteDataSize(), shadowReplica.getRowCount());
+                shadowReplica.updateVersion(testPartition.getVisibleVersion());
             }
         }
 
@@ -296,8 +295,7 @@ public class SchemaChangeJobV2Test {
         MaterializedIndex shadowIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
         for (Tablet shadowTablet : shadowIndex.getTablets()) {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
-                shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(), shadowReplica.getDataSize(),
-                        shadowReplica.getRemoteDataSize(), shadowReplica.getRowCount());
+                shadowReplica.updateVersion(testPartition.getVisibleVersion());
             }
         }
 
@@ -392,6 +390,30 @@ public class SchemaChangeJobV2Test {
     }
 
     @Test
+    public void testModifyDynamicPartitionWithInvalidProperty() throws UserException {
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        Map<String, String> properties = new HashMap<>();
+        properties.put(DynamicPartitionProperty.ENABLE, "true");
+        properties.put(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX + "time_uint", "day");
+        properties.put(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX + "edn", "3");
+        properties.put(DynamicPartitionProperty.PREFIX, "p");
+        properties.put(DynamicPartitionProperty.BUCKETS, "30");
+        properties.put("invalid_property", "invalid_value");
+        alterClauses.add(new ModifyTablePropertiesClause(properties));
+
+        Database db = CatalogMocker.mockDb();
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
+        expectedEx.expect(DdlException.class);
+        expectedEx.expectMessage("errCode = 2,"
+                + " detailMessage = Invalid dynamic partition properties: dynamic_partition.time_uint, dynamic_partition.edn");
+        schemaChangeHandler.process(alterClauses, db, olapTable);
+    }
+
+    @Test
     public void testSerializeOfSchemaChangeJob() throws IOException {
         // prepare file
         File file = new File(fileName);
@@ -399,7 +421,8 @@ public class SchemaChangeJobV2Test {
         file.deleteOnExit();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
-        SchemaChangeJobV2 schemaChangeJobV2 = new SchemaChangeJobV2("", 1, 1, 1, "test", 600000);
+        SchemaChangeJobV2 schemaChangeJobV2 = AlterJobV2Factory.createSchemaChangeJobV2(
+                "", 1, 1, 1, "test", 600000);
         schemaChangeJobV2.setStorageFormat(TStorageFormat.V2);
         Deencapsulation.setField(schemaChangeJobV2, "jobState", AlterJobV2.JobState.FINISHED);
         Map<Long, SchemaVersionAndHash> indexSchemaVersionAndHashMap = Maps.newHashMap();

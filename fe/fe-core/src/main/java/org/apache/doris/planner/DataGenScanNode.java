@@ -21,7 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.external.ExternalScanNode;
+import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.DataGenTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionTask;
@@ -38,6 +38,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * This scan node is used for data source generated from memory.
@@ -79,6 +80,7 @@ public class DataGenScanNode extends ExternalScanNode {
         dataGenScanNode.setTupleId(desc.getId().asInt());
         dataGenScanNode.setFuncName(tvf.getDataGenFunctionName());
         msg.data_gen_scan_node = dataGenScanNode;
+        super.toThrift(msg);
     }
 
     @Override
@@ -130,11 +132,13 @@ public class DataGenScanNode extends ExternalScanNode {
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
-
         output.append(prefix).append("table value function: ").append(tvf.getDataGenFunctionName()).append("\n");
-
-
-
+        if (useTopnFilter()) {
+            String topnFilterSources = String.join(",",
+                    topnFilterSortNodes.stream()
+                            .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
+            output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
+        }
         return output.toString();
     }
 }

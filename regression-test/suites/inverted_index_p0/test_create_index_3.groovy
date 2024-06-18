@@ -18,8 +18,25 @@
 
 suite("test_create_index_3", "inverted_index"){
     // prepare test table
+    def timeout = 60000
+    def delta_time = 1000
+    def alter_res = "null"
+    def useTime = 0
     def indexTbName1 = "test_create_index_3"
-
+    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = alter_res.toString()
+            if(alter_res.contains("FINISHED")) {
+                sleep(10000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
     // case 1: create table with index
     def create_index_result = "fail"
@@ -65,6 +82,7 @@ suite("test_create_index_3", "inverted_index"){
             create index name_idx on ${indexTbName1}(name) using inverted properties("parser" = "english") comment 'name index';
         """
     
+    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     def show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
     assertEquals(show_result.size(), 1)

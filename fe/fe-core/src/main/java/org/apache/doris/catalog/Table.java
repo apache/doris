@@ -24,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
@@ -33,13 +34,13 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
@@ -57,6 +58,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -82,6 +84,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @SerializedName(value = "createTime")
     protected long createTime;
     protected QueryableReentrantReadWriteLock rwLock;
+    // Used for queuing commit transaction tasks to avoid fdb transaction conflicts,
+    // especially to reduce conflicts when obtaining delete bitmap update locks for
+    // MoW table
+    protected ReentrantLock commitLock;
 
     /*
      *  fullSchema and nameToColumn should contains all columns, both visible and shadow.
@@ -131,6 +137,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         if (Config.check_table_lock_leaky) {
             this.readLockThreads = Maps.newConcurrentMap();
         }
+        this.commitLock = new ReentrantLock(true);
     }
 
     public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
@@ -155,6 +162,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         if (Config.check_table_lock_leaky) {
             this.readLockThreads = Maps.newConcurrentMap();
         }
+        this.commitLock = new ReentrantLock(true);
     }
 
     public void markDropped() {
@@ -297,6 +305,28 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return false;
     }
 
+    public void commitLock() {
+        this.commitLock.lock();
+    }
+
+    public boolean tryCommitLock(long timeout, TimeUnit unit) {
+        try {
+            boolean res = this.commitLock.tryLock(timeout, unit);
+            if (!res && unit.toSeconds(timeout) >= 1) {
+                LOG.warn("Failed to try table {}'s cloud commit lock. timeout {} {}. Current owner: {}",
+                        name, timeout, unit.name(), rwLock.getOwner());
+            }
+            return res;
+        } catch (InterruptedException e) {
+            LOG.warn("failed to try cloud commit lock at table[" + name + "]", e);
+            return false;
+        }
+    }
+
+    public void commitUnlock() {
+        this.commitLock.unlock();
+    }
+
     public boolean isTypeRead() {
         return isTypeRead;
     }
@@ -318,7 +348,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         name = newName;
     }
 
-    void setQualifiedDbName(String qualifiedDbName) {
+    public void setQualifiedDbName(String qualifiedDbName) {
         this.qualifiedDbName = qualifiedDbName;
     }
 
@@ -332,6 +362,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         } else {
             return qualifiedDbName + "." + name;
         }
+    }
+
+    public String getDBName() {
+        String[] strs = qualifiedDbName.split(":");
+        return strs.length == 2 ? strs[1] : strs[0];
     }
 
     public Constraint getConstraint(String name) {
@@ -354,11 +389,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     // should override in subclass if necessary
     public List<Column> getBaseSchema() {
         return getBaseSchema(Util.showHiddenColumns());
-    }
-
-    @Override
-    public List<Column> getSchemaAllIndexes(boolean full) {
-        return getBaseSchema();
     }
 
     public List<Column> getBaseSchema(boolean full) {
@@ -394,11 +424,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public long getRowCount() {
-        return 0;
-    }
-
-    public long getCacheRowCount() {
-        return getRowCount();
+        return fetchRowCount();
     }
 
     public long getAvgRowLength() {
@@ -504,12 +530,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         this.createTime = in.readLong();
     }
 
-    // return if this table is partitioned.
-    // For OlapTable, return true only if its partition type is RANGE or HASH
-    public boolean isPartitionedTable() {
-        return false;
-    }
-
     // return if this table is partitioned, for planner.
     // For OlapTable ture when is partitioned, or distributed by hash when no partition
     public boolean isPartitionDistributed() {
@@ -543,7 +563,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             }
             return SqlUtils.escapeQuota(comment);
         }
-        return type.name();
+        return "";
     }
 
     public void setComment(String comment) {
@@ -567,29 +587,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return table;
     }
 
-    /*
-     * 1. Only schedule OLAP table.
-     * 2. If table is colocate with other table, not schedule it.
-     * 3. (deprecated). if table's state is ROLLUP or SCHEMA_CHANGE, but alter job's state is FINISHING, we should also
-     *      schedule the tablet to repair it(only for VERSION_INCOMPLETE case, this will be checked in
-     *      TabletScheduler).
-     * 4. Even if table's state is ROLLUP or SCHEMA_CHANGE, check it. Because we can repair the tablet of base index.
-     */
-    public boolean needSchedule() {
-        if (type != TableType.OLAP) {
-            return false;
-        }
-
-        OlapTable olapTable = (OlapTable) this;
-
-        if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-            LOG.debug("table {} is a colocate table, skip tablet checker.", name);
-            return false;
-        }
-
-        return true;
-    }
-
     public boolean isHasCompoundKey() {
         return hasCompoundKey;
     }
@@ -601,24 +598,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         throw new NotImplementedException("createAnalysisTask not implemented");
-    }
-
-    /**
-     * for NOT-ANALYZED Olap table, return estimated row count,
-     * for other table, return 1
-     * @return estimated row count
-     */
-    public long estimatedRowCount() {
-        long cardinality = 0;
-        if (this instanceof OlapTable) {
-            OlapTable table = (OlapTable) this;
-            for (long selectedPartitionId : table.getPartitionIds()) {
-                final Partition partition = table.getPartition(selectedPartitionId);
-                final MaterializedIndex baseIndex = partition.getBaseIndex();
-                cardinality += baseIndex.getRowCount();
-            }
-        }
-        return Math.max(cardinality, 1);
     }
 
     @Override
@@ -634,17 +613,22 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     public void analyze(String dbName) {}
 
     @Override
-    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
-        return true;
-    }
-
-    @Override
-    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
-        return Collections.emptyMap();
-    }
-
-    @Override
     public List<Long> getChunkSizes() {
         throw new NotImplementedException("getChunkSized not implemented");
+    }
+
+    @Override
+    public long fetchRowCount() {
+        return 0;
+    }
+
+    @Override
+    public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+        return Sets.newHashSet();
+    }
+
+    @Override
+    public long getCachedRowCount() {
+        return getRowCount();
     }
 }

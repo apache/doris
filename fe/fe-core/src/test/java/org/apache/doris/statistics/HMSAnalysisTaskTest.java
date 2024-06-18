@@ -21,9 +21,9 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
@@ -65,26 +65,6 @@ public class HMSAnalysisTaskTest {
         Assertions.assertTrue(task.needLimit(2L * 1024 * 1024 * 1024, 5.0));
         task.tableSample = new TableSample(false, 512L * 1024 * 1024);
         Assertions.assertFalse(task.needLimit(2L * 1024 * 1024 * 1024, 5.0));
-    }
-
-    @Test
-    public void testAutoSampleHugeTable(@Mocked HMSExternalTable tableIf)
-            throws Exception {
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public long getDataSize(boolean singleReplica) {
-                return 6L * 1024 * 1024 * 1024;
-            }
-        };
-        HMSAnalysisTask task = new HMSAnalysisTask();
-        task.tbl = tableIf;
-        AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
-        analysisInfoBuilder.setJobType(AnalysisInfo.JobType.SYSTEM);
-        analysisInfoBuilder.setAnalysisMethod(AnalysisInfo.AnalysisMethod.FULL);
-        task.info = analysisInfoBuilder.build();
-        TableSample tableSample = task.getTableSample();
-        Assertions.assertFalse(tableSample.isPercent());
-        Assertions.assertEquals(StatisticsUtil.getHugeTableSampleRows(), tableSample.getSampleValue());
     }
 
     @Test
@@ -249,10 +229,10 @@ public class HMSAnalysisTaskTest {
         AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
         analysisInfoBuilder.setColName("hour");
         analysisInfoBuilder.setJobType(AnalysisInfo.JobType.MANUAL);
-        analysisInfoBuilder.setUsingSqlForPartitionColumn(true);
+        analysisInfoBuilder.setUsingSqlForExternalTable(true);
         task.info = analysisInfoBuilder.build();
 
-        task.getOrdinaryColumnStats();
+        task.doExecute();
     }
 
 
@@ -306,9 +286,9 @@ public class HMSAnalysisTaskTest {
         AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
         analysisInfoBuilder.setColName("hour");
         analysisInfoBuilder.setJobType(AnalysisInfo.JobType.MANUAL);
-        analysisInfoBuilder.setUsingSqlForPartitionColumn(false);
+        analysisInfoBuilder.setUsingSqlForExternalTable(false);
         task.info = analysisInfoBuilder.build();
 
-        task.getOrdinaryColumnStats();
+        task.doExecute();
     }
 }

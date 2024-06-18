@@ -184,7 +184,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         if (columns[0]->is_null_at(row_num)) {
             return;

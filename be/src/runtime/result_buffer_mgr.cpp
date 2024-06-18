@@ -68,7 +68,7 @@ Status ResultBufferMgr::init() {
 
 Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
                                       std::shared_ptr<BufferControlBlock>* sender,
-                                      bool enable_pipeline, int exec_timout) {
+                                      int exec_timout) {
     *sender = find_control_block(query_id);
     if (*sender != nullptr) {
         LOG(WARNING) << "already have buffer control block for this instance " << query_id;
@@ -77,11 +77,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
 
     std::shared_ptr<BufferControlBlock> control_block = nullptr;
 
-    if (enable_pipeline) {
-        control_block = std::make_shared<PipBufferControlBlock>(query_id, buffer_size);
-    } else {
-        control_block = std::make_shared<BufferControlBlock>(query_id, buffer_size);
-    }
+    control_block = std::make_shared<BufferControlBlock>(query_id, buffer_size);
 
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
@@ -92,7 +88,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
         // details see issue https://github.com/apache/doris/issues/16203
         // add extra 5s for avoid corner case
         int64_t max_timeout = time(nullptr) + exec_timout + 5;
-        static_cast<void>(cancel_at_time(max_timeout, query_id));
+        cancel_at_time(max_timeout, query_id);
     }
     *sender = control_block;
     return Status::OK();
@@ -100,13 +96,13 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
 
 std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TUniqueId& query_id) {
     std::shared_lock<std::shared_mutex> rlock(_buffer_map_lock);
-    BufferMap::iterator iter = _buffer_map.find(query_id);
+    auto iter = _buffer_map.find(query_id);
 
     if (_buffer_map.end() != iter) {
         return iter->second;
     }
 
-    return std::shared_ptr<BufferControlBlock>();
+    return {};
 }
 
 void ResultBufferMgr::register_arrow_schema(const TUniqueId& query_id,
@@ -132,8 +128,7 @@ void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* c
     tid.__set_lo(finst_id.lo());
     std::shared_ptr<BufferControlBlock> cb = find_control_block(tid);
     if (cb == nullptr) {
-        LOG(WARNING) << "no result for this query, id=" << print_id(tid);
-        ctx->on_failure(Status::InternalError("no result for this query"));
+        ctx->on_failure(Status::InternalError("no result for this query, tid={}", print_id(tid)));
         return;
     }
     cb->get_batch(ctx);
@@ -143,20 +138,19 @@ Status ResultBufferMgr::fetch_arrow_data(const TUniqueId& finst_id,
                                          std::shared_ptr<arrow::RecordBatch>* result) {
     std::shared_ptr<BufferControlBlock> cb = find_control_block(finst_id);
     if (cb == nullptr) {
-        LOG(WARNING) << "no result for this query, id=" << print_id(finst_id);
-        return Status::InternalError("no result for this query");
+        return Status::InternalError("no result for this query, finst_id={}", print_id(finst_id));
     }
     RETURN_IF_ERROR(cb->get_arrow_batch(result));
     return Status::OK();
 }
 
-Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
+void ResultBufferMgr::cancel(const TUniqueId& query_id) {
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
-        BufferMap::iterator iter = _buffer_map.find(query_id);
+        auto iter = _buffer_map.find(query_id);
 
         if (_buffer_map.end() != iter) {
-            static_cast<void>(iter->second->cancel());
+            iter->second->cancel();
             _buffer_map.erase(iter);
         }
     }
@@ -169,13 +163,11 @@ Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
             _arrow_schema_map.erase(arrow_schema_iter);
         }
     }
-
-    return Status::OK();
 }
 
-Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& query_id) {
+void ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& query_id) {
     std::lock_guard<std::mutex> l(_timeout_lock);
-    TimeoutMap::iterator iter = _timeout_map.find(cancel_time);
+    auto iter = _timeout_map.find(cancel_time);
 
     if (_timeout_map.end() == iter) {
         _timeout_map.insert(
@@ -184,7 +176,6 @@ Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& quer
     }
 
     iter->second.push_back(query_id);
-    return Status::OK();
 }
 
 void ResultBufferMgr::cancel_thread() {
@@ -196,11 +187,11 @@ void ResultBufferMgr::cancel_thread() {
         time_t now_time = time(nullptr);
         {
             std::lock_guard<std::mutex> l(_timeout_lock);
-            TimeoutMap::iterator end = _timeout_map.upper_bound(now_time + 1);
+            auto end = _timeout_map.upper_bound(now_time + 1);
 
-            for (TimeoutMap::iterator iter = _timeout_map.begin(); iter != end; ++iter) {
-                for (int i = 0; i < iter->second.size(); ++i) {
-                    query_to_cancel.push_back(iter->second[i]);
+            for (auto iter = _timeout_map.begin(); iter != end; ++iter) {
+                for (const auto& id : iter->second) {
+                    query_to_cancel.push_back(id);
                 }
             }
 
@@ -208,8 +199,8 @@ void ResultBufferMgr::cancel_thread() {
         }
 
         // cancel query
-        for (int i = 0; i < query_to_cancel.size(); ++i) {
-            static_cast<void>(cancel(query_to_cancel[i]));
+        for (const auto& id : query_to_cancel) {
+            cancel(id);
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 

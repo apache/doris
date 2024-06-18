@@ -28,6 +28,7 @@
 #include <string>
 #include <utility>
 
+#include "bvar/bvar.h"
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -70,14 +71,21 @@
 namespace doris {
 using namespace ErrorCode;
 
+bvar::Adder<int64_t> g_load_stream_writer_cnt("load_stream_writer_count");
+bvar::Adder<int64_t> g_load_stream_file_writer_cnt("load_stream_file_writer_count");
+
 LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profile)
         : _req(*context), _rowset_writer(nullptr) {
+    g_load_stream_writer_cnt << 1;
     // TODO(plat1ko): CloudStorageEngine
     _rowset_builder = std::make_unique<RowsetBuilder>(
             ExecEnv::GetInstance()->storage_engine().to_local(), *context, profile);
+    _query_thread_context.init_unlocked(); // from load stream
 }
 
-LoadStreamWriter::~LoadStreamWriter() = default;
+LoadStreamWriter::~LoadStreamWriter() {
+    g_load_stream_writer_cnt << -1;
+}
 
 Status LoadStreamWriter::init() {
     RETURN_IF_ERROR(_rowset_builder->init());
@@ -87,6 +95,7 @@ Status LoadStreamWriter::init() {
 }
 
 Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf) {
+    SCOPED_ATTACH_TASK(_query_thread_context);
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
@@ -101,6 +110,7 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
                     return st;
                 }
                 _segment_file_writers.push_back(std::move(file_writer));
+                g_load_stream_file_writer_cnt << 1;
             }
         }
 
@@ -121,6 +131,7 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
 }
 
 Status LoadStreamWriter::close_segment(uint32_t segid) {
+    SCOPED_ATTACH_TASK(_query_thread_context);
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
@@ -144,6 +155,7 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
         _is_canceled = true;
         return st;
     }
+    g_load_stream_file_writer_cnt << -1;
     LOG(INFO) << "segment " << segid << " path " << file_writer->path().native()
               << "closed, written " << file_writer->bytes_appended() << " bytes";
     if (file_writer->bytes_appended() == 0) {
@@ -154,6 +166,7 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
 
 Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat,
                                      TabletSchemaSPtr flush_schema) {
+    SCOPED_ATTACH_TASK(_query_thread_context);
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
@@ -172,7 +185,7 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
     if (file_writer == nullptr) {
         return Status::Corruption("add_segment failed, file writer {} is destoryed", segid);
     }
-    if (!file_writer->is_closed()) {
+    if (file_writer->state() != io::FileWriter::State::CLOSED) {
         return Status::Corruption("add_segment failed, segment {} is not closed",
                                   file_writer->path().native());
     }
@@ -187,6 +200,7 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
 
 Status LoadStreamWriter::close() {
     std::lock_guard<std::mutex> l(_lock);
+    SCOPED_ATTACH_TASK(_query_thread_context);
     if (!_is_init) {
         // if this delta writer is not initialized, but close() is called.
         // which means this tablet has no data loaded, but at least one tablet
@@ -204,7 +218,7 @@ Status LoadStreamWriter::close() {
     }
 
     for (const auto& writer : _segment_file_writers) {
-        if (!writer->is_closed()) {
+        if (writer->state() != io::FileWriter::State::CLOSED) {
             return Status::Corruption("LoadStreamWriter close failed, segment {} is not closed",
                                       writer->path().native());
         }

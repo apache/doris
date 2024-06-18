@@ -17,23 +17,24 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.nereids.rules.expression.ExpressionBottomUpRewriter;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -55,23 +56,30 @@ import java.util.Set;
  * adding any additional rule-specific fields to the default ExpressionRewriteContext. However, the entire expression
  * rewrite framework always passes an ExpressionRewriteContext of type context to all rules.
  */
-public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> implements
-        ExpressionRewriteRule<ExpressionRewriteContext> {
+public class OrToIn implements ExpressionPatternRuleFactory {
 
     public static final OrToIn INSTANCE = new OrToIn();
 
-    private static final int REWRITE_OR_TO_IN_PREDICATE_THRESHOLD = 2;
+    public static final int REWRITE_OR_TO_IN_PREDICATE_THRESHOLD = 2;
 
     @Override
-    public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-        return expr.accept(this, null);
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesTopType(Or.class).then(OrToIn::rewrite)
+        );
     }
 
-    @Override
-    public Expression visitOr(Or or, ExpressionRewriteContext ctx) {
-        Map<NamedExpression, Set<Literal>> slotNameToLiteral = new HashMap<>();
+    public Expression rewriteTree(Expression expr, ExpressionRewriteContext context) {
+        ExpressionBottomUpRewriter bottomUpRewriter = ExpressionRewrite.bottomUp(this);
+        return bottomUpRewriter.rewrite(expr, context);
+    }
+
+    private static Expression rewrite(Or or) {
+        // NOTICE: use linked hash map to avoid unstable order or entry.
+        //  unstable order entry lead to dead loop since return expression always un-equals to original one.
+        Map<NamedExpression, Set<Literal>> slotNameToLiteral = Maps.newLinkedHashMap();
+        Map<Expression, NamedExpression> disConjunctToSlot = Maps.newLinkedHashMap();
         List<Expression> expressions = ExpressionUtils.extractDisjunction(or);
-        Map<Expression, NamedExpression> disConjunctToSlot = Maps.newHashMap();
         for (Expression expression : expressions) {
             if (expression instanceof EqualTo) {
                 handleEqualTo((EqualTo) expression, slotNameToLiteral, disConjunctToSlot);
@@ -79,6 +87,10 @@ public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> 
                 handleInPredicate((InPredicate) expression, slotNameToLiteral, disConjunctToSlot);
             }
         }
+        if (disConjunctToSlot.isEmpty()) {
+            return or;
+        }
+
         List<Expression> rewrittenOr = new ArrayList<>();
         for (Map.Entry<NamedExpression, Set<Literal>> entry : slotNameToLiteral.entrySet()) {
             Set<Literal> literals = entry.getValue();
@@ -89,7 +101,7 @@ public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> 
         }
         for (Expression expression : expressions) {
             if (disConjunctToSlot.get(expression) == null) {
-                rewrittenOr.add(expression.accept(this, null));
+                rewrittenOr.add(expression);
             } else {
                 Set<Literal> literals = slotNameToLiteral.get(disConjunctToSlot.get(expression));
                 if (literals.size() < REWRITE_OR_TO_IN_PREDICATE_THRESHOLD) {
@@ -101,7 +113,7 @@ public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> 
         return ExpressionUtils.or(rewrittenOr);
     }
 
-    private void handleEqualTo(EqualTo equal, Map<NamedExpression, Set<Literal>> slotNameToLiteral,
+    private static void handleEqualTo(EqualTo equal, Map<NamedExpression, Set<Literal>> slotNameToLiteral,
                                Map<Expression, NamedExpression> disConjunctToSlot) {
         Expression left = equal.left();
         Expression right = equal.right();
@@ -114,7 +126,7 @@ public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> 
         }
     }
 
-    private void handleInPredicate(InPredicate inPredicate, Map<NamedExpression, Set<Literal>> slotNameToLiteral,
+    private static void handleInPredicate(InPredicate inPredicate, Map<NamedExpression, Set<Literal>> slotNameToLiteral,
                                    Map<Expression, NamedExpression> disConjunctToSlot) {
         // TODO a+b in (1,2,3...) is not supported now
         if (inPredicate.getCompareExpr() instanceof NamedExpression
@@ -126,10 +138,9 @@ public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> 
         }
     }
 
-    public void addSlotToLiteral(NamedExpression namedExpression, Literal literal,
+    private static void addSlotToLiteral(NamedExpression namedExpression, Literal literal,
             Map<NamedExpression, Set<Literal>> slotNameToLiteral) {
-        Set<Literal> literals = slotNameToLiteral.computeIfAbsent(namedExpression, k -> new HashSet<>());
+        Set<Literal> literals = slotNameToLiteral.computeIfAbsent(namedExpression, k -> new LinkedHashSet<>());
         literals.add(literal);
     }
-
 }

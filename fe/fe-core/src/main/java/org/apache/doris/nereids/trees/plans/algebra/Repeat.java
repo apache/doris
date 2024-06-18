@@ -58,6 +58,38 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
         return ExpressionUtils.flatExpressions(getGroupingSets());
     }
 
+    @Override
+    default Aggregate<CHILD_PLAN> pruneOutputs(List<NamedExpression> prunedOutputs) {
+        // just output reserved outputs and COL_GROUPING_ID for repeat correctly.
+        ImmutableList.Builder<NamedExpression> outputBuilder
+                = ImmutableList.builderWithExpectedSize(prunedOutputs.size() + 1);
+        outputBuilder.addAll(prunedOutputs);
+        for (NamedExpression output : getOutputExpressions()) {
+            Set<VirtualSlotReference> v = output.collect(VirtualSlotReference.class::isInstance);
+            if (v.stream().anyMatch(slot -> slot.getName().equals(COL_GROUPING_ID))) {
+                outputBuilder.add(output);
+            }
+        }
+        // prune groupingSets, if parent operator do not need some exprs in grouping sets, we removed it.
+        // this could not lead to wrong result because be repeat other columns by normal.
+        ImmutableList.Builder<List<Expression>> groupingSetsBuilder
+                = ImmutableList.builderWithExpectedSize(getGroupingSets().size());
+        for (List<Expression> groupingSet : getGroupingSets()) {
+            ImmutableList.Builder<Expression> groupingSetBuilder
+                    = ImmutableList.builderWithExpectedSize(groupingSet.size());
+            for (Expression expr : groupingSet) {
+                if (prunedOutputs.contains(expr)) {
+                    groupingSetBuilder.add(expr);
+                }
+            }
+            groupingSetsBuilder.add(groupingSetBuilder.build());
+        }
+        return withGroupSetsAndOutput(groupingSetsBuilder.build(), outputBuilder.build());
+    }
+
+    Repeat<CHILD_PLAN> withGroupSetsAndOutput(List<List<Expression>> groupingSets,
+            List<NamedExpression> outputExpressions);
+
     static VirtualSlotReference generateVirtualGroupingIdSlot() {
         return new VirtualSlotReference(COL_GROUPING_ID, BigIntType.INSTANCE, Optional.empty(),
                 GroupingSetShapes::computeVirtualGroupingIdValue);
@@ -175,9 +207,6 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
                 if (index == null) {
                     throw new AnalysisException("Can not find grouping set expression in output: " + expression);
                 }
-                if (groupingSetIndex.contains(index)) {
-                    throw new AnalysisException("expression duplicate in grouping set: " + expression);
-                }
                 groupingSetIndex.add(index);
             }
             groupingSetsIndex.add(groupingSetIndex);
@@ -228,11 +257,18 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
             this.shapes = ImmutableList.copyOf(shapes);
         }
 
-        // compute a long value that backend need to fill to the GROUPING_ID slot
+        /**compute a long value that backend need to fill to the GROUPING_ID slot*/
         public List<Long> computeVirtualGroupingIdValue() {
-            return shapes.stream()
-                    .map(GroupingSetShape::computeLongValue)
-                    .collect(ImmutableList.toImmutableList());
+            Set<Long> res = Sets.newLinkedHashSet();
+            long k = (long) Math.pow(2, flattenGroupingSetExpression.size());
+            for (GroupingSetShape shape : shapes) {
+                Long val = shape.computeLongValue();
+                while (res.contains(val)) {
+                    val += k;
+                }
+                res.add(val);
+            }
+            return ImmutableList.copyOf(res);
         }
 
         public int indexOf(Expression expression) {

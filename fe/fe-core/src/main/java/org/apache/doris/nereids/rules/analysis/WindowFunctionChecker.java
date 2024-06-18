@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundType;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameUnitsType;
+import org.apache.doris.nereids.trees.expressions.functions.window.CumeDist;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.FirstOrLastValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.FirstValue;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
 import org.apache.doris.nereids.trees.expressions.functions.window.LastValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
 import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
+import org.apache.doris.nereids.trees.expressions.functions.window.PercentRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -362,6 +364,18 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
     }
 
     /**
+     * required WindowFrame: (RANGE, UNBOUNDED PRECEDING, CURRENT ROW)
+     */
+    @Override
+    public PercentRank visitPercentRank(PercentRank percentRank, Void ctx) {
+        WindowFrame requiredFrame = new WindowFrame(FrameUnitsType.RANGE,
+                FrameBoundary.newPrecedingBoundary(), FrameBoundary.newCurrentRowBoundary());
+
+        checkAndCompleteWindowFrame(requiredFrame, percentRank.getName());
+        return percentRank;
+    }
+
+    /**
      * required WindowFrame: (ROWS, UNBOUNDED PRECEDING, CURRENT ROW)
      */
     @Override
@@ -372,6 +386,18 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
 
         checkAndCompleteWindowFrame(requiredFrame, rowNumber.getName());
         return rowNumber;
+    }
+
+    /**
+     * required WindowFrame: (RANGE, UNBOUNDED PRECEDING, CURRENT ROW)
+     */
+    @Override
+    public CumeDist visitCumeDist(CumeDist cumeDist, Void ctx) {
+        WindowFrame requiredFrame = new WindowFrame(FrameUnitsType.RANGE,
+                FrameBoundary.newPrecedingBoundary(), FrameBoundary.newCurrentRowBoundary());
+
+        checkAndCompleteWindowFrame(requiredFrame, cumeDist.getName());
+        return cumeDist;
     }
 
     /**

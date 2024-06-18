@@ -69,6 +69,11 @@ public class DropIndexClause extends AlterTableClause {
     }
 
     @Override
+    public boolean allowOpMTMV() {
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DROP INDEX ").append(indexName);

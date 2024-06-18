@@ -18,13 +18,11 @@
 #pragma once
 
 #include <butil/macros.h>
-#include <stdint.h>
 
-#include <memory>
+#include <cstdint>
 #include <string>
-#include <unordered_map>
-#include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
@@ -55,6 +53,7 @@ struct DeleteConditions {
 // NOTE：
 //    * In the first step, before calling delete_handler.init(), you should lock the tablet's header file.
 class DeleteHandler {
+    ENABLE_FACTORY_CREATOR(DeleteHandler);
     // These static method is used to generate delete predicate pb during write or push handler
 public:
     // generated DeletePredicatePB by TCondition
@@ -62,7 +61,16 @@ public:
                                             const std::vector<TCondition>& conditions,
                                             DeletePredicatePB* del_pred);
 
-    static void convert_to_sub_pred_v2(DeletePredicatePB* delete_pred, TabletSchemaSPtr schema);
+    static Status convert_to_sub_pred_v2(DeletePredicatePB* delete_pred, TabletSchemaSPtr schema);
+
+    /**
+     * Use regular expression to extract 'column_name', 'op' and 'operands'
+     *
+     * @param condition_str input predicate string in form of `X OP Y`
+     * @param condition output param
+     * @return OK if matched and extracted correctly otherwise DELETE_INVALID_PARAMETERS
+     */
+    static Status parse_condition(const std::string& condition_str, TCondition* condition);
 
 private:
     // Validate the condition on the schema.
@@ -77,19 +85,12 @@ private:
                                          const std::string& condition_op,
                                          const std::string& value_str);
 
-    // construct sub condition from TCondition
-    static std::string construct_sub_predicate(const TCondition& condition);
-
-    // make operators from FE adaptive to BE
-    [[nodiscard]] static std::string trans_op(const string& op);
-
     // extract 'column_name', 'op' and 'operands' to condition
     static Status parse_condition(const DeleteSubPredicatePB& sub_cond, TCondition* condition);
-    static Status parse_condition(const std::string& condition_str, TCondition* condition);
 
 public:
     DeleteHandler() = default;
-    ~DeleteHandler() { finalize(); }
+    ~DeleteHandler();
 
     // Initialize DeleteHandler, use the delete conditions of this tablet whose version less than or equal to
     // 'version' to fill '_del_conds'.
@@ -97,7 +98,8 @@ public:
     // input:
     //     * schema: tablet's schema, the delete conditions and data rows are in this schema
     //     * version: maximum version
-    //     * with_sub_pred_v2: whether to use delete sub predicate v2 (v2 is based on PB, v1 is based on condition string)
+    //     * with_sub_pred_v2: whether to use delete sub predicate v2 (v2 is based on PB and use column uid to specify a column,
+    //         v1 is based on condition string, and relies on regex for parse)
     // return:
     //     * Status::Error<DELETE_INVALID_PARAMETERS>(): input parameters are not valid
     //     * Status::Error<MEM_ALLOC_FAILED>(): alloc memory failed
@@ -106,9 +108,6 @@ public:
                 bool with_sub_pred_v2 = false);
 
     [[nodiscard]] bool empty() const { return _del_conds.empty(); }
-
-    // Release an instance of this class.
-    void finalize();
 
     void get_delete_conditions_after_version(
             int64_t version, AndBlockColumnPredicate* and_block_column_predicate_ptr,

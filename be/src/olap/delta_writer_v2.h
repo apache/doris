@@ -62,6 +62,8 @@ class Block;
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriterV2 {
+    ENABLE_FACTORY_CREATOR(DeltaWriterV2);
+
 public:
     DeltaWriterV2(WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
                   RuntimeState* state);
@@ -70,10 +72,7 @@ public:
 
     Status init();
 
-    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
-                 bool is_append = false);
-
-    Status append(const vectorized::Block* block);
+    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();

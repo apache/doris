@@ -17,7 +17,7 @@
 
 package org.apache.doris.jdbc;
 
-import com.alibaba.druid.pool.DruidDataSource;
+import com.zaxxer.hikari.HikariDataSource;
 import org.apache.log4j.Logger;
 
 import java.util.Map;
@@ -30,7 +30,7 @@ import java.util.concurrent.TimeUnit;
 public class JdbcDataSource {
     private static final Logger LOG = Logger.getLogger(JdbcDataSource.class);
     private static final JdbcDataSource jdbcDataSource = new JdbcDataSource();
-    private final Map<String, DruidDataSource> sourcesMap = new ConcurrentHashMap<>();
+    private final Map<String, HikariDataSource> sourcesMap = new ConcurrentHashMap<>();
     private final Map<String, Long> lastAccessTimeMap = new ConcurrentHashMap<>();
     private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
     private long cleanupInterval = 8 * 60 * 60 * 1000; // 8 hours
@@ -44,17 +44,17 @@ public class JdbcDataSource {
         return jdbcDataSource;
     }
 
-    public DruidDataSource getSource(String cacheKey) {
+    public HikariDataSource getSource(String cacheKey) {
         lastAccessTimeMap.put(cacheKey, System.currentTimeMillis());
         return sourcesMap.get(cacheKey);
     }
 
-    public void putSource(String cacheKey, DruidDataSource ds) {
+    public void putSource(String cacheKey, HikariDataSource ds) {
         sourcesMap.put(cacheKey, ds);
         lastAccessTimeMap.put(cacheKey, System.currentTimeMillis());
     }
 
-    public Map<String, DruidDataSource> getSourcesMap() {
+    public Map<String, HikariDataSource> getSourcesMap() {
         return sourcesMap;
     }
 
@@ -72,7 +72,7 @@ public class JdbcDataSource {
                 long now = System.currentTimeMillis();
                 lastAccessTimeMap.forEach((key, lastAccessTime) -> {
                     if (now - lastAccessTime > cleanupInterval) {
-                        DruidDataSource ds = sourcesMap.remove(key);
+                        HikariDataSource ds = sourcesMap.remove(key);
                         if (ds != null) {
                             ds.close();
                         }

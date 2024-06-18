@@ -85,7 +85,7 @@ public class UdfExecutor extends BaseExecutor {
     }
 
     private ColumnValueConverter getOutputConverter() {
-        return getOutputConverter(retType.getPrimitiveType(), method.getReturnType());
+        return getOutputConverter(retType, method.getReturnType());
     }
 
     public long evaluate(Map<String, String> inputParams, Map<String, String> outputParams) throws UdfRuntimeException {
@@ -142,7 +142,9 @@ public class UdfExecutor extends BaseExecutor {
         String className = request.fn.scalar_fn.symbol;
         ArrayList<String> signatures = Lists.newArrayList();
         try {
-            LOG.debug("Loading UDF '" + className + "' from " + jarPath);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Loading UDF '" + className + "' from " + jarPath);
+            }
             ClassLoader loader;
             if (jarPath != null) {
                 // Save for cleanup.
@@ -186,7 +188,6 @@ public class UdfExecutor extends BaseExecutor {
                         retType = returnType.second;
                     }
                     argTypes = new JavaUdfDataType[0];
-                    LOG.debug("Loaded UDF '" + className + "' from " + jarPath);
                     return;
                 }
                 returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
@@ -195,17 +196,12 @@ public class UdfExecutor extends BaseExecutor {
                 } else {
                     retType = returnType.second;
                 }
-                Type keyType = retType.getKeyType();
-                Type valueType = retType.getValueType();
                 Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes, argClass, false);
                 if (!inputType.first) {
                     continue;
                 } else {
                     argTypes = inputType.second;
                 }
-                LOG.debug("Loaded UDF '" + className + "' from " + jarPath);
-                retType.setKeyType(keyType);
-                retType.setValueType(valueType);
                 return;
             }
 

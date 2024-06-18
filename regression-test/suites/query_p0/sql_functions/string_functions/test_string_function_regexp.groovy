@@ -155,4 +155,3 @@ suite("test_string_function_regexp") {
     qt_sql_field4 "SELECT FIELD('21','2130', '2131', '21');"
     qt_sql_field5 "SELECT FIELD(21, 2130, 21, 2131);"
 }
-

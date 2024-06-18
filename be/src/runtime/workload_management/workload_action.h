@@ -55,9 +55,7 @@ private:
 class WorkloadActionFactory {
 public:
     static std::unique_ptr<WorkloadAction> create_workload_action(TWorkloadAction* action) {
-        if (TWorkloadActionType::type::MOVE_QUERY_TO_GROUP == action->action) {
-            return std::make_unique<WorkloadActionMoveQuery>(action->action_args);
-        } else if (TWorkloadActionType::type::CANCEL_QUERY == action->action) {
+        if (TWorkloadActionType::type::CANCEL_QUERY == action->action) {
             return std::make_unique<WorkloadActionCancelQuery>();
         }
         LOG(ERROR) << "not find a action " << action->action;

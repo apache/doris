@@ -244,8 +244,10 @@ public class LoadStatisticForTag {
             }
         }
 
-        LOG.debug("classify backend by load. medium: {} avg load score: {}. low/mid/high: {}/{}/{}",
-                medium, avgLoadScore, lowCounter, midCounter, highCounter);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("classify backend by load. medium: {} avg load score: {}. low/mid/high: {}/{}/{}",
+                    medium, avgLoadScore, lowCounter, midCounter, highCounter);
+        }
     }
 
     private void classifyBackendByMaxDiskUsage(TStorageMedium medium) {
@@ -393,12 +395,14 @@ public class LoadStatisticForTag {
         double newDiff = Math.abs(newSrcBeScore.score - avgLoadScoreMap.get(medium))
                 + Math.abs(newDestBeScore.score - avgLoadScoreMap.get(medium));
 
-        LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
-                        + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
-                        + " more balanced: {}",
-                tabletId, tabletSize, srcBeId, destBeId, medium, currentSrcBeScore, newSrcBeScore.score,
-                currentDestBeScore, newDestBeScore.score, avgLoadScoreMap.get(medium), currentDiff, newDiff,
-                (newDiff < currentDiff));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
+                            + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
+                            + " more balanced: {}",
+                    tabletId, tabletSize, srcBeId, destBeId, medium, currentSrcBeScore, newSrcBeScore.score,
+                    currentDestBeScore, newDestBeScore.score, avgLoadScoreMap.get(medium), currentDiff, newDiff,
+                    (newDiff < currentDiff));
+        }
 
         return newDiff < currentDiff;
     }
@@ -531,10 +535,12 @@ public class LoadStatisticForTag {
         resortBeStats.accept(lowBEs, true);
         resortBeStats.accept(highBEs, false);
 
-        LOG.debug("urgent backends' classification lowBe {}, highBe {}, medium: {}",
-                lowBEs.stream().map(BackendLoadStatistic::getBeId).collect(Collectors.toList()),
-                highBEs.stream().map(BackendLoadStatistic::getBeId).collect(Collectors.toList()),
-                medium);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("urgent backends' classification lowBe {}, highBe {}, medium: {}",
+                    lowBEs.stream().map(BackendLoadStatistic::getBeId).collect(Collectors.toList()),
+                    highBEs.stream().map(BackendLoadStatistic::getBeId).collect(Collectors.toList()),
+                    medium);
+        }
 
         return true;
     }
@@ -585,8 +591,10 @@ public class LoadStatisticForTag {
         sortBeStats(mid, medium);
         sortBeStats(high, medium);
 
-        LOG.debug("after adjust, backends' classification low/mid/high: {}/{}/{}, medium: {}",
-                low.size(), mid.size(), high.size(), medium);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after adjust, backends' classification low/mid/high: {}/{}/{}, medium: {}",
+                    low.size(), mid.size(), high.size(), medium);
+        }
     }
 
     public List<BackendLoadStatistic> getSortedBeLoadStats(TStorageMedium medium) {

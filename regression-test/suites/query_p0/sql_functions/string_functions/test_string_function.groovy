@@ -68,6 +68,8 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select unhex('68656C6C6F2C646F726973');"
     qt_sql "select unhex('41');"
     qt_sql "select unhex('4142');"
+    qt_sql "select unhex('');"
+    qt_sql "select unhex(NULL);"
 
     qt_sql_instr "select instr(\"abc\", \"b\");"
     qt_sql_instr "select instr(\"abc\", \"d\");"
@@ -283,9 +285,6 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select substring_index(\"prefix_string\", \"_\", null);"
     qt_sql "select substring_index(\"prefix_string\", \"__\", -1);"
 
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
-
     qt_sql "select elt(0, \"hello\", \"doris\");"
     qt_sql "select elt(1, \"hello\", \"doris\");"
     qt_sql "select elt(2, \"hello\", \"doris\");"
@@ -295,15 +294,10 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
 
     // test function char
-    sql 'set enable_nereids_planner=false'
-    def success = false
-    try {
+    test {
         sql """ select char(68 using abc); """
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("only support charset name 'utf8'"), e.getMessage())
+        exception "only support charset name 'utf8'"
     }
-    assertFalse(success)
 
     // const
     qt_sql_func_char_const1 """ select char(68); """
@@ -364,4 +358,7 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql_func_char9 """ select char(0) = ' '; """
     qt_sql_func_char10 """ select char(0) = '\0'; """
 
+    qt_strcmp1 """ select strcmp('a', 'abc'); """
+    qt_strcmp2 """ select strcmp('abc', 'abc'); """
+    qt_strcmp3 """ select strcmp('abcd', 'abc'); """
 }

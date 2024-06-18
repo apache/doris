@@ -21,31 +21,13 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vtable_function_node.h"
+#include "vec/exprs/table_function/table_function.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
-
-class TableFunctionOperatorBuilder final : public OperatorBuilder<vectorized::VTableFunctionNode> {
-public:
-    TableFunctionOperatorBuilder(int32_t id, ExecNode* node);
-
-    OperatorPtr build_operator() override;
-};
-
-class TableFunctionOperator final : public StatefulOperator<vectorized::VTableFunctionNode> {
-public:
-    TableFunctionOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
-
-    Status prepare(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
-};
 
 class TableFunctionOperatorX;
 class TableFunctionLocalState final : public PipelineXLocalState<> {
@@ -55,10 +37,16 @@ public:
     TableFunctionLocalState(RuntimeState* state, OperatorXBase* parent);
     ~TableFunctionLocalState() override = default;
 
-    Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state) override {
+        for (auto* fn : _fns) {
+            RETURN_IF_ERROR(fn->close());
+        }
+        RETURN_IF_ERROR(PipelineXLocalState<>::close(state));
+        return Status::OK();
+    }
     void process_next_child_row();
-    Status get_expanded_block(RuntimeState* state, vectorized::Block* output_block,
-                              SourceState& source_state);
+    Status get_expanded_block(RuntimeState* state, vectorized::Block* output_block, bool* eos);
 
 private:
     friend class TableFunctionOperatorX;
@@ -75,10 +63,10 @@ private:
 
     std::vector<vectorized::TableFunction*> _fns;
     vectorized::VExprContextSPtrs _vfn_ctxs;
-    int64_t _cur_child_offset = 0;
+    int64_t _cur_child_offset = -1;
     std::unique_ptr<vectorized::Block> _child_block;
     int _current_row_insert_times = 0;
-    SourceState _child_source_state;
+    bool _child_eos = false;
 };
 
 class TableFunctionOperatorX final : public StatefulOperatorX<TableFunctionLocalState> {
@@ -92,16 +80,14 @@ public:
 
     bool need_more_input_data(RuntimeState* state) const override {
         auto& local_state = state->get_local_state(operator_id())->cast<TableFunctionLocalState>();
-        return !local_state._child_block->rows() &&
-               local_state._child_source_state != SourceState::FINISHED;
+        return !local_state._child_block->rows() && !local_state._child_eos;
     }
 
     DataDistribution required_data_distribution() const override {
         return {ExchangeType::PASSTHROUGH};
     }
 
-    Status push(RuntimeState* state, vectorized::Block* input_block,
-                SourceState source_state) const override {
+    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override {
         auto& local_state = get_local_state(state);
         if (input_block->rows() == 0) {
             return Status::OK();
@@ -114,11 +100,10 @@ public:
         return Status::OK();
     }
 
-    Status pull(RuntimeState* state, vectorized::Block* output_block,
-                SourceState& source_state) const override {
+    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) const override {
         auto& local_state = get_local_state(state);
-        RETURN_IF_ERROR(local_state.get_expanded_block(state, output_block, source_state));
-        local_state.reached_limit(output_block, source_state);
+        RETURN_IF_ERROR(local_state.get_expanded_block(state, output_block, eos));
+        local_state.reached_limit(output_block, eos);
         return Status::OK();
     }
 

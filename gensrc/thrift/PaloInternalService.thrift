@@ -143,7 +143,7 @@ struct TQueryOptions {
   // whether enable spilling to disk
   31: optional bool enable_spilling = false;
   // whether enable parallel merge in exchange node
-  32: optional bool enable_enable_exchange_node_parallel_merge = false;
+  32: optional bool enable_enable_exchange_node_parallel_merge = false; // deprecated
 
   // Time in ms to wait until runtime filters are delivered.
   33: optional i32 runtime_filter_wait_time_ms = 1000
@@ -248,7 +248,7 @@ struct TQueryOptions {
   85: optional bool enable_page_cache = false;
   86: optional i32 analyze_timeout = 43200;
 
-  87: optional bool faster_float_convert = false;
+  87: optional bool faster_float_convert = false; // deprecated
 
   88: optional bool enable_decimal256 = false;
 
@@ -271,7 +271,39 @@ struct TQueryOptions {
   97: optional i64 parallel_scan_min_rows_per_scanner = 0;
 
   98: optional bool skip_bad_tablet = false;
+  // Increase concurrency of scanners adaptively, the maxinum times to scale up
+  99: optional double scanner_scale_up_ratio = 0;
 
+  100: optional bool enable_distinct_streaming_aggregation = true;
+
+  101: optional bool enable_join_spill = false
+
+  102: optional bool enable_sort_spill = false
+
+  103: optional bool enable_agg_spill = false
+
+  104: optional i64 min_revocable_mem = 0
+
+  105: optional i64 spill_streaming_agg_mem_limit = 0;
+
+  // max rows of each sub-queue in DataQueue.
+  106: optional i64 data_queue_max_blocks = 0;
+  
+  // expr pushdown for index filter rows
+  107: optional bool enable_common_expr_pushdown_for_inverted_index = false;
+  108: optional i64 local_exchange_free_blocks_limit;
+
+  109: optional bool enable_force_spill = false;
+
+  110: optional bool enable_parquet_filter_by_min_max = true
+  111: optional bool enable_orc_filter_by_min_max = true
+
+  112: optional i32 max_column_reader_num = 0
+
+  113: optional bool enable_local_merge_sort = false;
+
+  114: optional bool enable_parallel_result_sink = false;
+  
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }
@@ -347,6 +379,7 @@ struct TPlanFragmentExecParams {
   // Used to merge and send runtime filter
   12: optional TRuntimeFilterParams runtime_filter_params
   13: optional bool group_commit // deprecated
+  14: optional list<i32> topn_filter_source_node_ids
 }
 
 // Global query parameters assigned by the coordinator.
@@ -472,6 +505,7 @@ struct TExecPlanFragmentParams {
   // Otherwise, the fragment will start executing directly on the BE side.
   20: optional bool need_wait_execution_trigger = false;
 
+  // deprecated
   21: optional bool build_hash_table_for_broadcast_join = false;
 
   22: optional list<Types.TUniqueId> instances_sharing_hash_table;
@@ -493,6 +527,8 @@ struct TExecPlanFragmentParams {
   29: optional i64 content_length
 
   30: optional list<TPipelineWorkloadGroup> workload_groups
+
+  31: optional bool is_nereids = true;
 
   // For cloud
   1000: optional bool is_mow_table;
@@ -531,6 +567,7 @@ struct TFoldConstantParams {
   3: optional bool vec_exec
   4: optional TQueryOptions query_options
   5: optional Types.TUniqueId query_id
+  6: optional bool is_nereids
 }
 
 // TransmitData
@@ -673,12 +710,15 @@ struct TExportStatusResult {
 
 struct TPipelineInstanceParams {
   1: required Types.TUniqueId fragment_instance_id
+  // deprecated
   2: optional bool build_hash_table_for_broadcast_join = false;
   3: required map<Types.TPlanNodeId, list<TScanRangeParams>> per_node_scan_ranges
   4: optional i32 sender_id
   5: optional TRuntimeFilterParams runtime_filter_params
   6: optional i32 backend_num
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+  8: optional list<i32> topn_filter_source_node_ids // deprecated after we set topn_filter_descs
+  9: optional list<PlanNodes.TTopnFilterDesc> topn_filter_descs
 }
 
 // ExecPlanFragment
@@ -724,6 +764,9 @@ struct TPipelineFragmentParams {
   37: optional i32 parallel_instances
   38: optional i32 total_instances
   39: optional map<i32, i32> shuffle_idx_to_instance_idx
+  40: optional bool is_nereids = true;
+  41: optional i64 wal_id
+  42: optional i64 content_length
 
   // For cloud
   1000: optional bool is_mow_table;

@@ -28,6 +28,9 @@ public:
     std::map<WorkloadMetricType, std::string> metric_map;
     TUniqueId tquery_id;
     std::string query_id;
+    int64_t wg_id;
+    int64_t policy_id;
+    std::string policy_name;
 };
 
 } // namespace doris

@@ -26,6 +26,7 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog.InsertOverwriteOpType;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -34,10 +35,12 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class InsertOverwriteManager extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteManager.class);
@@ -46,6 +49,18 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
 
     @SerializedName(value = "tasks")
     private Map<Long, InsertOverwriteTask> tasks = Maps.newConcurrentMap();
+
+    // <txnId, <dbId, tableId>>
+    // for iot auto detect tasks. a txn will make many task by different rpc
+    @SerializedName(value = "taskGroups")
+    private Map<Long, List<Long>> taskGroups = Maps.newConcurrentMap();
+    // for one task group, there may be different requests about changing a partition to new.
+    // but we only change one time and save the relations in partitionPairs. they're protected by taskLocks
+    @SerializedName(value = "taskLocks")
+    private Map<Long, ReentrantLock> taskLocks = Maps.newConcurrentMap();
+    // <groupId, <oldPartId, newPartId>>
+    @SerializedName(value = "partitionPairs")
+    private Map<Long, Map<Long, Long>> partitionPairs = Maps.newConcurrentMap();
 
     public InsertOverwriteManager() {
         super("InsertOverwriteDropDirtyPartitions", CLEAN_INTERVAL_SECOND * 1000);
@@ -70,11 +85,84 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     }
 
     /**
+     * register insert overwrite task group for auto detect partition.
+     * it may have many tasks by FrontendService rpc deal.
+     * all of them will be involved in one txn.(success or fallback)
+     *
+     * @return group id, like a transaction id.
+     */
+    public long preRegisterTask() {
+        long groupId = Env.getCurrentEnv().getNextId();
+        taskGroups.put(groupId, new ArrayList<Long>());
+        taskLocks.put(groupId, new ReentrantLock());
+        partitionPairs.put(groupId, Maps.newConcurrentMap());
+        return groupId;
+    }
+
+    /**
+     * for iot auto detect. register task first. then put in group.
+     */
+    public void registerTaskInGroup(long groupId, long taskId) {
+        LOG.info("register task " + taskId + " in group " + groupId);
+        taskGroups.get(groupId).add(taskId);
+    }
+
+    public List<Long> tryReplacePartitionIds(long groupId, List<Long> oldPartitionIds) {
+        Map<Long, Long> relations = partitionPairs.get(groupId);
+        List<Long> newIds = new ArrayList<Long>();
+        for (Long id : oldPartitionIds) {
+            if (relations.containsKey(id)) {
+                // if we replaced it. then return new one.
+                newIds.add(relations.get(id));
+            } else {
+                // otherwise itself. we will deal it soon.
+                newIds.add(id);
+            }
+        }
+        return newIds;
+    }
+
+    public void recordPartitionPairs(long groupId, List<Long> oldIds, List<Long> newIds) {
+        Map<Long, Long> relations = partitionPairs.get(groupId);
+        Preconditions.checkArgument(oldIds.size() == newIds.size());
+        for (int i = 0; i < oldIds.size(); i++) {
+            relations.put(oldIds.get(i), newIds.get(i));
+        }
+    }
+
+    public ReentrantLock getLock(long groupId) {
+        return taskLocks.get(groupId);
+    }
+
+    public void taskGroupFail(long groupId) {
+        LOG.info("insert overwrite auto detect partition task group [" + groupId + "] failed");
+        for (Long taskId : taskGroups.get(groupId)) {
+            taskFail(taskId);
+        }
+        cleanTaskGroup(groupId);
+    }
+
+    public void taskGroupSuccess(long groupId) {
+        LOG.info("insert overwrite auto detect partition task group [" + groupId + "] succeed");
+        for (Long taskId : taskGroups.get(groupId)) {
+            taskSuccess(taskId);
+        }
+        cleanTaskGroup(groupId);
+    }
+
+    private void cleanTaskGroup(long groupId) {
+        partitionPairs.remove(groupId);
+        taskLocks.remove(groupId);
+        taskGroups.remove(groupId);
+    }
+
+    /**
      * when insert overwrite fail, try drop temp partition
      *
      * @param taskId
      */
     public void taskFail(long taskId) {
+        LOG.info("insert overwrite task [" + taskId + "] failed");
         boolean rollback = rollback(taskId);
         if (rollback) {
             removeTask(taskId);
@@ -89,6 +177,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
      * @param taskId
      */
     public void taskSuccess(long taskId) {
+        LOG.info("insert overwrite task [" + taskId + "] succeed");
         removeTask(taskId);
     }
 

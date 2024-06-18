@@ -233,4 +233,3 @@ public abstract class Edge {
                 this.getTypeName(), LongBitmap.toString(rightExtendedNodes));
     }
 }
-

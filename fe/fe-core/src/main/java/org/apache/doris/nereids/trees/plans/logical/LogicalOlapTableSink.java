@@ -41,12 +41,11 @@ import java.util.Optional;
 /**
  * logical olap table sink for insert command
  */
-public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
+public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableSink<CHILD_TYPE>
         implements Sink, PropagateFuncDeps {
     // bound data sink
     private final Database database;
     private final OlapTable targetTable;
-    private final List<Column> cols;
     private final List<Long> partitionIds;
     private final boolean isPartialUpdate;
     private final DMLCommandType dmlCommandType;
@@ -65,10 +64,9 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
             List<Long> partitionIds, List<NamedExpression> outputExprs, boolean isPartialUpdate,
             DMLCommandType dmlCommandType, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_OLAP_TABLE_SINK, outputExprs, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_OLAP_TABLE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalOlapTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalOlapTableSink");
-        this.cols = Utils.copyRequiredList(cols);
         this.isPartialUpdate = isPartialUpdate;
         this.dmlCommandType = dmlCommandType;
         this.partitionIds = Utils.copyRequiredList(partitionIds);
@@ -95,10 +93,6 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
 
     public OlapTable getTargetTable() {
         return targetTable;
-    }
-
-    public List<Column> getCols() {
-        return cols;
     }
 
     public List<Long> getPartitionIds() {

@@ -158,6 +158,8 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
         RdKafka::Message* msg;
         bool res = _queue.blocking_get(&msg);
         if (res) {
+            // conf has to be deleted finally
+            Defer delete_msg {[msg]() { delete msg; }};
             VLOG_NOTICE << "get kafka message"
                         << ", partition: " << msg->partition() << ", offset: " << msg->offset()
                         << ", len: " << msg->len();
@@ -181,7 +183,6 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
                     }
                 }
             }
-            delete msg;
         } else {
             // queue is empty and shutdown
             eos = true;

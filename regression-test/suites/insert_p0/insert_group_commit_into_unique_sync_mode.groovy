@@ -134,7 +134,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
-                    // sql """ set enable_fallback_to_original_planner=false; """
+                    sql """ set enable_fallback_to_original_planner=false; """
                 } else {
                     sql """ set enable_nereids_dml = false; """
                 }
@@ -185,7 +185,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
                     checkStreamLoadResult(exception, result, 5, 5, 0, 0)
                 }
             }
-            getRowCount(10)
+            getRowCount(12)
             sql """ set show_hidden_columns = true """
             qt_sql """ select id, name, score, __DORIS_DELETE_SIGN__ from ${dbTableName} order by id, name, score asc; """
             sql """ set show_hidden_columns = false """
@@ -222,7 +222,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
-                    // sql """ set enable_fallback_to_original_planner=false; """
+                    sql """ set enable_fallback_to_original_planner=false; """
                 } else {
                     sql """ set enable_nereids_dml = false; """
                 }
@@ -275,7 +275,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
                     checkOffModeStreamLoadResult(exception, result, 5, 5, 0, 0)
                 }
             }
-            getRowCount(10)
+            getRowCount(12)
             sql """ set show_hidden_columns = true """
             qt_sql """ select id, name, score, __DORIS_SEQUENCE_COL__, __DORIS_DELETE_SIGN__ from ${dbTableName} order by id, name, score asc; """
             sql """ set show_hidden_columns = false """
@@ -313,7 +313,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
-                    // sql """ set enable_fallback_to_original_planner=false; """
+                    sql """ set enable_fallback_to_original_planner=false; """
                 } else {
                     sql """ set enable_nereids_dml = false; """
                 }

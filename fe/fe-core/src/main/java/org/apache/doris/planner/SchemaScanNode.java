@@ -23,7 +23,7 @@ import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.planner.external.FederationBackendPolicy;
+import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.StatisticalType;

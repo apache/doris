@@ -53,7 +53,9 @@ public class TimestampTest {
         }
         UUID uuid = UUID.randomUUID();
         File testFile = Files.createFile(Paths.get(dorisHome, "fe", "mocked", "TimestampTest-" + uuid.toString())).toFile();
-        LOG.debug("createTmpFile path {}", testFile.getAbsolutePath());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("createTmpFile path {}", testFile.getAbsolutePath());
+        }
         testFiles.add(testFile.getAbsolutePath());
         return testFile.getAbsolutePath();
     }
@@ -81,8 +83,7 @@ public class TimestampTest {
 
         DataInputStream in = new DataInputStream(new FileInputStream(testFile));
         Thread.sleep(1000);
-        Timestamp timestamp2 = new Timestamp();
-        timestamp2.readFields(in);
+        Timestamp timestamp2 = Timestamp.read(in);
 
         Assertions.assertEquals(ts, timestamp2.getTimestamp());
         Assertions.assertEquals("" + ts, timestamp2.toString());

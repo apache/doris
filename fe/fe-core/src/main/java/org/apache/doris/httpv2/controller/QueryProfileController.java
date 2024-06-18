@@ -71,7 +71,7 @@ public class QueryProfileController extends BaseController {
     private void addFinishedQueryInfo(Map<String, Object> result) {
         List<List<String>> finishedQueries = ProfileManager.getInstance().getAllQueries();
         List<String> columnHeaders = Lists.newLinkedList();
-        columnHeaders.addAll(SummaryProfile.SUMMARY_KEYS);
+        columnHeaders.addAll(SummaryProfile.SUMMARY_CAPTIONS);
 
         result.put("column_names", columnHeaders);
         // The first column is profile id, which is also a href column
@@ -81,7 +81,7 @@ public class QueryProfileController extends BaseController {
 
         for (List<String> row : finishedQueries) {
             Map<String, Object> rowMap = new HashMap<>();
-            for (int i = 0; i < row.size(); ++i) {
+            for (int i = 0; i < columnHeaders.size(); ++i) {
                 rowMap.put(columnHeaders.get(i), row.get(i));
             }
 

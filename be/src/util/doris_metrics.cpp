@@ -76,6 +76,9 @@ DEFINE_ENGINE_COUNTER_METRIC(finish_task_requests_total, finish_task, total);
 DEFINE_ENGINE_COUNTER_METRIC(finish_task_requests_failed, finish_task, failed);
 DEFINE_ENGINE_COUNTER_METRIC(base_compaction_request_total, base_compaction, total);
 DEFINE_ENGINE_COUNTER_METRIC(base_compaction_request_failed, base_compaction, failed);
+DEFINE_ENGINE_COUNTER_METRIC(single_compaction_request_total, single_compaction, total);
+DEFINE_ENGINE_COUNTER_METRIC(single_compaction_request_failed, single_compaction, failed);
+DEFINE_ENGINE_COUNTER_METRIC(single_compaction_request_cancelled, single_compaction, cancelled);
 DEFINE_ENGINE_COUNTER_METRIC(cumulative_compaction_request_total, cumulative_compaction, total);
 DEFINE_ENGINE_COUNTER_METRIC(cumulative_compaction_request_failed, cumulative_compaction, failed);
 DEFINE_ENGINE_COUNTER_METRIC(publish_task_request_total, publish, total);
@@ -87,10 +90,14 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_deltas_total, MetricUnit::R
                                      compaction_deltas_total, Labels({{"type", "base"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_deltas_total, MetricUnit::ROWSETS, "",
                                      compaction_deltas_total, Labels({{"type", "cumulative"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(full_compaction_deltas_total, MetricUnit::ROWSETS, "",
+                                     compaction_deltas_total, Labels({{"type", "base"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_bytes_total, MetricUnit::BYTES, "",
                                      compaction_bytes_total, Labels({{"type", "base"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_bytes_total, MetricUnit::BYTES, "",
                                      compaction_bytes_total, Labels({{"type", "cumulative"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(full_compaction_bytes_total, MetricUnit::BYTES, "",
+                                     compaction_bytes_total, Labels({{"type", "base"}}));
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(segment_read_total, MetricUnit::OPERATIONS,
                                      "(segment_v2) total number of segments read", segment_read,
@@ -152,8 +159,6 @@ DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_cache_memory_total_byte, MetricUni
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_cache_sql_total_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_cache_partition_total_count, MetricUnit::NOUNIT);
 
-DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(lru_cache_memory_bytes, MetricUnit::BYTES);
-
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(upload_total_byte, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(upload_rowset_count, MetricUnit::ROWSETS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(upload_fail_count, MetricUnit::ROWSETS);
@@ -177,6 +182,10 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(hdfs_file_open_reading, MetricUnit::FILESYSTE
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(broker_file_open_reading, MetricUnit::FILESYSTEM);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(local_file_open_writing, MetricUnit::FILESYSTEM);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(s3_file_open_writing, MetricUnit::FILESYSTEM);
+
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_total, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_cache, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_remote, MetricUnit::OPERATIONS);
 
 const std::string DorisMetrics::_s_registry_name = "doris_be";
 const std::string DorisMetrics::_s_hook_name = "doris_metrics";
@@ -217,6 +226,9 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_request_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_request_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_request_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, single_compaction_request_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, single_compaction_request_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, single_compaction_request_cancelled);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, publish_task_request_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, publish_task_failed_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, alter_inverted_index_requests_total);
@@ -226,6 +238,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_bytes_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_deltas_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_bytes_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, full_compaction_deltas_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, full_compaction_bytes_total);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_read_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_row_total);
@@ -271,8 +285,6 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, query_cache_sql_total_count);
     INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, query_cache_partition_total_count);
 
-    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, lru_cache_memory_bytes);
-
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, local_file_reader_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, s3_file_reader_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, hdfs_file_reader_total);
@@ -291,6 +303,9 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, broker_file_open_reading);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, local_file_open_writing);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, s3_file_open_writing);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_total);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_cache);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_remote);
 }
 
 void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,
@@ -299,6 +314,10 @@ void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::stri
         _system_metrics.reset(
                 new SystemMetrics(&_metric_registry, disk_devices, network_interfaces));
     }
+}
+
+void DorisMetrics::init_jvm_metrics(JNIEnv* env) {
+    _jvm_metrics.reset(new JvmMetrics(&_metric_registry, env));
 }
 
 void DorisMetrics::_update() {
@@ -319,7 +338,7 @@ void DorisMetrics::_update_process_thread_num() {
     int64_t count =
             std::count_if(dict_iter, std::filesystem::end(dict_iter), [](const auto& entry) {
                 std::error_code error_code;
-                return entry.is_regular_file(error_code) && !error_code;
+                return entry.is_directory(error_code) && !error_code;
             });
 
     process_thread_num->set_value(count);

@@ -21,30 +21,74 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 
 public class UpdateRowsEvent implements Writable {
 
-    @SerializedName("tableIdToUpdateRows")
-    public final Map<Long, Long> tableIdToUpdateRows = new HashMap<>();
+    @SerializedName("records")
+    private final Map<Long, Long> records;
 
-    @VisibleForTesting
-    public UpdateRowsEvent() {}
+    @SerializedName("tr")
+    private final Map<Long, Map<Long, Long>> tabletRecords;
 
-    // No need to be thread safe, only publish thread will call this.
-    public void addUpdateRows(long tableId, long rows) {
-        if (tableIdToUpdateRows.containsKey(tableId)) {
-            tableIdToUpdateRows.put(tableId, tableIdToUpdateRows.get(tableId) + rows);
-        } else {
-            tableIdToUpdateRows.put(tableId, rows);
-        }
+    @SerializedName("dbId")
+    private final long dbId;
+
+    @SerializedName("pur")
+    private final Map<Long, Long> partitionToUpdateRows;
+
+    @SerializedName("tableId")
+    private final long tableId;
+
+    public UpdateRowsEvent(Map<Long, Long> records) {
+        this.records = records;
+        this.tabletRecords = null;
+        this.dbId = -1;
+        this.partitionToUpdateRows = null;
+        this.tableId = -1;
+    }
+
+    public UpdateRowsEvent(Map<Long, Map<Long, Long>> tabletRecords, long dbId) {
+        this.records = null;
+        this.tabletRecords = tabletRecords;
+        this.dbId = dbId;
+        this.partitionToUpdateRows = null;
+        this.tableId = -1;
+    }
+
+    public UpdateRowsEvent(Map<Long, Long> partitionToUpdateRows, long dbId, long tableId) {
+        this.records = null;
+        this.tabletRecords = null;
+        this.dbId = dbId;
+        this.partitionToUpdateRows = partitionToUpdateRows;
+        this.tableId = tableId;
+    }
+
+    // TableId -> table update rows
+    public Map<Long, Long> getRecords() {
+        return records;
+    }
+
+    // TableId -> (TabletId -> tablet update rows)
+    public Map<Long, Map<Long, Long>> getTabletRecords() {
+        return tabletRecords;
+    }
+
+    public long getDbId() {
+        return dbId;
+    }
+
+    public Map<Long, Long> getPartitionToUpdateRows() {
+        return partitionToUpdateRows;
+    }
+
+    public long getTableId() {
+        return tableId;
     }
 
     @Override
@@ -53,9 +97,8 @@ public class UpdateRowsEvent implements Writable {
         Text.writeString(out, json);
     }
 
-    public static UpdateRowsEvent read(DataInput dataInput) throws IOException {
-        String json = Text.readString(dataInput);
-        UpdateRowsEvent updateRowsEvent = GsonUtils.GSON.fromJson(json, UpdateRowsEvent.class);
-        return updateRowsEvent;
+    public static UpdateRowsEvent read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, UpdateRowsEvent.class);
     }
 }

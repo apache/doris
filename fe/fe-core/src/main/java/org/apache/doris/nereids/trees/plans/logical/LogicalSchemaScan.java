@@ -66,6 +66,11 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     }
 
     @Override
+    public LogicalSchemaScan withRelationId(RelationId relationId) {
+        return new LogicalSchemaScan(relationId, table, qualifier, Optional.empty(), Optional.empty());
+    }
+
+    @Override
     public String toString() {
         return Utils.toSqlString("LogicalSchemaScan");
     }

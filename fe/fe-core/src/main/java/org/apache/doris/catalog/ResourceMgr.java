@@ -78,7 +78,7 @@ public class ResourceMgr implements Writable {
         Resource resource = Resource.fromStmt(stmt);
         if (createResource(resource, stmt.isIfNotExists())) {
             Env.getCurrentEnv().getEditLog().logCreateResource(resource);
-            LOG.info("Create resource success. Resource: {}", resource);
+            LOG.info("Create resource success. Resource: {}", resource.getName());
         }
     }
 
@@ -163,6 +163,11 @@ public class ResourceMgr implements Writable {
     }
 
     public Resource getResource(String name) {
+        // nameToResource == null iff this is in replay thread
+        // just return null to ignore this.
+        if (nameToResource == null) {
+            return null;
+        }
         return nameToResource.get(name);
     }
 

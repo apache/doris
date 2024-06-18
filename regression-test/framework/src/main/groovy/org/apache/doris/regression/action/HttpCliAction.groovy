@@ -96,6 +96,7 @@ class HttpCliAction implements SuiteAction {
                         resp.withCloseable {
                             String respJson = EntityUtils.toString(resp.getEntity())
                             def respCode = resp.getStatusLine().getStatusCode()
+                            log.info("respCode: ${respCode}, respJson: ${respJson}")
                             return new ActionResult(respCode, respJson)
                         }
                     }
@@ -110,6 +111,7 @@ class HttpCliAction implements SuiteAction {
                         resp.withCloseable {
                             String respJson = EntityUtils.toString(resp.getEntity())
                             def respCode = resp.getStatusLine().getStatusCode()
+                            log.info("respCode: ${respCode}, respJson: ${respJson}")
                             return new ActionResult(respCode, respJson)
                         }
                     }

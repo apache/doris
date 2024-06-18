@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
@@ -28,15 +30,19 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * procedure, function, package name info
  */
 public class FuncNameInfo {
     private final List<String> nameParts;
-    private String ctl;
-    private String db;
+    private String ctl = "";
+    private long ctlId = -1;
+    private String db = "";
+    private long dbId = -1;
     private final String name;
+    private boolean isAnalyzed = false;
 
     /**
      * FuncNameInfo
@@ -91,22 +97,32 @@ public class FuncNameInfo {
      * @param ctx ctx
      */
     public void analyze(ConnectContext ctx) {
-        if (Strings.isNullOrEmpty(ctl)) {
-            ctl = ctx.getDefaultCatalog();
+        if (isAnalyzed) {
+            return;
+        }
+        try {
             if (Strings.isNullOrEmpty(ctl)) {
-                ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
+                ctl = ctx.getDefaultCatalog();
+                if (Strings.isNullOrEmpty(ctl)) {
+                    ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
+                }
             }
-        }
-        if (Strings.isNullOrEmpty(db)) {
-            db = ctx.getDatabase();
+            ctlId = ctx.getCatalog(ctl).getId();
             if (Strings.isNullOrEmpty(db)) {
-                throw new AnalysisException("procedure/function/package name no database selected");
+                db = ctx.getDatabase();
+                if (Strings.isNullOrEmpty(db)) {
+                    db = FeConstants.INTERNAL_DB_NAME;
+                }
             }
+            Optional<DatabaseIf> dbInstance = ctx.getCatalog(ctl).getDb(db);
+            dbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
+            if (Strings.isNullOrEmpty(name)) {
+                throw new AnalysisException("procedure/function/package name is null");
+            }
+        } catch (Exception e) {
+            throw new AnalysisException("failed to analyze procedure name", e);
         }
-
-        if (Strings.isNullOrEmpty(name)) {
-            throw new AnalysisException("procedure/function/package name is null");
-        }
+        isAnalyzed = true;
     }
 
     /**
@@ -115,7 +131,18 @@ public class FuncNameInfo {
      * @return ctlName
      */
     public String getCtl() {
+        analyze(ConnectContext.get());
         return ctl == null ? "" : ctl;
+    }
+
+    /**
+     * get catalog id
+     *
+     * @return ctlId
+     */
+    public long getCtlId() {
+        analyze(ConnectContext.get());
+        return ctlId;
     }
 
     /**
@@ -123,8 +150,19 @@ public class FuncNameInfo {
      *
      * @return dbName
      */
-    public String getDb() {
+    public String getDbName() {
+        analyze(ConnectContext.get());
         return db == null ? "" : db;
+    }
+
+    /**
+     * get db id
+     *
+     * @return dbId
+     */
+    public long getDbId() {
+        analyze(ConnectContext.get());
+        return dbId;
     }
 
     /**
@@ -133,11 +171,11 @@ public class FuncNameInfo {
      * @return tableName
      */
     public String getName() {
+        analyze(ConnectContext.get());
         return name == null ? "" : name;
     }
 
     public String toString() {
-        return nameParts.stream().map(Utils::quoteIfNeeded)
-                .reduce((left, right) -> left + "." + right).orElse("");
+        return nameParts.stream().map(Utils::quoteIfNeeded).reduce((left, right) -> left + "." + right).orElse("");
     }
 }

@@ -53,9 +53,9 @@ public class JdbcTable extends Table {
 
     private static final String CATALOG_ID = "catalog_id";
     private static final String TABLE = "table";
-    private static final String REAL_DATABASE = "real_database";
-    private static final String REAL_TABLE = "real_table";
-    private static final String REAL_COLUMNS = "real_columns";
+    private static final String REMOTE_DATABASE = "remote_database";
+    private static final String REMOTE_TABLE = "remote_table";
+    private static final String REMOTE_COLUMNS = "remote_columns";
     private static final String RESOURCE = "resource";
     private static final String TABLE_TYPE = "table_type";
     private static final String URL = "jdbc_url";
@@ -69,9 +69,9 @@ public class JdbcTable extends Table {
     private String externalTableName;
 
     // real name only for jdbc catalog
-    private String realDatabaseName;
-    private String realTableName;
-    private Map<String, String> realColumnNames;
+    private String remoteDatabaseName;
+    private String remoteTableName;
+    private Map<String, String> remoteColumnNames;
 
     private String jdbcTypeName;
 
@@ -92,7 +92,6 @@ public class JdbcTable extends Table {
 
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
-        tempMap.put("nebula", TOdbcTableType.NEBULA);
         tempMap.put("mysql", TOdbcTableType.MYSQL);
         tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         tempMap.put("sqlserver", TOdbcTableType.SQLSERVER);
@@ -103,6 +102,7 @@ public class JdbcTable extends Table {
         tempMap.put("presto", TOdbcTableType.PRESTO);
         tempMap.put("oceanbase", TOdbcTableType.OCEANBASE);
         tempMap.put("oceanbase_oracle", TOdbcTableType.OCEANBASE_ORACLE);
+        tempMap.put("db2", TOdbcTableType.DB2);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
@@ -122,10 +122,10 @@ public class JdbcTable extends Table {
 
     public String getInsertSql(List<String> insertCols) {
         StringBuilder sb = new StringBuilder("INSERT INTO ");
-        sb.append(getProperRealFullTableName(TABLE_TYPE_MAP.get(getTableTypeName())));
+        sb.append(getProperRemoteFullTableName(TABLE_TYPE_MAP.get(getTableTypeName())));
         sb.append("(");
         List<String> transformedInsertCols = insertCols.stream()
-                .map(col -> getProperRealColumnName(TABLE_TYPE_MAP.get(getTableTypeName()), col))
+                .map(col -> getProperRemoteColumnName(TABLE_TYPE_MAP.get(getTableTypeName()), col))
                 .collect(Collectors.toList());
         sb.append(String.join(",", transformedInsertCols));
         sb.append(")");
@@ -249,9 +249,9 @@ public class JdbcTable extends Table {
         serializeMap.put(DRIVER_CLASS, driverClass);
         serializeMap.put(DRIVER_URL, driverUrl);
         serializeMap.put(CHECK_SUM, checkSum);
-        serializeMap.put(REAL_DATABASE, realDatabaseName);
-        serializeMap.put(REAL_TABLE, realTableName);
-        serializeMap.put(REAL_COLUMNS, objectMapper.writeValueAsString(realColumnNames));
+        serializeMap.put(REMOTE_DATABASE, remoteDatabaseName);
+        serializeMap.put(REMOTE_TABLE, remoteTableName);
+        serializeMap.put(REMOTE_COLUMNS, objectMapper.writeValueAsString(remoteColumnNames));
 
         int size = (int) serializeMap.values().stream().filter(v -> {
             return v != null;
@@ -287,14 +287,14 @@ public class JdbcTable extends Table {
         driverClass = serializeMap.get(DRIVER_CLASS);
         driverUrl = serializeMap.get(DRIVER_URL);
         checkSum = serializeMap.get(CHECK_SUM);
-        realDatabaseName = serializeMap.get(REAL_DATABASE);
-        realTableName = serializeMap.get(REAL_TABLE);
-        String realColumnNamesJson = serializeMap.get(REAL_COLUMNS);
+        remoteDatabaseName = serializeMap.get(REMOTE_DATABASE);
+        remoteTableName = serializeMap.get(REMOTE_TABLE);
+        String realColumnNamesJson = serializeMap.get(REMOTE_COLUMNS);
         if (realColumnNamesJson != null) {
-            realColumnNames = objectMapper.readValue(realColumnNamesJson, new TypeReference<Map<String, String>>() {
+            remoteColumnNames = objectMapper.readValue(realColumnNamesJson, new TypeReference<Map<String, String>>() {
             });
         } else {
-            realColumnNames = Maps.newHashMap();
+            remoteColumnNames = Maps.newHashMap();
         }
     }
 
@@ -306,28 +306,28 @@ public class JdbcTable extends Table {
         return externalTableName;
     }
 
-    public String getRealDatabaseName() {
-        return realDatabaseName;
+    public String getRemoteDatabaseName() {
+        return remoteDatabaseName;
     }
 
-    public String getRealTableName() {
-        return realTableName;
+    public String getRemoteTableName() {
+        return remoteTableName;
     }
 
-    public String getProperRealFullTableName(TOdbcTableType tableType) {
-        if (realDatabaseName == null || realTableName == null) {
+    public String getProperRemoteFullTableName(TOdbcTableType tableType) {
+        if (remoteDatabaseName == null || remoteTableName == null) {
             return databaseProperName(tableType, externalTableName);
         } else {
-            return properNameWithRealName(tableType, realDatabaseName) + "." + properNameWithRealName(tableType,
-                    realTableName);
+            return properNameWithRemoteName(tableType, remoteDatabaseName) + "." + properNameWithRemoteName(tableType,
+                    remoteTableName);
         }
     }
 
-    public String getProperRealColumnName(TOdbcTableType tableType, String columnName) {
-        if (realColumnNames == null || realColumnNames.isEmpty() || !realColumnNames.containsKey(columnName)) {
+    public String getProperRemoteColumnName(TOdbcTableType tableType, String columnName) {
+        if (remoteColumnNames == null || remoteColumnNames.isEmpty() || !remoteColumnNames.containsKey(columnName)) {
             return databaseProperName(tableType, columnName);
         } else {
-            return properNameWithRealName(tableType, realColumnNames.get(columnName));
+            return properNameWithRemoteName(tableType, remoteColumnNames.get(columnName));
         }
     }
 
@@ -354,7 +354,9 @@ public class JdbcTable extends Table {
         sb.append(checkSum);
 
         String md5 = DigestUtils.md5Hex(sb.toString());
-        LOG.debug("get signature of odbc table {}: {}. signature string: {}", name, md5, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of odbc table {}: {}. signature string: {}", name, md5, sb.toString());
+        }
         return md5;
     }
 
@@ -490,19 +492,20 @@ public class JdbcTable extends Table {
             case SAP_HANA:
                 return formatName(name, "\"", "\"", false, false);
             case ORACLE:
+            case DB2:
                 return formatName(name, "\"", "\"", true, false);
             default:
                 return name;
         }
     }
 
-    public static String properNameWithRealName(TOdbcTableType tableType, String name) {
+    public static String properNameWithRemoteName(TOdbcTableType tableType, String remoteName) {
         switch (tableType) {
             case MYSQL:
             case OCEANBASE:
-                return formatNameWithRealName(name, "`", "`");
+                return formatNameWithRemoteName(remoteName, "`", "`");
             case SQLSERVER:
-                return formatNameWithRealName(name, "[", "]");
+                return formatNameWithRemoteName(remoteName, "[", "]");
             case POSTGRESQL:
             case CLICKHOUSE:
             case TRINO:
@@ -510,13 +513,14 @@ public class JdbcTable extends Table {
             case OCEANBASE_ORACLE:
             case ORACLE:
             case SAP_HANA:
-                return formatNameWithRealName(name, "\"", "\"");
+            case DB2:
+                return formatNameWithRemoteName(remoteName, "\"", "\"");
             default:
-                return name;
+                return remoteName;
         }
     }
 
-    public static String formatNameWithRealName(String name, String wrapStart, String wrapEnd) {
-        return wrapStart + name + wrapEnd;
+    public static String formatNameWithRemoteName(String remoteName, String wrapStart, String wrapEnd) {
+        return wrapStart + remoteName + wrapEnd;
     }
 }

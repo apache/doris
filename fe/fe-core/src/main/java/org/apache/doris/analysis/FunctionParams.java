@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TTypeDesc;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -39,8 +40,12 @@ import java.util.Objects;
  * parameters. These parameters can be for scalar or aggregate functions.
  */
 public class FunctionParams implements Writable {
+
+    @SerializedName("isStar")
     private boolean isStar;
+    @SerializedName("exprs")
     private List<Expr> exprs;
+    @SerializedName("isDistinct")
     private boolean isDistinct;
 
     // c'tor for non-star params

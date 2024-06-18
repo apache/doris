@@ -61,12 +61,16 @@ public class DomainResolver extends MasterDaemon {
         // resolve domain name
         Map<String, Set<String>> resolvedIPsMap = Maps.newHashMap();
         for (String domain : allDomains) {
-            LOG.debug("begin to resolve domain: {}", domain);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("begin to resolve domain: {}", domain);
+            }
             Set<String> resolvedIPs = Sets.newHashSet();
             if (!resolveWithBNS(domain, resolvedIPs) && !resolveWithDNS(domain, resolvedIPs)) {
                 continue;
             }
-            LOG.debug("get resolved ip of domain {}: {}", domain, resolvedIPs);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get resolved ip of domain {}: {}", domain, resolvedIPs);
+            }
 
             resolvedIPsMap.put(domain, resolvedIPs);
         }

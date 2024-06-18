@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -61,12 +62,12 @@ class PushDownProjectThroughSemiJoinTest implements MemoPatternMatchSupported {
                 .printlnExploration()
                 .matchesExploration(
                         logicalJoin(
-                                leftSemiLogicalJoin(
+                                logicalProject(leftSemiLogicalJoin(
                                         logicalProject(
                                                 logicalOlapScan()
                                         ).when(project -> project.getProjects().size() == 2),
                                         logicalOlapScan()
-                                ),
+                                )),
                                 logicalOlapScan()
                         )
                 );
@@ -132,5 +133,36 @@ class PushDownProjectThroughSemiJoinTest implements MemoPatternMatchSupported {
                                 ).when(project -> project.getProjects().get(0).toSql().equals("complex")), logicalOlapScan()
                         )
                 );
+    }
+
+    @Test
+    void testProjectLiteral() {
+        List<NamedExpression> projectExprs = ImmutableList.of(
+                new Alias(new Add(scan1.getOutput().get(0), Literal.of(1)), "alias"),
+                new Alias(scan2.getOutput().get(0).getExprId(), new NullLiteral(), scan2.getOutput().get(0).getName())
+        );
+        // complex projection contain ti.id, which isn't in Join Condition
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(1, 1))
+                .projectExprs(projectExprs)
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(PushDownProjectThroughSemiJoin.INSTANCE.buildRules())
+                .nonMatch(logicalJoin(logicalJoin(logicalProject(), group()), group()));
+
+        projectExprs = ImmutableList.of(
+                new Alias(new Add(scan2.getOutput().get(0), Literal.of(1)), "alias"),
+                new Alias(scan1.getOutput().get(0).getExprId(), new NullLiteral(), scan2.getOutput().get(0).getName())
+        );
+        // complex projection contain ti.id, which isn't in Join Condition
+        plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.RIGHT_SEMI_JOIN, Pair.of(1, 1))
+                .projectExprs(projectExprs)
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(PushDownProjectThroughSemiJoin.INSTANCE.buildRules())
+                .nonMatch(logicalJoin(logicalJoin(logicalProject(), group()), group()));
     }
 }

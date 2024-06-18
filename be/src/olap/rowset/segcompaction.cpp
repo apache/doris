@@ -56,6 +56,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_reader.h"
 #include "olap/tablet_schema.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
 #include "util/mem_info.h"
@@ -118,31 +119,43 @@ std::unique_ptr<segment_v2::SegmentWriter> SegcompactionWorker::_create_segcompa
 }
 
 Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t end) {
-    auto fs = _writer->_rowset_meta->fs();
+    DCHECK(_writer->rowset_meta()->is_local());
+
+    const auto& fs = io::global_local_filesystem();
     auto ctx = _writer->_context;
     auto schema = ctx.tablet_schema;
-    if (!fs) {
-        return Status::Error<INIT_FAILED>(
-                "SegcompactionWorker::_delete_original_segments get fs failed");
-    }
+
     for (uint32_t i = begin; i <= end; ++i) {
-        auto seg_path = BetaRowset::segment_file_path(ctx.rowset_dir, ctx.rowset_id, i);
+        auto seg_path = local_segment_path(ctx.tablet_path, ctx.rowset_id.to_string(), i);
         // Even if an error is encountered, these files that have not been cleaned up
         // will be cleaned up by the GC background. So here we only print the error
         // message when we encounter an error.
         RETURN_NOT_OK_STATUS_WITH_WARN(fs->delete_file(seg_path),
                                        strings::Substitute("Failed to delete file=$0", seg_path));
+        if (schema->has_inverted_index() &&
+            schema->get_inverted_index_storage_format() != InvertedIndexStorageFormatPB::V1) {
+            auto idx_path = InvertedIndexDescriptor::get_index_path_v2(
+                    InvertedIndexDescriptor::get_index_path_prefix(seg_path));
+            VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    fs->delete_file(idx_path),
+                    strings::Substitute("Failed to delete file=$0", idx_path));
+        }
         // Delete inverted index files
-        for (auto column : schema->columns()) {
-            if (schema->has_inverted_index(column)) {
-                auto index_info = schema->get_inverted_index(column);
+        for (auto&& column : schema->columns()) {
+            if (schema->has_inverted_index(*column)) {
+                const auto* index_info = schema->get_inverted_index(*column);
                 auto index_id = index_info->index_id();
-                auto idx_path = InvertedIndexDescriptor::inverted_index_file_path(
-                        ctx.rowset_dir, ctx.rowset_id, i, index_id, index_info->get_index_suffix());
+                auto idx_path = InvertedIndexDescriptor::get_index_path_v1(
+                        InvertedIndexDescriptor::get_index_path_prefix(seg_path), index_id,
+                        index_info->get_index_suffix());
                 VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
-                RETURN_NOT_OK_STATUS_WITH_WARN(
-                        fs->delete_file(idx_path),
-                        strings::Substitute("Failed to delete file=$0", idx_path));
+                if (schema->get_inverted_index_storage_format() ==
+                    InvertedIndexStorageFormatPB::V1) {
+                    RETURN_NOT_OK_STATUS_WITH_WARN(
+                            fs->delete_file(idx_path),
+                            strings::Substitute("Failed to delete file=$0", idx_path));
+                }
                 // Erase the origin index file cache
                 RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(idx_path));
             }
@@ -198,9 +211,9 @@ Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
 }
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
-    SCOPED_CONSUME_MEM_TRACKER(_writer->_engine.segcompaction_mem_tracker());
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->segcompaction_mem_tracker());
     /* throttle segcompaction task if memory depleted */
-    if (MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+    if (GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::Error<FETCH_MEMORY_EXCEEDED>("skip segcompaction due to memory shortage");
     }
 
@@ -220,7 +233,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     auto tablet = std::static_pointer_cast<Tablet>(ctx.tablet);
 
     std::vector<std::vector<uint32_t>> column_groups;
-    Merger::vertical_split_columns(ctx.tablet_schema, &column_groups);
+    Merger::vertical_split_columns(*ctx.tablet_schema, &column_groups);
     vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
                                                  ReaderType::READER_SEGMENT_COMPACTION);
 
@@ -247,9 +260,9 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
         Merger::Statistics merger_stats;
         RETURN_IF_ERROR(Merger::vertical_compact_one_group(
-                tablet, ReaderType::READER_SEGMENT_COMPACTION, ctx.tablet_schema, is_key,
-                column_ids, &row_sources_buf, *reader, *writer, INT_MAX, &merger_stats, &index_size,
-                key_bounds));
+                tablet->tablet_id(), ReaderType::READER_SEGMENT_COMPACTION, *ctx.tablet_schema,
+                is_key, column_ids, &row_sources_buf, *reader, *writer, INT_MAX, &merger_stats,
+                &index_size, key_bounds));
         total_index_size += index_size;
         if (is_key) {
             RETURN_IF_ERROR(row_sources_buf.flush());
@@ -270,7 +283,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     RETURN_IF_ERROR(
             _writer->flush_segment_writer_for_segcompaction(&writer, total_index_size, key_bounds));
 
-    if (_file_writer != nullptr) {
+    if (_file_writer != nullptr && _file_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_file_writer->close());
     }
 
@@ -279,7 +292,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
     if (VLOG_DEBUG_IS_ON) {
         _writer->vlog_buffer.clear();
-        for (const auto& entry : std::filesystem::directory_iterator(ctx.rowset_dir)) {
+        for (const auto& entry : std::filesystem::directory_iterator(ctx.tablet_path)) {
             fmt::format_to(_writer->vlog_buffer, "[{}]", string(entry.path()));
         }
         VLOG_DEBUG << "tablet_id:" << ctx.tablet_id << " rowset_id:" << ctx.rowset_id

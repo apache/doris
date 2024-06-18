@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
@@ -40,7 +41,11 @@ public class ArrayRange extends ScalarFunction
             FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE)).args(IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE)).args(IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE))
-                    .args(IntegerType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE)
+                    .args(IntegerType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
+                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
+                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE)
     );
 
     /**

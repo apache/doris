@@ -17,12 +17,19 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.combinator;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.AggStateType;
@@ -37,13 +44,13 @@ import java.util.Objects;
  * AggState combinator union
  */
 public class UnionCombinator extends AggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable, Combinator, RollUpTrait {
 
     private final AggregateFunction nested;
     private final AggStateType inputType;
 
     public UnionCombinator(List<Expression> arguments, AggregateFunction nested) {
-        super(nested.getName() + AggStateFunctionBuilder.UNION_SUFFIX, arguments);
+        super(nested.getName() + AggCombinerFunctionBuilder.UNION_SUFFIX, arguments);
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
         inputType = (AggStateType) arguments.get(0).getDataType();
@@ -71,6 +78,7 @@ public class UnionCombinator extends AggregateFunction
         return inputType;
     }
 
+    @Override
     public AggregateFunction getNestedFunction() {
         return nested;
     }
@@ -78,5 +86,19 @@ public class UnionCombinator extends AggregateFunction
     @Override
     public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
         throw new UnsupportedOperationException("Unimplemented method 'withDistinctAndChildren'");
+    }
+
+    @Override
+    public Function constructRollUp(Expression param, Expression... varParams) {
+        FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
+        FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(getName(), param);
+        Pair<? extends Expression, ? extends BoundFunction> targetExpressionPair = functionBuilder.build(getName(),
+                param);
+        return (Function) targetExpressionPair.key();
+    }
+
+    @Override
+    public boolean canRollUp() {
+        return true;
     }
 }

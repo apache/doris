@@ -21,7 +21,7 @@
 
 namespace doris::pipeline {
 
-class MultiCastSourceDependency;
+class Dependency;
 struct MultiCastBlock {
     MultiCastBlock(vectorized::Block* block, int used_count, size_t mem_size);
 
@@ -50,19 +50,11 @@ public:
 
     ~MultiCastDataStreamer() = default;
 
-    void pull(int sender_idx, vectorized::Block* block, bool* eos);
+    Status pull(int sender_idx, vectorized::Block* block, bool* eos);
 
     void close_sender(int sender_idx);
 
     Status push(RuntimeState* state, vectorized::Block* block, bool eos);
-
-    // use sink to check can_write, now always true after we support spill to disk
-    bool can_write() { return true; }
-
-    bool can_read(int sender_idx) {
-        std::lock_guard l(_mutex);
-        return _sender_pos_to_read[sender_idx] != _multi_cast_blocks.end() || _eos;
-    }
 
     const RowDescriptor& row_desc() { return _row_desc; }
 
@@ -74,7 +66,7 @@ public:
         _set_ready_for_read();
     }
 
-    void set_dep_by_sender_idx(int sender_idx, MultiCastSourceDependency* dep) {
+    void set_dep_by_sender_idx(int sender_idx, Dependency* dep) {
         _dependencies[sender_idx] = dep;
         _block_reading(sender_idx);
     }
@@ -97,6 +89,6 @@ private:
     RuntimeProfile::Counter* _process_rows = nullptr;
     RuntimeProfile::Counter* _peak_mem_usage = nullptr;
 
-    std::vector<MultiCastSourceDependency*> _dependencies;
+    std::vector<Dependency*> _dependencies;
 };
 } // namespace doris::pipeline

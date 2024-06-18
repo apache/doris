@@ -19,6 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.security.authentication.AuthType;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.thrift.THiveTable;
@@ -27,6 +29,7 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -114,40 +117,41 @@ public class HiveTable extends Table {
         }
 
         // check auth type
-        String authType = copiedProps.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION);
+        String authType = copiedProps.get(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION);
         if (Strings.isNullOrEmpty(authType)) {
             authType = AuthType.SIMPLE.getDesc();
         }
         if (!AuthType.isSupportedAuthType(authType)) {
             throw new DdlException(String.format(PROPERTY_ERROR_MSG,
-                    HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authType));
+                CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, authType));
         }
-        copiedProps.remove(HdfsResource.HADOOP_SECURITY_AUTHENTICATION);
-        hiveProperties.put(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authType);
+        copiedProps.remove(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION);
+        hiveProperties.put(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, authType);
 
         if (AuthType.KERBEROS.getDesc().equals(authType)) {
             // check principal
-            String principal = copiedProps.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
+            String principal = copiedProps.get(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL);
             if (Strings.isNullOrEmpty(principal)) {
                 throw new DdlException(String.format(PROPERTY_MISSING_MSG,
-                        HdfsResource.HADOOP_KERBEROS_PRINCIPAL, HdfsResource.HADOOP_KERBEROS_PRINCIPAL));
+                        AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                        AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL));
             }
-            hiveProperties.put(HdfsResource.HADOOP_KERBEROS_PRINCIPAL, principal);
-            copiedProps.remove(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
+            hiveProperties.put(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL, principal);
+            copiedProps.remove(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL);
             // check keytab
-            String keytabPath = copiedProps.get(HdfsResource.HADOOP_KERBEROS_KEYTAB);
+            String keytabPath = copiedProps.get(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
             if (Strings.isNullOrEmpty(keytabPath)) {
                 throw new DdlException(String.format(PROPERTY_MISSING_MSG,
-                        HdfsResource.HADOOP_KERBEROS_KEYTAB, HdfsResource.HADOOP_KERBEROS_KEYTAB));
+                        AuthenticationConfig.HADOOP_KERBEROS_KEYTAB, AuthenticationConfig.HADOOP_KERBEROS_KEYTAB));
             } else {
-                hiveProperties.put(HdfsResource.HADOOP_KERBEROS_KEYTAB, keytabPath);
-                copiedProps.remove(HdfsResource.HADOOP_KERBEROS_KEYTAB);
+                hiveProperties.put(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB, keytabPath);
+                copiedProps.remove(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
             }
         }
-        String hdfsUserName = copiedProps.get(HdfsResource.HADOOP_USER_NAME);
+        String hdfsUserName = copiedProps.get(AuthenticationConfig.HADOOP_USER_NAME);
         if (!Strings.isNullOrEmpty(hdfsUserName)) {
-            hiveProperties.put(HdfsResource.HADOOP_USER_NAME, hdfsUserName);
-            copiedProps.remove(HdfsResource.HADOOP_USER_NAME);
+            hiveProperties.put(AuthenticationConfig.HADOOP_USER_NAME, hdfsUserName);
+            copiedProps.remove(AuthenticationConfig.HADOOP_USER_NAME);
         }
         if (!copiedProps.isEmpty()) {
             Iterator<Map.Entry<String, String>> iter = copiedProps.entrySet().iterator();

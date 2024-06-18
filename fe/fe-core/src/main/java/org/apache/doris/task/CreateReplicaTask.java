@@ -31,6 +31,7 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TCreateTabletReq;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
@@ -46,6 +47,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -89,6 +91,8 @@ public class CreateReplicaTask extends AgentTask {
     // TODO should unify the naming of v1(alpha rowset), v2(beta rowset), it is very confused to read code
     private TStorageFormat storageFormat = TStorageFormat.V2;
 
+    private TInvertedIndexStorageFormat invertedIndexStorageFormat = TInvertedIndexStorageFormat.V1;
+
     // true if this task is created by recover request(See comment of Config.recover_with_empty_tablet)
     private boolean isRecoverTask = false;
 
@@ -113,10 +117,14 @@ public class CreateReplicaTask extends AgentTask {
 
     private long timeSeriesCompactionEmptyRowsetsThreshold;
 
+    private long timeSeriesCompactionLevelThreshold;
+
     private boolean storeRowColumn;
 
     private BinlogConfig binlogConfig;
     private List<Integer> clusterKeyIndexes;
+
+    private Map<Object, Object> objectPool;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
@@ -137,8 +145,10 @@ public class CreateReplicaTask extends AgentTask {
                              long timeSeriesCompactionFileCountThreshold,
                              long timeSeriesCompactionTimeThresholdSeconds,
                              long timeSeriesCompactionEmptyRowsetsThreshold,
+                             long timeSeriesCompactionLevelThreshold,
                              boolean storeRowColumn,
-                             BinlogConfig binlogConfig) {
+                             BinlogConfig binlogConfig,
+                             Map<Object, Object> objectPool) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -179,8 +189,10 @@ public class CreateReplicaTask extends AgentTask {
         this.timeSeriesCompactionFileCountThreshold = timeSeriesCompactionFileCountThreshold;
         this.timeSeriesCompactionTimeThresholdSeconds = timeSeriesCompactionTimeThresholdSeconds;
         this.timeSeriesCompactionEmptyRowsetsThreshold = timeSeriesCompactionEmptyRowsetsThreshold;
+        this.timeSeriesCompactionLevelThreshold = timeSeriesCompactionLevelThreshold;
         this.storeRowColumn = storeRowColumn;
         this.binlogConfig = binlogConfig;
+        this.objectPool = objectPool;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -194,8 +206,10 @@ public class CreateReplicaTask extends AgentTask {
     public void countDownLatch(long backendId, long tabletId) {
         if (this.latch != null) {
             if (latch.markedCountDown(backendId, tabletId)) {
-                LOG.debug("CreateReplicaTask current latch count: {}, backend: {}, tablet:{}",
-                          latch.getCount(), backendId, tabletId);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("CreateReplicaTask current latch count: {}, backend: {}, tablet:{}",
+                              latch.getCount(), backendId, tabletId);
+                }
             }
         }
     }
@@ -204,7 +218,9 @@ public class CreateReplicaTask extends AgentTask {
     public void countDownToZero(String errMsg) {
         if (this.latch != null) {
             latch.countDownToZero(new Status(TStatusCode.CANCELLED, errMsg));
-            LOG.debug("CreateReplicaTask download to zero. error msg: {}", errMsg);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("CreateReplicaTask download to zero. error msg: {}", errMsg);
+            }
         }
     }
 
@@ -223,6 +239,10 @@ public class CreateReplicaTask extends AgentTask {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    public void setInvertedIndexStorageFormat(TInvertedIndexStorageFormat invertedIndexStorageFormat) {
+        this.invertedIndexStorageFormat = invertedIndexStorageFormat;
     }
 
     public void setClusterKeyIndexes(List<Integer> clusterKeyIndexes) {
@@ -245,21 +265,32 @@ public class CreateReplicaTask extends AgentTask {
         int deleteSign = -1;
         int sequenceCol = -1;
         int versionCol = -1;
-        List<TColumn> tColumns = new ArrayList<TColumn>();
+        List<TColumn> tColumns = null;
+        Object tCols = objectPool.get(columns);
+        if (tCols != null) {
+            tColumns = (List<TColumn>) tCols;
+        } else {
+            tColumns = new ArrayList<>();
+            for (int i = 0; i < columns.size(); i++) {
+                Column column = columns.get(i);
+                TColumn tColumn = column.toThrift();
+                // is bloom filter column
+                if (bfColumns != null && bfColumns.contains(column.getName())) {
+                    tColumn.setIsBloomFilterColumn(true);
+                }
+                // when doing schema change, some modified column has a prefix in name.
+                // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
+                if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                    tColumn.setColumnName(
+                            column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
+                }
+                tColumn.setVisible(column.isVisible());
+                tColumns.add(tColumn);
+            }
+            objectPool.put(columns, tColumns);
+        }
         for (int i = 0; i < columns.size(); i++) {
             Column column = columns.get(i);
-            TColumn tColumn = column.toThrift();
-            // is bloom filter column
-            if (bfColumns != null && bfColumns.contains(column.getName())) {
-                tColumn.setIsBloomFilterColumn(true);
-            }
-            // when doing schema change, some modified column has a prefix in name.
-            // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-            if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
-                tColumn.setColumnName(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
-            }
-            tColumn.setVisible(column.isVisible());
-            tColumns.add(tColumn);
             if (column.isDeleteSignColumn()) {
                 deleteSign = i;
             }
@@ -276,12 +307,20 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setVersionColIdx(versionCol);
         if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
             tSchema.setClusterKeyIdxes(clusterKeyIndexes);
-            LOG.debug("cluster key index={}, table_id={}, tablet_id={}", clusterKeyIndexes, tableId, tabletId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("cluster key index={}, table_id={}, tablet_id={}", clusterKeyIndexes, tableId, tabletId);
+            }
         }
         if (CollectionUtils.isNotEmpty(indexes)) {
-            List<TOlapTableIndex> tIndexes = new ArrayList<>();
-            for (Index index : indexes) {
-                tIndexes.add(index.toThrift());
+            List<TOlapTableIndex> tIndexes = null;
+            Object value = objectPool.get(indexes);
+            if (value != null) {
+                tIndexes = (List<TOlapTableIndex>) value;
+            } else {
+                tIndexes = new ArrayList<>();
+                for (Index index : indexes) {
+                    tIndexes.add(index.toThrift());
+                }
             }
             tSchema.setIndexes(tIndexes);
             storageFormat = TStorageFormat.V2;
@@ -319,6 +358,9 @@ public class CreateReplicaTask extends AgentTask {
             createTabletReq.setStorageFormat(storageFormat);
         }
 
+        if (invertedIndexStorageFormat != null) {
+            createTabletReq.setInvertedIndexStorageFormat(invertedIndexStorageFormat);
+        }
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
         createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
@@ -327,6 +369,7 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);
         createTabletReq.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
         createTabletReq.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
+        createTabletReq.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
 
         if (binlogConfig != null) {
             createTabletReq.setBinlogConfig(binlogConfig.toThrift());

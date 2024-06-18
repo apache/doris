@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
@@ -29,14 +30,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Eliminate sort that is not directly below result sink
+ * Eliminate sort that is not directly below result sink, if there is project between result sink and sort,
+ * the sort will not be eliminated.
  * Note we have put limit in sort node so that we don't need to consider limit
  */
-
 public class EliminateSort extends DefaultPlanRewriter<Boolean> implements CustomRewriter {
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        Boolean eliminateSort = false;
+        Boolean eliminateSort = true;
         return plan.accept(this, eliminateSort);
     }
 
@@ -45,6 +46,7 @@ public class EliminateSort extends DefaultPlanRewriter<Boolean> implements Custo
         List<Plan> newChildren = new ArrayList<>();
         boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
+            // eliminate sort default
             Plan newChild = child.accept(this, true);
             if (newChild != child) {
                 hasNewChildren = true;
@@ -64,12 +66,17 @@ public class EliminateSort extends DefaultPlanRewriter<Boolean> implements Custo
 
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Boolean eliminateSort) {
+        // sometimes there is project between logicalResultSink and sort, should skip eliminate
         return skipEliminateSort(project, eliminateSort);
     }
 
     @Override
-    public Plan visitLogicalSink(LogicalSink<? extends Plan> sink, Boolean eliminateSort) {
-        return skipEliminateSort(sink, eliminateSort);
+    public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, Boolean eliminateSort) {
+        if (logicalSink instanceof LogicalTableSink) {
+            // eliminate sort
+            return visit(logicalSink, true);
+        }
+        return skipEliminateSort(logicalSink, false);
     }
 
     private Plan skipEliminateSort(Plan plan, Boolean eliminateSort) {

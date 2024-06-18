@@ -17,74 +17,137 @@
 
 #include "runtime/runtime_predicate.h"
 
-#include <stdint.h>
-
 #include <memory>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
+#include "common/status.h"
 #include "olap/accept_null_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/predicate_creator.h"
 
-namespace doris {
+namespace doris::vectorized {
 
-namespace vectorized {
-
-Status RuntimePredicate::init(const PrimitiveType type, const bool nulls_first) {
-    std::unique_lock<std::shared_mutex> wlock(_rwlock);
-
-    if (_inited) {
-        return Status::OK();
+RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
+        : _nulls_first(desc.null_first), _is_asc(desc.is_asc) {
+    DCHECK(!desc.target_node_id_to_target_expr.empty());
+    for (auto p : desc.target_node_id_to_target_expr) {
+        _contexts[p.first].expr = p.second;
     }
 
-    _nulls_first = nulls_first;
+    PrimitiveType type = thrift_to_type(desc.target_node_id_to_target_expr.begin()
+                                                ->second.nodes[0]
+                                                .type.types[0]
+                                                .scalar_type.type);
+    if (!_init(type)) {
+        std::stringstream ss;
+        desc.target_node_id_to_target_expr.begin()->second.nodes[0].printTo(ss);
+        throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}, expr={}", int(type),
+                        ss.str());
+    }
 
-    _predicate_arena.reset(new Arena());
+    // For ASC  sort, create runtime predicate col_name <= max_top_value
+    // since values that > min_top_value are large than any value in current topn values
+    // For DESC sort, create runtime predicate col_name >= min_top_value
+    // since values that < min_top_value are less than any value in current topn values
+    _pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LE>
+                                : create_comparison_predicate<PredicateType::GE>;
+}
 
+void RuntimePredicate::init_target(
+        int32_t target_node_id, phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc) {
+    std::unique_lock<std::shared_mutex> wlock(_rwlock);
+    check_target_node_id(target_node_id);
+    if (target_is_slot(target_node_id)) {
+        _contexts[target_node_id].col_name =
+                slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]
+                        ->col_name();
+    }
+    _detected_target = true;
+}
+
+template <PrimitiveType type>
+std::string get_normal_value(const Field& field) {
+    using ValueType = typename PrimitiveTypeTraits<type>::CppType;
+    return cast_to_string<type, ValueType>(field.get<ValueType>(), 0);
+}
+
+std::string get_date_value(const Field& field) {
+    using ValueType = typename PrimitiveTypeTraits<TYPE_DATE>::CppType;
+    ValueType value;
+    Int64 v = field.get<Int64>();
+    auto* p = (VecDateTimeValue*)&v;
+    value.from_olap_date(p->to_olap_date());
+    value.cast_to_date();
+    return cast_to_string<TYPE_DATE, ValueType>(value, 0);
+}
+
+std::string get_datetime_value(const Field& field) {
+    using ValueType = typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType;
+    ValueType value;
+    Int64 v = field.get<Int64>();
+    auto* p = (VecDateTimeValue*)&v;
+    value.from_olap_datetime(p->to_olap_datetime());
+    value.to_datetime();
+    return cast_to_string<TYPE_DATETIME, ValueType>(value, 0);
+}
+
+std::string get_decimalv2_value(const Field& field) {
+    // can NOT use PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType since
+    //   it is DecimalV2Value and Decimal128V2 can not convert to it implicitly
+    using ValueType = Decimal128V2::NativeType;
+    auto v = field.get<DecimalField<Decimal128V2>>();
+    // use TYPE_DECIMAL128I instead of TYPE_DECIMALV2 since v.get_scale()
+    //   is always 9 for DECIMALV2
+    return cast_to_string<TYPE_DECIMAL128I, ValueType>(v.get_value(), v.get_scale());
+}
+
+template <PrimitiveType type>
+std::string get_decimal_value(const Field& field) {
+    using ValueType = typename PrimitiveTypeTraits<type>::CppType;
+    auto v = field.get<DecimalField<ValueType>>();
+    return cast_to_string<type, ValueType>(v.get_value(), v.get_scale());
+}
+
+bool RuntimePredicate::_init(PrimitiveType type) {
     // set get value function
     switch (type) {
     case PrimitiveType::TYPE_BOOLEAN: {
-        _get_value_fn = get_bool_value;
+        _get_value_fn = get_normal_value<TYPE_BOOLEAN>;
         break;
     }
     case PrimitiveType::TYPE_TINYINT: {
-        _get_value_fn = get_tinyint_value;
+        _get_value_fn = get_normal_value<TYPE_TINYINT>;
         break;
     }
     case PrimitiveType::TYPE_SMALLINT: {
-        _get_value_fn = get_smallint_value;
+        _get_value_fn = get_normal_value<TYPE_SMALLINT>;
         break;
     }
     case PrimitiveType::TYPE_INT: {
-        _get_value_fn = get_int_value;
+        _get_value_fn = get_normal_value<TYPE_INT>;
         break;
     }
     case PrimitiveType::TYPE_BIGINT: {
-        _get_value_fn = get_bigint_value;
+        _get_value_fn = get_normal_value<TYPE_BIGINT>;
         break;
     }
     case PrimitiveType::TYPE_LARGEINT: {
-        _get_value_fn = get_largeint_value;
+        _get_value_fn = get_normal_value<TYPE_LARGEINT>;
         break;
     }
-    case PrimitiveType::TYPE_FLOAT: {
-        _get_value_fn = get_float_value;
-        break;
-    }
-    case PrimitiveType::TYPE_DOUBLE: {
-        _get_value_fn = get_double_value;
-        break;
-    }
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_STRING: {
-        _get_value_fn = get_string_value;
+        _get_value_fn = [](const Field& field) { return field.get<String>(); };
         break;
     }
     case PrimitiveType::TYPE_DATEV2: {
-        _get_value_fn = get_datev2_value;
+        _get_value_fn = get_normal_value<TYPE_DATEV2>;
         break;
     }
     case PrimitiveType::TYPE_DATETIMEV2: {
-        _get_value_fn = get_datetimev2_value;
+        _get_value_fn = get_normal_value<TYPE_DATETIMEV2>;
         break;
     }
     case PrimitiveType::TYPE_DATE: {
@@ -96,11 +159,11 @@ Status RuntimePredicate::init(const PrimitiveType type, const bool nulls_first) 
         break;
     }
     case PrimitiveType::TYPE_DECIMAL32: {
-        _get_value_fn = get_decimal32_value;
+        _get_value_fn = get_decimal_value<TYPE_DECIMAL32>;
         break;
     }
     case PrimitiveType::TYPE_DECIMAL64: {
-        _get_value_fn = get_decimal64_value;
+        _get_value_fn = get_decimal_value<TYPE_DECIMAL64>;
         break;
     }
     case PrimitiveType::TYPE_DECIMALV2: {
@@ -108,94 +171,72 @@ Status RuntimePredicate::init(const PrimitiveType type, const bool nulls_first) 
         break;
     }
     case PrimitiveType::TYPE_DECIMAL128I: {
-        _get_value_fn = get_decimal128_value;
+        _get_value_fn = get_decimal_value<TYPE_DECIMAL128I>;
         break;
     }
     case PrimitiveType::TYPE_DECIMAL256: {
-        _get_value_fn = get_decimal256_value;
+        _get_value_fn = get_decimal_value<TYPE_DECIMAL256>;
         break;
     }
     case PrimitiveType::TYPE_IPV4: {
-        _get_value_fn = get_ipv4_value;
+        _get_value_fn = get_normal_value<TYPE_IPV4>;
         break;
     }
     case PrimitiveType::TYPE_IPV6: {
-        _get_value_fn = get_ipv6_value;
+        _get_value_fn = get_normal_value<TYPE_IPV6>;
         break;
     }
     default:
-        return Status::InvalidArgument("unsupported runtime predicate type {}", type);
+        return false;
     }
 
-    _inited = true;
-    return Status::OK();
+    return true;
 }
 
-Status RuntimePredicate::update(const Field& value, const String& col_name, bool is_reverse) {
+Status RuntimePredicate::update(const Field& value) {
+    std::unique_lock<std::shared_mutex> wlock(_rwlock);
     // skip null value
     if (value.is_null()) {
         return Status::OK();
     }
-
-    if (!_inited) {
-        return Status::OK();
-    }
-
-    std::unique_lock<std::shared_mutex> wlock(_rwlock);
 
     bool updated = false;
 
     if (UNLIKELY(_orderby_extrem.is_null())) {
         _orderby_extrem = value;
         updated = true;
-    } else if (is_reverse) {
-        if (value > _orderby_extrem) {
-            _orderby_extrem = value;
-            updated = true;
-        }
     } else {
-        if (value < _orderby_extrem) {
+        if ((_is_asc && value < _orderby_extrem) || (!_is_asc && value > _orderby_extrem)) {
             _orderby_extrem = value;
             updated = true;
         }
     }
+
+    _has_value = true;
 
     if (!updated) {
         return Status::OK();
     }
+    for (auto p : _contexts) {
+        auto ctx = p.second;
+        if (!ctx.tablet_schema) {
+            continue;
+        }
+        const auto& column = *DORIS_TRY(ctx.tablet_schema->column(ctx.col_name));
+        std::unique_ptr<ColumnPredicate> pred {_pred_constructor(column, ctx.predicate->column_id(),
+                                                                 _get_value_fn(_orderby_extrem),
+                                                                 false, &_predicate_arena)};
 
-    // TODO defensive code
-    if (!_tablet_schema || !_tablet_schema->have_column(col_name)) {
-        return Status::OK();
-    }
-    // update _predictate
-    int32_t col_unique_id = _tablet_schema->column(col_name).unique_id();
-    const TabletColumn& column = _tablet_schema->column_by_uid(col_unique_id);
-    uint32_t index = _tablet_schema->field_index(col_unique_id);
-    auto val = _get_value_fn(_orderby_extrem);
-    std::unique_ptr<ColumnPredicate> pred {nullptr};
-    if (is_reverse) {
-        // For DESC sort, create runtime predicate col_name >= min_top_value
-        // since values that < min_top_value are less than any value in current topn values
-        pred.reset(create_comparison_predicate<PredicateType::GE>(column, index, val, false,
-                                                                  _predicate_arena.get()));
-    } else {
-        // For ASC  sort, create runtime predicate col_name <= max_top_value
-        // since values that > min_top_value are large than any value in current topn values
-        pred.reset(create_comparison_predicate<PredicateType::LE>(column, index, val, false,
-                                                                  _predicate_arena.get()));
-    }
+        // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
+        // since ORDER BY ASC/DESC should get NULL first but pred returns NULL
+        // and NULL in where predicate will be treated as FALSE
+        if (_nulls_first) {
+            pred = AcceptNullPredicate::create_unique(pred.release());
+        }
 
-    // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
-    // since ORDER BY ASC/DESC should get NULL first but pred returns NULL
-    // and NULL in where predicate will be treated as FALSE
-    if (_nulls_first) {
-        pred = AcceptNullPredicate::create_unique(pred.release());
+        ((SharedPredicate*)ctx.predicate.get())->set_nested(pred.release());
     }
-    _predictate.reset(pred.release());
-
     return Status::OK();
 }
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

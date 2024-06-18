@@ -241,3 +241,10 @@ John	30	New York	{"email":"john@example.com","phone":"+1-123-456-7890"}
 100	2345676
 200	755
 
+-- !select26 --
+android	\N	\N	\N	\N	\N
+android	\N	\N	\N	\N	\N
+
+-- !select28 --
+test	k2_value
+

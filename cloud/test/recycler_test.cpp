@@ -293,11 +293,26 @@ static int create_recycle_partiton(TxnKv* txn_kv, int64_t table_id, int64_t part
     return 0;
 }
 
-static int create_version_kv(TxnKv* txn_kv, int64_t table_id, int64_t partition_id) {
-    auto key = version_key({instance_id, db_id, table_id, partition_id});
+static int create_partition_version_kv(TxnKv* txn_kv, int64_t table_id, int64_t partition_id) {
+    auto key = partition_version_key({instance_id, db_id, table_id, partition_id});
     VersionPB version;
     version.set_version(1);
     auto val = version.SerializeAsString();
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    txn->put(key, val);
+    if (txn->commit() != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    return 0;
+}
+
+static int create_table_version_kv(TxnKv* txn_kv, int64_t table_id) {
+    auto key = table_version_key({instance_id, db_id, table_id});
+    std::string val(sizeof(int64_t), 0);
+    *reinterpret_cast<int64_t*>(val.data()) = (int64_t)1;
     std::unique_ptr<Transaction> txn;
     if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
         return -1;
@@ -713,6 +728,7 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     obj_info->set_prefix("recycle_rowsets");
 
     config::instance_recycler_worker_pool_size = 10;
+    config::recycle_task_threshold_seconds = 0;
     InstanceRecycler recycler(txn_kv, instance);
     ASSERT_EQ(recycler.init(), 0);
 
@@ -723,9 +739,12 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
         *((int*)limit) = 100;
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     });
-    sp->set_call_back("MockAccessor::delete_objects",
-                      [&](void* p) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
-    sp->set_call_back("MockAccessor::delete_objects_by_prefix",
+    sp->set_call_back("MockS3Accessor::delete_objects", [&](void* p) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        bool found = recycler.check_recycle_tasks();
+        ASSERT_EQ(found, true);
+    });
+    sp->set_call_back("MockS3Accessor::delete_objects_by_prefix",
                       [&](void* p) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
     sp->enable_processing();
 
@@ -748,6 +767,7 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     }
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    ASSERT_EQ(recycler.check_recycle_tasks(), false);
 
     // check rowset does not exist on obj store
     std::vector<ObjectMeta> files;
@@ -1128,8 +1148,9 @@ TEST(RecyclerTest, recycle_versions) {
         }
     }
     for (auto partition_id : partition_ids) {
-        create_version_kv(txn_kv.get(), table_id, partition_id);
+        create_partition_version_kv(txn_kv.get(), table_id, partition_id);
     }
+    create_table_version_kv(txn_kv.get(), table_id);
     // Drop partitions
     for (int i = 0; i < 5; ++i) {
         create_recycle_partiton(txn_kv.get(), table_id, partition_ids[i], index_ids);
@@ -1142,16 +1163,23 @@ TEST(RecyclerTest, recycle_versions) {
     // Recycle all partitions in table except 30006
     ASSERT_EQ(recycler.recycle_partitions(), 0);
     ASSERT_EQ(recycler.recycle_versions(), 0); // `recycle_versions` should do nothing
-    // All version kvs except version of partition 30006 must have been deleted
+    // All partition version kvs except version of partition 30006 must have been deleted
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    auto key_begin = version_key({instance_id, db_id, table_id, 0});
-    auto key_end = version_key({instance_id, db_id, table_id, INT64_MAX});
+    auto partition_key_begin = partition_version_key({instance_id, db_id, table_id, 0});
+    auto partition_key_end = partition_version_key({instance_id, db_id, table_id, INT64_MAX});
     std::unique_ptr<RangeGetIterator> iter;
-    ASSERT_EQ(txn->get(key_begin, key_end, &iter), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(partition_key_begin, partition_key_end, &iter), TxnErrorCode::TXN_OK);
     ASSERT_EQ(iter->size(), 1);
-    auto [k, v] = iter->next();
-    EXPECT_EQ(k, version_key({instance_id, db_id, table_id, 30006}));
+    auto [pk, pv] = iter->next();
+    EXPECT_EQ(pk, partition_version_key({instance_id, db_id, table_id, 30006}));
+    // Table 10000's table version must not be deleted
+    auto table_key_begin = table_version_key({instance_id, db_id, 0});
+    auto table_key_end = table_version_key({instance_id, db_id, INT64_MAX});
+    ASSERT_EQ(txn->get(table_key_begin, table_key_end, &iter), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(iter->size(), 1);
+    auto [tk, tv] = iter->next();
+    EXPECT_EQ(tk, table_version_key({instance_id, db_id, 10000}));
 
     // Drop indexes
     for (auto index_id : index_ids) {
@@ -1162,7 +1190,9 @@ TEST(RecyclerTest, recycle_versions) {
     // `recycle_versions` should delete all version kvs of the dropped table
     ASSERT_EQ(recycler.recycle_versions(), 0);
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    ASSERT_EQ(txn->get(key_begin, key_end, &iter), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(partition_key_begin, partition_key_end, &iter), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(iter->size(), 0);
+    ASSERT_EQ(txn->get(table_key_begin, table_key_end, &iter), TxnErrorCode::TXN_OK);
     ASSERT_EQ(iter->size(), 0);
 }
 
@@ -1434,6 +1464,151 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         ASSERT_EQ(get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb), -2);
         ASSERT_EQ(check_recycle_txn_keys(txn_kv, mock_instance, db_id, txn_id, label), 0);
     }
+
+    label = "recycle_expired_txn_label_with_sub_txn";
+    int64_t table2_id = 12131278;
+    {
+        // 1. begin_txn
+        // 2. begin_sub_txn2
+        // 3. begin_sub_txn3
+        // 4. abort_sub_txn3
+        // 5. commit_txn
+        // 6. recycle_expired_txn_label
+        // 7. check
+        [[maybe_unused]] int64_t sub_txn_id1 = -1;
+        int64_t sub_txn_id2 = -1;
+        int64_t sub_txn_id3 = -1;
+        {
+            brpc::Controller cntl;
+            BeginTxnRequest req;
+
+            req.set_cloud_unique_id(cloud_unique_id);
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_db_id(db_id);
+            txn_info_pb.set_label(label);
+            txn_info_pb.add_table_ids(table_id);
+            txn_info_pb.set_timeout_ms(10000);
+            req.mutable_txn_info()->CopyFrom(txn_info_pb);
+            BeginTxnResponse res;
+            meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+            txn_id = res.txn_id();
+            sub_txn_id1 = txn_id;
+            ASSERT_GT(txn_id, -1);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+        InstanceInfoPB instance;
+        instance.set_instance_id(mock_instance);
+        InstanceRecycler recycler(txn_kv, instance);
+        ASSERT_EQ(recycler.init(), 0);
+        sleep(1);
+        recycler.abort_timeout_txn();
+        TxnInfoPB txn_info_pb;
+        get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
+        ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);
+
+        // 2. begin sub_txn2
+        {
+            brpc::Controller cntl;
+            BeginSubTxnRequest req;
+            req.set_cloud_unique_id(cloud_unique_id);
+            req.set_txn_id(txn_id);
+            req.set_sub_txn_num(0);
+            req.set_db_id(db_id);
+            req.set_label("test_sub_label1");
+            req.mutable_table_ids()->Add(table_id);
+            req.mutable_table_ids()->Add(table2_id);
+            BeginSubTxnResponse res;
+            meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.txn_info().table_ids().size(), 2);
+            ASSERT_EQ(res.txn_info().sub_txn_ids().size(), 1);
+            ASSERT_TRUE(res.has_sub_txn_id());
+            sub_txn_id2 = res.sub_txn_id();
+            ASSERT_EQ(sub_txn_id2, res.txn_info().sub_txn_ids()[0]);
+        }
+
+        // 3. begin sub_txn3
+        {
+            brpc::Controller cntl;
+            BeginSubTxnRequest req;
+            req.set_cloud_unique_id(cloud_unique_id);
+            req.set_txn_id(txn_id);
+            req.set_sub_txn_num(1);
+            req.set_db_id(db_id);
+            req.set_label("test_sub_label2");
+            req.mutable_table_ids()->Add(table_id);
+            req.mutable_table_ids()->Add(table2_id);
+            req.mutable_table_ids()->Add(table_id);
+            BeginSubTxnResponse res;
+            meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.txn_info().table_ids().size(), 3);
+            ASSERT_EQ(res.txn_info().sub_txn_ids().size(), 2);
+            ASSERT_TRUE(res.has_sub_txn_id());
+            sub_txn_id3 = res.sub_txn_id();
+            ASSERT_EQ(sub_txn_id2, res.txn_info().sub_txn_ids()[0]);
+            ASSERT_EQ(sub_txn_id3, res.txn_info().sub_txn_ids()[1]);
+        }
+
+        // 4. abort sub_txn3
+        {
+            brpc::Controller cntl;
+            AbortSubTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_txn_id(txn_id);
+            req.set_sub_txn_num(2);
+            req.set_sub_txn_id(sub_txn_id3);
+            req.set_db_id(db_id);
+            req.mutable_table_ids()->Add(table_id);
+            req.mutable_table_ids()->Add(table2_id);
+            AbortSubTxnResponse res;
+            meta_service->abort_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            // check txn state
+            ASSERT_EQ(res.txn_info().table_ids().size(), 2);
+            ASSERT_EQ(res.txn_info().sub_txn_ids().size(), 2);
+            ASSERT_EQ(sub_txn_id2, res.txn_info().sub_txn_ids()[0]);
+            ASSERT_EQ(sub_txn_id3, res.txn_info().sub_txn_ids()[1]);
+        }
+
+        // 4. commit_txn
+        {
+            brpc::Controller cntl;
+            CommitTxnRequest req;
+            req.set_cloud_unique_id(cloud_unique_id);
+            req.set_db_id(db_id);
+            req.set_txn_id(txn_id);
+            req.set_is_txn_load(true);
+            CommitTxnResponse res;
+            meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+        // check txn_index_key for sub_txn_id exist
+        for (auto i : {sub_txn_id2, sub_txn_id3}) {
+            std::string key = txn_index_key({mock_instance, i});
+            std::string val;
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        }
+        // 5. recycle
+        recycler.recycle_expired_txn_label();
+        ASSERT_EQ(get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb), -2);
+        ASSERT_EQ(check_recycle_txn_keys(txn_kv, mock_instance, db_id, txn_id, label), 0);
+        // check txn_index_key for sub_txn_id are deleted
+        for (auto i : {sub_txn_id2, sub_txn_id3}) {
+            std::string key = txn_index_key({mock_instance, i});
+            std::string val;
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        }
+    }
 }
 
 void create_object_file_pb(std::string prefix, std::vector<ObjectFilePB>* object_files,
@@ -1597,7 +1772,7 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("MockAccessor::delete_objects_ret::pred",
+    sp->set_call_back("MockS3Accessor::delete_objects_ret::pred",
                       [](void* p) { *((bool*)p) = true; });
     sp->enable_processing();
     using namespace std::chrono;
@@ -1672,7 +1847,7 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
         EXPECT_EQ(expected_job_exists, exist) << table_id;
     }
 
-    sp->clear_call_back("MockAccessor::delete_objects_ret::pred");
+    sp->clear_call_back("MockS3Accessor::delete_objects_ret::pred");
     ASSERT_EQ(recycler.recycle_copy_jobs(), 0);
 
     // check object files
@@ -1785,9 +1960,13 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     for (size_t i = 0; i < 100; i++) {
         ASSERT_EQ(0, create_txn_label_kv(txn_kv.get(), fmt::format("fake_label{}", i), i));
     }
-    // create version key
+    // create partition version key
     for (size_t i = 101; i < 200; i += 2) {
-        ASSERT_EQ(0, create_version_kv(txn_kv.get(), i, i + 1));
+        ASSERT_EQ(0, create_partition_version_kv(txn_kv.get(), i, i + 1));
+    }
+    // create table version key
+    for (size_t i = 101; i < 200; i += 2) {
+        ASSERT_EQ(0, create_table_version_kv(txn_kv.get(), i));
     }
     // create meta key
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -1846,8 +2025,19 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     ASSERT_EQ(txn->get(start_txn_key, end_txn_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
 
-    std::string start_version_key = version_key({instance_id, 0, 0, 0});
-    std::string end_version_key = version_key({instance_id, INT64_MAX, 0, 0});
+    std::string start_partition_version_key = partition_version_key({instance_id, 0, 0, 0});
+    std::string end_partition_version_key = partition_version_key({instance_id, INT64_MAX, 0, 0});
+    ASSERT_EQ(txn->get(start_partition_version_key, end_partition_version_key, &it),
+              TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
+
+    std::string start_table_version_key = table_version_key({instance_id, 0, 0});
+    std::string end_table_version_key = table_version_key({instance_id, INT64_MAX, 0});
+    ASSERT_EQ(txn->get(start_table_version_key, end_table_version_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
+
+    std::string start_version_key = version_key_prefix(instance_id);
+    std::string end_version_key = version_key_prefix(instance_id + '\x00');
     ASSERT_EQ(txn->get(start_version_key, end_version_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
 

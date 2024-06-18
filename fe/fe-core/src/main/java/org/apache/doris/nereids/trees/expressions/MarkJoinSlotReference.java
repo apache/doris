@@ -25,7 +25,7 @@ import com.google.common.collect.ImmutableList;
 /**
  * A special type of column that will be generated to replace the subquery when unnesting the subquery of MarkJoin.
  */
-public class MarkJoinSlotReference extends SlotReference implements SlotNotFromChildren {
+public class MarkJoinSlotReference extends SlotReference {
     final boolean existsHasAgg;
 
     public MarkJoinSlotReference(String name) {
@@ -71,6 +71,11 @@ public class MarkJoinSlotReference extends SlotReference implements SlotNotFromC
 
     @Override
     public MarkJoinSlotReference withExprId(ExprId exprId) {
+        return new MarkJoinSlotReference(exprId, name.get(), existsHasAgg);
+    }
+
+    @Override
+    public SlotReference withName(String name) {
         return new MarkJoinSlotReference(exprId, name, existsHasAgg);
     }
 }

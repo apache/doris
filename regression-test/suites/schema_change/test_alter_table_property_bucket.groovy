@@ -56,9 +56,11 @@ suite("test_alter_table_property_bucket") {
 
     // modify in_memory property
     // https://github.com/apache/doris/pull/18731
-    test {
-        sql """ALTER TABLE ${tableName} SET ("in_memory" = "true");"""
-        exception "Not support set 'in_memory'='true' now!"
+    if (!isCloudMode()) {
+        test {
+            sql """ALTER TABLE ${tableName} SET ("in_memory" = "true");"""
+            exception "Not support set 'in_memory'='true' now!"
+        }
     }
 
     sql """ INSERT INTO ${tableName} VALUES

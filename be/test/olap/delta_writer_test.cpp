@@ -86,7 +86,6 @@ static void set_up() {
     engine_ref = engine.get();
     Status s = engine->open();
     ASSERT_TRUE(s.ok()) << s;
-    s = engine->start_bg_threads();
     ASSERT_TRUE(s.ok()) << s;
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
@@ -458,7 +457,7 @@ static void generate_data(vectorized::Block* block, int8_t k1, int16_t k2, int32
     columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
 
     DateV2Value<DateV2ValueType> c4;
-    c4.set_time(2022, 6, 6, 0, 0, 0, 0);
+    c4.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);
     uint32_t c4_int = c4.to_date_int_val();
     columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
 

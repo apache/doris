@@ -23,6 +23,8 @@ suite("push_down_filter_other_condition") {
     sql "use regression_test_nereids_rules_p0"
     sql "set disable_join_reorder=true"
     sql 'set be_number_for_test=3'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     // Push down join condition to inner join child
     qt_pushdown_inner_join"""
     explain shape plan select * from t1 inner join t2 on t1.id = t2.id and t1.id > 1;
@@ -142,10 +144,6 @@ suite("push_down_filter_other_condition") {
     // Push down join condition to left outer join child outside the subquery
     qt_pushdown_left_outer_join_subquery_outer"""
     explain shape plan select * from t1 where t1.id = (select id from t2) or t1.id is null and t1.id > 1;
-    """
-    // Push down join condition to left anti join child outside the subquery
-    qt_pushdown_left_anti_join_subquery_outer"""
-    explain shape plan select * from t1 where t1.id not in (select id from t2) and t1.id > 1;
     """
     // Push down join condition to cross join child outside the subquery
     qt_pushdown_cross_join_subquery_outer"""

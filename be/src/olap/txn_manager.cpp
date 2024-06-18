@@ -730,11 +730,11 @@ void TxnManager::get_all_related_tablets(std::set<TabletInfo>* tablet_infos) {
 }
 
 void TxnManager::get_all_commit_tablet_txn_info_by_tablet(
-        const TabletSharedPtr& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec) {
+        const Tablet& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec) {
     for (int32_t i = 0; i < _txn_map_shard_size; i++) {
         std::shared_lock txn_rdlock(_txn_map_locks[i]);
         for (const auto& [txn_key, load_info_map] : _txn_tablet_maps[i]) {
-            auto tablet_load_it = load_info_map.find(tablet->get_tablet_info());
+            auto tablet_load_it = load_info_map.find(tablet.get_tablet_info());
             if (tablet_load_it != load_info_map.end()) {
                 const auto& [_, load_info] = *tablet_load_it;
                 const auto& rowset = load_info->rowset;
@@ -863,12 +863,12 @@ int64_t TxnManager::get_txn_by_tablet_version(int64_t tablet_id, int64_t version
     memcpy(key + sizeof(int64_t), &version, sizeof(int64_t));
     CacheKey cache_key((const char*)&key, sizeof(key));
 
-    auto* handle = _tablet_version_cache->cache()->lookup(cache_key);
+    auto* handle = _tablet_version_cache->lookup(cache_key);
     if (handle == nullptr) {
         return -1;
     }
-    int64_t res = *(int64_t*)_tablet_version_cache->cache()->value(handle);
-    _tablet_version_cache->cache()->release(handle);
+    int64_t res = ((CacheValue*)_tablet_version_cache->value(handle))->value;
+    _tablet_version_cache->release(handle);
     return res;
 }
 
@@ -878,16 +878,11 @@ void TxnManager::update_tablet_version_txn(int64_t tablet_id, int64_t version, i
     memcpy(key + sizeof(int64_t), &version, sizeof(int64_t));
     CacheKey cache_key((const char*)&key, sizeof(key));
 
-    int64_t* value = new int64_t;
-    *value = txn_id;
-    auto deleter = [](const doris::CacheKey& key, void* value) {
-        int64_t* cache_value = (int64_t*)value;
-        delete cache_value;
-    };
-
-    auto* handle = _tablet_version_cache->cache()->insert(cache_key, value, 1, deleter,
-                                                          CachePriority::NORMAL, sizeof(txn_id));
-    _tablet_version_cache->cache()->release(handle);
+    auto* value = new CacheValue;
+    value->value = txn_id;
+    auto* handle = _tablet_version_cache->insert(cache_key, value, 1, sizeof(txn_id),
+                                                 CachePriority::NORMAL);
+    _tablet_version_cache->release(handle);
 }
 
 TxnState TxnManager::get_txn_state(TPartitionId partition_id, TTransactionId transaction_id,

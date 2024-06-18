@@ -22,46 +22,16 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/join_probe_operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "util/simd/bits.h"
-#include "vec/exec/join/vnested_loop_join_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
 
-class NestLoopJoinProbeOperatorBuilder final
-        : public OperatorBuilder<vectorized::VNestedLoopJoinNode> {
-public:
-    NestLoopJoinProbeOperatorBuilder(int32_t id, ExecNode* node);
-
-    OperatorPtr build_operator() override;
-};
-
-class NestLoopJoinProbeOperator final : public StatefulOperator<vectorized::VNestedLoopJoinNode> {
-public:
-    NestLoopJoinProbeOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
-
-    Status prepare(RuntimeState* state) override;
-
-    Status open(RuntimeState*) override { return Status::OK(); }
-
-    Status close(RuntimeState* state) override;
-};
-
-class NestedLoopJoinProbeDependency final : public Dependency {
-public:
-    using SharedState = NestedLoopJoinSharedState;
-    NestedLoopJoinProbeDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "NestedLoopJoinProbeDependency", query_ctx) {}
-    ~NestedLoopJoinProbeDependency() override = default;
-};
-
 class NestedLoopJoinProbeOperatorX;
 class NestedLoopJoinProbeLocalState final
-        : public JoinProbeLocalState<NestedLoopJoinProbeDependency, NestedLoopJoinProbeLocalState> {
+        : public JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState> {
 public:
     using Parent = NestedLoopJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(NestedLoopJoinProbeLocalState);
@@ -74,6 +44,7 @@ public:
         block->get_by_position(i).column->assume_mutable()->clear(); \
     }
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     template <typename JoinOpType, bool set_build_side_flag, bool set_probe_side_flag>
     Status generate_join_block_data(RuntimeState* state, JoinOpType& join_op_variants);
@@ -219,10 +190,9 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status push(RuntimeState* state, vectorized::Block* input_block,
-                SourceState source_state) const override;
+    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                SourceState& source_state) const override;
+                bool* eos) const override;
     const RowDescriptor& intermediate_row_desc() const override {
         return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
     }
@@ -234,10 +204,10 @@ public:
         return {ExchangeType::ADAPTIVE_PASSTHROUGH};
     }
 
-    const RowDescriptor& row_desc() override {
+    const RowDescriptor& row_desc() const override {
         return _old_version_flag
                        ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
-                       : *_output_row_desc;
+                       : (_output_row_descriptor ? *_output_row_descriptor : *_output_row_desc);
     }
 
     bool need_more_input_data(RuntimeState* state) const override;

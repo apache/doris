@@ -18,33 +18,15 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vassert_num_rows_node.h"
 
-namespace doris {
+namespace doris::pipeline {
 
-namespace pipeline {
-
-class AssertNumRowsOperatorBuilder final : public OperatorBuilder<vectorized::VAssertNumRowsNode> {
-public:
-    AssertNumRowsOperatorBuilder(int32_t id, ExecNode* node)
-            : OperatorBuilder(id, "AssertNumRowsOperator", node) {}
-
-    OperatorPtr build_operator() override;
-};
-
-class AssertNumRowsOperator final : public StreamingOperator<vectorized::VAssertNumRowsNode> {
-public:
-    AssertNumRowsOperator(OperatorBuilderBase* operator_builder, ExecNode* node)
-            : StreamingOperator(operator_builder, node) {}
-};
-
-class AssertNumRowsLocalState final : public PipelineXLocalState<FakeDependency> {
+class AssertNumRowsLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(AssertNumRowsLocalState);
 
     AssertNumRowsLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<FakeDependency>(state, parent) {}
+            : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~AssertNumRowsLocalState() = default;
 };
 
@@ -53,7 +35,7 @@ public:
     AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
 
-    Status pull(RuntimeState* state, vectorized::Block* block, SourceState& source_state) override;
+    Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return false; }
 
@@ -67,7 +49,7 @@ private:
     int64_t _desired_num_rows;
     const std::string _subquery_string;
     TAssertion::type _assertion;
+    bool _should_convert_output_to_nullable;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

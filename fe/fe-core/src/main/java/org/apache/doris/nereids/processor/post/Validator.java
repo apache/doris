@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
@@ -69,7 +71,10 @@ public class Validator extends PlanPostProcessor {
 
     @Override
     public Plan visit(Plan plan, CascadesContext context) {
-        plan.children().forEach(child -> child.accept(this, context));
+        for (Plan child : plan.children()) {
+            child.accept(this, context);
+        }
+
         Optional<Slot> opt = checkAllSlotFromChildren(plan);
         if (opt.isPresent()) {
             List<Slot> childrenOutput = plan.children().stream().flatMap(p -> p.getOutput().stream()).collect(
@@ -93,8 +98,7 @@ public class Validator extends PlanPostProcessor {
         if (plan instanceof Aggregate) {
             return Optional.empty();
         }
-        Set<Slot> childOutputSet = plan.children().stream().flatMap(child -> child.getOutputSet().stream())
-                .collect(Collectors.toSet());
+        Set<Slot> childOutputSet = Utils.fastToImmutableSet(PlanUtils.fastGetChildrenOutputs(plan.children()));
         Set<Slot> inputSlots = plan.getInputSlots();
         for (Slot slot : inputSlots) {
             if (slot.getName().startsWith("mv") || slot instanceof SlotNotFromChildren) {
@@ -107,4 +111,3 @@ public class Validator extends PlanPostProcessor {
         return Optional.empty();
     }
 }
-

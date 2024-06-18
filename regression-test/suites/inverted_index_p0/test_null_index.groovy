@@ -48,9 +48,4 @@ suite("test_null_index", "p0"){
     sql "INSERT INTO $indexTblName VALUES (1, 'a', null, [null], [1]), (2, 'b', 'b', ['b'], [2]), (3, 'c', 'c', ['c'], [3]);"
     qt_sql "SELECT * FROM $indexTblName WHERE str match null order by id;"
     qt_sql "SELECT * FROM $indexTblName WHERE str_null match null order by id;"
-    try {
-        qt_sql "SELECT * FROM $indexTblName WHERE value_int element_eq 2;"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("unsupported nested array of type"), e.getMessage())
-    }
 }

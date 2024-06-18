@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SetUserPropertyVar;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LoadException;
@@ -29,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.base.Joiner;
@@ -36,6 +38,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -80,18 +83,28 @@ public class UserProperty implements Writable {
 
     private static final String PROP_WORKLOAD_GROUP = "default_workload_group";
 
+    public static final String DEFAULT_CLOUD_CLUSTER = "default_cloud_cluster";
+
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
     // for normal user
     public static final Set<Pattern> COMMON_PROPERTIES = Sets.newHashSet();
 
+    @SerializedName(value = "qualifiedUser")
     private String qualifiedUser;
 
+    @SerializedName(value = "commonProperties")
     private CommonUserProperties commonProperties = new CommonUserProperties();
 
     // load cluster
+    @SerializedName(value = "defaultLoadCluster")
     private String defaultLoadCluster = null;
+
+    @SerializedName(value = "clusterToDppConfig")
     private Map<String, DppConfig> clusterToDppConfig = Maps.newHashMap();
+
+    @SerializedName(value = "defaultCloudCluster")
+    private String defaultCloudCluster = null;
 
     /*
      *  We keep white list here to save Baidu domain name (BNS) or DNS as white list.
@@ -128,6 +141,7 @@ public class UserProperty implements Writable {
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + ".",
                 Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_WORKLOAD_GROUP + "$", Pattern.CASE_INSENSITIVE));
+        COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_CLOUD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
     }
 
     public UserProperty() {
@@ -204,6 +218,7 @@ public class UserProperty implements Writable {
         String workloadGroup = this.commonProperties.getWorkloadGroup();
 
         String newDefaultLoadCluster = defaultLoadCluster;
+        String newDefaultCloudCluster = defaultCloudCluster;
         Map<String, DppConfig> newDppConfigs = Maps.newHashMap(clusterToDppConfig);
 
         // update
@@ -239,6 +254,15 @@ public class UserProperty implements Writable {
                 }
 
                 newDefaultLoadCluster = value;
+            }  else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
+                // set property "DEFAULT_CLOUD_CLUSTER" = "cluster1"
+                if (keyArr.length != 1) {
+                    throw new DdlException(DEFAULT_CLOUD_CLUSTER + " format error");
+                }
+                if (value == null) {
+                    value = "";
+                }
+                newDefaultCloudCluster = value;
             } else if (keyArr[0].equalsIgnoreCase(PROP_MAX_QUERY_INSTANCES)) {
                 // set property "max_query_instances" = "1000"
                 if (keyArr.length != 1) {
@@ -370,6 +394,7 @@ public class UserProperty implements Writable {
             defaultLoadCluster = null;
         }
         clusterToDppConfig = newDppConfigs;
+        defaultCloudCluster = newDefaultCloudCluster;
     }
 
     private long getLongProperty(String key, String value, String[] keyArr, String propName) throws DdlException {
@@ -444,6 +469,10 @@ public class UserProperty implements Writable {
         }
     }
 
+    public String getDefaultCloudCluster() {
+        return defaultCloudCluster;
+    }
+
     public String getDefaultLoadCluster() {
         return defaultLoadCluster;
     }
@@ -507,6 +536,13 @@ public class UserProperty implements Writable {
             result.add(Lists.newArrayList(PROP_DEFAULT_LOAD_CLUSTER, ""));
         }
 
+        // default cloud cluster
+        if (defaultCloudCluster != null) {
+            result.add(Lists.newArrayList(DEFAULT_CLOUD_CLUSTER, defaultCloudCluster));
+        } else {
+            result.add(Lists.newArrayList(DEFAULT_CLOUD_CLUSTER, ""));
+        }
+
         for (Map.Entry<String, DppConfig> entry : clusterToDppConfig.entrySet()) {
             String cluster = entry.getKey();
             DppConfig dppConfig = entry.getValue();
@@ -548,36 +584,21 @@ public class UserProperty implements Writable {
     }
 
     public static UserProperty read(DataInput in) throws IOException {
-        UserProperty userProperty = new UserProperty();
-        userProperty.readFields(in);
-        return userProperty;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_130) {
+            UserProperty userProperty = new UserProperty();
+            userProperty.readFields(in);
+            return userProperty;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, UserProperty.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // user name
-        Text.writeString(out, qualifiedUser);
-
-        // call UserResource.write(out) to make sure that FE can rollback.
-        UserResource.write(out);
-
-        // load cluster
-        if (defaultLoadCluster == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, defaultLoadCluster);
-        }
-        out.writeInt(clusterToDppConfig.size());
-        for (Map.Entry<String, DppConfig> entry : clusterToDppConfig.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            entry.getValue().write(out);
-        }
-
-        // common properties
-        commonProperties.write(out);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         qualifiedUser = Text.readString(in);
         // should be removed after version 3.0
@@ -602,6 +623,12 @@ public class UserProperty implements Writable {
             DppConfig dppConfig = new DppConfig();
             dppConfig.readFields(in);
             clusterToDppConfig.put(cluster, dppConfig);
+        }
+
+        if (Config.isCloudMode()) {
+            if (in.readBoolean()) {
+                defaultCloudCluster = Text.readString(in);
+            }
         }
 
         // whiteList

@@ -17,6 +17,7 @@
 
 #include "olap/task/engine_clone_task.h"
 
+#include <curl/curl.h>
 #include <fcntl.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
@@ -42,7 +43,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/stringpiece.h"
 #include "gutil/strings/strip.h"
 #include "http/http_client.h"
 #include "io/fs/file_system.h"
@@ -83,10 +83,16 @@ namespace {
 /// return value: if binlog file not exist, then return to binlog file path
 Result<std::string> check_dest_binlog_valid(const std::string& tablet_dir,
                                             const std::string& clone_file, bool* skip_link_file) {
-    // change clone_file suffix .binlog to .dat
+    std::string to;
     std::string new_clone_file = clone_file;
-    new_clone_file.replace(clone_file.size() - 7, 7, ".dat");
-    auto to = fmt::format("{}/_binlog/{}", tablet_dir, new_clone_file);
+    if (clone_file.ends_with(".binlog")) {
+        // change clone_file suffix from .binlog to .dat
+        new_clone_file.replace(clone_file.size() - 7, 7, ".dat");
+    } else if (clone_file.ends_with(".binlog-index")) {
+        // change clone_file suffix from .binlog-index to .idx
+        new_clone_file.replace(clone_file.size() - 13, 13, ".idx");
+    }
+    to = fmt::format("{}/_binlog/{}", tablet_dir, new_clone_file);
 
     // check to to file exist
     bool exists = true;
@@ -144,19 +150,16 @@ EngineCloneTask::EngineCloneTask(StorageEngine& engine, const TCloneReq& clone_r
           _tablet_infos(tablet_infos),
           _signature(signature),
           _master_info(master_info) {
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            MemTrackerLimiter::Type::CLONE,
+    _mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER,
             "EngineCloneTask#tabletId=" + std::to_string(_clone_req.tablet_id));
 }
 
 Status EngineCloneTask::execute() {
     // register the tablet to avoid it is deleted by gc thread during clone process
-    SCOPED_ATTACH_TASK(_mem_tracker);
-    if (!_engine.tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
-        return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
-    }
     Status st = _do_clone();
-    _engine.tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
+    _engine.tablet_manager()->update_partitions_visible_version(
+            {{_clone_req.partition_id, _clone_req.version}});
     return st;
 }
 
@@ -168,6 +171,12 @@ Status EngineCloneTask::_do_clone() {
     Status status = Status::OK();
     string src_file_path;
     TBackend src_host;
+    RETURN_IF_ERROR(
+            _engine.tablet_manager()->register_transition_tablet(_clone_req.tablet_id, "clone"));
+    Defer defer {[&]() {
+        _engine.tablet_manager()->unregister_transition_tablet(_clone_req.tablet_id, "clone");
+    }};
+
     // Check local tablet exist or not
     TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(_clone_req.tablet_id);
 
@@ -177,13 +186,8 @@ Status EngineCloneTask::_do_clone() {
     if (tablet && tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(WARNING) << "tablet state is not ready when clone, need to drop old tablet, tablet_id="
                      << tablet->tablet_id();
-        // can not drop tablet when under clone. so unregister clone tablet firstly.
-        _engine.tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
         RETURN_IF_ERROR(_engine.tablet_manager()->drop_tablet(tablet->tablet_id(),
                                                               tablet->replica_id(), false));
-        if (!_engine.tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
-            return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
-        }
         tablet.reset();
     }
     bool is_new_tablet = tablet == nullptr;
@@ -224,7 +228,7 @@ Status EngineCloneTask::_do_clone() {
         if (missed_versions.empty()) {
             LOG(INFO) << "missed version size = 0, skip clone and return success. tablet_id="
                       << _clone_req.tablet_id << " replica_id=" << _clone_req.replica_id;
-            static_cast<void>(_set_tablet_info(is_new_tablet));
+            RETURN_IF_ERROR(_set_tablet_info(is_new_tablet));
             return Status::OK();
         }
 
@@ -265,7 +269,20 @@ Status EngineCloneTask::_do_clone() {
                       << ". signature: " << _signature;
             WARN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_dir),
                           "failed to delete useless clone dir ");
+            WARN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(tablet_dir),
+                          "failed to delete parent dir");
         }};
+
+        bool exists = true;
+        Status exists_st = io::global_local_filesystem()->exists(tablet_dir, &exists);
+        if (!exists_st) {
+            LOG(WARNING) << "cant get path=" << tablet_dir << " state, st=" << exists_st;
+            return exists_st;
+        }
+        if (exists) {
+            LOG(WARNING) << "before clone dest path=" << tablet_dir << " exist, remove it first";
+            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_dir));
+        }
 
         bool allow_incremental_clone = false;
         RETURN_IF_ERROR_(status,
@@ -288,7 +305,7 @@ Status EngineCloneTask::_do_clone() {
         // clone success, delete .hdr file because tablet meta is stored in rocksdb
         string header_path =
                 TabletMeta::construct_header_file_path(tablet_dir, _clone_req.tablet_id);
-        static_cast<void>(io::global_local_filesystem()->delete_file(header_path));
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(header_path));
     }
     return _set_tablet_info(is_new_tablet);
 }
@@ -495,8 +512,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     // Avoid of data is not complete, we copy the header file at last.
     // The header file's name is end of .hdr.
     for (int i = 0; i < file_name_list.size() - 1; ++i) {
-        StringPiece sp(file_name_list[i]);
-        if (sp.ends_with(".hdr")) {
+        if (file_name_list[i].ends_with(".hdr")) {
             std::swap(file_name_list[i], file_name_list[file_name_list.size() - 1]);
             break;
         }
@@ -506,8 +522,26 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     uint64_t total_file_size = 0;
     MonotonicStopWatch watch;
     watch.start();
+    auto curl = std::unique_ptr<CURL, decltype(&curl_easy_cleanup)>(curl_easy_init(),
+                                                                    &curl_easy_cleanup);
+    if (!curl) {
+        return Status::InternalError("engine clone task init curl failed");
+    }
     for (auto& file_name : file_name_list) {
-        auto remote_file_url = remote_url_prefix + file_name;
+        // The file name of the variant column with the inverted index contains %
+        // such as: 020000000000003f624c4c322c568271060f9b5b274a4a95_0_10133@properties%2Emessage.idx
+        //  {rowset_id}_{seg_num}_{index_id}_{variant_column_name}{%2E}{extracted_column_name}.idx
+        // We need to handle %, otherwise it will cause an HTTP 404 error.
+        // Because the percent ("%") character serves as the indicator for percent-encoded octets,
+        // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
+        // https://datatracker.ietf.org/doc/html/rfc3986
+        auto output = std::unique_ptr<char, decltype(&curl_free)>(
+                curl_easy_escape(curl.get(), file_name.c_str(), file_name.length()), &curl_free);
+        if (!output) {
+            return Status::InternalError("escape file name failed, file name={}", file_name);
+        }
+        std::string encoded_filename(output.get());
+        auto remote_file_url = remote_url_prefix + encoded_filename;
 
         // get file length
         uint64_t file_size = 0;
@@ -560,8 +594,8 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
                              << ", local_file_size=" << local_file_size;
                 return Status::InternalError("downloaded file size is not equal");
             }
-            chmod(local_file_path.c_str(), S_IRUSR | S_IWUSR);
-            return Status::OK();
+            return io::global_local_filesystem()->permission(local_file_path,
+                                                             io::LocalFileSystem::PERMS_OWNER_RW);
         };
         RETURN_IF_ERROR(HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, download_cb));
     } // Clone files from remote backend
@@ -670,7 +704,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
 
         auto from = fmt::format("{}/{}", clone_dir, clone_file);
         std::string to;
-        if (clone_file.ends_with(".binlog")) {
+        if (clone_file.ends_with(".binlog") || clone_file.ends_with(".binlog-index")) {
             if (!contain_binlog) {
                 LOG(WARNING) << "clone binlog file, but not contain binlog metas. "
                              << "tablet=" << tablet->tablet_id() << ", clone_file=" << clone_file;

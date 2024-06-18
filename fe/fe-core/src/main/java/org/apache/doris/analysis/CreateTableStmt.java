@@ -39,8 +39,7 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -167,6 +166,7 @@ public class CreateTableStmt extends DdlStmt {
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
         this.properties = properties;
+        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
         this.extProperties = extProperties;
         this.isExternal = isExternal;
         this.ifNotExists = ifNotExists;
@@ -190,6 +190,7 @@ public class CreateTableStmt extends DdlStmt {
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
         this.properties = properties;
+        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
         this.extProperties = extProperties;
         this.columnDefs = Lists.newArrayList();
         this.comment = Strings.nullToEmpty(comment);
@@ -255,6 +256,10 @@ public class CreateTableStmt extends DdlStmt {
         return engineName;
     }
 
+    public String getCatalogName() {
+        return tableName.getCtl();
+    }
+
     public String getDbName() {
         return tableName.getDb();
     }
@@ -284,11 +289,10 @@ public class CreateTableStmt extends DdlStmt {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
         FeNameFormat.checkTableName(tableName.getTbl());
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.CREATE)) {
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(), tableName.getTbl(),
+                        PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 
@@ -509,7 +513,7 @@ public class CreateTableStmt extends DdlStmt {
 
             // analyze distribution
             if (distributionDesc == null) {
-                throw new AnalysisException("Create olap table should contain distribution desc");
+                distributionDesc = new RandomDistributionDesc(FeConstants.default_bucket_num, true);
             }
             distributionDesc.analyze(columnSet, columnDefs, keysDesc);
             if (distributionDesc.type == DistributionInfo.DistributionInfoType.RANDOM) {

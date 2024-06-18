@@ -18,7 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.InternalQueryExecutionException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -27,18 +26,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.ThreadPoolExecutor.DiscardOldestPolicy;
 
-public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<ColumnStatistic>> {
+public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<StatisticsCacheKey, Optional<ColumnStatistic>> {
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatisticsCacheLoader.class);
-
-    private static final ThreadPoolExecutor singleThreadPool = ThreadPoolManager.newDaemonFixedThreadPool(
-            StatisticConstants.RETRY_LOAD_THREAD_POOL_SIZE,
-            StatisticConstants.RETRY_LOAD_QUEUE_SIZE, "STATS_RELOAD",
-            true,
-            new DiscardOldestPolicy());
 
     @Override
     protected Optional<ColumnStatistic> doLoad(StatisticsCacheKey key) {
@@ -46,29 +37,41 @@ public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<
         try {
             // Load from statistics table.
             columnStatistic = loadFromStatsTable(key);
-            if (columnStatistic.isPresent()) {
-                return columnStatistic;
-            }
-            // Load from data source metadata
-            try {
-                TableIf table = StatisticsUtil.findTable(key.catalogId, key.dbId, key.tableId);
-                columnStatistic = table.getColumnStatistic(key.colName);
-            } catch (Exception e) {
-                LOG.debug(String.format("Exception to get column statistics by metadata. [Catalog:{}, DB:{}, Table:{}]",
-                        key.catalogId, key.dbId, key.tableId), e);
+            if (!columnStatistic.isPresent()) {
+                // Load from data source metadata
+                try {
+                    TableIf table = StatisticsUtil.findTable(key.catalogId, key.dbId, key.tableId);
+                    columnStatistic = table.getColumnStatistic(key.colName);
+                } catch (Exception e) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Exception to get column statistics by metadata. [Catalog:{}, DB:{}, Table:{}]",
+                                key.catalogId, key.dbId, key.tableId, e);
+                    }
+                }
             }
         } catch (Throwable t) {
             LOG.warn("Failed to load stats for column [Catalog:{}, DB:{}, Table:{}, Column:{}], Reason: {}",
                     key.catalogId, key.dbId, key.tableId, key.colName, t.getMessage());
-            LOG.debug(t);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(t);
+            }
+        }
+        if (columnStatistic.isPresent()) {
+            // For non-empty table, return UNKNOWN if we can't collect ndv value.
+            // Because inaccurate ndv is very misleading.
+            ColumnStatistic stats = columnStatistic.get();
+            if (stats.count > 0 && stats.ndv == 0 && stats.count != stats.numNulls) {
+                columnStatistic = Optional.of(ColumnStatistic.UNKNOWN);
+            }
         }
         return columnStatistic;
     }
 
     private Optional<ColumnStatistic> loadFromStatsTable(StatisticsCacheKey key) {
-        List<ResultRow> columnResults = null;
+        List<ResultRow> columnResults;
         try {
-            columnResults = StatisticsRepository.loadColStats(key.tableId, key.idxId, key.colName);
+            columnResults = StatisticsRepository.loadColStats(
+                    key.catalogId, key.dbId, key.tableId, key.idxId, key.colName);
         } catch (InternalQueryExecutionException e) {
             LOG.info("Failed to load stats for table {} column {}. Reason:{}",
                     key.tableId, key.colName, e.getMessage());

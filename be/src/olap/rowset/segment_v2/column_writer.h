@@ -60,10 +60,12 @@ struct ColumnWriterOptions {
     bool need_bitmap_index = false;
     bool need_bloom_filter = false;
     bool is_ngram_bf_index = false;
+    bool need_inverted_index = false;
     uint8_t gram_size;
     uint16_t gram_bf_size;
     std::vector<const TabletIndex*> indexes;
     const TabletIndex* inverted_index = nullptr;
+    InvertedIndexFileWriter* inverted_index_file_writer;
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()
@@ -87,6 +89,18 @@ class ColumnWriter {
 public:
     static Status create(const ColumnWriterOptions& opts, const TabletColumn* column,
                          io::FileWriter* file_writer, std::unique_ptr<ColumnWriter>* writer);
+    static Status create_struct_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                       io::FileWriter* file_writer,
+                                       std::unique_ptr<ColumnWriter>* writer);
+    static Status create_array_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                      io::FileWriter* file_writer,
+                                      std::unique_ptr<ColumnWriter>* writer);
+    static Status create_map_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                    io::FileWriter* file_writer,
+                                    std::unique_ptr<ColumnWriter>* writer);
+    static Status create_agg_state_writer(const ColumnWriterOptions& opts,
+                                          const TabletColumn* column, io::FileWriter* file_writer,
+                                          std::unique_ptr<ColumnWriter>* writer);
 
     explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable)
             : _field(std::move(field)), _is_nullable(is_nullable) {}
@@ -164,7 +178,7 @@ private:
 class FlushPageCallback {
 public:
     virtual ~FlushPageCallback() = default;
-    virtual Status put_extra_info_in_page(DataPageFooterPB* footer) { return Status::OK(); }
+    virtual void put_extra_info_in_page(DataPageFooterPB* footer) {}
 };
 
 // Encode one column's data into some memory slice.
@@ -280,7 +294,7 @@ public:
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
 
 private:
-    Status put_extra_info_in_page(DataPageFooterPB* footer) override;
+    void put_extra_info_in_page(DataPageFooterPB* footer) override;
 
     uint64_t _next_offset;
 };

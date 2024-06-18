@@ -32,7 +32,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -41,6 +40,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.PlanNode;
@@ -618,6 +618,14 @@ public class Analyzer {
         return callDepth;
     }
 
+    public void setPrepareStmt(PrepareStmt stmt) {
+        prepareStmt = stmt;
+    }
+
+    public PrepareStmt getPrepareStmt() {
+        return prepareStmt;
+    }
+
     public void setInlineView(boolean inlineView) {
         isInlineView = inlineView;
     }
@@ -628,14 +636,6 @@ public class Analyzer {
 
     public void setExplicitViewAlias(String alias) {
         explicitViewAlias = alias;
-    }
-
-    public void setPrepareStmt(PrepareStmt stmt) {
-        prepareStmt = stmt;
-    }
-
-    public PrepareStmt getPrepareStmt() {
-        return prepareStmt;
     }
 
     public String getExplicitViewAlias() {
@@ -841,7 +841,7 @@ public class Analyzer {
                 .getDbOrAnalysisException(tableName.getDb());
         TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
 
-        if (table.getType() == TableType.OLAP && (((OlapTable) table).getState() == OlapTableState.RESTORE
+        if (table.isManagedTable() && (((OlapTable) table).getState() == OlapTableState.RESTORE
                 || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
             Boolean isNotRestoring = ((OlapTable) table).getPartitions().stream()
                     .filter(partition -> partition.getState() == PartitionState.RESTORE).collect(Collectors.toList())
@@ -1037,7 +1037,9 @@ public class Analyzer {
                                                 newTblName == null ? d.getTable().getName() : newTblName.toString());
         }
 
-        LOG.debug("register column ref table {}, colName {}, col {}", tblName, colName, col.toSql());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("register column ref table {}, colName {}, col {}", tblName, colName, col.toSql());
+        }
         if (col.getType().isVariantType() || (subColNames != null && !subColNames.isEmpty())) {
             if (getContext() != null && !getContext().getSessionVariable().enableVariantAccessInOriginalPlanner
                     && (subColNames != null && !subColNames.isEmpty())) {
@@ -1075,7 +1077,9 @@ public class Analyzer {
                 return result;
             }
             result = globalState.descTbl.addSlotDescriptor(d);
-            LOG.debug("register slot descriptor {}", result);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("register slot descriptor {}", result);
+            }
             result.setSubColLables(subColNames);
             result.setColumn(col);
             if (!subColNames.isEmpty()) {
@@ -2323,6 +2327,9 @@ public class Analyzer {
                         lastCompatibleExpr, exprLists.get(j).get(i));
                 lastCompatibleExpr = exprLists.get(j).get(i);
             }
+            if (compatibleType.isDecimalV3()) {
+                compatibleType = adjustDecimalV3PrecisionAndScale((ScalarType) compatibleType);
+            }
             // Now that we've found a compatible type, add implicit casts if necessary.
             for (int j = 0; j < exprLists.size(); ++j) {
                 if (!exprLists.get(j).get(i).getType().equals(compatibleType)) {
@@ -2331,6 +2338,21 @@ public class Analyzer {
                 }
             }
         }
+    }
+
+    private ScalarType adjustDecimalV3PrecisionAndScale(ScalarType decimalV3Type) {
+        ScalarType resultType = decimalV3Type;
+        int oldPrecision = decimalV3Type.getPrecision();
+        int oldScale = decimalV3Type.getDecimalDigits();
+        int integerPart = oldPrecision - oldScale;
+        int maxPrecision =
+                SessionVariable.getEnableDecimal256() ? ScalarType.MAX_DECIMAL256_PRECISION
+                        : ScalarType.MAX_DECIMAL128_PRECISION;
+        if (oldPrecision > maxPrecision) {
+            int newScale = maxPrecision - integerPart;
+            resultType = ScalarType.createDecimalType(maxPrecision, newScale < 0 ? 0 : newScale);
+        }
+        return resultType;
     }
 
     public long getConnectId() {

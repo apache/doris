@@ -82,6 +82,8 @@ public:
         return _partial_update_info;
     }
 
+    Status init_mow_context(std::shared_ptr<MowContext>& mow_context);
+
 protected:
     void _build_current_tablet_schema(int64_t index_id,
                                       const OlapTableSchemaParam* table_schema_param,
@@ -132,8 +134,6 @@ private:
     Status prepare_txn();
 
     void _garbage_collection();
-
-    Status init_mow_context(std::shared_ptr<MowContext>& mow_context);
 
     // Cast `BaseTablet` to `Tablet`
     Tablet* tablet();

@@ -18,6 +18,8 @@
 suite("transform_outer_join_to_anti") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     sql """drop table if exists eliminate_outer_join_A;"""
     sql """drop table if exists eliminate_outer_join_B;"""
@@ -61,6 +63,26 @@ suite("transform_outer_join_to_anti") {
     explain {
         sql("select eliminate_outer_join_B.* from eliminate_outer_join_A right outer join eliminate_outer_join_B on eliminate_outer_join_B.b = eliminate_outer_join_A.a where eliminate_outer_join_A.null_a is null")
         contains "OUTER JOIN"
+    }
+
+    explain {
+        sql("select eliminate_outer_join_A.* from eliminate_outer_join_A left outer join eliminate_outer_join_B on eliminate_outer_join_B.b = eliminate_outer_join_A.a where eliminate_outer_join_B.b is null or eliminate_outer_join_A.null_a is null")
+        contains "OUTER JOIN"
+    }
+
+    explain {
+        sql("select * from eliminate_outer_join_A left outer join eliminate_outer_join_B on eliminate_outer_join_B.b = eliminate_outer_join_A.a where eliminate_outer_join_B.b is null and eliminate_outer_join_A.null_a is null")
+        contains "ANTI JOIN"
+    }
+
+    explain {
+        sql("select * from eliminate_outer_join_A left outer join eliminate_outer_join_B on eliminate_outer_join_B.b = eliminate_outer_join_A.a where eliminate_outer_join_B.b is null and eliminate_outer_join_B.null_b is null")
+        contains "ANTI JOIN"
+    }
+
+    explain {
+        sql("select * from eliminate_outer_join_A right outer join eliminate_outer_join_B on eliminate_outer_join_B.b = eliminate_outer_join_A.a where eliminate_outer_join_A.a is null and eliminate_outer_join_B.null_b is null and eliminate_outer_join_A.null_a is null")
+        contains "ANTI JOIN"
     }
 }
 

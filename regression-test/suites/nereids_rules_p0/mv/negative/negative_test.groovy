@@ -21,10 +21,6 @@ This suite is a one dimensional test case file.
 suite("negative_partition_mv_rewrite") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
-    sql "SET enable_nereids_timeout = false"
 
     sql """
     drop table if exists orders_1
@@ -43,7 +39,7 @@ suite("negative_partition_mv_rewrite") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    AUTO PARTITION BY range date_trunc(`o_orderdate`, 'day') ()
+    auto partition by range (date_trunc(`o_orderdate`, 'day')) ()
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -73,7 +69,7 @@ suite("negative_partition_mv_rewrite") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    AUTO PARTITION BY range date_trunc(`l_shipdate`, 'day') ()
+    auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"

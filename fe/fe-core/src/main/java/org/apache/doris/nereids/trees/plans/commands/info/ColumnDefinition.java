@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
@@ -103,6 +104,24 @@ public class ColumnDefinition {
         this.isKey = isKey;
         this.aggType = aggType;
         this.isNullable = isNullable;
+        this.autoIncInitValue = autoIncInitValue;
+        this.defaultValue = defaultValue;
+        this.onUpdateDefaultValue = onUpdateDefaultValue;
+        this.comment = comment;
+        this.isVisible = isVisible;
+    }
+
+    /**
+     * constructor
+     */
+    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType,
+            ColumnNullableType nullableType, long autoIncInitValue, Optional<DefaultValue> defaultValue,
+            Optional<DefaultValue> onUpdateDefaultValue, String comment, boolean isVisible) {
+        this.name = name;
+        this.type = type;
+        this.isKey = isKey;
+        this.aggType = aggType;
+        this.isNullable = nullableType.getNullable(type.toCatalogDataType().getPrimitiveType());
         this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
         this.onUpdateDefaultValue = onUpdateDefaultValue;
@@ -197,8 +216,8 @@ public class ColumnDefinition {
             }
         }
         if (type.isHllType() || type.isQuantileStateType() || type.isBitmapType()) {
-            if (aggType != null) {
-                isNullable = false;
+            if (isNullable) {
+                throw new AnalysisException("complex type column must be not nullable, column:" + name);
             }
         }
 
@@ -246,6 +265,20 @@ public class ColumnDefinition {
             }
         }
 
+        if (aggType != null) {
+            // check if aggregate type is valid
+            if (aggType != AggregateType.GENERIC
+                    && !aggType.checkCompatibility(type.toCatalogDataType().getPrimitiveType())) {
+                throw new AnalysisException(String.format("Aggregate type %s is not compatible with primitive type %s",
+                        aggType, type.toSql()));
+            }
+            if (aggType == AggregateType.GENERIC) {
+                if (!SessionVariable.enableAggState()) {
+                    throw new AnalysisException("agg state not enable, need set enable_agg_state=true");
+                }
+            }
+        }
+
         if (isOlap) {
             if (!isKey && keysType.equals(KeysType.UNIQUE_KEYS)) {
                 aggTypeImplicit = true;
@@ -254,7 +287,10 @@ public class ColumnDefinition {
             // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.
             // If default value is not set, we set it NULL
             if (aggType == AggregateType.REPLACE_IF_NOT_NULL) {
-                isNullable = true;
+                if (!isNullable) {
+                    throw new AnalysisException(
+                            "REPLACE_IF_NOT_NULL column must be nullable, maybe should use REPLACE, column:" + name);
+                }
                 if (!defaultValue.isPresent()) {
                     defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
                 }
@@ -284,6 +320,10 @@ public class ColumnDefinition {
         } else if (type.isStructType()) {
             if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
                 throw new AnalysisException("Struct type column default value just support null");
+            }
+        } else if (type.isJsonType() || type.isVariantType()) {
+            if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("Json or Variant type column default value just support null");
             }
         }
 
@@ -334,44 +374,33 @@ public class ColumnDefinition {
 
         // from old planner CreateTableStmt's analyze method, after call columnDef.analyze(engineName.equals("olap"));
         if (isOlap && type.isComplexType()) {
-            if (aggType != null && aggType != AggregateType.NONE
-                    && aggType != AggregateType.REPLACE) {
-                throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
-                        + " column can't support aggregation " + aggType);
-            }
             if (isKey) {
                 throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
-                        + " can only be used in the non-key column of the duplicate table at present.");
+                        + " can only be used in the non-key column at present.");
+            }
+            if (type.isAggStateType()) {
+                if (aggType == null) {
+                    throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
+                            + " column must have aggregation type");
+                } else {
+                    if (aggType != AggregateType.GENERIC
+                            && aggType != AggregateType.NONE
+                            && aggType != AggregateType.REPLACE) {
+                        throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
+                                + " column can't support aggregation " + aggType);
+                    }
+                }
+            } else {
+                if (aggType != null && aggType != AggregateType.NONE && aggType != AggregateType.REPLACE) {
+                    throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
+                            + " column can't support aggregation " + aggType);
+                }
             }
         }
 
         if (type.isTimeLikeType()) {
             throw new AnalysisException("Time type is not supported for olap table");
         }
-    }
-
-    /**
-     * check if is nested complex type.
-     */
-    private boolean isNestedComplexType(DataType dataType) {
-        if (!dataType.isComplexType()) {
-            return false;
-        }
-        if (dataType instanceof ArrayType) {
-            if (((ArrayType) dataType).getItemType() instanceof ArrayType) {
-                return isNestedComplexType(((ArrayType) dataType).getItemType());
-            } else {
-                return ((ArrayType) dataType).getItemType().isComplexType();
-            }
-        }
-        if (dataType instanceof MapType) {
-            return ((MapType) dataType).getKeyType().isComplexType()
-                    || ((MapType) dataType).getValueType().isComplexType();
-        }
-        if (dataType instanceof StructType) {
-            return ((StructType) dataType).getFields().stream().anyMatch(f -> f.getDataType().isComplexType());
-        }
-        return false;
     }
 
     // from TypeDef.java analyze()

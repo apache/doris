@@ -197,3 +197,8 @@ false
 -- !test7 --
 1
 
+-- !test8 --
+3	the	4
+4	will	0
+8		6
+

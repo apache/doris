@@ -269,10 +269,10 @@ public class SqlBlockRuleMgr implements Writable {
             return;
         }
         // match global rule
-        List<SqlBlockRule> globalRules =
-                nameToSqlBlockRuleMap.values().stream().filter(SqlBlockRule::getGlobal).collect(Collectors.toList());
-        for (SqlBlockRule rule : globalRules) {
-            checkLimitations(rule, partitionNum, tabletNum, cardinality);
+        for (SqlBlockRule rule : nameToSqlBlockRuleMap.values()) {
+            if (rule.getGlobal()) {
+                checkLimitations(rule, partitionNum, tabletNum, cardinality);
+            }
         }
         // match user rule
         String[] bindSqlBlockRules = Env.getCurrentEnv().getAuth().getSqlBlockRules(user);
