@@ -131,4 +131,6 @@ suite("test_info_schema_db", "p0,external,hive,external_docker,external_docker_h
     qt_sql116 """select table_catalog, table_schema, table_name from information_schema.tables where table_schema='${innerdb}'"""
     qt_sql117 """select table_catalog, table_schema, table_name from ${catalog_name}.information_schema.columns where table_schema='tpch1_parquet'"""
     qt_sql118 """select table_catalog, table_schema, table_name from ${catalog_name}.INFORMATION_SCHEMA.COLUMNS where TABLE_SCHEMA='tpch1_parquet'"""
+
+    sql "select * from information_schema.PROCESSLIST;"
 }
