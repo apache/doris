@@ -282,7 +282,7 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
     }
 
     public <R> TypeAdapter<R> create(Gson gson, TypeToken<R> type) {
-        if (type.getRawType() != baseType && !subtypeToLabel.containsKey(type.getRawType())) {
+        if (!baseType.isAssignableFrom(type.getRawType()) && !subtypeToLabel.containsKey(type.getRawType())) {
             return null;
         }
 

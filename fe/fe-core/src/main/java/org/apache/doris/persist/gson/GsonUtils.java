@@ -758,12 +758,6 @@ public class GsonUtils {
                 }
 
                 public T read(JsonReader in) throws IOException {
-                    if (rawType == MTMV.class && Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-                        JsonElement json = Streams.parse(in);
-                        JsonObject jsonObject = json.getAsJsonObject();
-                        jsonObject.addProperty("clazz", MTMV.class.getSimpleName());
-                        return (T) GsonUtils.GSON.fromJson(jsonObject, MTMV.class);
-                    }
                     return delegate.read(in);
                 }
             };
