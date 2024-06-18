@@ -258,10 +258,19 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             }
             break;
         }
+        case RdKafka::ERR_OFFSET_OUT_OF_RANGE: {
+            done = true;
+            std::stringstream ss;
+            ss << msg->errstr() << ", consume partition " << msg->partition() << ", consume offset "
+               << msg->offset();
+            LOG(WARNING) << "kafka consume failed: " << _id << ", msg: " << ss.str();
+            st = Status::InternalError<false>(ss.str());
+            break;
+        }
         default:
             LOG(WARNING) << "kafka consume failed: " << _id << ", msg: " << msg->errstr();
             done = true;
-            st = Status::InternalError(msg->errstr());
+            st = Status::InternalError<false>(msg->errstr());
             break;
         }
 
