@@ -310,9 +310,6 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     }
 
     RETURN_IF_ERROR(init_iterators());
-    if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
-        _vec_init_char_column_id();
-    }
 
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
@@ -1676,15 +1673,22 @@ bool SegmentIterator::_has_char_type(const Field& column_desc) {
     }
 };
 
-void SegmentIterator::_vec_init_char_column_id() {
+void SegmentIterator::_vec_init_char_column_id(vectorized::Block* block) {
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         const Field* column_desc = _schema->column(cid);
 
-        if (_has_char_type(*column_desc)) {
-            _char_type_idx.emplace_back(i);
-            if (i != 0) {
-                _char_type_idx_no_0.emplace_back(i);
+        // The additional deleted filter condition will be in the materialized column at the end of the block.
+        // After _output_column_by_sel_idx, it will be erased, so we do not need to shrink it.
+        if (i < block->columns()) {
+            if (_has_char_type(*column_desc)) {
+                _char_type_idx.emplace_back(i);
+                if (i != 0) {
+                    _char_type_idx_no_0.emplace_back(i);
+                }
+            }
+            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                _is_char_type[cid] = true;
             }
         }
     }
@@ -2037,6 +2041,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             _block_rowids.resize(_opts.block_row_max);
         }
         _current_return_columns.resize(_schema->columns().size());
+        if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
+            _vec_init_char_column_id(block);
+        }
         for (size_t i = 0; i < _schema->num_column_ids(); i++) {
             auto cid = _schema->column_id(i);
             auto column_desc = _schema->column(cid);
