@@ -271,7 +271,7 @@ public class FloatLiteral extends LiteralExpr {
     }
 
     @Override
-    public void setupParamFromBinary(ByteBuffer data) {
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
         if (type.getPrimitiveType() == PrimitiveType.FLOAT) {
             value = data.getFloat();
             return;

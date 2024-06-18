@@ -48,6 +48,7 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     protected PlaceHolderExpr(LiteralExpr literal) {
         this.lExpr = literal;
+        this.type = literal.getType();
     }
 
     protected PlaceHolderExpr(PlaceHolderExpr other) {
@@ -59,9 +60,23 @@ public class PlaceHolderExpr extends LiteralExpr {
         this.type = literal.getType();
     }
 
+    public LiteralExpr getLiteral() {
+        return lExpr;
+    }
+
+    @Override
+    protected void analysisDone() {
+        if (lExpr != null && !lExpr.isAnalyzed) {
+            lExpr.analysisDone();
+        }
+        if (!isAnalyzed) {
+            super.analysisDone();
+        }
+    }
+
     public LiteralExpr createLiteralFromType() throws AnalysisException {
         Preconditions.checkState(mysqlTypeCode > 0);
-        return LiteralExpr.getLiteralByMysqlType(mysqlTypeCode);
+        return LiteralExpr.getLiteralByMysqlType(mysqlTypeCode, isUnsigned());
     }
 
     public static PlaceHolderExpr create(String value, Type type) throws AnalysisException {
@@ -86,6 +101,10 @@ public class PlaceHolderExpr extends LiteralExpr {
     @Override
     public boolean isMinValue() {
         return lExpr.isMinValue();
+    }
+
+    public boolean isUnsigned() {
+        return (mysqlTypeCode & 0x8000) != 0;
     }
 
     @Override
@@ -175,7 +194,7 @@ public class PlaceHolderExpr extends LiteralExpr {
         return "\"" + getStringValue() + "\"";
     }
 
-    public void setupParamFromBinary(ByteBuffer data) {
-        lExpr.setupParamFromBinary(data);
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
+        lExpr.setupParamFromBinary(data, isUnsigned);
     }
 }
