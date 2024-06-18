@@ -411,6 +411,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
             ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
             if (groupSchema == null) {
+                LOG.info("Not found colocate group {}, maybe delete", groupId);
                 continue;
             }
             ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
@@ -485,6 +486,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         for (GroupId groupId : groupIds) {
             ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
             if (groupSchema == null) {
+                LOG.info("Not found colocate group {}, maybe delete", groupId);
                 continue;
             }
 
@@ -595,6 +597,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         for (GroupId groupId : groupIds) {
             ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
             if (groupSchema == null) {
+                LOG.info("Not found colocate group {}, maybe delete", groupId);
                 continue;
             }
             ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
@@ -726,6 +729,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             boolean balanceBetweenGroups) {
         ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
         if (groupSchema == null) {
+            LOG.info("Not found colocate group {}, maybe delete", groupId);
             return false;
         }
         short replicaNum = groupSchema.getReplicaAlloc().getReplicaNumByTag(tag);
