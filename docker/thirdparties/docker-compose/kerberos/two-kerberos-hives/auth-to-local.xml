@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<configuration>
+    <property>
+        <name>hadoop.security.auth_to_local</name>
+        <value>
+            RULE:[2:$1@$0](.*@OTHERREALM.COM)s/@.*//
+            RULE:[2:$1@$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+            DEFAULT
+        </value>
+    </property>
+</configuration>
