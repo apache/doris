@@ -4713,6 +4713,14 @@ show_param ::=
     {:
         RESULT = new ShowConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, parser.wild);
     :}
+    | KW_BACKEND KW_CONFIG opt_wild_where
+    {:
+        RESULT = new ShowConfigStmt(AdminSetConfigStmt.ConfigType.BACKEND, parser.wild);
+    :}
+    | KW_BACKEND KW_CONFIG opt_wild_where KW_FROM INTEGER_LITERAL:backendId
+    {:
+        RESULT = new ShowConfigStmt(AdminSetConfigStmt.ConfigType.BACKEND, parser.wild, backendId);
+    :}
     | KW_TABLET KW_STORAGE KW_FORMAT
     {:
         RESULT = new ShowTabletStorageFormatStmt(false);
@@ -7864,6 +7872,14 @@ admin_stmt ::=
     | KW_ADMIN KW_SHOW KW_FRONTEND KW_CONFIG opt_wild_where
     {:
         RESULT = new ShowConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, parser.wild);
+    :}
+    | KW_ADMIN KW_SHOW KW_BACKEND KW_CONFIG opt_wild_where
+    {:
+        RESULT = new ShowConfigStmt(AdminSetConfigStmt.ConfigType.BACKEND, parser.wild);
+    :}
+    | KW_ADMIN KW_SHOW KW_BACKEND KW_CONFIG opt_wild_where KW_FROM INTEGER_LITERAL:backendId
+    {:
+        RESULT = new ShowConfigStmt(AdminSetConfigStmt.ConfigType.BACKEND, parser.wild, backendId);
     :}
     | KW_ADMIN KW_CHECK KW_TABLET LPAREN integer_list:tabletIds RPAREN opt_properties:properties
     {:

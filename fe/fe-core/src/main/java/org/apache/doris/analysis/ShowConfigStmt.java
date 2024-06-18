@@ -33,16 +33,30 @@ import com.google.common.collect.ImmutableList;
 
 // show frontend config;
 public class ShowConfigStmt extends ShowStmt {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("Key").add(
+    public static final ImmutableList<String> FE_TITLE_NAMES = new ImmutableList.Builder<String>().add("Key").add(
             "Value").add("Type").add("IsMutable").add("MasterOnly").add("Comment").build();
+
+    public static final ImmutableList<String> BE_TITLE_NAMES = new ImmutableList.Builder<String>().add("Host")
+            .add("Key").add("Value").add("Type").add("IsMutable").build();
 
     private ConfigType type;
 
     private String pattern;
 
+    private long backendId;
+
+    private boolean isShowSingleBackend;
+
     public ShowConfigStmt(ConfigType type, String pattern) {
         this.type = type;
         this.pattern = pattern;
+    }
+
+    public ShowConfigStmt(ConfigType type, String pattern, long backendId) {
+        this.type = type;
+        this.pattern = pattern;
+        this.backendId = backendId;
+        this.isShowSingleBackend = true;
     }
 
     public ConfigType getType() {
@@ -53,8 +67,16 @@ public class ShowConfigStmt extends ShowStmt {
         return pattern;
     }
 
+    public long getBackendId() {
+        return backendId;
+    }
+
+    public boolean isShowSingleBackend() {
+        return isShowSingleBackend;
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         // check auth
@@ -62,22 +84,32 @@ public class ShowConfigStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        if (type != ConfigType.FRONTEND) {
-            throw new AnalysisException("Only support setting Frontend configs now");
+        if (type != ConfigType.FRONTEND && type != ConfigType.BACKEND) {
+            throw new AnalysisException("Only support setting Frontend and Backend configs now");
         }
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : TITLE_NAMES) {
-            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+        if (type == ConfigType.FRONTEND) {
+            for (String title : FE_TITLE_NAMES) {
+                builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+            }
+        } else {
+            for (String title : BE_TITLE_NAMES) {
+                builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+            }
         }
         return builder.build();
     }
 
     @Override
     public RedirectStatus getRedirectStatus() {
+        // no need forward to master for backend config
+        if (type == ConfigType.BACKEND) {
+            return RedirectStatus.NO_FORWARD;
+        }
         if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
             return RedirectStatus.FORWARD_NO_SYNC;
         } else {
