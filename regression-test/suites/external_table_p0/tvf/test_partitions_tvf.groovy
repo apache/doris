@@ -57,9 +57,9 @@ suite("test_partitions_tvf","p0,external,tvf,external_docker") {
     // ReplicaAllocation
     assertEquals("tag.location.default: 1", res[0][16]);
     // IsMutable
-    assertEquals(1, res[0][17]);
+    assertEquals(true, res[0][17]);
     // SyncWithBaseTables
-    assertEquals(1, res[0][18]);
+    assertEquals(true, res[0][18]);
 
 
     // test exception
