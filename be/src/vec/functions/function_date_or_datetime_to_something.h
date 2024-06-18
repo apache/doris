@@ -27,7 +27,7 @@
 namespace doris::vectorized {
 
 /// See DateTimeTransforms.h
-template <typename ToDataType, typename Transform>
+template <typename ToDataType, typename Transform, bool need_check_input_valid = true>
 class FunctionDateOrDateTimeToSomething : public IFunction {
 public:
     static constexpr auto name = Transform::name;
@@ -94,8 +94,9 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         return DateTimeTransformImpl<typename Transform::OpArgType, typename ToDataType::FieldType,
-                                     Transform>::execute(block, arguments, result,
-                                                         input_rows_count);
+                                     Transform, need_check_input_valid>::execute(block, arguments,
+                                                                                 result,
+                                                                                 input_rows_count);
     }
 };
 

@@ -51,8 +51,10 @@ using FunctionSecond = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondI
 using FunctionSecondV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondImpl<UInt32>>;
 using FunctionToDays = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<Int64>>;
 using FunctionToDaysV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<UInt32>>;
-using FunctionToDate = FunctionDateOrDateTimeToSomething<DataTypeDateTime, ToDateImpl<Int64>>;
-using FunctionToDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<UInt32>>;
+using FunctionToDate =
+        FunctionDateOrDateTimeToSomething<DataTypeDateTime, ToDateImpl<Int64>, false>;
+using FunctionToDateV2 =
+        FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<UInt32>, false>;
 using FunctionDate = FunctionDateOrDateTimeToSomething<DataTypeDateTime, DateImpl<Int64>>;
 using FunctionDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<UInt32>>;
 
@@ -74,7 +76,7 @@ using FunctionDateTimeV2MicroSecond =
 using FunctionDateTimeV2ToDays =
         FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<UInt64>>;
 using FunctionDateTimeV2ToDate =
-        FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<UInt64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<UInt64>, false>;
 using FunctionDateTimeV2Date = FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<UInt64>>;
 
 using FunctionTimeStamp = FunctionDateOrDateTimeToSomething<DataTypeDateTime, TimeStampImpl<Int64>>;
