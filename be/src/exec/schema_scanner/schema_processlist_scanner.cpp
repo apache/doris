@@ -36,7 +36,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaProcessListScanner::_s_processlist_
         {"ID", TYPE_LARGEINT, sizeof(int128_t), false},
         {"USER", TYPE_VARCHAR, sizeof(StringRef), false},
         {"HOST", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"LOGIN_TIME", TYPE_DATETIMEV2, sizeof(DateTimeV2ValueType), false},
+        {"LOGIN_TIME", TYPE_DATETIMEV2, sizeof(vectorized::DateTimeV2ValueType), false},
         {"CATALOG", TYPE_VARCHAR, sizeof(StringRef), false},
         {"DB", TYPE_VARCHAR, sizeof(StringRef), false},
         {"COMMAND", TYPE_VARCHAR, sizeof(StringRef), false},
@@ -118,9 +118,10 @@ Status SchemaProcessListScanner::_fill_block_impl(vectorized::Block* block) {
                 }
                 datas[row_idx] = &int_vals[row_idx];
             } else if (_s_processlist_columns[col_idx].type == TYPE_DATETIMEV2) {
-                auto* dv = reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(&int_vals[row_idx]);
-                if (!dv->from_date_str(column_value.data(), column_value.size(), -1,
-                                       config::allow_zero_date)) {
+                auto* dv =
+                        reinterpret_cast<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*>(
+                                &int_vals[row_idx]);
+                if (!dv->from_date_str(column_value.data(), column_value.size(), -1, false)) {
                     return Status::InternalError(
                             "process list meet invalid data, column={}, data={}, reason={}",
                             _s_processlist_columns[col_idx].name, column_value);
