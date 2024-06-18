@@ -459,7 +459,7 @@ public class SchemaTable extends Table {
                     .column("QUERY_ID", ScalarType.createVarchar(256))
                     .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
                     .column("FE",
-                            ScalarType.createVarchar(64))))
+                            ScalarType.createVarchar(64)).build()))
             .build();
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
