@@ -1817,7 +1817,7 @@ public class Coordinator implements CoordInterface {
                         boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream().allMatch(
                                 scanNode -> scanNode.ignoreStorageDataDistribution(context, addressToBackendID.size()))
                                 && useNereids);
-                        if (node.isPresent() || ignoreStorageDataDistribution) {
+                        if (node.isPresent() && ignoreStorageDataDistribution) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
