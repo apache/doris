@@ -248,6 +248,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
                 rewrittenPlan = new LogicalFilter<>(Sets.newLinkedHashSet(rewriteCompensatePredicates), mvScan);
             }
+            boolean checkResult = rewriteQueryByViewPreCheck(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
+                    rewrittenPlan, materializationContext);
+            if (!checkResult) {
+                continue;
+            }
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext);
@@ -461,6 +466,19 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             baseTablePartitionNeedUnionNameMap.put(relatedPartitionTable, baseTableNeedUnionPartitionNameSet);
         }
         return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
+    }
+
+    /**
+     * Query rewrite result may output origin plan , this will cause loop.
+     * if return origin plan, need add check hear.
+     */
+    protected boolean rewriteQueryByViewPreCheck(MatchMode matchMode, StructInfo queryStructInfo,
+            StructInfo viewStructInfo, SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan,
+            MaterializationContext materializationContext) {
+        if (materializationContext instanceof AsyncMaterializationContext) {
+            return true;
+        }
+        return false;
     }
 
     /**
