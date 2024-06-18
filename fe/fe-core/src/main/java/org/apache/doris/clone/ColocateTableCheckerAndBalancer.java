@@ -378,7 +378,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      *  A    B    C    D
      */
     private void relocateAndBalanceGroups() {
-        Set<GroupId> groupIds = Sets.newHashSet(Env.getCurrentEnv().getColocateTableIndex().getAllGroupIds());
+        Set<GroupId> groupIds = Env.getCurrentEnv().getColocateTableIndex().getAllGroupIds();
 
         // balance only inside each group, excluded balance between all groups
         Set<GroupId> changeGroups = relocateAndBalanceGroup(groupIds, false);
