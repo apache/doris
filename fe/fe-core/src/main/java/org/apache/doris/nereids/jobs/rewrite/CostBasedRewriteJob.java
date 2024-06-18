@@ -20,12 +20,17 @@ package org.apache.doris.nereids.jobs.rewrite;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.cost.Cost;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.UseCboRuleHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -70,10 +75,44 @@ public class CostBasedRewriteJob implements RewriteJob {
                     rewriteJobs, currentCtx.getRewritePlan());
             return;
         }
+        Pair<Boolean, Boolean> checkHint = checkRuleHint();
+        if (checkHint.first) {
+            if (checkHint.second) {
+                currentCtx.setRewritePlan(applyCboRuleCtx.getRewritePlan());
+            }
+            return;
+        }
         // If the candidate applied cbo rule is better, replace the original plan with it.
         if (appliedCboRuleCost.get().first.getValue() < skipCboRuleCost.get().first.getValue()) {
             currentCtx.setRewritePlan(applyCboRuleCtx.getRewritePlan());
         }
+    }
+
+    private Pair<Boolean, Boolean> checkRuleHint() {
+        Pair<Boolean, Boolean> checkResult = Pair.of(false, false);
+        if (rewriteJobs.get(0) instanceof RootPlanTreeRewriteJob) {
+            for (Rule rule : ((RootPlanTreeRewriteJob) rewriteJobs.get(0)).getRules()) {
+                checkResult = checkRuleHintWithHintName(rule.getRuleType());
+            }
+        }
+        if (rewriteJobs.get(0) instanceof CustomRewriteJob) {
+            checkResult = checkRuleHintWithHintName(((CustomRewriteJob) rewriteJobs.get(0)).getRuleType());
+        }
+        return checkResult;
+    }
+
+    private Pair<Boolean, Boolean> checkRuleHintWithHintName(RuleType ruleType) {
+        for (Hint hint : ConnectContext.get().getStatementContext().getHints()) {
+            if (hint.getHintName().equalsIgnoreCase(ruleType.name())) {
+                hint.setStatus(Hint.HintStatus.SUCCESS);
+                if (((UseCboRuleHint) hint).isNotUseCboRule()) {
+                    return Pair.of(true, false);
+                } else {
+                    return Pair.of(true, true);
+                }
+            }
+        }
+        return Pair.of(false, false);
     }
 
     @Override

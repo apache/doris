@@ -6,6 +6,11 @@ PhysicalResultSink
 ------PhysicalOlapScan[t]
 ------PhysicalOlapScan[t]
 
+Hint log:
+Used:
+UnUsed: use_push_down_distinct_through_join
+SyntaxError:
+
 -- !basic --
 PhysicalResultSink
 --hashAgg[LOCAL]
@@ -15,6 +20,11 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t]
 ----------PhysicalOlapScan[t]
 ------PhysicalOlapScan[t]
+
+Hint log:
+Used: use_push_down_distinct_through_join
+UnUsed:
+SyntaxError:
 
 -- !basic_sql --
 1

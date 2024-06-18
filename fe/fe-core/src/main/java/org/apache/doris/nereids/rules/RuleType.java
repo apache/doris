@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.rules;
 
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.UseCboRuleHint;
 import org.apache.doris.nereids.pattern.PatternMatcher;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.ConnectContext;
 
 /**
  * Type of rules, each rule has its unique type.
@@ -488,6 +491,21 @@ public enum RuleType {
     public <INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> Rule build(
             PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> patternMatcher) {
         return patternMatcher.toRule(this);
+    }
+
+    /**
+     * check whether need to use cbo rule if do not have use hint
+     * @return true if we have such use cbo rule hint
+     */
+    public boolean checkUseCboRuleHint() {
+        for (Hint hint : ConnectContext.get().getStatementContext().getHints()) {
+            if (hint.getHintName().equalsIgnoreCase(this.name())) {
+                if (!((UseCboRuleHint) hint).isNotUseCboRule()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     enum RuleTypeClass {

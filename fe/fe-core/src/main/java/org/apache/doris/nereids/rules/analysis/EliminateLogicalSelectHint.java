@@ -26,9 +26,11 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.hint.OrderedHint;
+import org.apache.doris.nereids.hint.UseCboRuleHint;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
+import org.apache.doris.nereids.properties.SelectHintUseCboRule;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
@@ -73,6 +75,8 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                 } else if (hintName.equalsIgnoreCase("LEADING")) {
                     extractLeading((SelectHintLeading) hint.getValue(), ctx.cascadesContext,
                             ctx.statementContext, selectHintPlan.getHints());
+                } else if (hintName.equalsIgnoreCase("USE_CBO_RULE")) {
+                    extractRule((SelectHintUseCboRule) hint.getValue(), ctx.statementContext);
                 } else {
                     logger.warn("Can not process select hint '{}' and skip it", hint.getKey());
                 }
@@ -144,6 +148,14 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
         }
         assert (selectHint != null);
         assert (context != null);
+    }
+
+    private void extractRule(SelectHintUseCboRule selectHint, StatementContext statementContext) {
+        // rule hint need added to statementContext only cause it's set in all scopes
+        for (String parameter : selectHint.getParameters()) {
+            UseCboRuleHint hint = new UseCboRuleHint(parameter, selectHint.isNotUseCboRule());
+            statementContext.addHint(hint);
+        }
     }
 
 }
