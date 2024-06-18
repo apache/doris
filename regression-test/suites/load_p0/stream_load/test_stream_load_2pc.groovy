@@ -393,6 +393,9 @@ suite("test_stream_load_2pc", "p0") {
                 dynamic = ", " + dynamic
                 distributed = "DISTRIBUTED BY HASH(v5)"
             }
+
+            // we direct set the 'v5' default is '2024-06-18' to test dynamic parition, due to may be not support '`v5` date default (curdate())'
+            // so it will may be failed if  passed long time, but when support curdate() in create statement, we can success
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
 
@@ -402,7 +405,7 @@ suite("test_stream_load_2pc", "p0") {
                     `v2` tinyint(4) NULL,
                     `v3` tinyint(4) NULL,
                     `v4` DATETIME NULL,
-                    `v5` datetime(0) default current_timestamp
+                    `v5` date default "2024-06-18"
                 ) ENGINE=OLAP
                 $partition
                 $distributed
