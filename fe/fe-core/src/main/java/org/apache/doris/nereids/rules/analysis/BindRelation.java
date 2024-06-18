@@ -201,10 +201,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     throw new AnalysisException("Table " + olapTable.getName()
                         + " doesn't have materialized view " + indexName.get());
                 }
-                PreAggStatus preAggStatus
-                        = olapTable.getIndexMetaByIndexId(indexId).getKeysType().equals(KeysType.DUP_KEYS)
-                        ? PreAggStatus.unset()
-                        : PreAggStatus.off("For direct index scan.");
+                PreAggStatus preAggStatus = olapTable.isDupKeysOrMergeOnWrite() ? PreAggStatus.on()
+                        : PreAggStatus.off("For direct index scan on mor/agg.");
 
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, tableQualifier, tabletIds, indexId,
@@ -216,8 +214,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
         }
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
-                && !ConnectContext.get().getSessionVariable().skipDeleteSign()
-                && !scan.isDirectMvScan()) {
+                && !ConnectContext.get().getSessionVariable().skipDeleteSign()) {
             // table qualifier is catalog.db.table, we make db.table.column
             Slot deleteSlot = null;
             for (Slot slot : scan.getOutput()) {
