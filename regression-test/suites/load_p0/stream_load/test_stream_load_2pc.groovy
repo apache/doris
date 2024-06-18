@@ -23,7 +23,7 @@ import java.text.SimpleDateFormat
 
 suite("test_stream_load_2pc", "p0") {
 
-    // dynamic parition is according to current date to create partition, so we just use current time to test it, if the pass long time, the test may be failed.
+    // dynamic parition is according to current date to create partition, so we just use current time to test it, if passed long time, the test may be failed.
 
     // for test dup, mow, uniq, agg tables, we use sql statement concat these parameters
     // due to dynamic partition is different from others, it's the reason why we concat create sql statement 
