@@ -1607,7 +1607,7 @@ Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColum
     obj.incr_num_rows(*n);
     for (auto& entry : obj.get_subcolumns()) {
         if (entry->data.size() != size + *n) {
-            entry->data.insertManyDefaults(*n);
+            entry->data.insert_many_defaults(*n);
         }
     }
     // fill nullmap
@@ -1640,7 +1640,7 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
     obj.incr_num_rows(count);
     for (auto& entry : obj.get_subcolumns()) {
         if (entry->data.size() != (size + count)) {
-            entry->data.insertManyDefaults(count);
+            entry->data.insert_many_defaults(count);
         }
     }
     // fill nullmap

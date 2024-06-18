@@ -174,7 +174,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     const auto& subcolumns = column_object.get_subcolumns();
     for (const auto& entry : subcolumns) {
         if (entry->data.size() == old_num_rows) {
-            entry->data.insertDefault();
+            entry->data.insert_default();
         }
     }
     column_object.incr_num_rows();

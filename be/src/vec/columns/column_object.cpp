@@ -327,7 +327,7 @@ size_t ColumnObject::Subcolumn::Subcolumn::size() const {
     return res;
 }
 
-size_t ColumnObject::Subcolumn::Subcolumn::byteSize() const {
+size_t ColumnObject::Subcolumn::Subcolumn::byte_size() const {
     size_t res = 0;
     for (const auto& part : data) {
         res += part->byte_size();
@@ -335,7 +335,7 @@ size_t ColumnObject::Subcolumn::Subcolumn::byteSize() const {
     return res;
 }
 
-size_t ColumnObject::Subcolumn::Subcolumn::allocatedBytes() const {
+size_t ColumnObject::Subcolumn::Subcolumn::allocated_bytes() const {
     size_t res = 0;
     for (const auto& part : data) {
         res += part->allocated_bytes();
@@ -358,7 +358,7 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     auto base_type = WhichDataType(info.scalar_type_id);
     if (base_type.is_nothing()) {
-        insertDefault();
+        insert_default();
         return;
     }
     auto column_dim = least_common_type.get_dimensions();
@@ -413,7 +413,7 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     data.back()->insert(field);
 }
 
-void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start, size_t length) {
+void ColumnObject::Subcolumn::insert_range_from(const Subcolumn& src, size_t start, size_t length) {
     assert(start + length <= src.size());
     size_t end = start + length;
     // num_rows += length;
@@ -566,7 +566,7 @@ void ColumnObject::Subcolumn::finalize() {
     num_of_defaults_in_prefix = 0;
 }
 
-void ColumnObject::Subcolumn::insertDefault() {
+void ColumnObject::Subcolumn::insert_default() {
     if (data.empty()) {
         ++num_of_defaults_in_prefix;
     } else {
@@ -574,7 +574,7 @@ void ColumnObject::Subcolumn::insertDefault() {
     }
 }
 
-void ColumnObject::Subcolumn::insertManyDefaults(size_t length) {
+void ColumnObject::Subcolumn::insert_many_defaults(size_t length) {
     if (data.empty()) {
         num_of_defaults_in_prefix += length;
     } else {
@@ -708,7 +708,7 @@ MutableColumnPtr ColumnObject::clone_resized(size_t new_size) const {
 size_t ColumnObject::byte_size() const {
     size_t res = 0;
     for (const auto& entry : subcolumns) {
-        res += entry->data.byteSize();
+        res += entry->data.byte_size();
     }
     return res;
 }
@@ -716,7 +716,7 @@ size_t ColumnObject::byte_size() const {
 size_t ColumnObject::allocated_bytes() const {
     size_t res = 0;
     for (const auto& entry : subcolumns) {
-        res += entry->data.allocatedBytes();
+        res += entry->data.allocated_bytes();
     }
     return res;
 }
@@ -782,7 +782,7 @@ void ColumnObject::try_insert(const Field& field) {
     }
     for (auto& entry : subcolumns) {
         if (old_size == entry->data.size()) {
-            entry->data.insertDefault();
+            entry->data.insert_default();
         }
     }
     ++num_rows;
@@ -790,7 +790,7 @@ void ColumnObject::try_insert(const Field& field) {
 
 void ColumnObject::insert_default() {
     for (auto& entry : subcolumns) {
-        entry->data.insertDefault();
+        entry->data.insert_default();
     }
     ++num_rows;
 }
@@ -840,11 +840,11 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
             add_sub_column(entry->path, num_rows);
         }
         auto* subcolumn = get_subcolumn(entry->path);
-        subcolumn->insertRangeFrom(entry->data, start, length);
+        subcolumn->insert_range_from(entry->data, start, length);
     }
     for (auto& entry : subcolumns) {
         if (!src_object.has_subcolumn(entry->path)) {
-            entry->data.insertManyDefaults(length);
+            entry->data.insert_many_defaults(length);
         }
     }
     num_rows += length;
