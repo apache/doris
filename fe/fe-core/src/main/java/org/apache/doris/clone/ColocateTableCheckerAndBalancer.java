@@ -480,13 +480,17 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         // check each group
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
+            ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
+            if (groupSchema == null) {
+                continue;
+            }
+
             List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
             List<Set<Long>> backendBucketsSeq = colocateIndex.getBackendsPerBucketSeqSet(groupId);
             if (backendBucketsSeq.isEmpty()) {
                 continue;
             }
 
-            ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
             ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
             String unstableReason = null;
             OUT:
