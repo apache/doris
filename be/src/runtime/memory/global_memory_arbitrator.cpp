@@ -24,7 +24,7 @@
 namespace doris {
 
 std::mutex GlobalMemoryArbitrator::_reserved_trackers_lock;
-std::unordered_map<std::string, MemTracker::MemCounter> _reserved_trackers;
+std::unordered_map<std::string, MemTracker::MemCounter> GlobalMemoryArbitrator::_reserved_trackers;
 
 bvar::PassiveStatus<int64_t> g_vm_rss_sub_allocator_cache(
         "meminfo_vm_rss_sub_allocator_cache",
