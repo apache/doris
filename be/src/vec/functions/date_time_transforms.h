@@ -311,7 +311,8 @@ struct TransformerToStringTwoArgument {
     }
 };
 
-template <typename FromType, typename ToType, typename Transform>
+template <typename FromType, typename ToType, typename Transform,
+          bool need_check_input_valid = true>
 struct Transformer {
     static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to,
                        NullMap& null_map) {
@@ -321,8 +322,11 @@ struct Transformer {
 
         for (size_t i = 0; i < size; ++i) {
             vec_to[i] = Transform::execute(vec_from[i]);
-            null_map[i] = !((typename DateTraits<typename Transform::OpArgType>::T&)(vec_from[i]))
-                                   .is_valid_date();
+            if constexpr (need_check_input_valid) {
+                null_map[i] =
+                        !((typename DateTraits<typename Transform::OpArgType>::T&)(vec_from[i]))
+                                 .is_valid_date();
+            }
         }
     }
 
@@ -372,11 +376,12 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
     }
 };
 
-template <typename FromType, typename ToType, typename Transform>
+template <typename FromType, typename ToType, typename Transform,
+          bool need_check_input_valid = true>
 struct DateTimeTransformImpl {
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
                           size_t input_rows_count) {
-        using Op = Transformer<FromType, ToType, Transform>;
+        using Op = Transformer<FromType, ToType, Transform, need_check_input_valid>;
 
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
 
