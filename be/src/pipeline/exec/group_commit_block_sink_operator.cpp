@@ -64,11 +64,6 @@ Status GroupCommitBlockSinkLocalState::close(RuntimeState* state, Status close_s
     SCOPED_TIMER(_close_timer);
     RETURN_IF_ERROR(Base::close(state, close_status));
     RETURN_IF_ERROR(close_status);
-
-    if (_load_block_queue) {
-        _remove_estimated_wal_bytes();
-        _load_block_queue->remove_load_id(_parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
-    }
     // wait to wal
     auto st = Status::OK();
     if (_load_block_queue && (_load_block_queue->wait_internal_group_commit_finish ||
@@ -287,6 +282,8 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
                 }
                 RETURN_IF_ERROR(local_state._add_blocks(state, true));
             }
+            local_state._remove_estimated_wal_bytes();
+            local_state._load_block_queue->remove_load_id(_load_id);
         }
         return Status::OK();
     };
