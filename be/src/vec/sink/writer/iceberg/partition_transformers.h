@@ -266,6 +266,73 @@ private:
     int _width;
 };
 
+class BigintTruncatePartitionColumnTransform : public PartitionColumnTransform {
+public:
+    BigintTruncatePartitionColumnTransform(const TypeDescriptor& source_type, int width)
+            : _source_type(source_type), _width(width) {}
+
+    std::string name() const override { return "BigintTruncate"; }
+
+    const TypeDescriptor& get_result_type() const override { return _source_type; }
+
+    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+
+        ColumnPtr column_ptr;
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
+        if (auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            column_ptr = nullable_column->get_nested_column_ptr();
+            is_nullable = true;
+        } else {
+            column_ptr = column_with_type_and_name.column;
+            is_nullable = false;
+        }
+        if (const ColumnInt64* col_integer = check_and_get_column<ColumnInt64>(column_ptr)) {
+            auto col_res = ColumnInt64::create();
+            ColumnInt64::Container& out_data = col_res->get_data();
+            out_data.resize(col_integer->get_data().size());
+            const ColumnInt64::Container& in_data = col_integer->get_data();
+            const Int64* end_in = in_data.data() + in_data.size();
+
+            const Int64* __restrict p_in = in_data.data();
+            Int64* __restrict p_out = out_data.data();
+
+            while (p_in < end_in) {
+                *p_out = *p_in - ((*p_in % _width) + _width) % _width;
+                ++p_in;
+                ++p_out;
+            }
+            if (is_nullable) {
+                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+                return {std::move(res_column),
+                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                        column_with_type_and_name.name};
+            } else {
+                return {std::move(col_res),
+                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                        column_with_type_and_name.name};
+            }
+        } else if (auto col_right_const = check_and_get_column_const<ColumnInt64>(column_ptr)) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "BigintTruncatePartitionColumnTransform  transform partition "
+                                   "error use column_pos {} ",
+                                   column_pos);
+        } else {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "BigintTruncatePartitionColumnTransform  transform partition "
+                                   "error use column_pos {} ",
+                                   column_pos);
+        }
+    }
+
+private:
+    TypeDescriptor _source_type;
+    int _width;
+};
+
 template <typename T>
 class DecimalTruncatePartitionColumnTransform : public PartitionColumnTransform {
 public:
@@ -396,6 +463,74 @@ private:
     TypeDescriptor _target_type;
 };
 
+class BigintBucketPartitionColumnTransform : public PartitionColumnTransform {
+public:
+    BigintBucketPartitionColumnTransform(const TypeDescriptor& source_type, int bucket_num)
+            : _source_type(source_type), _bucket_num(bucket_num), _target_type(TYPE_INT) {}
+
+    std::string name() const override { return "BigintBucket"; }
+
+    const TypeDescriptor& get_result_type() const override { return _target_type; }
+
+    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+
+        ColumnPtr column_ptr;
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
+        if (auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            column_ptr = nullable_column->get_nested_column_ptr();
+            is_nullable = true;
+        } else {
+            column_ptr = column_with_type_and_name.column;
+            is_nullable = false;
+        }
+        if (const ColumnInt64* col_integer = check_and_get_column<ColumnInt64>(column_ptr)) {
+            auto col_res = ColumnInt64::create();
+            ColumnInt64::Container& out_data = col_res->get_data();
+            out_data.resize(col_integer->get_data().size());
+
+            const ColumnInt64::Container& in_data = col_integer->get_data();
+            const Int64* end_in = in_data.data() + in_data.size();
+
+            const Int64* __restrict p_in = in_data.data();
+            Int64* __restrict p_out = out_data.data();
+
+            while (p_in < end_in) {
+                Int64 long_value = static_cast<Int64>(*p_in);
+                uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
+
+                *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
+                ++p_in;
+                ++p_out;
+            }
+            if (is_nullable) {
+                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+                return {res_column,
+                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                        column_with_type_and_name.name};
+            } else {
+                return {std::move(col_res),
+                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                        column_with_type_and_name.name};
+            }
+        } else {
+            //assert(0);
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "IntBucketPartitionColumnTransform  transform partition error "
+                                   "use column_pos {} ",
+                                   column_pos);
+        }
+    }
+
+private:
+    TypeDescriptor _source_type;
+    int _bucket_num;
+    TypeDescriptor _target_type;
+};
+
 template <typename T>
 class DecimalBucketPartitionColumnTransform : public PartitionColumnTransform {
 public:
@@ -443,7 +578,6 @@ public:
                 uint32_t hash_value = HashUtil::murmur_hash3_32(buffer.data(), buffer.size(), 0);
 
                 *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
-                ;
                 ++p_in;
                 ++p_out;
             }
@@ -473,14 +607,7 @@ public:
     std::string get_partition_value(const TypeDescriptor& type,
                                     const std::any& value) const override {
         if (value.has_value()) {
-            int bucket_indx = 0;
-            try {
-                bucket_indx = std::any_cast<Int32>(value);
-            } catch (std::bad_any_cast& e) {
-                std::cout << "DecimalBucketPartitionColumnTransform parse value  error. "
-                          << e.what() << std::endl;
-            }
-            return std::to_string(bucket_indx);
+            return std::to_string(std::any_cast<Int32>(value));
         } else {
             return "null";
         }

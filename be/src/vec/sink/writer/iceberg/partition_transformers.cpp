@@ -44,6 +44,10 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
                 return std::make_unique<IntegerTruncatePartitionColumnTransform>(source_type,
                                                                                  parsed_width);
             }
+            case TYPE_BIGINT: {
+                return std::make_unique<BigintTruncatePartitionColumnTransform>(source_type,
+                                                                                parsed_width);
+            }
             case TYPE_VARCHAR:
             case TYPE_CHAR:
             case TYPE_STRING: {
@@ -81,6 +85,10 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
             case TYPE_INT: {
                 return std::make_unique<IntBucketPartitionColumnTransform>(source_type,
                                                                            parsed_width);
+            }
+            case TYPE_BIGINT: {
+                return std::make_unique<BigintBucketPartitionColumnTransform>(source_type,
+                                                                              parsed_width);
             }
             case TYPE_VARCHAR:
             case TYPE_CHAR:
