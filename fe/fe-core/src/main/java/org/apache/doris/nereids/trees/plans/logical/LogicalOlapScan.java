@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule;
 import org.apache.doris.nereids.trees.TableSample;
@@ -38,6 +39,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -454,5 +456,52 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         properties.put("PreAggStatus", preAggStatus.toString());
         olapScan.put("Properties", properties);
         return olapScan;
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        super.computeUnique(builder);
+        if (this.selectedIndexId != getTable().getBaseIndexId()) {
+            /*
+                computing unique doesn't work for mv, because mv's key may be different from base table
+                and the key can be any expression which is difficult to deduce if it's unique. for example
+                base table:
+                CREATE TABLE IF NOT EXISTS base(
+                    siteid INT(11) NOT NULL,
+                    citycode SMALLINT(6) NOT NULL,
+                    username VARCHAR(32) NOT NULL,
+                    pv BIGINT(20) SUM NOT NULL DEFAULT '0'
+                )
+                AGGREGATE KEY (siteid,citycode,username)
+                DISTRIBUTED BY HASH(siteid) BUCKETS 5 properties("replication_num" = "1");
+
+                case1:
+                create mv1:
+                create materialized view mv1 as select siteid, sum(pv) from base group by siteid;
+                the base table siteid + citycode + username is unique but the mv1's agg key siteid is not unique
+
+                case2:
+                create mv2:
+                create materialized view mv2 as select citycode * citycode, siteid, username from base;
+                the mv2's agg key citycode * citycode is not unique
+
+                for simplicity, we disable unique compute for mv
+             */
+            return;
+        }
+        Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
+        if (getTable().getKeysType().isAggregationFamily()) {
+            ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
+            for (Slot slot : outputSet) {
+                if (!(slot instanceof SlotReference)) {
+                    continue;
+                }
+                SlotReference slotRef = (SlotReference) slot;
+                if (slotRef.getColumn().isPresent() && slotRef.getColumn().get().isKey()) {
+                    uniqSlots.add(slot);
+                }
+            }
+            builder.addUniqueSlot(uniqSlots.build());
+        }
     }
 }
