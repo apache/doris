@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TMetaScanRange;
@@ -49,7 +50,26 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(DB, TABLE);
 
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("Name", ScalarType.createStringType()));
+            new Column("PartitionId", ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column("PartitionName", ScalarType.createStringType()),
+            new Column("VisibleVersion", ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column("VisibleVersionTime", ScalarType.createStringType()),
+            new Column("State", ScalarType.createStringType()),
+            new Column("PartitionKey", ScalarType.createStringType()),
+            new Column("Range", ScalarType.createStringType()),
+            new Column("DistributionKey", ScalarType.createStringType()),
+            new Column("Buckets", ScalarType.createType(PrimitiveType.INT)),
+            new Column("ReplicationNum", ScalarType.createType(PrimitiveType.INT)),
+            new Column("StorageMedium", ScalarType.createStringType()),
+            new Column("CooldownTime", ScalarType.createStringType()),
+            new Column("RemoteStoragePolicy", ScalarType.createStringType()),
+            new Column("LastConsistencyCheckTime", ScalarType.createStringType()),
+            new Column("DataSize", ScalarType.createStringType()),
+            new Column("IsInMemory", ScalarType.createType(PrimitiveType.BOOLEAN)),
+            new Column("ReplicaAllocation", ScalarType.createStringType()),
+            new Column("IsMutable", ScalarType.createType(PrimitiveType.BOOLEAN)),
+            new Column("SyncWithBaseTables", ScalarType.createType(PrimitiveType.BOOLEAN)),
+            new Column("UnsyncTables", ScalarType.createStringType()));
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 

@@ -818,16 +818,11 @@ public class MetadataGenerator {
         }
 
         PartitionsProcDir dir = new PartitionsProcDir(db, (OlapTable) table, false);
-        List<List<Comparable>> partitionInfos = null;
+
         try {
-            partitionInfos = dir.getPartitionInfos();
+            dataBatch = dir.getPartitionInfosForTvf();
         } catch (AnalysisException e) {
             return errorResult(e.getMessage());
-        }
-        for (List<Comparable> partitionInfo : partitionInfos) {
-            TRow trow = new TRow();
-            trow.addToColumnValue(new TCell().setStringVal(partitionInfo.get(1).toString()));
-            dataBatch.add(trow);
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
