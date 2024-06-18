@@ -23,6 +23,7 @@ import java.text.SimpleDateFormat
 
 suite("test_stream_load_2pc", "p0") {
 
+    // dynamic parition is according to current date to create partition, so we just use current time to test it, if the pass long time, the test may be failed.
 
     // for test dup, mow, uniq, agg tables, we use sql statement concat these parameters
     // due to dynamic partition is different from others, it's the reason why we concat create sql statement 
@@ -401,7 +402,7 @@ suite("test_stream_load_2pc", "p0") {
                     `v2` tinyint(4) NULL,
                     `v3` tinyint(4) NULL,
                     `v4` DATETIME NULL,
-                    `v5` datetime(6) default current_timestamp(6)
+                    `v5` datetime(0) default current_timestamp
                 ) ENGINE=OLAP
                 $partition
                 $distributed
@@ -448,7 +449,7 @@ suite("test_stream_load_2pc", "p0") {
         def dynamic_partition = ["", "", "", "", "",
         """
             "dynamic_partition.enable" = "true",
-            "dynamic_partition.time_unit" = "hour",
+            "dynamic_partition.time_unit" = "MONTH",
             "dynamic_partition.start" = "-1",
             "dynamic_partition.end" = "1",
             "dynamic_partition.prefix" = "p",
@@ -540,7 +541,7 @@ suite("test_stream_load_2pc", "p0") {
             drop_table.call()
             create_table.call(partition, dynamic_partition[i])
 
-            streamLoadAction.call(tableName, 'k1, k2, v1, v2, v3, v4', "test_two_phase_commit.csv", 2, tbl_2pc_expected[i])
+            streamLoadAction.call(tableName, 'k1, k2, v1, v2, v3', "test_two_phase_commit.csv", 2, tbl_2pc_expected[i])
             i++
             
         }
