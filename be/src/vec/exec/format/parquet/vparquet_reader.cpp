@@ -426,6 +426,14 @@ Status ParquetReader::set_fill_columns(
         if (iter == predicate_columns.end()) {
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         } else {
+            //For check missing column :   missing column == xx, missing column is null,missing column is not null.
+            if (_slot_id_to_filter_conjuncts->find(iter->second.second) !=
+                _slot_id_to_filter_conjuncts->end()) {
+                for (auto& ctx : _slot_id_to_filter_conjuncts->find(iter->second.second)->second) {
+                    _lazy_read_ctx.missing_columns_conjuncts.emplace_back(ctx);
+                }
+            }
+
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
             _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
         }

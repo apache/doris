@@ -409,7 +409,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public void setupParamFromBinary(ByteBuffer data) {
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
         int len = getParmLen(data);
         BigDecimal v = null;
         try {

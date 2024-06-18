@@ -1807,7 +1807,7 @@ public class DateLiteral extends LiteralExpr {
     }
 
     @Override
-    public void setupParamFromBinary(ByteBuffer data) {
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
         int len = getParmLen(data);
         if (type.getPrimitiveType() == PrimitiveType.DATE) {
             if (len >= 4) {

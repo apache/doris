@@ -1100,7 +1100,7 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getTimeSeriesCompactionLevelThreshold(),
                             localTbl.storeRowColumn(),
                             binlogConfig);
-
+                    task.setInvertedIndexStorageFormat(localTbl.getInvertedIndexStorageFormat());
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
                 }

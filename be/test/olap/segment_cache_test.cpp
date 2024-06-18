@@ -81,20 +81,20 @@ static void set_up() {
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    auto engine = std::make_unique<StorageEngine>(options);
-    engine_ref = engine.get();
-    Status s = engine->open();
+    engine_ref = new StorageEngine(options);
+    Status s = engine_ref->open();
     ASSERT_TRUE(s.ok()) << s;
     ASSERT_TRUE(s.ok()) << s;
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
-    exec_env->set_storage_engine(std::move(engine));
+    exec_env->set_storage_engine(engine_ref);
 }
 
 static void tear_down() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(nullptr);
+    delete engine_ref;
     engine_ref = nullptr;
     exec_env->set_storage_engine(nullptr);
     EXPECT_EQ(system("rm -rf ./segment_cache_test"), 0);
@@ -246,7 +246,7 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
     write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
-            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, &write_req, profile.get(), TUniqueId {});
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -281,8 +281,8 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
-    version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
+    version.first = tablet->rowset_with_max_version()->end_version() + 1;
+    version.second = tablet->rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;

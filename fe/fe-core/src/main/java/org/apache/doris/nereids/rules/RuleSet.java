@@ -71,6 +71,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalFileSinkToPhysicalFi
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalGenerateToPhysicalGenerate;
 import org.apache.doris.nereids.rules.implementation.LogicalHiveTableSinkToPhysicalHiveTableSink;
+import org.apache.doris.nereids.rules.implementation.LogicalHudiScanToPhysicalHudiScan;
 import org.apache.doris.nereids.rules.implementation.LogicalIcebergTableSinkToPhysicalIcebergTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalIntersectToPhysicalIntersect;
 import org.apache.doris.nereids.rules.implementation.LogicalJdbcScanToPhysicalJdbcScan;
@@ -176,6 +177,7 @@ public class RuleSet {
             .add(new LogicalOlapScanToPhysicalOlapScan())
             .add(new LogicalDeferMaterializeOlapScanToPhysicalDeferMaterializeOlapScan())
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
+            .add(new LogicalHudiScanToPhysicalHudiScan())
             .add(new LogicalFileScanToPhysicalFileScan())
             .add(new LogicalJdbcScanToPhysicalJdbcScan())
             .add(new LogicalOdbcScanToPhysicalOdbcScan())

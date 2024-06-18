@@ -28,6 +28,7 @@
 #include <string>
 #include <utility>
 
+#include "bvar/bvar.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -69,14 +70,20 @@
 namespace doris {
 using namespace ErrorCode;
 
+bvar::Adder<int64_t> g_load_stream_writer_cnt("load_stream_writer_count");
+bvar::Adder<int64_t> g_load_stream_file_writer_cnt("load_stream_file_writer_count");
+
 LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profile)
         : _req(*context), _rowset_writer(nullptr) {
     _rowset_builder =
             std::make_unique<RowsetBuilder>(*StorageEngine::instance(), *context, profile);
     _query_thread_context.init(); // from load stream
+    g_load_stream_writer_cnt << 1;
 }
 
-LoadStreamWriter::~LoadStreamWriter() = default;
+LoadStreamWriter::~LoadStreamWriter() {
+    g_load_stream_writer_cnt << -1;
+}
 
 Status LoadStreamWriter::init() {
     RETURN_IF_ERROR(_rowset_builder->init());
@@ -101,6 +108,7 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
                     return st;
                 }
                 _segment_file_writers.push_back(std::move(file_writer));
+                g_load_stream_file_writer_cnt << 1;
             }
         }
 
@@ -145,6 +153,7 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
         _is_canceled = true;
         return st;
     }
+    g_load_stream_file_writer_cnt << -1;
     LOG(INFO) << "segment " << segid << " path " << file_writer->path().native()
               << "closed, written " << file_writer->bytes_appended() << " bytes";
     if (file_writer->bytes_appended() == 0) {

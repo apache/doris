@@ -123,7 +123,7 @@ void InvertedIndexReader::get_analyse_result(std::vector<std::string>& analyse_r
                                              bool drop_duplicates) {
     analyse_result.clear();
 
-    std::wstring field_ws = std::wstring(field_name.begin(), field_name.end());
+    std::wstring field_ws = StringUtil::string_to_wstring(field_name);
     std::unique_ptr<lucene::analysis::TokenStream> token_stream(
             analyzer->tokenStream(field_ws.c_str(), reader));
 
@@ -239,6 +239,8 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
     if (std::string(dir->getObjectName()) == "DorisCompoundReader") {
         static_cast<DorisCompoundReader*>(dir)->getDorisIndexInput()->setIdxFileCache(false);
     }
+    // NOTE: before mem_tracker hook becomes active, we caculate reader memory size by hand.
+    mem_tracker->consume(index_searcher_builder->get_reader_size());
     return Status::OK();
 };
 
@@ -266,8 +268,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
     SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
 
     std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
-    LOG(INFO) << column_name << " begin to search the fulltext index from clucene, query_str ["
-              << search_str << "]";
+    VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
+               << search_str << "]";
 
     try {
         InvertedIndexQueryInfo query_info;
@@ -309,7 +311,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
         }
 
         std::unique_ptr<lucene::search::Query> query;
-        query_info.field_name = std::wstring(column_name.begin(), column_name.end());
+        query_info.field_name = StringUtil::string_to_wstring(column_name);
 
         if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY ||
@@ -420,7 +422,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     // std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
-    std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
+    std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);
     std::wstring search_str_ws = StringUtil::string_to_wstring(search_str);
     // unique_ptr with custom deleter
     std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {

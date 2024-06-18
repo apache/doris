@@ -321,10 +321,6 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     }
 
     RETURN_IF_ERROR(init_iterators());
-    if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
-        _is_char_type.resize(_schema->columns().size(), false);
-        _vec_init_char_column_id();
-    }
 
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
@@ -741,7 +737,7 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         _column_predicate_info->column_name = expr->expr_name();
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = std::dynamic_pointer_cast<doris::vectorized::VLiteral>(expr);
-        _column_predicate_info->query_values.push_back(v_literal_expr->value());
+        _column_predicate_info->query_values.insert(v_literal_expr->value());
     } else if (node_type == TExprNodeType::BINARY_PRED || node_type == TExprNodeType::MATCH_PRED ||
                node_type == TExprNodeType::IN_PRED) {
         if (node_type == TExprNodeType::MATCH_PRED) {
@@ -968,7 +964,8 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predica
 std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* predicate_info) {
     std::string pred_result_sign;
     pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + predicate_info->column_name + "_" +
-                       predicate_info->query_op + "_" + join(predicate_info->query_values, ",");
+                       predicate_info->query_op + "_" +
+                       boost::join(predicate_info->query_values, ",");
     return pred_result_sign;
 }
 
@@ -1734,19 +1731,23 @@ bool SegmentIterator::_has_char_type(const Field& column_desc) {
     }
 };
 
-void SegmentIterator::_vec_init_char_column_id() {
+void SegmentIterator::_vec_init_char_column_id(vectorized::Block* block) {
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         const Field* column_desc = _schema->column(cid);
 
-        if (_has_char_type(*column_desc)) {
-            _char_type_idx.emplace_back(i);
-            if (i != 0) {
-                _char_type_idx_no_0.emplace_back(i);
+        // The additional deleted filter condition will be in the materialized column at the end of the block.
+        // After _output_column_by_sel_idx, it will be erased, so we do not need to shrink it.
+        if (i < block->columns()) {
+            if (_has_char_type(*column_desc)) {
+                _char_type_idx.emplace_back(i);
+                if (i != 0) {
+                    _char_type_idx_no_0.emplace_back(i);
+                }
             }
-        }
-        if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-            _is_char_type[cid] = true;
+            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                _is_char_type[cid] = true;
+            }
         }
     }
 }
@@ -2179,6 +2180,10 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         }
         _current_return_columns.resize(_schema->columns().size());
         _converted_column_ids.resize(_schema->columns().size(), 0);
+        if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
+            _is_char_type.resize(_schema->columns().size(), false);
+            _vec_init_char_column_id(block);
+        }
         for (size_t i = 0; i < _schema->num_column_ids(); i++) {
             auto cid = _schema->column_id(i);
             auto column_desc = _schema->column(cid);
@@ -2643,7 +2648,7 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
         }
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
-        _column_predicate_info->query_values.push_back(v_literal_expr->value());
+        _column_predicate_info->query_values.insert(v_literal_expr->value());
     } else {
         if (node_type == TExprNodeType::MATCH_PRED) {
             _column_predicate_info->query_op = "match";

@@ -107,6 +107,7 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) {
+        this.queryOptions = queryOptions;
         if (statementContext.getConnectContext().getSessionVariable().isEnableNereidsTrace()) {
             NereidsTracer.init();
         } else {

@@ -388,21 +388,18 @@ Status VOlapTablePartitionParam::init() {
     // for both auto/non-auto partition table.
     _is_in_partition = _part_type == TPartitionType::type::LIST_PARTITIONED;
 
-    // initial partitions. if meet dummy partitions only for open BE nodes, not generate key of them for finding
+    // initial partitions
     for (const auto& t_part : _t_param.partitions) {
         VOlapTablePartition* part = nullptr;
         RETURN_IF_ERROR(generate_partition_from(t_part, part));
         _partitions.emplace_back(part);
-
-        if (!_t_param.partitions_is_fake) {
-            if (_is_in_partition) {
-                for (auto& in_key : part->in_keys) {
-                    _partitions_map->emplace(std::tuple {in_key.first, in_key.second, false}, part);
-                }
-            } else {
-                _partitions_map->emplace(
-                        std::tuple {part->end_key.first, part->end_key.second, false}, part);
+        if (_is_in_partition) {
+            for (auto& in_key : part->in_keys) {
+                _partitions_map->emplace(std::tuple {in_key.first, in_key.second, false}, part);
             }
+        } else {
+            _partitions_map->emplace(std::tuple {part->end_key.first, part->end_key.second, false},
+                                     part);
         }
     }
 
