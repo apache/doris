@@ -215,7 +215,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                                             bool* eos, int id) {
     if (state->is_cancelled()) {
         _set_scanner_done();
-        return Status::Cancelled("Query cancelled in ScannerContext");
+        return state->cancel_reason();
     }
     std::unique_lock l(_transfer_lock);
 
