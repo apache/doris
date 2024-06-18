@@ -365,6 +365,7 @@ public class Coordinator implements CoordInterface {
         this.fragments = fragments;
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
+        this.queryOptions.setBatchSize(Config.load_loading_task_batch_size);
         this.queryOptions.setEnableProfile(enableProfile);
         this.queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());

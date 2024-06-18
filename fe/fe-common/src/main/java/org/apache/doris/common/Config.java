@@ -1992,6 +1992,12 @@ public class Config extends ConfigBase {
     public static long external_cache_expire_time_minutes_after_access = 10; // 10 mins
 
     /**
+     * batch_size in query options for broker load task/export task/update coordinator
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int load_loading_task_batch_size = 64000;
+
+    /**
      * Github workflow test type, for setting some session variables
      * only for certain test type. E.g. only settting batch_size to small
      * value for p0.
