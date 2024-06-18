@@ -749,7 +749,6 @@ public class GsonUtils {
     private static class TableAdapterFactory implements TypeAdapterFactory {
 
         public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-            final Class<T> rawType = (Class<T>) type.getRawType();
             final TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
 
             return new TypeAdapter<T>() {
