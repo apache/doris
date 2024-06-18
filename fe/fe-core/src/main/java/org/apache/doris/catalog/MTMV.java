@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -41,10 +42,14 @@ import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.persist.gson.GsonUtils134;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+//import com.google.gson.JsonElement;
+//import com.google.gson.JsonObject;
+//import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -453,7 +458,21 @@ public class MTMV extends OlapTable {
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        MTMV materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
+        MTMV materializedView = null;
+        /*if (FeMetaVersion < FeMetaVersion.VERSION_135) {
+            JsonElement jsonElement = JsonParser.parseString(Text.readString(in));
+            JsonObject jsonObject = jsonElement.getAsJsonObject();
+            jsonObject.addProperty("clazz", MTMV.class.getSimpleName());
+            materializedView = GsonUtils.GSON.fromJson(jsonObject, this.getClass());
+        } else {
+            materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
+        }*/
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
+            materializedView = GsonUtils134.GSON.fromJson(Text.readString(in), this.getClass());
+        } else {
+            materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
+        }
+
         refreshInfo = materializedView.refreshInfo;
         querySql = materializedView.querySql;
         status = materializedView.status;
