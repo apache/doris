@@ -327,6 +327,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     }
 
     _storage_name_and_type.resize(_schema->columns().size());
+    auto storage_format = _opts.tablet_schema->get_inverted_index_storage_format();
     for (int i = 0; i < _schema->columns().size(); ++i) {
         const Field* col = _schema->column(i);
         if (col) {
@@ -336,7 +337,26 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             if (storage_type == nullptr) {
                 storage_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
             }
-            _storage_name_and_type[i] = std::make_pair(col->name(), storage_type);
+            // Currently, when writing a lucene index, the field of the document is column_name, and the column name is
+            // bound to the index field. Since version 1.2, the data file storage has been changed from column_name to
+            // column_unique_id, allowing the column name to be changed. Due to current limitations, previous inverted
+            // index data cannot be used after Doris changes the column name. Column names also support Unicode
+            // characters, which may cause other problems with indexing in non-ASCII characters.
+            // After consideration, it was decided to change the field name from column_name to column_unique_id in
+            // format V2, while format V1 continues to use column_name.
+            std::string field_name;
+            if (storage_format == InvertedIndexStorageFormatPB::V1) {
+                field_name = col->name();
+            } else {
+                if (col->is_extracted_column()) {
+                    // variant sub col
+                    // field_name format: parent_unique_id.sub_col_name
+                    field_name = std::to_string(col->parent_unique_id()) + "." + col->name();
+                } else {
+                    field_name = std::to_string(col->unique_id());
+                }
+            }
+            _storage_name_and_type[i] = std::make_pair(field_name, storage_type);
         }
     }
     return Status::OK();
