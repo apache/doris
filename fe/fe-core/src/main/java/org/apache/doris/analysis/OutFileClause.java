@@ -37,6 +37,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetCompressionType;
 import org.apache.doris.thrift.TParquetDataType;
@@ -70,6 +71,7 @@ public class OutFileClause {
     public static final Map<String, TParquetRepetitionType> PARQUET_REPETITION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetDataType> PARQUET_DATA_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetCompressionType> PARQUET_COMPRESSION_TYPE_MAP = Maps.newHashMap();
+    public static final Map<String, TFileCompressType> ORC_COMPRESSION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetVersion> PARQUET_VERSION_MAP = Maps.newHashMap();
     public static final Set<String> ORC_DATA_TYPE = Sets.newHashSet();
     public static final String FILE_NUMBER = "FileNumber";
@@ -108,7 +110,12 @@ public class OutFileClause {
         PARQUET_COMPRESSION_TYPE_MAP.put("lz4", TParquetCompressionType.LZ4);
         PARQUET_COMPRESSION_TYPE_MAP.put("lzo", TParquetCompressionType.LZO);
         PARQUET_COMPRESSION_TYPE_MAP.put("bz2", TParquetCompressionType.BZ2);
-        PARQUET_COMPRESSION_TYPE_MAP.put("default", TParquetCompressionType.UNCOMPRESSED);
+        PARQUET_COMPRESSION_TYPE_MAP.put("uncompressed", TParquetCompressionType.UNCOMPRESSED);
+
+        ORC_COMPRESSION_TYPE_MAP.put("plain", TFileCompressType.PLAIN);
+        ORC_COMPRESSION_TYPE_MAP.put("snappy", TFileCompressType.SNAPPYBLOCK);
+        ORC_COMPRESSION_TYPE_MAP.put("zlib", TFileCompressType.ZLIB);
+        ORC_COMPRESSION_TYPE_MAP.put("zstd", TFileCompressType.ZSTD);
 
         PARQUET_VERSION_MAP.put("v1", TParquetVersion.PARQUET_1_0);
         PARQUET_VERSION_MAP.put("latest", TParquetVersion.PARQUET_2_LATEST);
@@ -137,6 +144,7 @@ public class OutFileClause {
     public static final String PROP_DELETE_EXISTING_FILES = "delete_existing_files";
     public static final String PROP_FILE_SUFFIX = "file_suffix";
     public static final String PROP_WITH_BOM = "with_bom";
+    public static final String ORC_COMPRESSION = "orc.compression";
 
     private static final String PARQUET_PROP_PREFIX = "parquet.";
     private static final String SCHEMA = "schema";
@@ -171,7 +179,8 @@ public class OutFileClause {
     private String headerType = "";
 
     private static final String PARQUET_COMPRESSION = "compression";
-    private TParquetCompressionType parquetCompressionType = TParquetCompressionType.UNCOMPRESSED;
+    private TParquetCompressionType parquetCompressionType = TParquetCompressionType.SNAPPY;
+    private TFileCompressType orcCompressionType = TFileCompressType.ZLIB;
     private static final String PARQUET_DISABLE_DICTIONARY = "disable_dictionary";
     private boolean parquetDisableDictionary = false;
     private static final String PARQUET_VERSION = "version";
@@ -668,7 +677,7 @@ public class OutFileClause {
         if (PARQUET_COMPRESSION_TYPE_MAP.containsKey(propertyValue)) {
             this.parquetCompressionType = PARQUET_COMPRESSION_TYPE_MAP.get(propertyValue);
         } else {
-            LOG.warn("not set parquet compression type or is invalid, set default to UNCOMPRESSED type.");
+            LOG.warn("not set parquet compression type or is invalid, set default to SNAPPY type.");
         }
     }
 
@@ -744,6 +753,16 @@ public class OutFileClause {
     }
 
     private void getOrcProperties(Set<String> processedPropKeys) throws AnalysisException {
+        // get compression type
+        if (properties.containsKey(ORC_COMPRESSION)) {
+            if (ORC_COMPRESSION_TYPE_MAP.containsKey(properties.get(ORC_COMPRESSION))) {
+                this.orcCompressionType = ORC_COMPRESSION_TYPE_MAP.get(properties.get(ORC_COMPRESSION));
+            } else {
+                LOG.warn("not set orc compression type or is invalid, set default to ZLIB type.");
+            }
+            processedPropKeys.add(ORC_COMPRESSION);
+        }
+
         // check schema. if schema is not set, Doris will gen schema by select items
         String schema = properties.get(SCHEMA);
         if (schema == null) {
@@ -846,6 +865,7 @@ public class OutFileClause {
         }
         if (isOrcFormat()) {
             sinkOptions.setOrcSchema(serializeOrcSchema());
+            sinkOptions.setOrcCompressionType(orcCompressionType);
         }
         return sinkOptions;
     }
