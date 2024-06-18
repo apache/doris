@@ -541,7 +541,6 @@ public class GsonUtils {
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(new ExprAdapterFactory())
-            .registerTypeAdapterFactory(new TableAdapterFactory())
             .registerTypeAdapterFactory(exprAdapterFactory)
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
             .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory)
@@ -741,23 +740,6 @@ public class GsonUtils {
                     } else {
                         return delegate.read(in);
                     }
-                }
-            };
-        }
-    }
-
-    private static class TableAdapterFactory implements TypeAdapterFactory {
-
-        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-            final TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
-
-            return new TypeAdapter<T>() {
-                public void write(JsonWriter out, T value) throws IOException {
-                    delegate.write(out, value);
-                }
-
-                public T read(JsonReader in) throws IOException {
-                    return delegate.read(in);
                 }
             };
         }
