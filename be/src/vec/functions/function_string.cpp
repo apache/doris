@@ -485,24 +485,28 @@ struct NameLTrim {
 struct NameRTrim {
     static constexpr auto name = "rtrim";
 };
-template <bool is_ltrim, bool is_rtrim>
+template <bool is_ltrim, bool is_rtrim, bool trim_single>
 struct TrimUtil {
     static Status vector(const ColumnString::Chars& str_data,
-                         const ColumnString::Offsets& str_offsets, const StringRef& rhs,
+                         const ColumnString::Offsets& str_offsets, const StringRef& remove_str,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         size_t offset_size = str_offsets.size();
         res_offsets.resize(str_offsets.size());
         for (size_t i = 0; i < offset_size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&str_data[str_offsets[i - 1]]);
-            ColumnString::Offset size = str_offsets[i] - str_offsets[i - 1];
-            StringRef str(raw_str, size);
+            const ColumnString::Offset size = str_offsets[i] - str_offsets[i - 1];
+            const char* str_begin = raw_str;
+            const char* str_end = raw_str + size;
+
             if constexpr (is_ltrim) {
-                str = simd::VStringFunctions::ltrim(str, rhs);
+                str_begin =
+                        simd::VStringFunctions::ltrim<trim_single>(str_begin, str_end, remove_str);
             }
             if constexpr (is_rtrim) {
-                str = simd::VStringFunctions::rtrim(str, rhs);
+                str_end =
+                        simd::VStringFunctions::rtrim<trim_single>(str_begin, str_end, remove_str);
             }
-            StringOP::push_value_string(std::string_view((char*)str.data, str.size), i, res_data,
+            StringOP::push_value_string(std::string_view(str_begin, str_end), i, res_data,
                                         res_offsets);
         }
         return Status::OK();
@@ -521,9 +525,9 @@ struct Trim1Impl {
         if (const auto* col = assert_cast<const ColumnString*>(column.get())) {
             auto col_res = ColumnString::create();
             char blank[] = " ";
-            StringRef rhs(blank, 1);
-            RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim>::vector(
-                    col->get_chars(), col->get_offsets(), rhs, col_res->get_chars(),
+            const StringRef remove_str(blank, 1);
+            RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim, true>::vector(
+                    col->get_chars(), col->get_offsets(), remove_str, col_res->get_chars(),
                     col_res->get_offsets())));
             block.replace_by_position(result, std::move(col_res));
         } else {
@@ -550,15 +554,22 @@ struct Trim2Impl {
         const auto& rcol =
                 assert_cast<const ColumnConst*>(block.get_by_position(arguments[1]).column.get())
                         ->get_data_column_ptr();
-        if (auto col = assert_cast<const ColumnString*>(column.get())) {
-            if (auto col_right = assert_cast<const ColumnString*>(rcol.get())) {
+        if (const auto* col = assert_cast<const ColumnString*>(column.get())) {
+            if (const auto* col_right = assert_cast<const ColumnString*>(rcol.get())) {
                 auto col_res = ColumnString::create();
-                const char* raw_rhs = reinterpret_cast<const char*>(&(col_right->get_chars()[0]));
-                ColumnString::Offset rhs_size = col_right->get_offsets()[0];
-                StringRef rhs(raw_rhs, rhs_size);
-                RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim>::vector(
-                        col->get_chars(), col->get_offsets(), rhs, col_res->get_chars(),
-                        col_res->get_offsets())));
+                const char* remove_str_raw_rhs =
+                        reinterpret_cast<const char*>(col_right->get_chars().data());
+                const ColumnString::Offset remove_str_rhs_size = col_right->get_offsets()[0];
+                const StringRef remove_str(remove_str_raw_rhs, remove_str_rhs_size);
+                if (remove_str.size == 1) {
+                    RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim, true>::vector(
+                            col->get_chars(), col->get_offsets(), remove_str, col_res->get_chars(),
+                            col_res->get_offsets())));
+                } else {
+                    RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim, false>::vector(
+                            col->get_chars(), col->get_offsets(), remove_str, col_res->get_chars(),
+                            col_res->get_offsets())));
+                }
                 block.replace_by_position(result, std::move(col_res));
             } else {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",

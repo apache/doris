@@ -100,169 +100,77 @@ public:
     /// n equals to 16 chars length
     static constexpr auto REGISTER_SIZE = sizeof(__m128i);
 #endif
-public:
-    static StringRef rtrim(const StringRef& str) {
-        if (str.size == 0) {
-            return str;
-        }
-        auto begin = 0;
-        int64_t end = str.size - 1;
-#if defined(__SSE2__) || defined(__aarch64__)
-        char blank = ' ';
-        const auto pattern = _mm_set1_epi8(blank);
-        while (end - begin + 1 >= REGISTER_SIZE) {
-            const auto v_haystack = _mm_loadu_si128(
-                    reinterpret_cast<const __m128i*>(str.data + end + 1 - REGISTER_SIZE));
-            const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
-            const auto mask = _mm_movemask_epi8(v_against_pattern);
-            int offset = __builtin_clz(~(mask << REGISTER_SIZE));
-            /// means not found
-            if (offset == 0) {
-                return StringRef(str.data + begin, end - begin + 1);
-            } else {
-                end -= offset;
-            }
-        }
-#endif
-        while (end >= begin && str.data[end] == ' ') {
-            --end;
-        }
-        if (end < 0) {
-            return StringRef("");
-        }
-        return StringRef(str.data + begin, end - begin + 1);
-    }
 
-    static StringRef ltrim(const StringRef& str) {
-        if (str.size == 0) {
-            return str;
+    template <bool trim_single>
+    static inline const char* rtrim(const char* begin, const char* end,
+                                    const StringRef& remove_str) {
+        if (remove_str.size == 0) {
+            return end;
         }
-        auto begin = 0;
-        auto end = str.size - 1;
+        const char* p = end;
 #if defined(__SSE2__) || defined(__aarch64__)
-        char blank = ' ';
-        const auto pattern = _mm_set1_epi8(blank);
-        while (end - begin + 1 >= REGISTER_SIZE) {
-            const auto v_haystack =
-                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(str.data + begin));
-            const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
-            const auto mask = _mm_movemask_epi8(v_against_pattern) ^ 0xffff;
-            /// zero means not found
-            if (mask == 0) {
-                begin += REGISTER_SIZE;
-            } else {
-                const auto offset = __builtin_ctz(mask);
-                begin += offset;
-                return StringRef(str.data + begin, end - begin + 1);
-            }
-        }
-#endif
-        while (begin <= end && str.data[begin] == ' ') {
-            ++begin;
-        }
-        return StringRef(str.data + begin, end - begin + 1);
-    }
-
-    static StringRef trim(const StringRef& str) {
-        if (str.size == 0) {
-            return str;
-        }
-        return rtrim(ltrim(str));
-    }
-
-    static StringRef rtrim(const StringRef& str, const StringRef& rhs) {
-        if (str.size == 0 || rhs.size == 0) {
-            return str;
-        }
-        if (rhs.size == 1) {
-            auto begin = 0;
-            int64_t end = str.size - 1;
-            const char blank = rhs.data[0];
-#if defined(__SSE2__) || defined(__aarch64__)
-            const auto pattern = _mm_set1_epi8(blank);
-            while (end - begin + 1 >= REGISTER_SIZE) {
-                const auto v_haystack = _mm_loadu_si128(
-                        reinterpret_cast<const __m128i*>(str.data + end + 1 - REGISTER_SIZE));
-                const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
-                const auto mask = _mm_movemask_epi8(v_against_pattern);
-                int offset = __builtin_clz(~(mask << REGISTER_SIZE));
-                /// means not found
-                if (offset == 0) {
-                    return StringRef(str.data + begin, end - begin + 1);
-                } else {
-                    end -= offset;
+        if constexpr (trim_single) {
+            const auto size = end - begin;
+            const auto SSE2_BYTES = sizeof(__m128i);
+            const auto* const sse2_begin = end - (size & ~(SSE2_BYTES - 1));
+            const auto spaces = _mm_set1_epi8(remove_str.data[0]);
+            for (p = end - SSE2_BYTES; p >= sse2_begin; p -= SSE2_BYTES) {
+                uint32_t masks =
+                        _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128((__m128i*)p), spaces));
+                int pos = __builtin_clz(~(masks << SSE2_BYTES));
+                if (pos < SSE2_BYTES) {
+                    return p + SSE2_BYTES - pos;
                 }
             }
-#endif
-            while (end >= begin && str.data[end] == blank) {
-                --end;
-            }
-            if (end < 0) {
-                return StringRef("");
-            }
-            return StringRef(str.data + begin, end - begin + 1);
+            p += SSE2_BYTES;
         }
-        auto begin = 0;
-        auto end = str.size - 1;
-        const auto rhs_size = rhs.size;
-        while (end - begin + 1 >= rhs_size) {
-            if (memcmp(str.data + end - rhs_size + 1, rhs.data, rhs_size) == 0) {
-                end -= rhs.size;
+#endif
+        const auto remove_size = remove_str.size;
+        const auto* const remove_data = remove_str.data;
+        while (p - begin >= remove_size) {
+            if (memcmp(p - remove_size, remove_data, remove_size) == 0) {
+                p -= remove_str.size;
             } else {
                 break;
             }
         }
-        return StringRef(str.data + begin, end - begin + 1);
+        return p;
     }
 
-    static StringRef ltrim(const StringRef& str, const StringRef& rhs) {
-        if (str.size == 0 || rhs.size == 0) {
-            return str;
+    template <bool trim_single>
+    static inline const char* ltrim(const char* begin, const char* end,
+                                    const StringRef& remove_str) {
+        if (remove_str.size == 0) {
+            return begin;
         }
-        if (str.size == 1) {
-            auto begin = 0;
-            auto end = str.size - 1;
-            const char blank = rhs.data[0];
+        const char* p = begin;
 #if defined(__SSE2__) || defined(__aarch64__)
-            const auto pattern = _mm_set1_epi8(blank);
-            while (end - begin + 1 >= REGISTER_SIZE) {
-                const auto v_haystack =
-                        _mm_loadu_si128(reinterpret_cast<const __m128i*>(str.data + begin));
-                const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
-                const auto mask = _mm_movemask_epi8(v_against_pattern) ^ 0xffff;
-                /// zero means not found
-                if (mask == 0) {
-                    begin += REGISTER_SIZE;
-                } else {
-                    const auto offset = __builtin_ctz(mask);
-                    begin += offset;
-                    return StringRef(str.data + begin, end - begin + 1);
+        if constexpr (trim_single) {
+            const auto size = end - begin;
+            const auto SSE2_BYTES = sizeof(__m128i);
+            const auto* const sse2_end = begin + (size & ~(SSE2_BYTES - 1));
+            const auto spaces = _mm_set1_epi8(remove_str.data[0]);
+            for (; p < sse2_end; p += SSE2_BYTES) {
+                uint32_t masks =
+                        _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128((__m128i*)p), spaces));
+                int pos = __builtin_ctz((1U << SSE2_BYTES) | ~masks);
+                if (pos < SSE2_BYTES) {
+                    return p + pos;
                 }
             }
-#endif
-            while (begin <= end && str.data[begin] == blank) {
-                ++begin;
-            }
-            return StringRef(str.data + begin, end - begin + 1);
         }
-        auto begin = 0;
-        auto end = str.size - 1;
-        const auto rhs_size = rhs.size;
-        while (end - begin + 1 >= rhs_size) {
-            if (memcmp(str.data + begin, rhs.data, rhs_size) == 0) {
-                begin += rhs.size;
+#endif
+
+        const auto remove_size = remove_str.size;
+        const auto* const remove_data = remove_str.data;
+        while (end - p >= remove_size) {
+            if (memcmp(p, remove_data, remove_size) == 0) {
+                p += remove_str.size;
             } else {
                 break;
             }
         }
-        return StringRef(str.data + begin, end - begin + 1);
-    }
-
-    static StringRef trim(const StringRef& str, const StringRef& rhs) {
-        if (str.size == 0 || rhs.size == 0) {
-            return str;
-        }
-        return rtrim(ltrim(str, rhs), rhs);
+        return p;
     }
 
     // Gcc will do auto simd in this function
