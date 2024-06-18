@@ -96,8 +96,37 @@ class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements Memo
     }
 
     @Test
-    void testGroupByFkWithAggFunc() {
+    void testGroupByFkWithCount() {
         String sql = "select count(pri.id1) from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
+                + "group by foreign_not_null.id2, pri.id1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(any(), logicalAggregate()))
+                .printlnTree();
+        sql = "select count(foreign_not_null.id2) from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
+                + "group by foreign_not_null.id2, pri.id1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(any(), logicalAggregate()))
+                .printlnTree();
+    }
+
+    @Test
+    void testGroupByFkWithForeigAgg() {
+        String sql = "select sum(foreign_not_null.id2) from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
+                + "group by foreign_not_null.id2, pri.id1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(any(), logicalAggregate()))
+                .printlnTree();
+    }
+
+    @Test
+    void testGroupByFkWithPrimaryAgg() {
+        String sql = "select sum(pri.id1) from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
                 + "group by foreign_not_null.id2, pri.id1";
         PlanChecker.from(connectContext)
                 .analyze(sql)

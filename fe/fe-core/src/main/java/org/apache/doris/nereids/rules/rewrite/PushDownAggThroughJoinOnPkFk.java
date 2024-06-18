@@ -21,8 +21,11 @@ import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FuncDeps;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -34,8 +37,11 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import org.apache.thrift.annotation.Nullable;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -61,8 +67,7 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
                                 .when(j -> j.getJoinType().isInnerJoin()
                                         && !j.isMarkJoin()
                                         && j.getOtherJoinConjuncts().isEmpty()))
-                        .when(agg -> agg.getGroupByExpressions().stream().allMatch(Slot.class::isInstance)
-                                    && agg.getOutputExpressions().stream().allMatch(Slot.class::isInstance))
+                        .when(agg -> agg.getGroupByExpressions().stream().allMatch(Slot.class::isInstance))
                         .thenApply(ctx -> pushAgg(ctx.root, ctx.root.child()))
                         .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ON_PKFK),
                 logicalAggregate(
@@ -83,8 +88,7 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         if (foreign == null) {
             return null;
         }
-        Set<Slot> foreignKey = Sets.intersection(join.getEqualSlots().getAllItemSet(), foreign.getOutputSet());
-        LogicalAggregate<?> newAgg = tryGroupByForeign(agg, foreign, foreignKey);
+        LogicalAggregate<?> newAgg = tryGroupByForeign(agg, foreign);
         if (newAgg == null) {
             return null;
         }
@@ -97,14 +101,50 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         return null;
     }
 
+    private @Nullable Set<Expression> constructNewGroupBy(LogicalAggregate<?> agg, Set<Slot> foreignOutput,
+            Map<Slot, Slot> primaryToForeignBiDeps) {
+        Set<Expression> newGroupBySlots = new HashSet<>();
+        for (Expression expression : agg.getGroupByExpressions()) {
+            if (!(expression instanceof Slot)) {
+                return null;
+            }
+            if (!foreignOutput.contains((Slot) expression)
+                    && !primaryToForeignBiDeps.containsKey((Slot) expression)) {
+                return null;
+            }
+            expression = primaryToForeignBiDeps.getOrDefault(expression, (Slot) expression);
+            newGroupBySlots.add(expression);
+        }
+        return newGroupBySlots;
+    }
+
+    private @Nullable List<NamedExpression> constructNewOutput(LogicalAggregate<?> agg, Set<Slot> foreignOutput,
+            Map<Slot, Slot> primaryToForeignBiDeps) {
+        List<NamedExpression> newOutput = new ArrayList<>();
+        for (NamedExpression expression : agg.getOutputExpressions()) {
+            if (expression instanceof Slot && primaryToForeignBiDeps.containsKey(expression)) {
+                expression = primaryToForeignBiDeps.getOrDefault(expression, expression.toSlot());
+            }
+            if (expression instanceof Alias && expression.child(0) instanceof Count) {
+                expression = (NamedExpression) expression.rewriteUp(e ->
+                        e instanceof Slot
+                                ? primaryToForeignBiDeps.getOrDefault((Slot) e, (Slot) e)
+                                : e);
+            }
+            if (!(expression instanceof Slot)
+                    && !foreignOutput.containsAll(expression.getInputSlots())) {
+                return null;
+            }
+            newOutput.add(expression);
+        }
+        return newOutput;
+    }
+
     private @Nullable LogicalAggregate<?> tryGroupByForeign(
-            LogicalAggregate<?> agg, Plan foreign, Set<Slot> foreignKey) {
+            LogicalAggregate<?> agg, Plan foreign) {
         Set<Slot> groupBySlots = new HashSet<>();
         for (Expression expr : agg.getGroupByExpressions()) {
             groupBySlots.addAll(expr.getInputSlots());
-        }
-        if (groupBySlots.containsAll(foreignKey)) {
-            return null;
         }
         if (foreign.getOutputSet().containsAll(groupBySlots)) {
             return agg;
@@ -113,22 +153,24 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         Set<Slot> primarySlots = Sets.difference(groupBySlots, foreignOutput);
         DataTrait dataTrait = agg.child().getLogicalProperties().getTrait();
         FuncDeps funcDeps = dataTrait.getAllValidFuncDeps(Sets.union(groupBySlots, foreign.getOutputSet()));
-        Set<Slot> newGroupBySlots = new HashSet<>(groupBySlots);
+        HashMap<Slot, Slot> primaryToForeignBiDeps = new HashMap<>();
         for (Slot slot : primarySlots) {
             Set<Set<Slot>> replacedSlotSets = funcDeps.calBinaryDependencies(ImmutableSet.of(slot));
             for (Set<Slot> replacedSlots : replacedSlotSets) {
-                if (foreignOutput.containsAll(replacedSlots)) {
-                    newGroupBySlots.remove(slot);
-                    newGroupBySlots.addAll(replacedSlots);
+                if (foreignOutput.containsAll(replacedSlots) && replacedSlots.size() == 1) {
+                    primaryToForeignBiDeps.put(slot, replacedSlots.iterator().next());
                     break;
                 }
             }
-            if (newGroupBySlots.contains(slot)) {
-                return null;
-            }
+        }
+
+        Set<Expression> newGroupBySlots = constructNewGroupBy(agg, foreignOutput, primaryToForeignBiDeps);
+        List<NamedExpression> newOutput = constructNewOutput(agg, foreignOutput, primaryToForeignBiDeps);
+        if (newGroupBySlots == null || newOutput == null) {
+            return null;
         }
         LogicalAggregate<?> newAgg =
-                agg.withGroupByAndOutput(ImmutableList.copyOf(newGroupBySlots), ImmutableList.copyOf(newGroupBySlots));
+                agg.withGroupByAndOutput(ImmutableList.copyOf(newGroupBySlots), ImmutableList.copyOf(newOutput));
         return (LogicalAggregate<?>) newAgg.withChildren(foreign);
     }
 
