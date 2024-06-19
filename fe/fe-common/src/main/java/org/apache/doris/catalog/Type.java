@@ -835,7 +835,7 @@ public abstract class Type {
 
     public static boolean canCastTo(Type sourceType, Type targetType) {
         // In BE Code , we make any data type can cast to jsonb
-        if (targetType.isJsonbType()) {
+        if (targetType.isJsonbType() && sourceType.isComplexType()) {
             return true;
         }
         if (sourceType.isVariantType() && (targetType.isScalarType() || targetType.isArrayType())) {
