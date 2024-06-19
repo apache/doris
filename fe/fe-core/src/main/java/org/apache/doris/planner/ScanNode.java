@@ -44,12 +44,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
-import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.SplitGenerator;
 import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
@@ -720,22 +718,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return scanRangeLocation;
     }
 
-    // some scan should not enable the shared scan opt to prevent the performance problem
-    // 1. is key search
-    // 2. session variable not enable_shared_scan
-    public boolean shouldDisableSharedScan(ConnectContext context) {
-        return isKeySearch() || context == null
-                || !context.getSessionVariable().getEnableSharedScan()
-                || !context.getSessionVariable().getEnablePipelineEngine()
-                || context.getSessionVariable().getEnablePipelineXEngine()
-                || this instanceof FileScanNode
-                || getShouldColoScan();
-    }
-
     public boolean ignoreStorageDataDistribution(ConnectContext context, int numBackends) {
         return context != null
                 && context.getSessionVariable().isIgnoreStorageDataDistribution()
-                && context.getSessionVariable().getEnablePipelineXEngine()
                 && !fragment.hasNullAwareLeftAntiJoin()
                 && getScanRangeNum()
                 < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum()
@@ -820,7 +805,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     protected void toThrift(TPlanNode msg) {
         // topn filter
-        if (useTopnFilter() && SessionVariable.enablePipelineEngineX()) {
+        if (useTopnFilter()) {
             List<Integer> topnFilterSourceNodeIds = getTopnFilterSortNodes()
                     .stream()
                     .map(sortNode -> sortNode.getId().asInt())
