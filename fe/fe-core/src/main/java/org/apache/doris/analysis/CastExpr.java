@@ -119,19 +119,6 @@ public class CastExpr extends Expr {
         analysisDone();
     }
 
-    public boolean checkMapKeyIsStringLikeForJson(Type complexType) {
-        if (complexType.isMapType()) {
-            return ((MapType) complexType).getKeyType().isStringType();
-        } else if (complexType.isArrayType()) {
-            return checkMapKeyIsStringLikeForJson(((ArrayType) complexType).getItemType());
-        } else if (complexType.isStructType()) {
-            for (StructField f : ((StructType) complexType).getFields()) {
-                return checkMapKeyIsStringLikeForJson(f.getType());
-            }
-        }
-        return true;
-    }
-
     /**
      * Just use for nereids, put analyze() in finalizeImplForNereids
      */
@@ -172,8 +159,6 @@ public class CastExpr extends Expr {
             NullableMode nullableMode = TYPE_NULLABLE_MODE.get(Pair.of(from, to));
             // for complex type cast to jsonb we make ret is always nullable
             if (from.isComplexType() && type.isJsonbType()) {
-                Preconditions.checkState(checkMapKeyIsStringLikeForJson(from),
-                        "check type " + from + " cast to json failed");
                 nullableMode = Function.NullableMode.ALWAYS_NULLABLE;
             }
             Preconditions.checkState(nullableMode != null,
