@@ -59,6 +59,7 @@ public class ModifyTableCommentClause extends AlterTableClause {
     public boolean needChangeMTMVState() {
         return false;
     }
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
