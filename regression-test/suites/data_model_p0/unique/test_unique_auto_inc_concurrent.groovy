@@ -35,26 +35,22 @@ suite("test_unique_table_auto_inc_concurrent") {
         )
     """
     
-    def threads = []
-    def thread_num = 30
-    def rows = 10000
-    def iters = 10
-
-    def load_task = {
-        (1..iters).each { id -> 
-            sql """insert into ${table1}(value) select number from numbers("number" = "${rows}");"""
+    def run_test = {thread_num, rows, iters -> 
+        def threads = []
+        (1..thread_num).each { id1 -> 
+            threads.add(Thread.start {
+                (1..iters).each { id2 -> 
+                    sql """insert into ${table1}(value) select number from numbers("number" = "${rows}");"""
+                }
+            })
         }
+
+        threads.each { thread -> thread.join() }
+
+        qt_sql "select count(id), count(distinct id) from ${table1};"
     }
 
-    (1..thread_num).each { id -> 
-        threads.add(Thread.start {
-            load_task()
-        })
-    }
-
-    threads.each { thread -> thread.join() }
-
-    qt_sql "select count(id), count(distinct id) from ${table1};"
+    run_test(30, 10000, 10)
 
     sql "drop table if exists ${table1};"
 }
