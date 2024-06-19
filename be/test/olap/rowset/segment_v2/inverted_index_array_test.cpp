@@ -112,11 +112,11 @@ public:
 
     void test_string(std::string_view rowset_id, int seg_id, Field* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
-        std::string index_path_prefix {InvertedIndexDescriptor::get_index_path_prefix(
+        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
         int index_id = 26033;
         std::string index_path =
-                InvertedIndexDescriptor::get_index_path_v1(index_path_prefix, index_id, "");
+                InvertedIndexDescriptor::get_index_file_path_v1(index_path_prefix, index_id, "");
         auto fs = io::global_local_filesystem();
 
         io::FileWriterPtr file_writer;
