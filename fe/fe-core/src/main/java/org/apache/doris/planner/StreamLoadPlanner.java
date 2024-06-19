@@ -342,6 +342,7 @@ public class StreamLoadPlanner {
 
         params.setQueryGlobals(queryGlobals);
         params.setTableName(destTable.getName());
+        params.setIsMowTable(destTable.getEnableUniqueKeyMergeOnWrite());
         // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
     }
@@ -581,6 +582,7 @@ public class StreamLoadPlanner {
 
         pipParams.setQueryGlobals(queryGlobals);
         pipParams.setTableName(destTable.getName());
+        pipParams.setIsMowTable(destTable.getEnableUniqueKeyMergeOnWrite());
         return pipParams;
     }
 
