@@ -309,7 +309,7 @@ suite("test_partition_stats") {
     result = sql """show column stats part3"""
     assertEquals(0, result.size())
 
-    // Test skip big partitions and fallback to sample analyze
+    // Test skip big partitions and fallback to sample analyze (manual analyze doesn't skip)
     sql """CREATE TABLE `part4` (
         `id` INT NULL,
         `colint` INT NULL,
@@ -353,11 +353,20 @@ suite("test_partition_stats") {
     assertEquals("24.0", result[6][2])
     assertEquals("24.0", result[7][2])
     assertEquals("24.0", result[8][2])
+    assertEquals("FULL", result[0][9])
+    assertEquals("FULL", result[1][9])
+    assertEquals("FULL", result[2][9])
+    assertEquals("FULL", result[3][9])
+    assertEquals("FULL", result[4][9])
+    assertEquals("FULL", result[5][9])
+    assertEquals("FULL", result[6][9])
+    assertEquals("FULL", result[7][9])
+    assertEquals("FULL", result[8][9])
     result = sql """show column stats part4 partition(*)"""
     logger.info("partition result" + result)
-    assertEquals(18, result.size())
+    assertEquals(27, result.size())
     result = sql """show column stats part4 partition(p1)"""
-    assertEquals(0, result.size())
+    assertEquals(9, result.size())
 
     sql """set global huge_partition_lower_bound_rows = 100000000"""
     sql """analyze table part4 with sync;"""

@@ -868,13 +868,7 @@ public class StatisticsUtil {
     }
 
     public static long getHugePartitionLowerBoundRows() {
-        try {
-            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_PARTITION_LOWER_BOUND_ROWS)
-                .hugePartitionLowerBoundRows;
-        } catch (Exception e) {
-            LOG.warn("Failed to get value of huge_partition_lower_bound_rows, return default", e);
-        }
-        return StatisticConstants.HUGE_PARTITION_LOWER_BOUND_ROWS;
+        return GlobalVariable.hugePartitionLowerBoundRows;
     }
 
     public static int getPartitionAnalyzeBatchSize() {
@@ -1074,10 +1068,19 @@ public class StatisticsUtil {
             return true;
         }
         int changedPartitions = 0;
+        long hugePartitionLowerBoundRows = getHugePartitionLowerBoundRows();
         for (Partition p : partitions) {
             long id = p.getId();
+            // Skip partition that is too large.
+            if (p.getBaseIndex().getRowCount() > hugePartitionLowerBoundRows) {
+                continue;
+            }
             // New partition added.
             if (!partitionUpdateRows.containsKey(id)) {
+                return true;
+            }
+            // Former skipped large partition is not large anymore. Need to analyze it.
+            if (partitionUpdateRows.get(id) == -1) {
                 return true;
             }
             long currentUpdateRows = tableStatsStatus.partitionUpdateRows.getOrDefault(id, 0L);
