@@ -345,7 +345,15 @@ bool RuntimeState::is_cancelled() const {
 }
 
 Status RuntimeState::cancel_reason() const {
-    return _exec_status.status();
+    if (!_exec_status.ok()) {
+        return _exec_status.status();
+    }
+
+    if (_query_ctx) {
+        return _query_ctx->exec_status();
+    }
+
+    return Status::Cancelled("Query cancelled");
 }
 
 const int64_t MAX_ERROR_NUM = 50;

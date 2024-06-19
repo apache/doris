@@ -27,8 +27,11 @@ bvar::PassiveStatus<int64_t> g_vm_rss_sub_allocator_cache(
 bvar::PassiveStatus<int64_t> g_process_memory_usage(
         "meminfo_process_memory_usage",
         [](void*) { return GlobalMemoryArbitrator::process_memory_usage(); }, nullptr);
+bvar::PassiveStatus<int64_t> g_sys_mem_avail(
+        "meminfo_sys_mem_avail", [](void*) { return GlobalMemoryArbitrator::sys_mem_available(); },
+        nullptr);
 
-std::atomic<int64_t> GlobalMemoryArbitrator::_s_vm_rss_sub_allocator_cache = -1;
 std::atomic<int64_t> GlobalMemoryArbitrator::_s_process_reserved_memory = 0;
+std::atomic<int64_t> GlobalMemoryArbitrator::refresh_interval_memory_growth = 0;
 
 } // namespace doris
