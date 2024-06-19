@@ -79,8 +79,7 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
                 return false;
             });
             ConnectContext connectContext = ConnectContext.get();
-            if (connectContext.getSessionVariable().getEnablePipelineEngine()
-                    && connectContext.getSessionVariable().enableCTEMaterialize
+            if (connectContext.getSessionVariable().enableCTEMaterialize
                     && consumers.size() > connectContext.getSessionVariable().inlineCTEReferencedThreshold) {
                 // not inline
                 Plan right = cteAnchor.right().accept(this, null);

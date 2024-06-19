@@ -83,6 +83,12 @@ public:
                        RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                        const io::FileReaderOptions& reader_options,
                        std::shared_ptr<Segment>* output);
+
+    static io::UInt128Wrapper file_cache_key(std::string_view rowset_id, uint32_t seg_id);
+    io::UInt128Wrapper file_cache_key() const {
+        return file_cache_key(_rowset_id.to_string(), _segment_id);
+    }
+
     ~Segment();
 
     Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
@@ -257,6 +263,7 @@ private:
     // used to hold short key index page in memory
     PageHandle _sk_index_handle;
     // short key index decoder
+    // all content is in memory
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
     // primary key index reader
     std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;

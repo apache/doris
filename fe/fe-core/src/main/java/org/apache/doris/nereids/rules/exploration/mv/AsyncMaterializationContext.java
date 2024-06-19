@@ -55,8 +55,9 @@ public class AsyncMaterializationContext extends MaterializationContext {
      * MaterializationContext, this contains necessary info for query rewriting by mv
      */
     public AsyncMaterializationContext(MTMV mtmv, Plan mvPlan, Plan mvOriginalPlan, List<Table> baseTables,
-            List<Table> baseViews, CascadesContext cascadesContext) {
-        super(mvPlan, mvOriginalPlan, MaterializedViewUtils.generateMvScanPlan(mtmv, cascadesContext), cascadesContext);
+            List<Table> baseViews, CascadesContext cascadesContext, StructInfo structInfo) {
+        super(mvPlan, mvOriginalPlan, MaterializedViewUtils.generateMvScanPlan(mtmv, cascadesContext),
+                cascadesContext, structInfo);
         this.mtmv = mtmv;
     }
 
@@ -103,11 +104,11 @@ public class AsyncMaterializationContext extends MaterializationContext {
             return Optional.empty();
         }
         RelationId relationId = null;
-        List<Object> scanObjs = this.getPlan().collectFirst(plan -> plan instanceof LogicalOlapScan);
-        if (scanObjs != null && !scanObjs.isEmpty()) {
-            relationId = ((LogicalOlapScan) scanObjs.get(0)).getRelationId();
+        Optional<LogicalOlapScan> logicalOlapScan = this.getScanPlan().collectFirst(LogicalOlapScan.class::isInstance);
+        if (logicalOlapScan.isPresent()) {
+            relationId = logicalOlapScan.get().getRelationId();
         }
-        return Optional.of(Pair.of(relationId, mtmvCache.getStatistics()));
+        return Optional.of(Pair.of(relationId, normalizeStatisticsColumnExpression(mtmvCache.getStatistics())));
     }
 
     @Override
@@ -130,8 +131,8 @@ public class AsyncMaterializationContext extends MaterializationContext {
         return baseViews;
     }
 
-    public ExpressionMapping getExprToScanExprMapping() {
-        return exprToScanExprMapping;
+    public ExpressionMapping getShuttledExprToScanExprMapping() {
+        return shuttledExprToScanExprMapping;
     }
 
     public boolean isAvailable() {

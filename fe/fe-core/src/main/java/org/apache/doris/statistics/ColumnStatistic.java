@@ -196,7 +196,10 @@ public class ColumnStatistic {
             columnStatisticBuilder.setUpdatedTime(row.get(13));
             return columnStatisticBuilder.build();
         } catch (Exception e) {
-            LOG.warn("Failed to deserialize column statistics. Row [{}]", row, e);
+            LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), row);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(e);
+            }
             return ColumnStatistic.UNKNOWN;
         }
     }
@@ -288,8 +291,8 @@ public class ColumnStatistic {
     @Override
     public String toString() {
         return isUnKnown ? "unknown(" + count + ")"
-                : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, avgSizeByte=%f",
-                ndv, minValue, minExpr, maxValue, maxExpr, count, avgSizeByte);
+                : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, numNulls=%.4f, avgSizeByte=%f",
+                ndv, minValue, minExpr, maxValue, maxExpr, count, numNulls, avgSizeByte);
     }
 
     public JSONObject toJson() {

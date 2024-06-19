@@ -23,6 +23,9 @@ suite("test_workload_sched_policy") {
     sql "drop workload policy if exists set_action_policy;"
     sql "drop workload policy if exists fe_policy;"
     sql "drop workload policy if exists be_policy;"
+    sql "drop workload policy if exists be_scan_row_policy;"
+    sql "drop workload policy if exists be_scan_bytes_policy;"
+    sql "drop workload policy if exists query_be_memory_used;"
 
     // 1 create cancel policy
     sql "create workload policy test_cancel_policy " +
@@ -106,16 +109,42 @@ suite("test_workload_sched_policy") {
         exception "duplicate set_session_variable action args one policy"
     }
 
+    test {
+        sql "create workload policy invalid_metric_value_policy conditions(query_be_memory_bytes > '-1') actions(cancel_query);"
+        exception "invalid"
+    }
+
+    test {
+        sql "create workload policy invalid_metric_value_policy conditions(query_time > '-1') actions(cancel_query);"
+        exception "invalid"
+    }
+
+    test {
+        sql "create workload policy invalid_metric_value_policy conditions(be_scan_rows > '-1') actions(cancel_query);"
+        exception "invalid"
+    }
+
+    test {
+        sql "create workload policy invalid_metric_value_policy conditions(be_scan_bytes > '-1') actions(cancel_query);"
+        exception "invalid"
+    }
+
+    sql "create workload policy be_scan_row_policy conditions(be_scan_rows > 1) actions(cancel_query) properties('enabled'='false');"
+    sql "create workload policy be_scan_bytes_policy conditions(be_scan_bytes > 1) actions(cancel_query) properties('enabled'='false');"
+    sql "create workload policy query_be_memory_used conditions(query_be_memory_bytes > 1) actions(cancel_query) properties('enabled'='false');"
+
     // drop
     sql "drop workload policy test_cancel_policy;"
     sql "drop workload policy set_action_policy;"
     sql "drop workload policy fe_policy;"
     sql "drop workload policy be_policy;"
+    sql "drop workload policy be_scan_row_policy;"
+    sql "drop workload policy be_scan_bytes_policy;"
+    sql "drop workload policy query_be_memory_used;"
 
     qt_select_policy_tvf_after_drop "select name,condition,action,priority,enabled,version from information_schema.workload_policy where name in('be_policy','fe_policy','set_action_policy','test_cancel_policy') order by name;"
 
     // test workload policy
-    sql "ADMIN SET FRONTEND CONFIG ('workload_sched_policy_interval_ms' = '500');"
     sql """drop user if exists test_workload_sched_user"""
     sql """create user test_workload_sched_user identified by '12345'"""
     sql """grant ADMIN_PRIV on *.*.* to test_workload_sched_user"""
@@ -149,8 +178,6 @@ suite("test_workload_sched_policy") {
     }
     assertEquals("parallel_pipeline_task_num", result3[0][0])
     assertEquals("33", result3[0][1])
-    
-    sql "ADMIN SET FRONTEND CONFIG ('workload_sched_policy_interval_ms' = '10000');"
 
     sql "drop workload policy if exists test_set_var_policy;"
     sql "drop workload policy if exists test_set_var_policy2;"

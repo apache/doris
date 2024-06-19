@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "recycler/obj_store_accessor.h"
+#include "recycler/s3_obj_client.h"
 
 namespace Aws::S3 {
 class S3Client;
@@ -47,7 +48,8 @@ public:
 
     const std::string& path() const override { return path_; }
 
-    const std::shared_ptr<Aws::S3::S3Client>& s3_client() const { return s3_client_; }
+    // TODO(ByteYue): refactor this function to suite different kind object storage
+    const std::shared_ptr<Aws::S3::S3Client>& s3_client() const { return obj_client_->s3_client(); }
 
     const S3Conf& conf() const { return conf_; }
 
@@ -89,9 +91,9 @@ private:
     std::string get_relative_path(const std::string& key) const;
 
 private:
-    std::shared_ptr<Aws::S3::S3Client> s3_client_;
     S3Conf conf_;
     std::string path_;
+    std::shared_ptr<ObjStorageClient> obj_client_;
 };
 
 class GcsAccessor final : public S3Accessor {

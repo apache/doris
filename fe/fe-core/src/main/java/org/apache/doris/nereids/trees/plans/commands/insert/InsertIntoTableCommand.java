@@ -79,6 +79,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      */
     private long jobId;
     private Optional<InsertCommandContext> insertCtx;
+    private final Optional<LogicalPlan> cte;
 
     private Range<Integer> splitRange;
 
@@ -88,11 +89,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * constructor
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
-                                  Optional<InsertCommandContext> insertCtx) {
+                                  Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
         this.insertCtx = insertCtx;
+        this.cte = cte;
     }
 
     public Optional<String> getLabelName() {
@@ -164,6 +166,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
         }
+
         AbstractInsertExecutor insertExecutor = null;
         // should lock target table until we begin transaction.
         targetTableIf.readLock();
@@ -172,6 +175,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             rewriteLogicalPlanIfNecessary(logicalQuery);
             // 1. process inline table (default values, empty values)
             this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
+            if (cte.isPresent()) {
+                this.logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
+            }
+
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
@@ -181,7 +188,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 ctx.getMysqlChannel().reset();
             }
             Optional<PhysicalSink<?>> plan = (planner.getPhysicalPlan()
-                    .<Set<PhysicalSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
+                    .<PhysicalSink<?>>collect(PhysicalSink.class::isInstance)).stream()
                     .findAny();
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain target table");
             PhysicalSink physicalSink = plan.get();
@@ -191,11 +198,13 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     ctx.isTxnModel() ? null : String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
-                if (GroupCommitInserter.groupCommit(ctx, sink, physicalSink)) {
-                    // return;
-                    throw new AnalysisException("group commit is not supported in Nereids now");
-                }
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                if (GroupCommitInsertExecutor.canGroupCommit(ctx, sink, physicalSink, planner)) {
+                    insertExecutor = new GroupCommitInsertExecutor(ctx, targetTableIf, label, planner, insertCtx,
+                            emptyInsert);
+                    targetTableIf.readUnlock();
+                    return insertExecutor;
+                }
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 // the insertCtx contains some variables to adjust SinkNode
                 insertExecutor = ctx.isTxnModel()

@@ -53,6 +53,8 @@
 
 namespace doris {
 
+static bvar::Adder<size_t> g_total_tablet_schema_num("doris_total_tablet_schema_num");
+
 FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     switch (primitiveType) {
     case PrimitiveType::INVALID_TYPE:
@@ -820,6 +822,14 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
     }
 }
 
+TabletSchema::TabletSchema() {
+    g_total_tablet_schema_num << 1;
+}
+
+TabletSchema::~TabletSchema() {
+    g_total_tablet_schema_num << -1;
+}
+
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     if (column.is_key()) {
         _num_key_columns++;
@@ -846,7 +856,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     _cols.push_back(std::make_shared<TabletColumn>(std::move(column)));
     // The dropped column may have same name with exsiting column, so that
     // not add to name to index map, only for uid to index map
-    if (col_type == ColumnType::VARIANT || _cols.back()->is_variant_type()) {
+    if (col_type == ColumnType::VARIANT || _cols.back()->is_variant_type() ||
+        _cols.back()->is_extracted_column()) {
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
         _field_path_to_index[_cols.back()->path_info_ptr().get()] = _num_columns;
     } else if (col_type == ColumnType::NORMAL) {
@@ -976,6 +987,9 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     } else {
         _inverted_index_storage_format = schema.inverted_index_storage_format();
     }
+
+    _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
+                                        schema.row_store_column_unique_ids().end());
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
@@ -1023,7 +1037,6 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _is_in_memory = ori_tablet_schema.is_in_memory();
     _disable_auto_compaction = ori_tablet_schema.disable_auto_compaction();
     _enable_single_replica_compaction = ori_tablet_schema.enable_single_replica_compaction();
-    _store_row_column = ori_tablet_schema.store_row_column();
     _skip_write_index_on_load = ori_tablet_schema.skip_write_index_on_load();
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
@@ -1104,7 +1117,7 @@ void TabletSchema::merge_dropped_columns(const TabletSchema& src_schema) {
     }
 }
 
-TabletSchemaSPtr TabletSchema::copy_without_extracted_columns() {
+TabletSchemaSPtr TabletSchema::copy_without_variant_extracted_columns() {
     TabletSchemaSPtr copy = std::make_shared<TabletSchema>();
     TabletSchemaPB tablet_schema_pb;
     this->to_schema_pb(&tablet_schema_pb);
@@ -1117,9 +1130,9 @@ TabletSchemaSPtr TabletSchema::copy_without_extracted_columns() {
 bool TabletSchema::is_dropped_column(const TabletColumn& col) const {
     CHECK(_field_id_to_index.find(col.unique_id()) != _field_id_to_index.end())
             << "could not find col with unique id = " << col.unique_id()
-            << " and name = " << col.name();
-    return _field_name_to_index.find(StringRef(col.name())) == _field_name_to_index.end() ||
-           column(col.name()).unique_id() != col.unique_id();
+            << " and name = " << col.name() << " table_id=" << _table_id;
+    auto it = _field_name_to_index.find(StringRef {col.name()});
+    return it == _field_name_to_index.end() || _cols[it->second]->unique_id() != col.unique_id();
 }
 
 void TabletSchema::copy_extracted_columns(const TabletSchema& src_schema) {
@@ -1182,6 +1195,8 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
+    tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
+            _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
 }
 
 size_t TabletSchema::row_size() const {
@@ -1259,11 +1274,16 @@ Status TabletSchema::have_column(const std::string& field_name) const {
     return Status::OK();
 }
 
-const TabletColumn& TabletSchema::column(const std::string& field_name) const {
-    DCHECK(_field_name_to_index.contains(StringRef(field_name)) != 0)
-            << ", field_name=" << field_name << ", field_name_to_index=" << get_all_field_names();
-    const auto& found = _field_name_to_index.find(StringRef(field_name));
-    return *_cols[found->second];
+Result<const TabletColumn*> TabletSchema::column(const std::string& field_name) const {
+    auto it = _field_name_to_index.find(StringRef {field_name});
+    if (it == _field_name_to_index.end()) {
+        DCHECK(false) << "field_name=" << field_name << ", table_id=" << _table_id
+                      << ", field_name_to_index=" << get_all_field_names();
+        return ResultError(
+                Status::InternalError("column not found, name={}, table_id={}, schema_version={}",
+                                      field_name, _table_id, _schema_version));
+    }
+    return _cols[it->second].get();
 }
 
 std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(

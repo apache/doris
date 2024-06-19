@@ -69,7 +69,7 @@ public:
 
         // If the page is full, should stop adding more items.
         while (!is_page_full() && i < *count) {
-            auto src = reinterpret_cast<const Slice*>(vals);
+            const auto* src = reinterpret_cast<const Slice*>(vals);
             if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(src->data)));
@@ -109,14 +109,16 @@ public:
     }
 
     Status reset() override {
-        _offsets.clear();
-        _buffer.clear();
-        _buffer.reserve(_options.data_page_size == 0
-                                ? 1024
-                                : std::min(_options.data_page_size, _options.dict_page_size));
-        _size_estimate = sizeof(uint32_t);
-        _finished = false;
-        _last_value_size = 0;
+        RETURN_IF_CATCH_EXCEPTION({
+            _offsets.clear();
+            _buffer.clear();
+            _buffer.reserve(_options.data_page_size == 0
+                                    ? 1024
+                                    : std::min(_options.data_page_size, _options.dict_page_size));
+            _size_estimate = sizeof(uint32_t);
+            _finished = false;
+            _last_value_size = 0;
+        });
         return Status::OK();
     }
 

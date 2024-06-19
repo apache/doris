@@ -27,9 +27,7 @@ SET(SOURCE_FILES
         bits.cc
         dynamic_annotations.c
         hash/city.cc
-        hash/hash.cc
         hash/jenkins.cc
-        int128.cc
         ref_counted.cc
         stringprintf.cc
         strings/ascii_ctype.cc

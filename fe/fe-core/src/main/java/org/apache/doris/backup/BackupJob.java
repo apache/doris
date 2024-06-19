@@ -406,6 +406,8 @@ public class BackupJob extends AbstractJob {
             tbl.readLock();
             try {
                 switch (tbl.getType()) {
+                    case MATERIALIZED_VIEW:
+                        break;
                     case OLAP:
                         OlapTable olapTable = (OlapTable) tbl;
                         if (!checkOlapTable(olapTable, tableRef).ok()) {
@@ -613,6 +615,13 @@ public class BackupJob extends AbstractJob {
 
     private void waitingAllSnapshotsFinished() {
         if (unfinishedTaskIds.isEmpty()) {
+
+            if (env.getEditLog().exceedMaxJournalSize(this)) {
+                status = new Status(ErrCode.COMMON_ERROR, "backupJob is too large ");
+                return;
+            }
+
+
             snapshotFinishedTime = System.currentTimeMillis();
             state = BackupJobState.UPLOAD_SNAPSHOT;
 

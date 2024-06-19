@@ -35,6 +35,7 @@
 #include <ostream>
 #include <string>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gutil/endian.h"
 #include "io/fs/file_writer.h"
@@ -245,6 +246,7 @@ Status VParquetTransformer::_parse_properties() {
         }
         builder.created_by(
                 fmt::format("{}({})", doris::get_short_version(), parquet::DEFAULT_CREATED_BY));
+        builder.max_row_group_length(std::numeric_limits<int64_t>::max());
         _parquet_writer_properties = builder.build();
         _arrow_properties = parquet::ArrowWriterProperties::Builder()
                                     .enable_deprecated_int96_timestamps()
@@ -292,12 +294,12 @@ Status VParquetTransformer::write(const Block& block) {
     RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
                                            &result, _state->timezone_obj()));
 
-    auto get_table_res = arrow::Table::FromRecordBatches(result->schema(), {result});
-    if (!get_table_res.ok()) {
-        return Status::InternalError("Error when get arrow table from record batchs");
+    RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteRecordBatch(*result));
+    _write_size += block.bytes();
+    if (_write_size >= doris::config::min_row_group_size) {
+        RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
+        _write_size = 0;
     }
-    auto& table = get_table_res.ValueOrDie();
-    RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteTable(*table, block.rows()));
     return Status::OK();
 }
 

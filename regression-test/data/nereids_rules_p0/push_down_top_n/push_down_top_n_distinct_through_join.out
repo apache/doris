@@ -3,14 +3,13 @@
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalTopN[LOCAL_SORT]
-----------------hashAgg[LOCAL]
-------------------PhysicalOlapScan[table_join]
-------------PhysicalOlapScan[table_join]
+------hashAgg[LOCAL]
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalTopN[MERGE_SORT]
+------------PhysicalTopN[LOCAL_SORT]
+--------------hashAgg[LOCAL]
+----------------PhysicalOlapScan[table_join]
+----------PhysicalOlapScan[table_join]
 
 -- !push_down_topn_through_join_data --
 0

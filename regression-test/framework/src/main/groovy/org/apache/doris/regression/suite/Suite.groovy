@@ -44,6 +44,7 @@ import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
+import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
@@ -300,7 +301,7 @@ class Suite implements GroovyInterceptable {
             // wait be report
             Thread.sleep(5000)
             def url = String.format(
-                    "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
+                    "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
             def conn = DriverManager.getConnection(url, user, password)
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
@@ -622,7 +623,7 @@ class Suite implements GroovyInterceptable {
     void expectException(Closure userFunction, String errorMessage = null) {
         try {
             userFunction()
-        } catch (Exception e) {
+        } catch (Exception | Error e) {
             if (e.getMessage()!= errorMessage) {
                 throw e
             }
@@ -874,6 +875,21 @@ class Suite implements GroovyInterceptable {
         return;
     }
 
+    String getProvider() {
+        String s3Endpoint = context.config.otherConfigs.get("s3Endpoint")
+        return getProvider(s3Endpoint)
+    }
+
+    String getProvider(String endpoint) {
+        def providers = ["cos", "oss", "s3", "obs", "bos"]
+        for (final def provider in providers) {
+            if (endpoint.containsIgnoreCase(provider)) {
+                return provider
+            }
+        }
+        return ""
+    }
+
     int getTotalLine(String filePath) {
         def file = new File(filePath)
         int lines = 0;
@@ -899,6 +915,33 @@ class Suite implements GroovyInterceptable {
         String hdfsUser = context.config.otherConfigs.get("hdfsUser")
         Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, dataDir)
         return hdfs.downLoad(label)
+    }
+
+    void runStreamLoadExample(String tableName, String coordidateBeHostPort = "") {
+        def backends = sql_return_maparray "show backends"
+        sql """
+                CREATE TABLE IF NOT EXISTS ${tableName} (
+                    id int,
+                    name varchar(255)
+                )
+                DISTRIBUTED BY HASH(id) BUCKETS 1
+                PROPERTIES (
+                  "replication_num" = "${backends.size()}"
+                )
+            """
+
+        streamLoad {
+            table tableName
+            set 'column_separator', ','
+            file context.config.dataPath + "/demo_p0/streamload_input.csv"
+            time 10000
+            if (!coordidateBeHostPort.equals("")) {
+                def pos = coordidateBeHostPort.indexOf(':')
+                def host = coordidateBeHostPort.substring(0, pos)
+                def httpPort = coordidateBeHostPort.substring(pos + 1).toInteger()
+                directToBe host, httpPort
+            }
+        }
     }
 
     void streamLoad(Closure actionSupplier) {
@@ -1147,6 +1190,28 @@ class Suite implements GroovyInterceptable {
 
     DebugPoint GetDebugPoint() {
         return debugPoint
+    }
+
+    void waitingMTMVTaskFinishedByMvName(String mvName) {
+        Thread.sleep(2000);
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime ASC"
+        String status = "NULL"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                status = result.last().get(4)
+            }
+            logger.info("The state of ${showTasks} is ${status}")
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        if (status != "SUCCESS") {
+            logger.info("status is not success")
+        }
+        Assert.assertEquals("SUCCESS", status)
     }
 
     void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
@@ -1665,6 +1730,38 @@ class Suite implements GroovyInterceptable {
             logger.info("set be_id ${id} ${paramName} to ${paramValue}".toString())
             def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
             assertTrue(out.contains("OK"))
+        }
+    }
+
+    def check_table_version_continuous = { db_name, table_name ->
+        def tablets = sql_return_maparray """ show tablets from ${db_name}.${table_name} """
+        for (def tablet_info : tablets) {
+            logger.info("tablet: $tablet_info")
+            def compact_url = tablet_info.get("CompactionStatus")
+            String command = "curl ${compact_url}"
+            Process process = command.execute()
+            def code = process.waitFor()
+            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+            def out = process.getText()
+            logger.info("code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+
+            def compactJson = parseJson(out.trim())
+            def rowsets = compactJson.get("rowsets")
+
+            def last_start_version = 0
+            def last_end_version = -1
+            for(def rowset : rowsets) {
+                def version_str = rowset.substring(1, rowset.indexOf("]"))
+                logger.info("version_str: $version_str")
+                def versions = version_str.split("-")
+                def start_version = versions[0].toLong()
+                def end_version = versions[1].toLong()
+                logger.info("cur_version:[$start_version - $end_version], last_version:[$last_start_version - $last_end_version]")
+                assertEquals(last_end_version + 1, start_version)
+                last_start_version = start_version
+                last_end_version = end_version
+            }
         }
     }
 }

@@ -88,7 +88,7 @@ suite("test_writer_v2_fault_injection", "nonConcurrent") {
     // VTabletWriterV2 tablet_location is null
     load_with_injection("VTabletWriterV2._build_tablet_node_mapping.tablet_location_null", "unknown tablet location")
     // VTabletWriterV2 location is null
-    load_with_injection("VTabletWriterV2._select_streams.location_null", "unknown tablet location")
+    load_with_injection("VTabletWriterV2._select_streams.location_null", "failed to open DeltaWriter for tablet")
     // VTabletWriterV2 cancel
     load_with_injection("VTabletWriterV2.close.cancel", "load cancel")
     // DeltaWriterV2 stream_size is 0

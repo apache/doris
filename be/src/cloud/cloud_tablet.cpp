@@ -41,6 +41,7 @@
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/storage_policy.h"
 #include "olap/txn_manager.h"
 #include "util/debug_points.h"
 
@@ -50,9 +51,7 @@ using namespace ErrorCode;
 static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
-        : BaseTablet(std::move(tablet_meta)), _engine(engine) {
-    _tablet_path = remote_tablet_path(_tablet_meta->tablet_id());
-}
+        : BaseTablet(std::move(tablet_meta)), _engine(engine) {}
 
 CloudTablet::~CloudTablet() = default;
 
@@ -206,11 +205,9 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                         continue;
                     }
 
-                    auto fs = rowset_meta->fs();
-                    if (!fs) {
-                        LOG(WARNING) << "failed to get fs. tablet_id=" << tablet_id()
-                                     << " rowset_id=" << rowset_meta->rowset_id()
-                                     << " resource_id=" << rowset_meta->resource_id();
+                    auto storage_resource = rowset_meta->remote_storage_resource();
+                    if (!storage_resource) {
+                        LOG(WARNING) << storage_resource.error();
                         continue;
                     }
 
@@ -222,9 +219,10 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                               _tablet_meta->ttl_seconds();
                     _engine.file_cache_block_downloader().submit_download_task(
                             io::DownloadFileMeta {
-                                    .path = rs->segment_file_path(seg_id),
+                                    .path = storage_resource.value()->remote_segment_path(
+                                            *rowset_meta, seg_id),
                                     .file_size = rs->rowset_meta()->segment_file_size(seg_id),
-                                    .file_system = std::move(fs),
+                                    .file_system = storage_resource.value()->fs,
                                     .ctx =
                                             {
                                                     .expiration_time = expiration_time,
@@ -373,8 +371,8 @@ void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowset
     if (config::enable_file_cache) {
         for (const auto& rs : rowsets) {
             for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
-                auto seg_path = rs->segment_file_path(seg_id);
-                auto file_key = io::BlockFileCache::hash(io::Path(seg_path).filename().native());
+                // TODO: Segment::file_cache_key
+                auto file_key = Segment::file_cache_key(rs->rowset_id().to_string(), seg_id);
                 auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
                 file_cache->remove_if_cached(file_key);
             }
@@ -410,7 +408,6 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
     context.tablet_id = tablet_id();
     context.index_id = index_id();
     context.partition_id = partition_id();
-    context.rowset_dir = remote_tablet_path(tablet_id());
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
@@ -442,10 +439,16 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.tablet_id = tablet_id();
     context.index_id = index_id();
     context.partition_id = partition_id();
-    context.rowset_dir = remote_tablet_path(tablet_id());
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.txn_expiration = txn_expiration;
-    context.fs = rowset.rowset_meta()->fs();
+
+    auto storage_resource = rowset.rowset_meta()->remote_storage_resource();
+    if (!storage_resource) {
+        return ResultError(std::move(storage_resource.error()));
+    }
+
+    context.storage_resource = *storage_resource.value();
+
     return RowsetFactory::create_rowset_writer(_engine, context, false)
             .transform([&](auto&& writer) {
                 writer->set_segment_start_id(rowset.num_segments());
@@ -601,8 +604,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
     // update delete bitmap info, in order to avoid recalculation when trying again
-    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(txn_id, tablet_id(), delete_bitmap,
-                                                             cur_rowset_ids);
+    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(
+            txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::PREPARE);
 
     if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update &&
         rowset_writer->num_rows() > 0) {
@@ -623,8 +626,40 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *this, txn_id, COMPACTION_DELETE_BITMAP_LOCK_ID, new_delete_bitmap.get()));
+    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(
+            txn_id, tablet_id(), new_delete_bitmap, cur_rowset_ids, PublishStatus::SUCCEED);
 
     return Status::OK();
+}
+
+Versions CloudTablet::calc_missed_versions(int64_t spec_version, Versions existing_versions) const {
+    DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
+
+    // sort the existing versions in ascending order
+    std::sort(existing_versions.begin(), existing_versions.end(),
+              [](const Version& a, const Version& b) {
+                  // simple because 2 versions are certainly not overlapping
+                  return a.first < b.first;
+              });
+
+    // From the first version(=0), find the missing version until spec_version
+    int64_t last_version = -1;
+    Versions missed_versions;
+    for (const Version& version : existing_versions) {
+        if (version.first > last_version + 1) {
+            // there is a hole between versions
+            missed_versions.emplace_back(last_version + 1, std::min(version.first, spec_version));
+        }
+        last_version = version.second;
+        if (last_version >= spec_version) {
+            break;
+        }
+    }
+    if (last_version < spec_version) {
+        // there is a hole between the last version and the specificed version.
+        missed_versions.emplace_back(last_version + 1, spec_version);
+    }
+    return missed_versions;
 }
 
 Status CloudTablet::calc_delete_bitmap_for_compaction(
@@ -651,7 +686,11 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
                         "cumulative compaction: the merged rows({}) is not equal to missed "
                         "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
                         merged_rows, missed_rows_size, tablet_id(), table_id());
-                DCHECK(false) << err_msg;
+                if (config::enable_mow_compaction_correctness_check_core) {
+                    CHECK(false) << err_msg;
+                } else {
+                    DCHECK(false) << err_msg;
+                }
                 LOG(WARNING) << err_msg;
             }
         }
@@ -713,8 +752,7 @@ Status CloudTablet::sync_meta() {
                 int64_t new_expiration_time =
                         new_ttl_seconds + rs->rowset_meta()->newest_write_timestamp();
                 new_expiration_time = new_expiration_time > cur_time ? new_expiration_time : 0;
-                auto file_key = io::BlockFileCache::hash(
-                        io::Path(rs->segment_file_path(seg_id)).filename().native());
+                auto file_key = Segment::file_cache_key(rs->rowset_id().to_string(), seg_id);
                 auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
                 file_cache->modify_expiration_time(file_key, new_expiration_time);
             }

@@ -37,7 +37,7 @@
 #include "gutil/strings/substitute.h"
 #include "util/doris_metrics.h"
 #include "util/jni_native_method.h"
-#include "util/libjvm_loader.h"
+// #include "util/libjvm_loader.h"
 
 using std::string;
 
@@ -456,7 +456,7 @@ Status JniUtil::get_jni_scanner_class(JNIEnv* env, const char* classname,
 }
 
 Status JniUtil::Init() {
-    RETURN_IF_ERROR(LibJVMLoader::instance().load());
+    // RETURN_IF_ERROR(LibJVMLoader::instance().load());
 
     // Get the JNIEnv* corresponding to current thread.
     JNIEnv* env = nullptr;
