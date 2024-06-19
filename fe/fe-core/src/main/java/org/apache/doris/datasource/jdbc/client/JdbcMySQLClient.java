@@ -436,6 +436,7 @@ public class JdbcMySQLClient extends JdbcClient {
             case "TEXT":
                 return ScalarType.createStringType();
             case "JSON":
+            case "JSONB":
                 return ScalarType.createJsonbType();
             case "HLL":
                 return ScalarType.createHllType();
