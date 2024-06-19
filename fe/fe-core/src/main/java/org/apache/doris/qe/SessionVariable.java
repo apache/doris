@@ -518,7 +518,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
     public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
-    public static final String HUGE_PARTITION_LOWER_BOUND_ROWS = "huge_partition_lower_bound_rows";
 
     // for spill to disk
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
@@ -1708,12 +1707,6 @@ public class SessionVariable implements Serializable, Writable {
                             + "larger than this value will automatically collect "
                             + "statistics through sampling"})
     public long hugeTableLowerBoundSizeInBytes = 0;
-
-    @VariableMgr.VarAttr(name = HUGE_PARTITION_LOWER_BOUND_ROWS, flag = VariableMgr.GLOBAL,
-            description = {
-                "行数超过该值的分区将跳过自动分区收集",
-                "This defines the lower size bound for large partitions, which will skip auto partition analyze."})
-    public long hugePartitionLowerBoundRows = 100000000L;
 
     @VariableMgr.VarAttr(name = HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
             description = {"控制对大表的自动ANALYZE的最小时间间隔，"
