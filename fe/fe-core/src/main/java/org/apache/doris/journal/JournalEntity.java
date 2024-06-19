@@ -739,7 +739,8 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_INIT_CATALOG: {
+            case OperationType.OP_INIT_CATALOG:
+            case OperationType.OP_INIT_CATALOG_COMP: {
                 data = InitCatalogLog.read(in);
                 isRead = true;
                 break;
