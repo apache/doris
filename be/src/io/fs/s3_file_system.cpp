@@ -52,9 +52,9 @@
 namespace doris::io {
 namespace {
 #ifndef CHECK_S3_CLIENT
-#define CHECK_S3_CLIENT(client)                               \
-    if (!client) {                                            \
-        return Status::InternalError("init s3 client error"); \
+#define CHECK_S3_CLIENT(client)                                 \
+    if (!client) {                                              \
+        return Status::InvalidArgument("init s3 client error"); \
     }
 #endif
 
@@ -81,7 +81,7 @@ ObjClientHolder::~ObjClientHolder() = default;
 Status ObjClientHolder::init() {
     _client = S3ClientFactory::instance().create(_conf);
     if (!_client) {
-        return Status::InternalError("failed to init s3 client with conf {}", _conf.to_string());
+        return Status::InvalidArgument("failed to init s3 client with conf {}", _conf.to_string());
     }
 
     return Status::OK();
@@ -105,7 +105,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
 
     auto client = S3ClientFactory::instance().create(reset_conf);
     if (!client) {
-        return Status::InternalError("failed to init s3 client with conf {}", conf.to_string());
+        return Status::InvalidArgument("failed to init s3 client with conf {}", conf.to_string());
     }
 
     LOG(INFO) << "reset s3 client with new conf: " << conf.to_string();
@@ -123,7 +123,7 @@ Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
                                                   const std::string& key) const {
     auto client = get();
     if (!client) {
-        return ResultError(Status::InternalError("init s3 client error"));
+        return ResultError(Status::InvalidArgument("init s3 client error"));
     }
 
     auto resp = client->head_object({
