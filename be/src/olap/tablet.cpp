@@ -61,7 +61,6 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
-#include "gutil/strings/stringpiece.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -1826,7 +1825,11 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = std::make_shared<TabletSchema>();
-    context.tablet_schema->copy_from(*(rowset.tablet_schema()));
+    // During a partial update, the extracted columns of a variant should not be included in the tablet schema.
+    // This is because the partial update for a variant needs to ignore the extracted columns.
+    // Otherwise, the schema types in different rowsets might be inconsistent. When performing a partial update,
+    // the complete variant is constructed by reading all the sub-columns of the variant.
+    context.tablet_schema = rowset.tablet_schema()->copy_without_variant_extracted_columns();
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = table_id();
     context.enable_segcompaction = false;
@@ -2566,13 +2569,13 @@ void Tablet::gc_binlogs(int64_t version) {
         }
     };
 
-    auto check_binlog_ttl = [&](const std::string& key, const std::string& value) mutable -> bool {
+    auto check_binlog_ttl = [&](std::string_view key, std::string_view value) mutable -> bool {
         if (key >= end_key) {
             return false;
         }
 
         BinlogMetaEntryPB binlog_meta_entry_pb;
-        if (!binlog_meta_entry_pb.ParseFromString(value)) {
+        if (!binlog_meta_entry_pb.ParseFromArray(value.data(), value.size())) {
             LOG(WARNING) << "failed to parse binlog meta entry, key:" << key;
             return true;
         }

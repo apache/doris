@@ -166,8 +166,14 @@ public class TransactionState implements Writable {
     public static class TxnCoordinator {
         @SerializedName(value = "sourceType")
         public TxnSourceType sourceType;
+        // backendId for backend, 0 for frontend
+        @SerializedName(value = "id")
+        public long id = 0;
         @SerializedName(value = "ip")
         public String ip;
+        // frontend/backend start time
+        @SerializedName(value = "st")
+        public long startTime = 0;
         // True if this txn if created by system(such as writing data to audit table)
         @SerializedName(value = "ii")
         public boolean isFromInternal = false;
@@ -175,9 +181,11 @@ public class TransactionState implements Writable {
         public TxnCoordinator() {
         }
 
-        public TxnCoordinator(TxnSourceType sourceType, String ip) {
+        public TxnCoordinator(TxnSourceType sourceType, long id, String ip, long startTime) {
             this.sourceType = sourceType;
+            this.id = id;
             this.ip = ip;
+            this.startTime = startTime;
         }
 
         @Override
@@ -224,7 +232,7 @@ public class TransactionState implements Writable {
     // this latch will be counted down when txn status change to VISIBLE
     private CountDownLatch visibleLatch;
 
-    // this state need not be serialized
+    // this state need not be serialized. the map key is backend_id
     private Map<Long, List<PublishVersionTask>> publishVersionTasks;
     private boolean hasSendTask;
     private TransactionStatus preStatus = null;
@@ -319,7 +327,8 @@ public class TransactionState implements Writable {
         this.transactionId = -1;
         this.label = "";
         this.idToTableCommitInfos = Maps.newHashMap();
-        this.txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1"); // mocked, to avoid NPE
+        // mocked, to avoid NPE
+        this.txnCoordinator = new TxnCoordinator(TxnSourceType.FE, 0, "127.0.0.1", System.currentTimeMillis());
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = LoadJobSourceType.FRONTEND;
         this.prepareTime = -1;
@@ -689,7 +698,7 @@ public class TransactionState implements Writable {
         sb.append(", db id: ").append(dbId);
         sb.append(", table id list: ").append(StringUtils.join(tableIdList, ","));
         sb.append(", callback id: ").append(callbackId);
-        sb.append(", coordinator: ").append(txnCoordinator.toString());
+        sb.append(", coordinator: ").append(txnCoordinator);
         sb.append(", transaction status: ").append(transactionStatus);
         sb.append(", error replicas num: ").append(errorReplicas.size());
         sb.append(", replica ids: ").append(Joiner.on(",").join(errorReplicas.stream().limit(5).toArray()));
@@ -700,8 +709,17 @@ public class TransactionState implements Writable {
         if (txnCommitAttachment != null) {
             sb.append(", attachment: ").append(txnCommitAttachment);
         }
+        if (idToTableCommitInfos != null && !idToTableCommitInfos.isEmpty()) {
+            sb.append(", table commit info: ").append(idToTableCommitInfos);
+        }
         if (subTransactionStates != null) {
             sb.append(", sub txn states: ").append(subTransactionStates);
+        }
+        if (subTxnIds != null) {
+            sb.append(", sub txn ids: ").append(subTxnIds);
+        }
+        if (!subTxnIdToTableCommitInfo.isEmpty()) {
+            sb.append(", sub txn table commit info: ").append(subTxnIdToTableCommitInfo);
         }
         return sb.toString();
     }
@@ -758,7 +776,7 @@ public class TransactionState implements Writable {
             TableCommitInfo info = TableCommitInfo.read(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
-        txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), Text.readString(in));
+        txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), 0, Text.readString(in), 0);
         transactionStatus = TransactionStatus.valueOf(in.readInt());
         sourceType = LoadJobSourceType.valueOf(in.readInt());
         prepareTime = in.readLong();
@@ -857,6 +875,10 @@ public class TransactionState implements Writable {
 
     public void resetSubTransactionStates() {
         this.subTransactionStates = new ArrayList<>();
+    }
+
+    public void setSubTransactionStates(List<SubTransactionState> subTransactionStates) {
+        this.subTransactionStates = subTransactionStates;
     }
 
     public void resetSubTxnIds() {

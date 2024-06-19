@@ -25,6 +25,15 @@ namespace doris::pipeline {
 
 LocalExchangeSinkLocalState::~LocalExchangeSinkLocalState() = default;
 
+std::vector<Dependency*> LocalExchangeSinkLocalState::dependencies() const {
+    auto deps = Base::dependencies();
+    auto exchanger_deps = _exchanger->local_sink_state_dependency(_channel_id);
+    for (auto* dep : exchanger_deps) {
+        deps.push_back(dep);
+    }
+    return deps;
+}
+
 Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets,
                                         const bool is_shuffled_hash_join,
                                         const std::map<int, int>& shuffle_idx_to_instance_idx) {
@@ -80,6 +89,7 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     SCOPED_TIMER(_init_timer);
     _compute_hash_value_timer = ADD_TIMER(profile(), "ComputeHashValueTime");
     _distribute_timer = ADD_TIMER(profile(), "DistributeDataTime");
+    _channel_id = info.task_idx;
     return Status::OK();
 }
 

@@ -103,7 +103,6 @@ public class CloudClusterChecker extends MasterDaemon {
                 ClusterStatus clusterStatus = remoteClusterIdToPB.get(addId).hasClusterStatus()
                         ? remoteClusterIdToPB.get(addId).getClusterStatus() : ClusterStatus.NORMAL;
                 MetricRepo.registerCloudMetrics(clusterId, clusterName);
-                //toAdd.forEach(i -> i.setTagMap(newTagMap));
                 List<Backend> toAdd = new ArrayList<>();
                 for (Cloud.NodeInfoPB node : remoteClusterIdToPB.get(addId).getNodesList()) {
                     String addr = Config.enable_fqdn_mode ? node.getHost() : node.getIp();
@@ -448,6 +447,8 @@ public class CloudClusterChecker extends MasterDaemon {
 
             // local - remote > 0, drop bes from local
             checkToDelCluster(remoteClusterIdToPB, localClusterIds, clusterIdToBackend);
+
+            clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend();
 
             if (remoteClusterIdToPB.keySet().size() != clusterIdToBackend.keySet().size()) {
                 LOG.warn("impossible cluster id size not match, check it local {}, remote {}",

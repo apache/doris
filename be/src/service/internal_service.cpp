@@ -200,10 +200,7 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                            config::brpc_light_work_pool_max_queue_size != -1
                                    ? config::brpc_light_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
-                           "brpc_light"),
-          _load_stream_mgr(new LoadStreamMgr(
-                  exec_env->store_paths().size() * config::flush_thread_num_per_store,
-                  &_heavy_work_pool, &_light_work_pool)) {
+                           "brpc_light") {
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_queue_size,
@@ -221,6 +218,9 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                          []() { return config::brpc_heavy_work_pool_threads; });
     REGISTER_HOOK_METRIC(light_work_max_threads,
                          []() { return config::brpc_light_work_pool_threads; });
+
+    _exec_env->load_stream_mgr()->set_heavy_work_pool(&_heavy_work_pool);
+    _exec_env->load_stream_mgr()->set_light_work_pool(&_light_work_pool);
 
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
     CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
@@ -378,7 +378,7 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
         }
 
         LoadStream* load_stream = nullptr;
-        auto st = _load_stream_mgr->open_load_stream(request, load_stream);
+        auto st = _exec_env->load_stream_mgr()->open_load_stream(request, load_stream);
         if (!st.ok()) {
             st.to_protobuf(response->mutable_status());
             return;
@@ -1332,28 +1332,6 @@ void PInternalService::sync_filter_size(::google::protobuf::RpcController* contr
     }
 }
 
-void PInternalService::apply_filter(::google::protobuf::RpcController* controller,
-                                    const ::doris::PPublishFilterRequest* request,
-                                    ::doris::PPublishFilterResponse* response,
-                                    ::google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
-        brpc::ClosureGuard closure_guard(done);
-        auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
-        butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
-        UniqueId unique_id(request->query_id());
-        VLOG_NOTICE << "rpc apply_filter recv";
-        Status st = _exec_env->fragment_mgr()->apply_filter(request, &zero_copy_input_stream);
-        if (!st.ok()) {
-            LOG(WARNING) << "apply filter meet error: " << st.to_string();
-        }
-        st.to_protobuf(response->mutable_status());
-    });
-    if (!ret) {
-        offer_failed(response, done, _light_work_pool);
-        return;
-    }
-}
-
 void PInternalService::apply_filterv2(::google::protobuf::RpcController* controller,
                                       const ::doris::PPublishFilterRequestV2* request,
                                       ::doris::PPublishFilterResponse* response,
@@ -1463,7 +1441,22 @@ void PInternalService::fold_constant_expr(google::protobuf::RpcController* contr
                                           google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
-        Status st = _fold_constant_expr(request->request(), response);
+        TFoldConstantParams t_request;
+        Status st = Status::OK();
+        {
+            const uint8_t* buf = (const uint8_t*)request->request().data();
+            uint32_t len = request->request().size();
+            st = deserialize_thrift_msg(buf, &len, false, &t_request);
+        }
+        if (!st.ok()) {
+            LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st
+                         << " .and query_id_is: " << t_request.query_id;
+        }
+        st = _fold_constant_expr(request->request(), response);
+        if (!st.ok()) {
+            LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st
+                         << " .and query_id_is: " << t_request.query_id;
+        }
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1481,12 +1474,8 @@ Status PInternalService::_fold_constant_expr(const std::string& ser_request,
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
     std::unique_ptr<FoldConstantExecutor> fold_executor = std::make_unique<FoldConstantExecutor>();
-    Status st = fold_executor->fold_constant_vexpr(t_request, response);
-    if (!st.ok()) {
-        LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st
-                     << " .and query_id_is: " << fold_executor->query_id_string();
-    }
-    return st;
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(fold_executor->fold_constant_vexpr(t_request, response));
+    return Status::OK();
 }
 
 void PInternalService::transmit_block(google::protobuf::RpcController* controller,

@@ -101,11 +101,6 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
         auto ptr = column.convert_to_full_column_if_const();
         const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
 
-        if (be_exec_version == 0) {
-            return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
-                   data_column.get_chars().size() + column.size();
-        }
-
         return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
                data_column.get_chars().size();
     }

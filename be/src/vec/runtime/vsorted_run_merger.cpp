@@ -119,12 +119,9 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         while (_offset != 0 && current->block_ptr() != nullptr) {
             if (_offset >= current->rows - current->pos) {
                 _offset -= (current->rows - current->pos);
-                if (_pipeline_engine_enabled) {
-                    _pending_cursor = current.impl;
-                    _priority_queue.pop();
-                    return Status::OK();
-                }
-                has_next_block(current);
+                _pending_cursor = current.impl;
+                _priority_queue.pop();
+                return Status::OK();
             } else {
                 current->pos += _offset;
                 _offset = 0;
@@ -134,12 +131,9 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         if (current->is_first()) {
             if (current->block_ptr() != nullptr) {
                 current->block_ptr()->swap(*output_block);
-                if (_pipeline_engine_enabled) {
-                    _pending_cursor = current.impl;
-                    _priority_queue.pop();
-                    return Status::OK();
-                }
-                *eos = !has_next_block(current);
+                _pending_cursor = current.impl;
+                _priority_queue.pop();
+                return Status::OK();
             } else {
                 *eos = true;
             }
@@ -151,12 +145,9 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                             current->pos, current->rows - current->pos);
                 }
                 current->block_ptr()->swap(*output_block);
-                if (_pipeline_engine_enabled) {
-                    _pending_cursor = current.impl;
-                    _priority_queue.pop();
-                    return Status::OK();
-                }
-                *eos = !has_next_block(current);
+                _pending_cursor = current.impl;
+                _priority_queue.pop();
+                return Status::OK();
             } else {
                 *eos = true;
             }

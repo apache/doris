@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/group_commit_scan_operator.h"
@@ -30,7 +31,6 @@
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
-#include "vec/exec/runtime_filter_consumer.h"
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
@@ -602,9 +602,12 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
             if (hybrid_set->size() <=
                 _parent->cast<typename Derived::Parent>()._max_pushdown_conditions_per_column) {
                 iter = hybrid_set->begin();
-            } else {
+            } else if (_is_key_column(slot->col_name()) || _storage_no_merge()) {
                 _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func());
                 *pdt = PushDownType::ACCEPTABLE;
+                return Status::OK();
+            } else {
+                *pdt = PushDownType::UNACCEPTABLE;
                 return Status::OK();
             }
         } else {
@@ -743,6 +746,14 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
     PushDownType temp_pdt = PushDownType::UNACCEPTABLE;
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
+        /// `VDirectInPredicate` here should not be pushed down.
+        /// here means the `VDirectInPredicate` is too big to be converted into `ColumnValueRange`.
+        /// For non-key columns and `_storage_no_merge()` is false, this predicate should not be pushed down.
+        if (expr->get_set_func() != nullptr) {
+            *pdt = PushDownType::UNACCEPTABLE;
+            return Status::OK();
+        }
+
         vectorized::VInPredicate* pred = static_cast<vectorized::VInPredicate*>(expr);
         if ((temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, true)) ==
             PushDownType::UNACCEPTABLE) {
@@ -1450,7 +1461,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         if (local_state._scanner_ctx) {
             local_state._scanner_ctx->stop_scanners(state);
         }
-        return Status::Cancelled("Query cancelled in ScanOperator");
+        return state->cancel_reason();
     }
 
     if (local_state._eos) {

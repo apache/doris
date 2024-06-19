@@ -51,7 +51,8 @@ struct RowsetWriterContext {
     RowsetTypePB rowset_type {BETA_ROWSET};
 
     TabletSchemaSPtr tablet_schema;
-    TabletSchemaSPtr original_tablet_schema;
+    // for variant schema update
+    TabletSchemaSPtr merged_tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state {PREPARED};

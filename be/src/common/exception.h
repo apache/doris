@@ -54,7 +54,7 @@ public:
 
     const char* what() const noexcept override { return to_string().c_str(); }
 
-    Status to_status() const { return Status(code(), _err_msg->_msg, _err_msg->_stack); }
+    Status to_status() const { return {code(), _err_msg->_msg, _err_msg->_stack}; }
 
 private:
     int _code;
@@ -122,3 +122,20 @@ inline const std::string& Exception::to_string() const {
             return Status::Error<false>(e.code(), e.to_string());                                \
         }                                                                                        \
     } while (0)
+
+#define ASSIGN_STATUS_IF_CATCH_EXCEPTION(stmt, status_)                                          \
+    do {                                                                                         \
+        try {                                                                                    \
+            doris::enable_thread_catch_bad_alloc++;                                              \
+            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                     \
+            { stmt; }                                                                            \
+        } catch (const doris::Exception& e) {                                                    \
+            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                                \
+                status_ = Status::MemoryLimitExceeded(fmt::format(                               \
+                        "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", \
+                        e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));      \
+            } else {                                                                             \
+                status_ = e.to_status();                                                         \
+            }                                                                                    \
+        }                                                                                        \
+    } while (0);

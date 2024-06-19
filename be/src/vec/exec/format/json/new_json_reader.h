@@ -147,8 +147,6 @@ private:
     Status _simdjson_init_reader();
     Status _simdjson_parse_json(size_t* size, bool* is_empty_row, bool* eof,
                                 simdjson::error_code* error);
-    Status _return_quality_error(fmt::memory_buffer& error_msg, const std::string& doc_info,
-                                 bool* eof);
     Status _get_json_value(size_t* size, bool* eof, simdjson::error_code* error,
                            bool* is_empty_row);
     Status _judge_empty_row(size_t size, bool eof, bool* is_empty_row);
@@ -275,10 +273,8 @@ private:
     std::string _simdjson_ondemand_padding_buffer;
     std::string _simdjson_ondemand_unscape_padding_buffer;
     // char _simdjson_ondemand_padding_buffer[_padded_size];
-    simdjson::ondemand::document_reference _original_json_doc;
+    simdjson::ondemand::document _original_json_doc;
     simdjson::ondemand::value _json_value;
-    simdjson::ondemand::document_stream _json_stream;
-    simdjson::ondemand::document_stream::iterator _json_stream_iterator;
     // for strip outer array
     // array_iter pointed to _array
     simdjson::ondemand::array_iterator _array_iter;

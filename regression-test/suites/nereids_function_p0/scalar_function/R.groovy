@@ -101,4 +101,8 @@ suite("nereids_scalar_fn_R") {
 	qt_sql_rtrim_String_String_notnull "select rtrim(kstr, '1') from fn_test_not_nullable order by kstr"
 	sql "SELECT random_bytes(7);"
 	qt_sql_random_bytes "SELECT random_bytes(null);"
+	test {
+		sql " select random_bytes(-1); "
+		exception "argument -1 of function random_bytes at row 0 was invalid"
+	}
 }
