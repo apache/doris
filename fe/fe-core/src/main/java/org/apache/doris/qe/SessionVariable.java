@@ -1872,6 +1872,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
 
+    public static final String ENABLE_SEGMENT_CACHE = "enable_segment_cache";
+
     public Set<String> getIgnoreShapePlanNodes() {
         return Arrays.stream(ignoreShapePlanNodes.split(",[\\s]*")).collect(ImmutableSet.toImmutableSet());
     }
@@ -1984,6 +1986,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
             checker = "checkExternalAggPartitionBits", fuzzy = true)
     public int externalAggPartitionBits = 5; // means that the hash table will be partitioned into 32 blocks.
+
+    // Whether enable segment cache. Segment cache only works when FE's query options sets enableSegmentCache true
+    // along with BE's config `disable_segment_cache` false
+    @VariableMgr.VarAttr(name = ENABLE_SEGMENT_CACHE, needForward = true)
+    public boolean enableSegmentCache = true;
 
     public boolean isEnableJoinSpill() {
         return enableJoinSpill;
@@ -3403,6 +3410,14 @@ public class SessionVariable implements Serializable, Writable {
         this.loadStreamPerNode = loadStreamPerNode;
     }
 
+    public void setEnableSegmentCache(boolean value) {
+        this.enableSegmentCache = value;
+    }
+
+    public boolean isEnableSegmentCache() {
+        return this.enableSegmentCache;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -3535,6 +3550,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParallelResultSink(enableParallelResultSink);
         tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
         tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
+
+        tResult.setEnableSegmentCache(enableSegmentCache);
         return tResult;
     }
 
