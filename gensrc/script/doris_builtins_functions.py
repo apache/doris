@@ -1591,6 +1591,10 @@ visible_functions = {
 
     # String builtin functions
     "String": [
+        [['compress_as_tinyint'], 'TINYINT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['compress_as_int'], 'INT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['compress_as_bigint'], 'BIGINT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['compress_as_largeint'], 'LARGEINT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['mask'], 'STRING', ['STRING', '...'], ''],

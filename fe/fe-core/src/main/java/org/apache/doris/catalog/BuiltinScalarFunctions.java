@@ -115,6 +115,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsBigInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsLargeInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsTinyInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatWs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
@@ -505,7 +509,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArraySortBy.class, "array_sortby"),
             scalar(ArraySplit.class, "array_split"),
             scalar(ArrayShuffle.class, "array_shuffle", "shuffle"),
-            scalar(ArraySum.class, "array_sum"),
+            scalar(ArraySum.class, "FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(BigIntType.INSTANCE)array_sum"),
             scalar(ArrayUnion.class, "array_union"),
             scalar(ArrayWithConstant.class, "array_with_constant"),
             scalar(ArrayZip.class, "array_zip"),
@@ -554,6 +558,10 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Char.class, "char"),
             scalar(CharacterLength.class, "char_length", "character_length"),
             scalar(Coalesce.class, "coalesce"),
+            scalar(CompressAsTinyInt.class, "compress_as_tinyint"),
+            scalar(CompressAsInt.class, "compress_as_int"),
+            scalar(CompressAsBigInt.class, "compress_as_bigint"),
+            scalar(CompressAsLargeInt.class, "compress_as_largeint"),
             scalar(Concat.class, "concat"),
             scalar(ConcatWs.class, "concat_ws"),
             scalar(ConnectionId.class, "connection_id"),

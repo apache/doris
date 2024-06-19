@@ -122,6 +122,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsBigInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsLargeInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsTinyInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatWs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
@@ -157,6 +161,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DecompressVarchar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DigitalMasking;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog1;
@@ -858,6 +863,22 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(charFunc, context);
     }
 
+    default R visitCompressAsTinyInt(CompressAsTinyInt compressAsTinyInt, C context) {
+        return visitScalarFunction(compressAsTinyInt, context);
+    }
+
+    default R visitCompressAsInt(CompressAsInt compress, C context) {
+        return visitScalarFunction(compress, context);
+    }
+
+    default R visitCompressAsBigInt(CompressAsBigInt compress, C context) {
+        return visitScalarFunction(compress, context);
+    }
+
+    default R visitCompressAsLargeInt(CompressAsLargeInt compress, C context) {
+        return visitScalarFunction(compress, context);
+    }
+
     default R visitConcatWs(ConcatWs concatWs, C context) {
         return visitScalarFunction(concatWs, context);
     }
@@ -972,6 +993,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDigitalMasking(DigitalMasking digitalMasking, C context) {
         return visitScalarFunction(digitalMasking, context);
+    }
+
+    default R visitDecompressToString(DecompressVarchar decompres, C context) {
+        return visitScalarFunction(decompres, context);
     }
 
     default R visitYearsSub(YearsSub yearsSub, C context) {
