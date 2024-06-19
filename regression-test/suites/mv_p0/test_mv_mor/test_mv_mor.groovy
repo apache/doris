@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite ("test_mv_mow") {
+suite ("test_mv_mor") {
     sql """ drop table if exists u_table; """
 
     sql """
@@ -29,7 +29,7 @@ suite ("test_mv_mow") {
             distributed BY hash(k1) buckets 3
             properties(
                 "replication_num" = "1",
-                "enable_unique_key_merge_on_write" = "true"
+                "enable_unique_key_merge_on_write" = "false"
             );
         """
     sql "insert into u_table select 1,1,1,1;"
@@ -39,9 +39,10 @@ suite ("test_mv_mow") {
     sql "insert into u_table select 1,1,1,2;"
     sql "insert into u_table select 1,2,1,2;"
 
+    // do not match mv coz preagg is off, mv need contains all key column to make row count correct
     explain {
         sql("select k1,k2+k3 from u_table order by k1;")
-        contains "(k123p)"
+        contains "(u_table)"
     }
     qt_select_mv "select k1,k2+k3 from u_table order by k1;"
 
