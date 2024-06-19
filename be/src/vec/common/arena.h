@@ -89,7 +89,7 @@ private:
 
     /// Last contiguous chunk of memory.
     Chunk* head = nullptr;
-    size_t size_in_bytes;
+    size_t size_in_bytes = 0;
     size_t _initial_size = 4096;
     // The memory used by all chunks, excluding head.
     size_t _used_size_no_head;
@@ -140,7 +140,6 @@ public:
           size_t linear_growth_threshold_ = 128 * 1024 * 1024)
             : growth_factor(growth_factor_),
               linear_growth_threshold(linear_growth_threshold_),
-              size_in_bytes(head->size()),
               _initial_size(initial_size_),
               _used_size_no_head(0) {}
 
