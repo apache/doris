@@ -18,7 +18,6 @@
 package org.apache.doris.mtmv;
 
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.MapUtils;
 
@@ -45,14 +44,6 @@ public class MTMVRefreshSnapshot {
             return false;
         }
         return relatedPartitionSnapshot.equals(relatedPartitionCurrentSnapshot);
-    }
-
-    public Set<String> getSnapshotPartitions(String mtmvPartitionName) {
-        MTMVRefreshPartitionSnapshot partitionSnapshot = partitionSnapshots.get(mtmvPartitionName);
-        if (partitionSnapshot == null) {
-            return Sets.newHashSet();
-        }
-        return partitionSnapshot.getPartitions().keySet();
     }
 
     public boolean equalsWithBaseTable(String mtmvPartitionName, long baseTableId,
