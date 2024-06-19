@@ -61,7 +61,6 @@ public abstract class BaseAnalysisTask {
 
     public static final long LIMIT_SIZE = 1024 * 1024 * 1024; // 1GB
     public static final double LIMIT_FACTOR = 1.2;
-    public static final int PARTITION_BATCH_SIZE = 100;
 
     protected static final String FULL_ANALYZE_TEMPLATE =
             "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
@@ -367,6 +366,7 @@ public abstract class BaseAnalysisTask {
         List<String> sqls = Lists.newArrayList();
         Set<String> partNames = Sets.newHashSet();
         int count = 0;
+        long batchRowCount = 0;
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = analysisManager.findTableStatsStatus(tbl.getId());
         String idxName = info.indexId == -1 ? tbl.getName() : ((OlapTable) tbl).getIndexNameById(info.indexId);
@@ -374,22 +374,24 @@ public abstract class BaseAnalysisTask {
                 ? null : tableStatsStatus.findColumnStatsMeta(idxName, col.getName());
         boolean hasHughPartition = false;
         long hugePartitionThreshold = StatisticsUtil.getHugePartitionLowerBoundRows();
+        int partitionBatchSize = StatisticsUtil.getPartitionAnalyzeBatchSize();
         // Find jobInfo for this task.
         AnalysisInfo jobInfo = analysisManager.findJobInfo(job.getJobInfo().jobId);
         // For sync job, get jobInfo from job.jobInfo.
         boolean isSync = jobInfo == null;
         jobInfo = isSync ? job.jobInfo : jobInfo;
-        StatisticsCache cache = Env.getCurrentEnv().getStatisticsCache();
         for (String part : partitionNames) {
             // External table partition is null.
             Partition partition = tbl.getPartition(part);
             if (partition != null) {
                 // For huge partition, skip analyze it.
-                if (partition.getBaseIndex().getRowCount() > hugePartitionThreshold) {
+                long partitionRowCount = partition.getBaseIndex().getRowCount();
+                if (partitionRowCount > hugePartitionThreshold) {
                     hasHughPartition = true;
                     LOG.info("Partition {} in table {} is too large, skip it.", part, tbl.getName());
                     continue;
                 }
+                batchRowCount += partitionRowCount;
                 // For cluster upgrade compatible (older version metadata doesn't have partition update rows map)
                 // and insert before first analyze, set partition update rows to 0.
                 jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
@@ -413,12 +415,9 @@ public abstract class BaseAnalysisTask {
             params.put("partitionInfo", getPartitionInfo(part));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             sqls.add(stringSubstitutor.replace(PARTITION_ANALYZE_TEMPLATE));
-            // TODO: invalidate remote FE's cache.
-            cache.invalidatePartitionColumnStatsCache(
-                    info.catalogId, info.dbId, info.tblId, info.indexId, part, col.getName());
             count++;
             partNames.add(part);
-            if (count == PARTITION_BATCH_SIZE) {
+            if (count == partitionBatchSize || batchRowCount > hugePartitionThreshold) {
                 String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
                         + Joiner.on(" UNION ALL ").join(sqls);
                 runInsert(sql);
@@ -427,6 +426,7 @@ public abstract class BaseAnalysisTask {
                 partNames.clear();
                 sqls.clear();
                 count = 0;
+                batchRowCount = 0;
             }
         }
         if (count > 0) {
