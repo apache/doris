@@ -114,7 +114,7 @@ public class CascadesContext implements ScheduleContext {
     private final RuntimeFilterContext runtimeFilterContext;
     private final TopnFilterContext topnFilterContext = new TopnFilterContext();
     private Optional<Scope> outerScope = Optional.empty();
-    private Map<Long, TableIf> tables = null;
+    private Map<List<String>, TableIf> tables = null;
 
     private boolean isRewriteRoot;
     private volatile boolean isTimeout = false;
@@ -264,9 +264,8 @@ public class CascadesContext implements ScheduleContext {
         this.memo = null;
     }
 
-    public void setTables(List<TableIf> tables) {
-        this.tables = tables.stream()
-                .collect(Collectors.toMap(TableIf::getId, t -> t, (t1, t2) -> t1, () -> Maps.newTreeMap()));
+    public void setTables(Map<List<String>, TableIf> tables) {
+        this.tables = tables;
     }
 
     public final ConnectContext getConnectContext() {
@@ -408,26 +407,12 @@ public class CascadesContext implements ScheduleContext {
         for (List<String> tableName : tableNames) {
             try {
                 TableIf table = getTable(tableName);
-                tables.put(table.getId(), table);
+                tables.put(table.getFullQualifiers(), table);
             } catch (Throwable e) {
                 // IGNORE
             }
         }
 
-    }
-
-    /** get table by table name, try to get from information from dumpfile first */
-    public TableIf getTableInMinidumpCache(String tableName) {
-        Preconditions.checkState(tables != null, "tables should not be null");
-        for (TableIf table : tables.values()) {
-            if (table.getName().equals(tableName)) {
-                return table;
-            }
-        }
-        if (getConnectContext().getSessionVariable().isPlayNereidsDump()) {
-            throw new AnalysisException("Minidump cache can not find table:" + tableName);
-        }
-        return null;
     }
 
     public List<TableIf> getTables() {

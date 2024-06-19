@@ -74,11 +74,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     public CostModelV1(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        if (sessionVariable.isPlayNereidsDump()) {
-            // TODO: @bingfeng refine minidump setting, and pass testMinidumpUt
-            beNumber = 1;
-            parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
-        } else if (sessionVariable.getBeNumberForTest() != -1) {
+        if (sessionVariable.getBeNumberForTest() != -1) {
             // shape test, fix the BE number and instance number
             beNumber = sessionVariable.getBeNumberForTest();
             parallelInstance = 8;

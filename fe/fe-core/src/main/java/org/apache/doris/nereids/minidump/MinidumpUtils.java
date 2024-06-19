@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -41,6 +42,8 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
 
+import com.google.common.collect.Maps;
+import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
@@ -51,6 +54,7 @@ import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -83,8 +87,8 @@ public class MinidumpUtils {
     /**
      * deserialize of tables using gson, we need to get table type first
      */
-    private static List<TableIf> dserializeTables(JSONArray tablesJson) {
-        List<TableIf> tables = new ArrayList<>();
+    private static Map<List<String>, TableIf> dserializeTables(JSONArray tablesJson) {
+        Map<List<String>, TableIf> tables = Maps.newHashMap();
         for (int i = 0; i < tablesJson.length(); i++) {
             JSONObject tableJson = (JSONObject) tablesJson.get(i);
             TableIf newTable;
@@ -93,11 +97,19 @@ public class MinidumpUtils {
                     String tableJsonValue = tableJson.get("TableValue").toString();
                     newTable = GsonUtils.GSON.fromJson(tableJsonValue, OlapTable.class);
                     break;
+                case "VIEW":
+                    String viewJsonValue = tableJson.get("TableValue").toString();
+                    newTable = GsonUtils.GSON.fromJson(viewJsonValue, View.class);
+                    ((View) newTable).setInlineViewDefWithSqlMode(tableJson.get("InlineViewDef").toString(),
+                            tableJson.getLong("SqlMode"));
+                    break;
                 default:
                     newTable = null;
                     break;
             }
-            tables.add(newTable);
+            Type listType = new TypeToken<List<String>>() {}.getType();
+            List<String> key = GsonUtils.GSON.fromJson(tableJson.getString("TableName"), listType);
+            tables.put(key, newTable);
         }
         return tables;
     }
@@ -113,7 +125,7 @@ public class MinidumpUtils {
         String sql = inputJSON.getString("Sql");
 
         JSONArray tablesJson = (JSONArray) inputJSON.get("Tables");
-        List<TableIf> tables = dserializeTables(tablesJson);
+        Map<List<String>, TableIf> tables = dserializeTables(tablesJson);
 
         String colocateTableIndexJson = inputJSON.get("ColocateTableIndex").toString();
         ColocateTableIndex newColocateTableIndex
@@ -125,7 +137,7 @@ public class MinidumpUtils {
             JSONObject oneColumnStat = (JSONObject) columnStats.get(i);
             String colName = oneColumnStat.keys().next();
             String colStat = oneColumnStat.getString(colName);
-            ColumnStatistic columnStatistic = ColumnStatistic.fromJson(colStat);
+            ColumnStatistic columnStatistic = GsonUtils.GSON.fromJson(colStat, ColumnStatistic.class);
             columnStatisticMap.put(colName, columnStatistic);
         }
         JSONArray histogramJsonArray = (JSONArray) inputJSON.get("Histogram");
@@ -223,13 +235,17 @@ public class MinidumpUtils {
     /**
      * serialize tables from Table in catalog to json format
      */
-    public static JSONArray serializeTables(List<TableIf> tables) {
+    public static JSONArray serializeTables(Map<List<String>, TableIf> tables) {
         JSONArray tablesJson = new JSONArray();
-        for (TableIf table : tables) {
-            String tableValues = GsonUtils.GSON.toJson(table);
+        for (Map.Entry<List<String>, TableIf> table : tables.entrySet()) {
+            String tableValues = GsonUtils.GSON.toJson(table.getValue());
             JSONObject oneTableJson = new JSONObject();
-            oneTableJson.put("TableType", table.getType());
-            oneTableJson.put("TableName", table.getName());
+            oneTableJson.put("TableType", table.getValue().getType());
+            oneTableJson.put("TableName", GsonUtils.GSON.toJson(table.getKey()));
+            if (table.getValue() instanceof View) {
+                oneTableJson.put("InlineViewDef", ((View) table.getValue()).getInlineViewDef());
+                oneTableJson.put("SqlMode", Long.toString(((View) table.getValue()).getSqlMode()));
+            }
             JSONObject jsonTableValues = new JSONObject(tableValues);
             oneTableJson.put("TableValue", jsonTableValues);
             tablesJson.put(oneTableJson);
@@ -256,10 +272,11 @@ public class MinidumpUtils {
     /**
      * serialize column statistic and histograms when loading to dumpfile and environment
      */
-    private static void serializeStatsUsed(JSONObject jsonObj, List<TableIf> tables) {
+    private static void serializeStatsUsed(JSONObject jsonObj, Map<List<String>, TableIf> tables) {
         JSONArray columnStatistics = new JSONArray();
         JSONArray histograms = new JSONArray();
-        for (TableIf table : tables) {
+        for (Map.Entry<List<String>, TableIf> tableEntry : tables.entrySet()) {
+            TableIf table = tableEntry.getValue();
             if (table instanceof SchemaTable) {
                 continue;
             }
@@ -282,7 +299,7 @@ public class MinidumpUtils {
                     histograms.put(oneHistogram);
                 }
                 JSONObject oneColumnStats = new JSONObject();
-                oneColumnStats.put(table.getName() + colName, cache.toJson());
+                oneColumnStats.put(table.getName() + colName, GsonUtils.GSON.toJson(cache));
                 columnStatistics.put(oneColumnStats);
             }
         }
@@ -300,6 +317,21 @@ public class MinidumpUtils {
             return;
         }
         connectContext.getMinidump().put("ResultPlan", ((AbstractPlan) resultPlan).toJson());
+        if (connectContext.getSessionVariable().isEnableMinidump()) {
+            saveMinidumpString(connectContext.getMinidump(), DebugUtil.printId(connectContext.queryId()));
+        }
+    }
+
+    /**
+     * serialize output plan to dump file and persistent into disk
+     */
+    public static void serializeOutputMessagesToDumpFile(String key, String value) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext.getSessionVariable().isPlayNereidsDump()
+                || !connectContext.getSessionVariable().isEnableMinidump()) {
+            return;
+        }
+        connectContext.getMinidump().put(key, value);
         if (connectContext.getSessionVariable().isEnableMinidump()) {
             saveMinidumpString(connectContext.getMinidump(), DebugUtil.printId(connectContext.queryId()));
         }
@@ -465,7 +497,7 @@ public class MinidumpUtils {
     /**
      * implementation of interface serializeInputsToDumpFile
      */
-    private static JSONObject serializeInputs(Plan parsedPlan, List<TableIf> tables) throws IOException {
+    private static JSONObject serializeInputs(Plan parsedPlan, Map<List<String>, TableIf> tables) throws IOException {
         ConnectContext connectContext = ConnectContext.get();
         // Create a JSON object
         JSONObject jsonObj = new JSONObject();
@@ -495,7 +527,8 @@ public class MinidumpUtils {
      * @param tables all tables relative to this query
      * @throws IOException this will write to disk, so io exception should be dealed with
      */
-    public static void serializeInputsToDumpFile(Plan parsedPlan, List<TableIf> tables) throws IOException {
+    public static void serializeInputsToDumpFile(Plan parsedPlan, Map<List<String>, TableIf> tables)
+            throws IOException {
         ConnectContext connectContext = ConnectContext.get();
         // when playing minidump file, we do not save input again.
         if (connectContext.getSessionVariable().isPlayNereidsDump()
