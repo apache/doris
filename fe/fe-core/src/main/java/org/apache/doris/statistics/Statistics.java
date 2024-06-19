@@ -65,6 +65,10 @@ public class Statistics {
         return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
     }
 
+    public Statistics withExpressionToColumnStats(Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
+    }
+
     /**
      * Update by count.
      */
