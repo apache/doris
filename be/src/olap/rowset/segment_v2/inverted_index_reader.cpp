@@ -100,6 +100,7 @@ bool InvertedIndexReader::_is_match_query(InvertedIndexQueryType query_type) {
 }
 
 bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
+    // SCOPED_RAW_TIMER(&stats->inverted_index_query_file_exists_timer);
     bool exists = false;
     RETURN_IF_ERROR(_fs->exists(index_file_path, &exists));
     return exists;
@@ -189,8 +190,10 @@ Status InvertedIndexReader::get_index_search(OlapReaderStatistics* stats,
     return Status::OK();
 }
 
-Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
+Status InvertedIndexReader::read_null_bitmap(OlapReaderStatistics* stats,
+                                             InvertedIndexQueryCacheHandle* cache_handle,
                                              lucene::store::Directory* dir) {
+    SCOPED_RAW_TIMER(&stats->inverted_index_query_null_bitmap_timer);
     lucene::store::IndexInput* null_bitmap_in = nullptr;
     bool owned_dir = false;
     try {
@@ -208,7 +211,10 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
         }
 
         bool exists = false;
-        RETURN_IF_ERROR(_fs->exists(index_file_path, &exists));
+        {
+            SCOPED_RAW_TIMER(&stats->inverted_index_query_file_exists_timer);
+            RETURN_IF_ERROR(_fs->exists(index_file_path, &exists));
+        }
         if (!exists) {
             LOG(WARNING) << "inverted index: " << index_file_path.native() << " not exist.";
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
@@ -699,7 +705,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     // try to reuse index_searcher's directory to read null_bitmap to cache
     // to avoid open directory additionally for null_bitmap
     InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-    read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory());
+    read_null_bitmap(stats, &null_bitmap_cache_handle, index_searcher->getReader()->directory());
 
     try {
         if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||

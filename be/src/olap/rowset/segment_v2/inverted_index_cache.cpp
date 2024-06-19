@@ -123,8 +123,11 @@ Status InvertedIndexSearcherCache::get_index_searcher(const io::FileSystemSPtr& 
 
     InvertedIndexSearcherCache::CacheKey cache_key(file_path);
     if (_lookup(cache_key, cache_handle)) {
+        stats->inverted_index_searcher_cache_hit++;
         cache_handle->owned = false;
         return Status::OK();
+    } else {
+        stats->inverted_index_searcher_cache_miss++;
     }
 
     cache_handle->owned = !use_cache;
@@ -134,7 +137,10 @@ Status InvertedIndexSearcherCache::get_index_searcher(const io::FileSystemSPtr& 
 #ifndef BE_TEST
     {
         bool exists = false;
-        RETURN_IF_ERROR(fs->exists(file_path, &exists));
+        {
+            SCOPED_RAW_TIMER(&stats->inverted_index_query_file_exists_timer);
+            RETURN_IF_ERROR(fs->exists(file_path, &exists));
+        }
         if (!exists) {
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                     "inverted index path: {} not exist.", file_path);
