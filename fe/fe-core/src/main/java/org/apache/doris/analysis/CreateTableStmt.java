@@ -439,8 +439,7 @@ public class CreateTableStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
         // add a hidden column as delete flag for unique table
-        if (Config.enable_batch_delete_by_default && keysDesc != null
-                && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+        if (keysDesc != null && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
             if (enableUniqueKeyMergeOnWrite) {
                 columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.NONE));
             } else {
@@ -470,6 +469,7 @@ public class CreateTableStmt extends DdlStmt {
                 columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.REPLACE));
             }
         }
+
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME));
