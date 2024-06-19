@@ -769,12 +769,29 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // rows newly updated after last analyze
         long deltaRowCount = tableMeta == null ? 0 : tableMeta.updatedRows.get();
         double rowCount = catalogRelation.getTable().getRowCountForNereids();
+        boolean rowCountFromPartitions = false;
         boolean hasUnknownCol = false;
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {
             OlapScan olapScan = (OlapScan) catalogRelation;
             if (olapScan.getTable().getBaseIndexId() != olapScan.getSelectedIndexId()) {
                 idxId = olapScan.getSelectedIndexId();
+            }
+            if (!olapScan.getSelectedPartitionIds().isEmpty()) {
+                double partRowCountSum = 0;
+                rowCountFromPartitions = true;
+                for (long id : olapScan.getSelectedPartitionIds()) {
+                    long partRowCount = olapScan.getTable().getPartition(id).getBaseIndex().getRowCount();
+                    // if any partition.rowCount is 0, fallback to table rowCount
+                    if (partRowCount == 0) {
+                        rowCountFromPartitions = false;
+                        break;
+                    }
+                    partRowCountSum += partRowCount;
+                }
+                if (rowCountFromPartitions) {
+                    rowCount = partRowCountSum;
+                }
             }
         }
         if (deltaRowCount > 0 && LOG.isDebugEnabled()) {
@@ -801,7 +818,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (cache.avgSizeByte <= 0) {
                 colStatsBuilder.setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize());
             }
-            if (!cache.isUnKnown) {
+            if (!cache.isUnKnown && !rowCountFromPartitions) {
                 rowCount = Math.max(rowCount, cache.count + deltaRowCount);
             } else {
                 hasUnknownCol = true;
