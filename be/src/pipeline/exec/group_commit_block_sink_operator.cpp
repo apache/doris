@@ -64,38 +64,25 @@ Status GroupCommitBlockSinkLocalState::close(RuntimeState* state, Status close_s
     SCOPED_TIMER(_close_timer);
     RETURN_IF_ERROR(Base::close(state, close_status));
     RETURN_IF_ERROR(close_status);
-    int64_t total_rows = state->num_rows_load_total();
-    int64_t loaded_rows = state->num_rows_load_total();
-    state->set_num_rows_load_total(loaded_rows + state->num_rows_load_unselected() +
-                                   state->num_rows_load_filtered());
-    state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() + total_rows -
-                                         loaded_rows);
-    auto& p = _parent->cast<GroupCommitBlockSinkOperatorX>();
-    if (!_is_block_appended) {
-        // if not meet the max_filter_ratio, we should return error status directly
-        int64_t num_selected_rows =
-                state->num_rows_load_total() - state->num_rows_load_unselected();
-        if (num_selected_rows > 0 &&
-            (double)state->num_rows_load_filtered() / num_selected_rows > p._max_filter_ratio) {
-            return Status::DataQualityError("too many filtered rows");
-        }
-        RETURN_IF_ERROR(_add_blocks(state, true));
-    }
-    if (_load_block_queue) {
-        _remove_estimated_wal_bytes();
-        _load_block_queue->remove_load_id(p._load_id);
-    }
     // wait to wal
     auto st = Status::OK();
     if (_load_block_queue && (_load_block_queue->wait_internal_group_commit_finish ||
                               _group_commit_mode == TGroupCommitMode::SYNC_MODE)) {
         std::unique_lock l(_load_block_queue->mutex);
         if (!_load_block_queue->process_finish) {
-            _load_block_queue->internal_group_commit_finish_cv.wait(l);
+            return Status::InternalError("_load_block_queue is not finished!");
         }
         st = _load_block_queue->status;
     }
     return st;
+}
+
+std::string GroupCommitBlockSinkLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, ", _load_block_queue: ({})",
+                   _load_block_queue ? _load_block_queue->debug_string() : "NULL");
+    return fmt::to_string(debug_string_buffer);
 }
 
 Status GroupCommitBlockSinkLocalState::_add_block(RuntimeState* state,
@@ -200,6 +187,10 @@ Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
                     _estimated_wal_bytes = estimated_wal_bytes;
                 }
             }
+            if (_load_block_queue->wait_internal_group_commit_finish ||
+                _group_commit_mode == TGroupCommitMode::SYNC_MODE) {
+                _load_block_queue->append_dependency(_finish_dependency);
+            }
             _state->set_import_label(_load_block_queue->label);
             _state->set_wal_id(_load_block_queue->txn_id);
         } else {
@@ -233,6 +224,7 @@ Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
 }
 
 Status GroupCommitBlockSinkOperatorX::init(const TDataSink& t_sink) {
+    RETURN_IF_ERROR(Base::init(t_sink));
     DCHECK(t_sink.__isset.olap_table_sink);
     auto& table_sink = t_sink.olap_table_sink;
     _tuple_desc_id = table_sink.tuple_id;
@@ -245,6 +237,8 @@ Status GroupCommitBlockSinkOperatorX::init(const TDataSink& t_sink) {
     _group_commit_mode = table_sink.group_commit_mode;
     _load_id = table_sink.load_id;
     _max_filter_ratio = table_sink.max_filter_ratio;
+    // From the thrift expressions create the real exprs.
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     return Status::OK();
 }
 
@@ -272,10 +266,35 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
     SCOPED_CONSUME_MEM_TRACKER(local_state._mem_tracker.get());
     Status status = Status::OK();
 
+    auto wind_up = [&]() -> Status {
+        if (eos) {
+            int64_t total_rows = state->num_rows_load_total();
+            int64_t loaded_rows = state->num_rows_load_total();
+            state->set_num_rows_load_total(loaded_rows + state->num_rows_load_unselected() +
+                                           state->num_rows_load_filtered());
+            state->update_num_rows_load_filtered(local_state._block_convertor->num_filtered_rows() +
+                                                 total_rows - loaded_rows);
+            if (!local_state._is_block_appended) {
+                // if not meet the max_filter_ratio, we should return error status directly
+                int64_t num_selected_rows =
+                        state->num_rows_load_total() - state->num_rows_load_unselected();
+                if (num_selected_rows > 0 &&
+                    (double)state->num_rows_load_filtered() / num_selected_rows >
+                            _max_filter_ratio) {
+                    return Status::DataQualityError("too many filtered rows");
+                }
+                RETURN_IF_ERROR(local_state._add_blocks(state, true));
+            }
+            local_state._remove_estimated_wal_bytes();
+            local_state._load_block_queue->remove_load_id(_load_id);
+        }
+        return Status::OK();
+    };
+
     auto rows = input_block->rows();
     auto bytes = input_block->bytes();
     if (UNLIKELY(rows == 0)) {
-        return status;
+        return wind_up();
     }
 
     // update incrementally so that FE can get the progress.
@@ -322,7 +341,9 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
         block->swap(res_block.to_block());
     }
     // add block into block queue
-    return local_state._add_block(state, block);
+    RETURN_IF_ERROR(local_state._add_block(state, block));
+
+    return wind_up();
 }
 
 } // namespace doris::pipeline

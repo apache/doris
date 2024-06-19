@@ -192,6 +192,11 @@ public:
                _query_options.mysql_row_binary_format;
     }
 
+    bool enable_short_circuit_query_access_column_store() const {
+        return _query_options.__isset.enable_short_circuit_query_access_column_store &&
+               _query_options.enable_short_circuit_query_access_column_store;
+    }
+
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
 
@@ -365,10 +370,6 @@ public:
 
     bool return_object_data_as_binary() const {
         return _query_options.return_object_data_as_binary;
-    }
-
-    bool enable_exchange_node_parallel_merge() const {
-        return _query_options.enable_enable_exchange_node_parallel_merge;
     }
 
     segment_v2::CompressionTypePB fragement_transmission_compression_type() const {
@@ -646,13 +647,6 @@ private:
 
     // owned by PipelineFragmentContext
     RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
-
-    // Data stream receivers created by a plan fragment are gathered here to make sure
-    // they are destroyed before _obj_pool (class members are destroyed in reverse order).
-    // Receivers depend on the descriptor table and we need to guarantee that their control
-    // blocks are removed from the data stream manager before the objects in the
-    // descriptor table are destroyed.
-    std::unique_ptr<ObjectPool> _data_stream_recvrs_pool;
 
     // Lock protecting _error_log and _unreported_error_idx
     std::mutex _error_log_lock;

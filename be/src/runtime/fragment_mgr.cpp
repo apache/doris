@@ -560,7 +560,7 @@ void FragmentMgr::remove_pipeline_context(
     }
 }
 
-std::shared_ptr<QueryContext> FragmentMgr::_get_or_erase_query_ctx(TUniqueId query_id) {
+std::shared_ptr<QueryContext> FragmentMgr::_get_or_erase_query_ctx(const TUniqueId& query_id) {
     auto search = _query_ctx_map.find(query_id);
     if (search != _query_ctx_map.end()) {
         if (auto q_ctx = search->second.lock()) {
@@ -573,6 +573,12 @@ std::shared_ptr<QueryContext> FragmentMgr::_get_or_erase_query_ctx(TUniqueId que
         }
     }
     return nullptr;
+}
+
+std::shared_ptr<QueryContext> FragmentMgr::get_or_erase_query_ctx_with_lock(
+        const TUniqueId& query_id) {
+    std::unique_lock<std::mutex> lock(_lock);
+    return _get_or_erase_query_ctx(query_id);
 }
 
 template <typename Params>
@@ -718,7 +724,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                       this, std::placeholders::_1, std::placeholders::_2));
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        auto prepare_st = context->prepare(params);
+        Status prepare_st = Status::OK();
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(params), prepare_st);
         if (!prepare_st.ok()) {
             query_ctx->cancel(prepare_st, params.fragment_id);
             query_ctx->set_execution_dependency_ready();
@@ -784,17 +791,6 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
         query_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit, false);
     }
 #endif
-}
-
-Status FragmentMgr::get_query_context(const TUniqueId& query_id,
-                                      std::shared_ptr<QueryContext>* query_ctx) {
-    std::lock_guard<std::mutex> state_lock(_lock);
-    if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
-        *query_ctx = q_ctx;
-    } else {
-        return Status::InternalError("Query context not found for query {}", print_id(query_id));
-    }
-    return Status::OK();
 }
 
 void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
@@ -1031,38 +1027,6 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
     return exec_plan_fragment(exec_fragment_params);
-}
-
-Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
-                                 butil::IOBufAsZeroCopyInputStream* attach_data) {
-    bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
-
-    UniqueId fragment_instance_id = request->fragment_instance_id();
-    TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
-
-    std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
-    QueryThreadContext query_thread_context;
-
-    RuntimeFilterMgr* runtime_filter_mgr = nullptr;
-    if (is_pipeline) {
-        std::unique_lock<std::mutex> lock(_lock);
-        auto iter = _pipeline_map.find(tfragment_instance_id);
-        if (iter == _pipeline_map.end()) {
-            VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
-            return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
-        }
-        pip_context = iter->second;
-
-        DCHECK(pip_context != nullptr);
-        runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
-        query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                pip_context->get_query_ctx()->query_mem_tracker};
-    } else {
-        return Status::InternalError("Non-pipeline is disabled!");
-    }
-
-    SCOPED_ATTACH_TASK(query_thread_context);
-    return runtime_filter_mgr->update_filter(request, attach_data);
 }
 
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,

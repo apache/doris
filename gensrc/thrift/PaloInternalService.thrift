@@ -143,7 +143,7 @@ struct TQueryOptions {
   // whether enable spilling to disk
   31: optional bool enable_spilling = false;
   // whether enable parallel merge in exchange node
-  32: optional bool enable_enable_exchange_node_parallel_merge = false;
+  32: optional bool enable_enable_exchange_node_parallel_merge = false; // deprecated
 
   // Time in ms to wait until runtime filters are delivered.
   33: optional i32 runtime_filter_wait_time_ms = 1000
@@ -301,6 +301,10 @@ struct TQueryOptions {
   112: optional i32 max_column_reader_num = 0
 
   113: optional bool enable_local_merge_sort = false;
+
+  114: optional bool enable_parallel_result_sink = false;
+  
+  115: optional bool enable_short_circuit_query_access_column_store = false;
   
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false

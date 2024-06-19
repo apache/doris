@@ -1143,7 +1143,8 @@ public class OlapScanNode extends ScanNode {
 
     public boolean isPointQuery() {
         return this.pointQueryEqualPredicats != null
-                    || (preparedStatment != null && preparedStatment.isPointQueryShortCircuit());
+                    || (preparedStatment != null && preparedStatment.isPointQueryShortCircuit())
+                    || ConnectContext.get().getStatementContext().isShortCircuitQuery();
     }
 
     private void computeTabletInfo() throws UserException {
@@ -1271,6 +1272,7 @@ public class OlapScanNode extends ScanNode {
         scanTabletIds.clear();
         bucketSeq2locations.clear();
         scanReplicaIds.clear();
+        sampleTabletIds.clear();
         try {
             createScanRangeLocations();
         } catch (AnalysisException e) {
@@ -1371,7 +1373,7 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("pushAggOp=").append(pushDownAggNoGroupingOp).append("\n");
         }
         if (isPointQuery()) {
-            output.append(prefix).append("SHORT-CIRCUIT");
+            output.append(prefix).append("SHORT-CIRCUIT\n");
         }
 
         if (!CollectionUtils.isEmpty(rewrittenProjectList)) {

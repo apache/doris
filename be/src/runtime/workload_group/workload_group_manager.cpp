@@ -193,14 +193,11 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
     // we count these cache memories equally on workload groups.
     double ratio = (double)proc_vm_rss / (double)all_queries_mem_used;
     if (ratio <= 1.25) {
-        std::string debug_msg = fmt::format(
-                "\nProcess Memory Summary: process_vm_rss: {}, process mem: {}, sys mem available: "
-                "{}, all quries mem: {}",
-                PrettyPrinter::print(proc_vm_rss, TUnit::BYTES),
-                PrettyPrinter::print(doris::GlobalMemoryArbitrator::process_memory_usage(),
-                                     TUnit::BYTES),
-                doris::MemInfo::sys_mem_available_str(),
-                PrettyPrinter::print(all_queries_mem_used, TUnit::BYTES));
+        std::string debug_msg =
+                fmt::format("\nProcess Memory Summary: {}, {}, all quries mem: {}",
+                            doris::GlobalMemoryArbitrator::process_memory_used_details_str(),
+                            doris::GlobalMemoryArbitrator::sys_mem_available_details_str(),
+                            PrettyPrinter::print(all_queries_mem_used, TUnit::BYTES));
         LOG_EVERY_T(INFO, 10) << debug_msg;
     }
 

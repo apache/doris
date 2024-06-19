@@ -131,6 +131,7 @@ public class CreateTableInfo {
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
         this.properties = properties;
+        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
         this.extProperties = extProperties;
         this.clusterKeysColumnNames = Utils.copyRequiredList(clusterKeyColumnNames);
     }
@@ -161,6 +162,7 @@ public class CreateTableInfo {
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
         this.properties = properties;
+        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
         this.extProperties = extProperties;
         this.clusterKeysColumnNames = Utils.copyRequiredList(clusterKeyColumnNames);
     }
@@ -400,7 +402,7 @@ public class CreateTableInfo {
             }
 
             // add hidden column
-            if (Config.enable_batch_delete_by_default && keysType.equals(KeysType.UNIQUE_KEYS)) {
+            if (keysType.equals(KeysType.UNIQUE_KEYS)) {
                 if (isEnableMergeOnWrite) {
                     columns.add(ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.NONE));
                 } else {
@@ -411,15 +413,20 @@ public class CreateTableInfo {
 
             // add a hidden column as row store
             boolean storeRowColumn = false;
+            List<String> rowStoreColumns = null;
             if (properties != null) {
                 try {
                     storeRowColumn =
                             PropertyAnalyzer.analyzeStoreRowColumn(Maps.newHashMap(properties));
+                    rowStoreColumns = PropertyAnalyzer.analyzeRowStoreColumns(Maps.newHashMap(properties),
+                                columns.stream()
+                                        .map(ColumnDefinition::getName)
+                                        .collect(Collectors.toList()));
                 } catch (Exception e) {
                     throw new AnalysisException(e.getMessage(), e.getCause());
                 }
             }
-            if (storeRowColumn) {
+            if (storeRowColumn || (rowStoreColumns != null && !rowStoreColumns.isEmpty())) {
                 if (keysType.equals(KeysType.AGG_KEYS)) {
                     throw new AnalysisException("Aggregate table can't support row column now");
                 }
@@ -435,6 +442,7 @@ public class CreateTableInfo {
                     columns.add(ColumnDefinition.newRowStoreColumnDefinition(null));
                 }
             }
+
             if (Config.enable_hidden_version_column_by_default
                     && keysType.equals(KeysType.UNIQUE_KEYS)) {
                 if (isEnableMergeOnWrite) {
@@ -627,9 +635,15 @@ public class CreateTableInfo {
         }
     }
 
-    // if auto bucket auto bucket enable, rewrite distribution bucket num &&
-    // set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
-    private static Map<String, String> maybeRewriteByAutoBucket(
+    /**
+     * if auto bucket auto bucket enable, rewrite distribution bucket num &&
+     * set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
+     *
+     * @param distributionDesc distributionDesc
+     * @param properties properties
+     * @return new properties
+     */
+    public static Map<String, String> maybeRewriteByAutoBucket(
             DistributionDescriptor distributionDesc, Map<String, String> properties) {
         if (distributionDesc == null || !distributionDesc.isAutoBucket()) {
             return properties;

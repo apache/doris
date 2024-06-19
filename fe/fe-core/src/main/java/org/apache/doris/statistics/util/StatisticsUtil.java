@@ -47,6 +47,7 @@ import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -62,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -481,6 +483,9 @@ public class StatisticsUtil {
             return false;
         }
         if (Config.isCloudMode()) {
+            if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).availableBackendsExists()) {
+                return false;
+            }
             try (AutoCloseConnectContext r = buildConnectContext()) {
                 r.connectContext.getCloudCluster();
                 for (OlapTable table : statsTbls) {
@@ -861,6 +866,20 @@ public class StatisticsUtil {
             LOG.warn("Failed to get value of huge_table_lower_bound_size_in_bytes, return default", e);
         }
         return StatisticConstants.HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES;
+    }
+
+    public static long getHugePartitionLowerBoundRows() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_PARTITION_LOWER_BOUND_ROWS)
+                .hugePartitionLowerBoundRows;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of huge_partition_lower_bound_rows, return default", e);
+        }
+        return StatisticConstants.HUGE_PARTITION_LOWER_BOUND_ROWS;
+    }
+
+    public static int getPartitionAnalyzeBatchSize() {
+        return GlobalVariable.partitionAnalyzeBatchSize;
     }
 
     public static long getHugeTableAutoAnalyzeIntervalInMillis() {

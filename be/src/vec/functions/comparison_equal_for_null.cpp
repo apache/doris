@@ -73,6 +73,7 @@ public:
         const bool right_const = is_column_const(*col_right.column);
         bool left_only_null = col_left.column->only_null();
         bool right_only_null = col_right.column->only_null();
+
         if (left_only_null && right_only_null) {
             // TODO: return ColumnConst after function.cpp::default_implementation_for_constant_arguments supports it.
             auto result_column = ColumnVector<UInt8>::create(input_rows_count, 1);
@@ -152,27 +153,34 @@ public:
 
         if (left_nullable == right_nullable) {
             auto return_type = std::make_shared<DataTypeUInt8>();
-
+            auto left_column_tmp =
+                    left_nullable ? left_column->get_nested_column_ptr() : col_left.column;
+            auto right_column_tmp =
+                    right_nullable ? right_column->get_nested_column_ptr() : col_right.column;
             ColumnsWithTypeAndName eq_columns {
                     ColumnWithTypeAndName {
-                            left_nullable ? left_column->get_nested_column_ptr() : col_left.column,
+                            left_const ? ColumnConst::create(left_column_tmp, input_rows_count)
+                                       : left_column_tmp,
                             left_nullable
                                     ? assert_cast<const DataTypeNullable*>(col_left.type.get())
                                               ->get_nested_type()
                                     : col_left.type,
                             ""},
-                    ColumnWithTypeAndName {left_nullable ? right_column->get_nested_column_ptr()
-                                                         : col_right.column,
-                                           left_nullable ? assert_cast<const DataTypeNullable*>(
-                                                                   col_right.type.get())
-                                                                   ->get_nested_type()
-                                                         : col_right.type,
-                                           ""}};
+                    ColumnWithTypeAndName {
+                            right_const ? ColumnConst::create(right_column_tmp, input_rows_count)
+                                        : right_column_tmp,
+                            left_nullable
+                                    ? assert_cast<const DataTypeNullable*>(col_right.type.get())
+                                              ->get_nested_type()
+                                    : col_right.type,
+                            ""}};
             Block temporary_block(eq_columns);
 
             auto func_eq =
                     SimpleFunctionFactory::instance().get_function("eq", eq_columns, return_type);
-            DCHECK(func_eq);
+            DCHECK(func_eq) << fmt::format("Left type {} right type {} return type {}",
+                                           col_left.type->get_name(), col_right.type->get_name(),
+                                           return_type->get_name());
             temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
             RETURN_IF_ERROR(
                     func_eq->execute(context, temporary_block, {0, 1}, 2, input_rows_count));
@@ -219,13 +227,24 @@ public:
             auto res_nullable_column = assert_cast<ColumnNullable*>(
                     std::move(*temporary_block.get_by_position(2).column).mutate().get());
             auto& null_map = res_nullable_column->get_null_map_data();
-            auto& res_map =
+            auto& res_nested_col =
                     assert_cast<ColumnVector<UInt8>&>(res_nullable_column->get_nested_column())
                             .get_data();
 
-            auto* __restrict res = res_map.data();
-            auto* __restrict l = null_map.data();
-            _exec_nullable_inequal(res, l, input_rows_count, left_const);
+            // Input of eq_for_null:
+            // Left: [1, 1, 1, 1](ColumnConst(ColumnInt32))
+            // Right: [1, 1, 1, 1] & [0, 1, 0, 1] (ColumnNullable(ColumnInt32))
+            // Above input will be passed to function eq, and result will be
+            // Result: [1, x, 1, x] & [0, 1, 0, 1] (ColumnNullable(ColumnUInt8)), x means default value.
+            // The expceted result of eq_for_null is:
+            // Except: [1, 0, 1, 0] (ColumnUInt8)
+            // We already have assumption that there is only one nullable column in input.
+            // So if one row of res_nullable_column is null, the result row of eq_for_null should be 0.
+            // For others, the result will be same with function eq.
+
+            for (int i = 0; i < input_rows_count; ++i) {
+                res_nested_col[i] &= (null_map[i] != 1);
+            }
 
             block.get_by_position(result).column = res_nullable_column->get_nested_column_ptr();
         }
@@ -247,18 +266,6 @@ private:
         } else {
             for (int i = 0; i < rows; ++i) {
                 result[i] = (left[i] == right[i]) & (left[i] | result[i]);
-            }
-        }
-    }
-    static void _exec_nullable_inequal(unsigned char* result, const unsigned char* left,
-                                       size_t rows, bool left_const) {
-        if (left_const) {
-            for (int i = 0; i < rows; ++i) {
-                result[i] &= (left[0] != 1);
-            }
-        } else {
-            for (int i = 0; i < rows; ++i) {
-                result[i] &= (left[i] != 1);
             }
         }
     }

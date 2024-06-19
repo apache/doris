@@ -60,7 +60,7 @@ Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& 
     for (auto* d : src_index_dirs) {
         if (d != nullptr) {
             d->close();
-            //_CLDELETE(d);
+            _CLDELETE(d);
         }
     }
     for (auto* d : dest_index_dirs) {

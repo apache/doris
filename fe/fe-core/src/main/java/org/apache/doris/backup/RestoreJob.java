@@ -99,6 +99,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -1070,6 +1071,8 @@ public class RestoreJob extends AbstractJob {
         } finally {
             localTbl.readUnlock();
         }
+        Map<Object, Object> objectPool = new HashMap<Object, Object>();
+        List<String> rowStoreColumns = localTbl.getTableProperty().getCopiedRowStoreColumns();
         for (MaterializedIndex restoredIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
             List<Index> indexes = restoredIdx.getId() == localTbl.getBaseIndexId()
@@ -1103,7 +1106,9 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             localTbl.getTimeSeriesCompactionLevelThreshold(),
                             localTbl.storeRowColumn(),
-                            binlogConfig);
+                            binlogConfig,
+                            localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                            objectPool);
                     task.setInvertedIndexStorageFormat(localTbl.getInvertedIndexStorageFormat());
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
@@ -1781,13 +1786,14 @@ public class RestoreJob extends AbstractJob {
 
                     // update partition visible version
                     part.updateVersionForRestore(entry.getValue());
+                    long visibleVersion = part.getVisibleVersion();
 
                     // we also need to update the replica version of these overwritten restored partitions
                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!replica.checkVersionCatchUp(part.getVisibleVersion(), false)) {
-                                    replica.updateVersion(part.getVisibleVersion());
+                                if (!replica.checkVersionCatchUp(visibleVersion, false)) {
+                                    replica.updateVersion(visibleVersion);
                                 }
                             }
                         }

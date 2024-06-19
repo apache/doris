@@ -91,7 +91,7 @@ public class AddRollupClause extends AlterTableClause {
 
     @Override
     public boolean allowOpMTMV() {
-        return false;
+        return true;
     }
 
     @Override
