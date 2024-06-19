@@ -102,12 +102,12 @@ public:
 #endif
 
     template <bool trim_single>
-    static inline const char* rtrim(const char* begin, const char* end,
-                                    const StringRef& remove_str) {
+    static inline const unsigned char* rtrim(const unsigned char* begin, const unsigned char* end,
+                                             const StringRef& remove_str) {
         if (remove_str.size == 0) {
             return end;
         }
-        const char* p = end;
+        const auto* p = end;
 #if defined(__SSE2__) || defined(__aarch64__)
         if constexpr (trim_single) {
             const auto size = end - begin;
@@ -138,12 +138,12 @@ public:
     }
 
     template <bool trim_single>
-    static inline const char* ltrim(const char* begin, const char* end,
-                                    const StringRef& remove_str) {
+    static inline const unsigned char* ltrim(const unsigned char* begin, const unsigned char* end,
+                                             const StringRef& remove_str) {
         if (remove_str.size == 0) {
             return begin;
         }
-        const char* p = begin;
+        const auto* p = begin;
 #if defined(__SSE2__) || defined(__aarch64__)
         if constexpr (trim_single) {
             const auto size = end - begin;

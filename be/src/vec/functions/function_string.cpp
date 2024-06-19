@@ -490,13 +490,12 @@ struct TrimUtil {
     static Status vector(const ColumnString::Chars& str_data,
                          const ColumnString::Offsets& str_offsets, const StringRef& remove_str,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        size_t offset_size = str_offsets.size();
-        res_offsets.resize(str_offsets.size());
+        const size_t offset_size = str_offsets.size();
+        res_offsets.resize(offset_size);
+        res_data.reserve(str_data.size());
         for (size_t i = 0; i < offset_size; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&str_data[str_offsets[i - 1]]);
-            const ColumnString::Offset size = str_offsets[i] - str_offsets[i - 1];
-            const char* str_begin = raw_str;
-            const char* str_end = raw_str + size;
+            const auto* str_begin = str_data.data() + str_offsets[i - 1];
+            const auto* str_end = str_data.data() + str_offsets[i];
 
             if constexpr (is_ltrim) {
                 str_begin =
@@ -506,8 +505,9 @@ struct TrimUtil {
                 str_end =
                         simd::VStringFunctions::rtrim<trim_single>(str_begin, str_end, remove_str);
             }
-            StringOP::push_value_string(std::string_view(str_begin, str_end), i, res_data,
-                                        res_offsets);
+
+            res_data.insert_assume_reserved(str_begin, str_end);
+            res_offsets[i] = res_data.size();
         }
         return Status::OK();
     }
@@ -557,10 +557,9 @@ struct Trim2Impl {
         if (const auto* col = assert_cast<const ColumnString*>(column.get())) {
             if (const auto* col_right = assert_cast<const ColumnString*>(rcol.get())) {
                 auto col_res = ColumnString::create();
-                const char* remove_str_raw_rhs =
-                        reinterpret_cast<const char*>(col_right->get_chars().data());
-                const ColumnString::Offset remove_str_rhs_size = col_right->get_offsets()[0];
-                const StringRef remove_str(remove_str_raw_rhs, remove_str_rhs_size);
+                const auto* remove_str_raw = col_right->get_chars().data();
+                const ColumnString::Offset remove_str_size = col_right->get_offsets()[0];
+                const StringRef remove_str(remove_str_raw, remove_str_size);
                 if (remove_str.size == 1) {
                     RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim, true>::vector(
                             col->get_chars(), col->get_offsets(), remove_str, col_res->get_chars(),
