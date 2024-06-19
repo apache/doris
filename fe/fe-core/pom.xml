@@ -848,6 +848,11 @@ under the License.
             <groupId>com.azure</groupId>
             <artifactId>azure-identity</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-blob-batch</artifactId>
+            <version>12.22.0</version>
+        </dependency>
     </dependencies>
     <repositories>
         <!-- for huawei obs sdk -->
