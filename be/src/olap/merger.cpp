@@ -393,6 +393,9 @@ Status Merger::vertical_compact_one_group(int64_t tablet_id, ReaderType reader_t
 int64_t estimate_batch_size(int group_index, BaseTabletSPtr tablet, int64_t way_cnt) {
     std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
     CompactionSampleInfo info = tablet->sample_infos[group_index];
+    if (way_cnt <= 0) {
+        return 4096 - 32;
+    }
     int64_t block_mem_limit = config::compaction_memory_bytes_limit / way_cnt;
     int64_t group_data_size = 0;
     if (info.group_data_size > 0 && info.bytes > 0 && info.rows > 0) {
