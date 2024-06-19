@@ -503,9 +503,9 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
     auto it = value.begin();
     for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
         const auto& column = *_build_blocks[it->block_offset].get_by_position(idx->second).column;
-        if (_mutable_cols[idx->second]->is_nullable() xor column.is_nullable()) {
-            if (_mutable_cols[idx->second]->is_nullable()) {
-                ((ColumnNullable*)(_mutable_cols[idx->second].get()))
+        if (_mutable_cols[idx->first]->is_nullable() xor column.is_nullable()) {
+            if (_mutable_cols[idx->first]->is_nullable()) {
+                ((ColumnNullable*)(_mutable_cols[idx->first].get()))
                         ->insert_from_not_nullable(column, it->row_num);
             } else {
                 auto& nest_col = ((ColumnNullable&)column).get_nested_column();
