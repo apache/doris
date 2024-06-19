@@ -391,6 +391,10 @@ public class BindSink implements AnalysisRuleFactory {
         HMSExternalTable table = pair.second;
         LogicalPlan child = ((LogicalPlan) sink.child());
 
+        if (!sink.getPartitions().isEmpty()) {
+            throw new AnalysisException("Not support insert with partition spec in hive catalog.");
+        }
+
         List<Column> bindColumns;
         if (sink.getColNames().isEmpty()) {
             bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
@@ -399,7 +403,7 @@ public class BindSink implements AnalysisRuleFactory {
                 Column column = table.getColumn(cn);
                 if (column == null) {
                     throw new AnalysisException(String.format("column %s is not found in table %s",
-                        cn, table.getName()));
+                            cn, table.getName()));
                 }
                 return column;
             }).collect(ImmutableList.toImmutableList());
