@@ -162,7 +162,7 @@ public class PartitionRebalancer extends Rebalancer {
                 for (int i = 0; i < startIdx; i++) {
                     long tabletId = tabletIds.get(i);
                     TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                    if (canMoveTablet.test(tabletId)) {
+                    if (canMoveTablet.test(tabletId, tabletMeta)) {
                         pickedTabletId = tabletId;
                         pickedTabletMeta = tabletMeta;
                         break;
