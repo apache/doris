@@ -216,7 +216,6 @@ public class StatisticsUtil {
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(true);
-        sessionVariable.setEnablePipelineEngine(true);
         sessionVariable.enableScanRunSerial = limitScan;
         sessionVariable.setQueryTimeoutS(StatisticsUtil.getAnalyzeTimeout());
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
