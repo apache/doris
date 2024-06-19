@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -86,18 +85,10 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
     }
 
     /**
-     * if enable parallel outfile and not broker export, we should request any here.
-     * and it will add a top fragment to summary export result in PhysicalPlanTranslator.
+     * TODO: return ANY when support parallel outfile in pipelineX. not support now.
      */
     public PhysicalProperties requestProperties(ConnectContext ctx) {
-        if (!ctx.getSessionVariable().enableParallelOutfile
-                || ctx.getSessionVariable().getEnablePipelineEngine()
-                || ctx.getSessionVariable().getEnablePipelineXEngine()
-                || properties.containsKey(OutFileClause.PROP_BROKER_NAME)) {
-            return PhysicalProperties.GATHER;
-        }
-        // come here means we turn on parallel output export
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.GATHER;
     }
 
     @Override

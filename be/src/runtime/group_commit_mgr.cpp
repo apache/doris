@@ -26,6 +26,7 @@
 #include "common/compiler_util.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "pipeline/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "util/debug_points.h"
@@ -459,8 +460,10 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
             {
                 std::unique_lock l2(load_block_queue->mutex);
                 load_block_queue->process_finish = true;
+                for (auto dep : load_block_queue->dependencies) {
+                    dep->set_always_ready();
+                }
             }
-            load_block_queue->internal_group_commit_finish_cv.notify_all();
         }
         _load_block_queues.erase(instance_id);
     }
@@ -614,6 +617,15 @@ Status LoadBlockQueue::close_wal() {
         RETURN_IF_ERROR(_v_wal_writer->close());
     }
     return Status::OK();
+}
+
+void LoadBlockQueue::append_dependency(std::shared_ptr<pipeline::Dependency> finish_dep) {
+    std::lock_guard<std::mutex> lock(mutex);
+    // If not finished, dependencies should be blocked.
+    if (!process_finish) {
+        finish_dep->block();
+        dependencies.push_back(finish_dep);
+    }
 }
 
 bool LoadBlockQueue::has_enough_wal_disk_space(size_t estimated_wal_bytes) {
