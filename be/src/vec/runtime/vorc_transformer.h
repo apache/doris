@@ -110,7 +110,7 @@ private:
     std::vector<std::string> _column_names;
     std::unique_ptr<orc::OutputStream> _output_stream;
     std::unique_ptr<orc::WriterOptions> _write_options;
-    const std::string* _schema_str;
+    const std::string& _schema_str;
     std::unique_ptr<orc::Type> _schema;
     std::unique_ptr<orc::Writer> _writer;
 

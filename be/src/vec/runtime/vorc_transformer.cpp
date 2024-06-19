@@ -115,7 +115,7 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
           _file_writer(file_writer),
           _column_names(std::move(column_names)),
           _write_options(new orc::WriterOptions()),
-          _schema_str(&schema),
+          _schema_str(schema),
           _iceberg_schema(iceberg_schema) {
     _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
@@ -123,11 +123,11 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
 }
 
 Status VOrcTransformer::open() {
-    if (_schema_str != nullptr) {
+    if (!_schema_str.empty()) {
         try {
-            _schema = orc::Type::buildTypeFromString(*_schema_str);
+            _schema = orc::Type::buildTypeFromString(_schema_str);
         } catch (const std::exception& e) {
-            return Status::InternalError("Orc build schema from \"{}\" failed: {}", *_schema_str,
+            return Status::InternalError("Orc build schema from \"{}\" failed: {}", _schema_str,
                                          e.what());
         }
     } else {
