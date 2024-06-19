@@ -97,7 +97,7 @@ suite("test_base_mtmv","mtmv") {
 
     // drop column
     sql """
-        alter table ${tableName} drop COLUMN new_col;
+        alter table ${tableName} drop COLUMN new_col_1;
     """
     order_qt_drop_column "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
