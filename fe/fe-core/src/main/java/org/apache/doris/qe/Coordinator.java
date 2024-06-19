@@ -109,7 +109,6 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.aliyuncs.utils.StringUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultiset;
@@ -122,6 +121,7 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
@@ -502,7 +502,8 @@ public class Coordinator implements CoordInterface {
         }
 
         coordAddress = new TNetworkAddress(localIP, Config.rpc_port);
-        if (ConnectContext.get().isProxy() && !StringUtils.isEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
+        if (ConnectContext.get() != null && ConnectContext.get().isProxy() && !StringUtils.isEmpty(
+                ConnectContext.get().getCurrentConnectedFEIp())) {
             currentConnectFE = new TNetworkAddress(ConnectContext.get().getCurrentConnectedFEIp(),
                     Config.rpc_port);
         } else {
