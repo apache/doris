@@ -19,7 +19,7 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases
 // and modified by Doris.
 
-suite("load_four_step1") {
+suite("load_four_step") {
     // Now cluster key doesn't support partial update.
     // This commit will rewrite delete to insert into delete sign with partial update
     // So we ban this test.
