@@ -77,7 +77,7 @@ public class ReplaceTableClause extends AlterTableClause {
 
     @Override
     public boolean needChangeMTMVState() {
-        return false;
+        return true;
     }
 
     @Override
