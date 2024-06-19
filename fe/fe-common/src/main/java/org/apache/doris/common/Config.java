@@ -2405,13 +2405,13 @@ public class Config extends ConfigBase {
     })
     public static long analyze_record_limit = 20000;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(mutable = true, masterOnly = true, description = {
             "Auto Buckets中最小的buckets数目",
             "min buckets of auto bucket"
     })
     public static int autobucket_min_buckets = 1;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(mutable = true, masterOnly = true, description = {
         "Auto Buckets中最大的buckets数目",
         "max buckets of auto bucket"
     })
@@ -2651,6 +2651,11 @@ public class Config extends ConfigBase {
             "如果 checkpoint 连续多次因内存不足而无法进行时，先尝试手动触发 GC",
             "The threshold to do manual GC when doing checkpoint but not enough memory"})
     public static int checkpoint_manual_gc_threshold = 0;
+
+    @ConfField(mutable = true, description = {
+            "是否在每个请求开始之前打印一遍请求内容, 主要是query语句",
+            "Should the request content be logged before each request starts, specifically the query statements"})
+    public static boolean enable_print_request_before_execution = false;
 
     //==========================================================================
     //                    begin of cloud config

@@ -53,8 +53,6 @@ import java.util.Map;
 public class TableProperty implements Writable {
     private static final Logger LOG = LogManager.getLogger(TableProperty.class);
 
-    public static final String DYNAMIC_PARTITION_PROPERTY_PREFIX = "dynamic_partition";
-
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
@@ -187,10 +185,14 @@ public class TableProperty implements Writable {
     private TableProperty executeBuildDynamicProperty() {
         HashMap<String, String> dynamicPartitionProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+            if (entry.getKey().startsWith(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+                if (!DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTIES.contains(entry.getKey())) {
+                    LOG.warn("Ignore invalid dynamic property key: {}: value: {}", entry.getKey(), entry.getValue());
+                }
                 dynamicPartitionProperties.put(entry.getKey(), entry.getValue());
             }
         }
+
         dynamicPartitionProperty = EnvFactory.getInstance().createDynamicPartitionProperty(dynamicPartitionProperties);
         return this;
     }
@@ -491,7 +493,7 @@ public class TableProperty implements Writable {
     public Map<String, String> getOriginDynamicPartitionProperty() {
         Map<String, String> origProp = Maps.newHashMap();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+            if (DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTIES.contains(entry.getKey())) {
                 origProp.put(entry.getKey(), entry.getValue());
             }
         }

@@ -32,6 +32,7 @@ import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -41,6 +42,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -254,6 +256,8 @@ public abstract class BaseAnalysisTask {
 
     public abstract void doExecute() throws Exception;
 
+    protected abstract void doSample() throws Exception;
+
     protected void afterExecution() {}
 
     protected void setTaskStateToRunning() {
@@ -352,34 +356,49 @@ public abstract class BaseAnalysisTask {
      * 2. Get stats of each partition
      * 3. insert partition in batch
      * 4. calculate column stats based on partition stats
+     * 5. Skip large partition and fallback to sample analyze if large partition exists.
      */
     protected void doPartitionTable() throws Exception {
         deleteNotExistPartitionStats();
         Map<String, String> params = buildSqlParams();
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
-        Set<String> partitionNames = tbl.getPartitionNames();
+        boolean isAllPartitions = info.partitionNames.isEmpty();
+        Set<String> partitionNames = isAllPartitions ? tbl.getPartitionNames() : info.partitionNames;
         List<String> sqls = Lists.newArrayList();
+        Set<String> partNames = Sets.newHashSet();
         int count = 0;
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = analysisManager.findTableStatsStatus(tbl.getId());
+        String idxName = info.indexId == -1 ? tbl.getName() : ((OlapTable) tbl).getIndexNameById(info.indexId);
+        ColStatsMeta columnStatsMeta = tableStatsStatus == null
+                ? null : tableStatsStatus.findColumnStatsMeta(idxName, col.getName());
+        boolean hasHughPartition = false;
+        long hugePartitionThreshold = StatisticsUtil.getHugePartitionLowerBoundRows();
+        // Find jobInfo for this task.
+        AnalysisInfo jobInfo = analysisManager.findJobInfo(job.getJobInfo().jobId);
+        // For sync job, get jobInfo from job.jobInfo.
+        boolean isSync = jobInfo == null;
+        jobInfo = isSync ? job.jobInfo : jobInfo;
+        StatisticsCache cache = Env.getCurrentEnv().getStatisticsCache();
         for (String part : partitionNames) {
+            // External table partition is null.
             Partition partition = tbl.getPartition(part);
-            params.put("partId", partition == null ? "-1" : String.valueOf(partition.getId()));
             if (partition != null) {
+                // For huge partition, skip analyze it.
+                if (partition.getBaseIndex().getRowCount() > hugePartitionThreshold) {
+                    hasHughPartition = true;
+                    LOG.info("Partition {} in table {} is too large, skip it.", part, tbl.getName());
+                    continue;
+                }
                 // For cluster upgrade compatible (older version metadata doesn't have partition update rows map)
                 // and insert before first analyze, set partition update rows to 0.
-                //
-                // findJobInfo will return null when doing sync analyzing.
-                AnalysisInfo jobInfo = analysisManager.findJobInfo(job.getJobInfo().jobId);
-                jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
                 jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
             }
+            params.put("partId", partition == null ? "-1" : String.valueOf(partition.getId()));
             // Skip partitions that not changed after last analyze.
             // External table getPartition always return null. So external table doesn't skip any partitions.
             if (partition != null && tableStatsStatus != null && tableStatsStatus.partitionUpdateRows != null) {
                 ConcurrentMap<Long, Long> tableUpdateRows = tableStatsStatus.partitionUpdateRows;
-                String idxName = info.indexId == -1 ? tbl.getName() : ((OlapTable) tbl).getIndexNameById(info.indexId);
-                ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(idxName, col.getName());
                 if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
                     ConcurrentMap<Long, Long> columnUpdateRows = columnStatsMeta.partitionUpdateRows;
                     long id = partition.getId();
@@ -394,11 +413,18 @@ public abstract class BaseAnalysisTask {
             params.put("partitionInfo", getPartitionInfo(part));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             sqls.add(stringSubstitutor.replace(PARTITION_ANALYZE_TEMPLATE));
+            // TODO: invalidate remote FE's cache.
+            cache.invalidatePartitionColumnStatsCache(
+                    info.catalogId, info.dbId, info.tblId, info.indexId, part, col.getName());
             count++;
+            partNames.add(part);
             if (count == PARTITION_BATCH_SIZE) {
                 String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
                         + Joiner.on(" UNION ALL ").join(sqls);
                 runInsert(sql);
+                analysisManager.updatePartitionStatsCache(info.catalogId, info.dbId, info.tblId, info.indexId,
+                        partNames, info.colName);
+                partNames.clear();
                 sqls.clear();
                 count = 0;
             }
@@ -407,12 +433,30 @@ public abstract class BaseAnalysisTask {
             String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
                     + Joiner.on(" UNION ALL ").join(sqls);
             runInsert(sql);
+            analysisManager.updatePartitionStatsCache(info.catalogId, info.dbId, info.tblId, info.indexId,
+                    partNames, info.colName);
         }
-        params = buildSqlParams();
-        params.put("min", castToNumeric("min"));
-        params.put("max", castToNumeric("max"));
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
+        if (hasHughPartition) {
+            tableSample = new TableSample(false, StatisticsUtil.getHugeTableSampleRows());
+            if (!isSync) {
+                jobInfo = new AnalysisInfoBuilder(jobInfo).setAnalysisMethod(AnalysisMethod.SAMPLE).build();
+                analysisManager.replayCreateAnalysisJob(jobInfo);
+            }
+            if (tableStatsStatus == null || columnStatsMeta == null
+                    || tableStatsStatus.updatedRows.get() > columnStatsMeta.updatedRows) {
+                doSample();
+            }
+        } else {
+            if (isAllPartitions) {
+                params = buildSqlParams();
+                params.put("min", castToNumeric("min"));
+                params.put("max", castToNumeric("max"));
+                StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+                runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
+            } else {
+                job.taskDoneWithoutData(this);
+            }
+        }
     }
 
     protected abstract void deleteNotExistPartitionStats() throws DdlException;
@@ -473,5 +517,4 @@ public abstract class BaseAnalysisTask {
             }
         }
     }
-
 }

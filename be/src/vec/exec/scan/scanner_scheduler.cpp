@@ -31,6 +31,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "olap/tablet.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -246,70 +247,78 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     scanner->start_scan_cpu_timer();
     Status status = Status::OK();
     bool eos = false;
-    RuntimeState* state = ctx->state();
-    DCHECK(nullptr != state);
-    if (!scanner->is_init()) {
-        status = scanner->init();
-        if (!status.ok()) {
-            eos = true;
-        }
-    }
-
-    if (!eos && !scanner->is_open()) {
-        status = scanner->open(state);
-        if (!status.ok()) {
-            eos = true;
-        }
-        scanner->set_opened();
-    }
-
-    Status rf_status = scanner->try_append_late_arrival_runtime_filter();
-    if (!rf_status.ok()) {
-        LOG(WARNING) << "Failed to append late arrival runtime filter: " << rf_status.to_string();
-    }
-
-    size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
-    size_t raw_bytes_read = 0;
-    bool first_read = true;
-    while (!eos && raw_bytes_read < raw_bytes_threshold) {
-        if (UNLIKELY(ctx->done())) {
-            eos = true;
-            break;
-        }
-        BlockUPtr free_block = ctx->get_free_block(first_read);
-        if (free_block == nullptr) {
-            break;
-        }
-        status = scanner->get_block_after_projects(state, free_block.get(), &eos);
-        first_read = false;
-        if (!status.ok()) {
-            LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
-            break;
-        }
-        auto free_block_bytes = free_block->allocated_bytes();
-        raw_bytes_read += free_block_bytes;
-        if (!scan_task->cached_blocks.empty() &&
-            scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
-                    ctx->batch_size()) {
-            size_t block_size = scan_task->cached_blocks.back().first->allocated_bytes();
-            vectorized::MutableBlock mutable_block(scan_task->cached_blocks.back().first.get());
-            status = mutable_block.merge(*free_block);
-            if (!status.ok()) {
-                LOG(WARNING) << "Block merge failed: " << status.to_string();
-                break;
+    ASSIGN_STATUS_IF_CATCH_EXCEPTION(
+            RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
+            if (!scanner->is_init()) {
+                status = scanner->init();
+                if (!status.ok()) {
+                    eos = true;
+                }
             }
-            scan_task->cached_blocks.back().first.get()->set_columns(
-                    std::move(mutable_block.mutable_columns()));
-            ctx->return_free_block(std::move(free_block));
-            ctx->inc_free_block_usage(scan_task->cached_blocks.back().first->allocated_bytes() -
-                                      block_size);
-        } else {
-            ctx->inc_free_block_usage(free_block->allocated_bytes());
-            scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
-        }
-    } // end for while
 
-    if (UNLIKELY(!status.ok())) {
+            if (!eos && !scanner->is_open()) {
+                status = scanner->open(state);
+                if (!status.ok()) {
+                    eos = true;
+                }
+                scanner->set_opened();
+            }
+
+            Status rf_status = scanner->try_append_late_arrival_runtime_filter();
+            if (!rf_status.ok()) {
+                LOG(WARNING) << "Failed to append late arrival runtime filter: "
+                             << rf_status.to_string();
+            }
+
+            size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
+            size_t raw_bytes_read = 0; bool first_read = true;
+            while (!eos && raw_bytes_read < raw_bytes_threshold) {
+                if (UNLIKELY(ctx->done())) {
+                    eos = true;
+                    break;
+                }
+                BlockUPtr free_block = ctx->get_free_block(first_read);
+                if (free_block == nullptr) {
+                    break;
+                }
+                status = scanner->get_block_after_projects(state, free_block.get(), &eos);
+                first_read = false;
+                if (!status.ok()) {
+                    LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
+                    break;
+                }
+                auto free_block_bytes = free_block->allocated_bytes();
+                raw_bytes_read += free_block_bytes;
+                if (!scan_task->cached_blocks.empty() &&
+                    scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
+                            ctx->batch_size()) {
+                    size_t block_size = scan_task->cached_blocks.back().first->allocated_bytes();
+                    vectorized::MutableBlock mutable_block(
+                            scan_task->cached_blocks.back().first.get());
+                    status = mutable_block.merge(*free_block);
+                    if (!status.ok()) {
+                        LOG(WARNING) << "Block merge failed: " << status.to_string();
+                        break;
+                    }
+                    scan_task->cached_blocks.back().first.get()->set_columns(
+                            std::move(mutable_block.mutable_columns()));
+                    ctx->return_free_block(std::move(free_block));
+                    ctx->inc_free_block_usage(
+                            scan_task->cached_blocks.back().first->allocated_bytes() - block_size);
+                } else {
+                    ctx->inc_free_block_usage(free_block->allocated_bytes());
+                    scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
+                }
+            } // end for while
+
+            if (UNLIKELY(!status.ok())) {
+                scan_task->set_status(status);
+                eos = true;
+            },
+            status);
+
+    if (status.is<doris::ErrorCode::MEM_ALLOC_FAILED>() ||
+        status.is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>()) {
         scan_task->set_status(status);
         eos = true;
     }

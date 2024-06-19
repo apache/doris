@@ -97,9 +97,6 @@ public class HudiScanNode extends HiveScanNode {
     private List<String> columnNames;
     private List<String> columnTypes;
 
-    private boolean incrementalRead = false;
-    private IncrementalRelation incrementalRelation;
-
     private boolean partitionInit = false;
     private HoodieTimeline timeline;
     private Option<String> snapshotTimestamp;
@@ -108,25 +105,32 @@ public class HudiScanNode extends HiveScanNode {
     private Iterator<HivePartition> prunedPartitionsIter;
     private int numSplitsPerPartition = NUM_SPLITS_PER_PARTITION;
 
+    private boolean incrementalRead = false;
+    private TableScanParams scanParams;
+    private IncrementalRelation incrementalRelation;
+
     /**
      * External file scan node for Query Hudi table
      * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
      * eg: s3 tvf
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
+    public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
+            Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation) {
         super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv);
         isCowOrRoTable = hmsTable.isHoodieCowTable();
-        if (isCowOrRoTable) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Hudi table {} can read as cow/read optimize table", hmsTable.getName());
-            }
-        } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Hudi table {} is a mor table, and will use JNI to read data in BE", hmsTable.getName());
+        if (LOG.isDebugEnabled()) {
+            if (isCowOrRoTable) {
+                LOG.debug("Hudi table {} can read as cow/read optimize table", hmsTable.getFullQualifiers());
+            } else {
+                LOG.debug("Hudi table {} is a mor table, and will use JNI to read data in BE",
+                        hmsTable.getFullQualifiers());
             }
         }
         useHiveSyncPartition = hmsTable.useHiveSyncPartition();
+        this.scanParams = scanParams.orElse(null);
+        this.incrementalRelation = incrementalRelation.orElse(null);
+        this.incrementalRead = (this.scanParams != null && this.scanParams.incrementalRead());
     }
 
     @Override
@@ -171,17 +175,9 @@ public class HudiScanNode extends HiveScanNode {
             columnTypes.add(columnType);
         }
 
-        TableScanParams scanParams = desc.getRef().getScanParams();
-        if (scanParams != null) {
-            throw new UserException("Incremental read should turn on nereids planner");
-        }
-        scanParams = hmsTable.getScanParams();
-        if (scanParams != null) {
-            if (scanParams.incrementalRead()) {
-                incrementalRead = true;
-            } else {
-                throw new UserException("Not support function '" + scanParams.getParamType() + "' in hudi table");
-            }
+        if (scanParams != null && !scanParams.incrementalRead()) {
+            // Only support incremental read
+            throw new UserException("Not support function '" + scanParams.getParamType() + "' in hudi table");
         }
         if (incrementalRead) {
             if (isCowOrRoTable) {
@@ -191,18 +187,15 @@ public class HudiScanNode extends HiveScanNode {
                             && hmsTable.getRemoteTable().getTableName().endsWith("_ro")) {
                         // Incremental read RO table as RT table, I don't know why?
                         isCowOrRoTable = false;
-                        LOG.warn("Execute incremental read on RO table");
+                        LOG.warn("Execute incremental read on RO table: {}", hmsTable.getFullQualifiers());
                     }
                 } catch (Exception e) {
                     // ignore
                 }
             }
-            incrementalRelation = hmsTable.getIncrementalRelation();
             if (incrementalRelation == null) {
                 throw new UserException("Failed to create incremental relation");
             }
-        } else {
-            incrementalRelation = null;
         }
 
         timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
