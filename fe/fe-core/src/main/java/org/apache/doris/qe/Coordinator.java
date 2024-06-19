@@ -118,7 +118,6 @@ import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TTopnFilterDesc;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.aliyuncs.utils.StringUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultiset;
@@ -131,6 +130,7 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.ByteString;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
@@ -530,7 +530,8 @@ public class Coordinator implements CoordInterface {
         }
 
         coordAddress = new TNetworkAddress(localIP, Config.rpc_port);
-        if (ConnectContext.get().isProxy() && !StringUtils.isEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
+        if (ConnectContext.get() != null && ConnectContext.get().isProxy() && !StringUtils.isEmpty(
+                ConnectContext.get().getCurrentConnectedFEIp())) {
             currentConnectFE = new TNetworkAddress(ConnectContext.get().getCurrentConnectedFEIp(),
                     Config.rpc_port);
         } else {
