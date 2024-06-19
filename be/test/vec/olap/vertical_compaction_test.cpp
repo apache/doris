@@ -815,7 +815,8 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
     st = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema,
-                                        input_rs_readers, output_rs_writer.get(), 100, num_segments, &stats);
+                                        input_rs_readers, output_rs_writer.get(), 100, num_segments,
+                                        &stats);
     ASSERT_TRUE(st.ok()) << st;
     RowsetSharedPtr out_rowset;
     EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
@@ -917,7 +918,8 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
     st = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema,
-                                        input_rs_readers, output_rs_writer.get(), 100, num_segments, &stats);
+                                        input_rs_readers, output_rs_writer.get(), 100, num_segments,
+                                        &stats);
     ASSERT_TRUE(st.ok()) << st;
     RowsetSharedPtr out_rowset;
     EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
