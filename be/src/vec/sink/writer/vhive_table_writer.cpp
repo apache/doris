@@ -81,7 +81,7 @@ Status VHiveTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     return Status::OK();
 }
 
-Status VHiveTableWriter::write(vectorized::Block& block) {
+Status VHiveTableWriter::write(RuntimeState* state, vectorized::Block& block) {
     SCOPED_RAW_TIMER(&_send_data_ns);
 
     if (block.rows() == 0) {
