@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BackupStmt.BackupContent;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OdbcCatalogResource;
@@ -34,6 +35,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -133,6 +135,7 @@ public class BackupJobInfo implements Writable {
 
     // This map is used to save the table alias mapping info when processing a restore job.
     // origin -> alias
+    @SerializedName("tblalias")
     public Map<String, String> tblAlias = Maps.newHashMap();
 
     public long getBackupTime() {
@@ -807,17 +810,16 @@ public class BackupJobInfo implements Writable {
     }
 
     public static BackupJobInfo read(DataInput in) throws IOException {
-        return BackupJobInfo.readFields(in);
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
+            return BackupJobInfo.readFields(in);
+        }
+        String json = Text.readString(in);
+        return genFromJson(json);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, toJson(false));
-        out.writeInt(tblAlias.size());
-        for (Map.Entry<String, String> entry : tblAlias.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
     }
 
     public static BackupJobInfo readFields(DataInput in) throws IOException {

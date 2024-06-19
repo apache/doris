@@ -17,7 +17,9 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -102,10 +104,7 @@ public class RestoreFileMapping implements Writable {
 
         @Override
         public void write(DataOutput out) throws IOException {
-            out.writeInt(chain.length);
-            for (Long id : chain) {
-                out.writeLong(id);
-            }
+            Text.writeString(out, GsonUtils.GSON.toJson(this));
         }
 
         public void readFields(DataInput in) throws IOException {
@@ -124,8 +123,10 @@ public class RestoreFileMapping implements Writable {
     }
 
     // catalog ids -> repository ids
+    @SerializedName("m")
     private Map<IdChain, IdChain> mapping = Maps.newHashMap();
     // tablet id -> is overwrite
+    @SerializedName("o")
     private Map<Long, Boolean> overwriteMap = Maps.newHashMap();
 
     public RestoreFileMapping() {
