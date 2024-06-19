@@ -533,8 +533,14 @@ suite("test_stream_load_2pc", "p0") {
                 sleep(1000)
                 count++
             }
+            def orderby = ""
+            if (tbl == "test_2pc_table") {
+                orderby = "order by k1"
+            } else {
+                orderby = "order by k00, k01"
+            }
 
-            qt_sql_2pc_commit "select * from ${tbl}"
+            qt_sql_2pc_commit "select * from ${tbl} $orderby"
 
             json2pc = do_streamload_2pc_commit_by_txn_id.call(txnId, tbl)
             assertTrue(json2pc.msg.contains("is already visible, not pre-committed"))
