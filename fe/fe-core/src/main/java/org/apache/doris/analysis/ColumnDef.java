@@ -146,6 +146,10 @@ public class ColumnDef {
             return 0;
         }
 
+        public boolean isNullDefaultValue() {
+            return !isSet && value == null && defaultValueExprDef == null;
+        }
+
         public String getValue() {
             if (isCurrentTimeStamp()) {
                 return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ');
@@ -488,6 +492,7 @@ public class ColumnDef {
         if (type.isScalarType() && defaultValue.isSet && defaultValue.value != null) {
             validateDefaultValue(type, defaultValue.value, defaultValue.defaultValueExprDef);
         }
+        validateGeneratedColumnInfo();
     }
 
     @SuppressWarnings("checkstyle:Indentation")
@@ -666,5 +671,17 @@ public class ColumnDef {
 
     public void addGeneratedColumnsThatReferToThis(List<String> list) {
         generatedColumnsThatReferToThis.addAll(list);
+    }
+
+    private void validateGeneratedColumnInfo() throws AnalysisException {
+        // for generated column
+        if (generatedColumnInfo.isPresent()) {
+            if (autoIncInitValue != -1) {
+                throw new AnalysisException("Generated columns cannot be auto_increment.");
+            }
+            if (defaultValue != null && !defaultValue.isNullDefaultValue()) {
+                throw new AnalysisException("Generated columns cannot have default value.");
+            }
+        }
     }
 }

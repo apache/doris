@@ -203,7 +203,7 @@ suite("test_create_table_generated_column_legacy") {
         DISTRIBUTED BY HASH(a)
         PROPERTIES("replication_num" = "1");
         """
-        exception "Generated Columns in aggregate table must be keys."
+        exception "The generated columns can be key columns, or value columns of replace and replace_if_not_null aggregation type."
     }
 
     // test drop dependency
@@ -226,4 +226,23 @@ suite("test_create_table_generated_column_legacy") {
     sql "alter table gencol_refer_gencol_legacy drop column c"
     sql "alter table gencol_refer_gencol_legacy drop column b"
     qt_test_drop_column "select * from gencol_refer_gencol_legacy"
+    test {
+        sql """
+        create table test_gen_col_default(a int,b int,c int  generated always as (abs(a+1)) not null default 10)
+        aggregate key(a,b,c)
+        DISTRIBUTED BY HASH(a)
+        PROPERTIES("replication_num" = "1");
+        """
+        exception "Generated columns cannot have default value."
+    }
+    test {
+        sql """
+        create table test_gen_col_increment(a int,b int,c int  generated always as (abs(a+1)) not null auto_increment)
+        aggregate key(a,b,c)
+        DISTRIBUTED BY HASH(a)
+        PROPERTIES("replication_num" = "1");
+        """
+        exception "Generated columns cannot be auto_increment."
+    }
+
 }

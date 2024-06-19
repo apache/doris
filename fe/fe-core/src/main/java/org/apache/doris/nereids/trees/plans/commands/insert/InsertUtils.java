@@ -256,7 +256,7 @@ public class InsertUtils {
     /**
      * normalize plan to let it could be process correctly by nereids
      */
-    public static Plan normalizePlan(Plan plan, TableIf table) {
+    public static Plan normalizePlan(Plan plan, TableIf table, Optional<InsertCommandContext> insertCtx) {
         UnboundLogicalSink<? extends Plan> unboundLogicalSink = (UnboundLogicalSink<? extends Plan>) plan;
         if (table instanceof HMSExternalTable) {
             HMSExternalTable hiveTable = (HMSExternalTable) table;
@@ -288,13 +288,19 @@ public class InsertUtils {
                                 throw new AnalysisException("Partial update should include all key columns, missing: "
                                         + col.getName());
                             }
+                            if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
+                                    && col.getGeneratedColumnInfo() == null && !insertCol.isPresent()) {
+                                throw new AnalysisException("Partial update should include"
+                                        + " all ordinary columns referenced"
+                                        + " by generated columns, missing: " + col.getName());
+                            }
                         }
                     }
                 }
             }
         }
         Plan query = unboundLogicalSink.child();
-        checkGeneratedColumnForInsertIntoSelect(table, query, unboundLogicalSink);
+        checkGeneratedColumnForInsertIntoSelect(table, unboundLogicalSink, insertCtx);
         if (!(query instanceof LogicalInlineTable)) {
             return plan;
         }
@@ -443,11 +449,29 @@ public class InsertUtils {
             }
             throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
         }
-        return InsertUtils.normalizePlan(logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx));
+        return InsertUtils.normalizePlan(logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx), Optional.empty());
     }
 
-    private static void checkGeneratedColumnForInsertIntoSelect(TableIf table, Plan query,
-            UnboundLogicalSink<? extends Plan> unboundLogicalSink) {
+    // check for insert into t1(a,b,gen_col) select 1,2,3;
+    private static void checkGeneratedColumnForInsertIntoSelect(TableIf table,
+            UnboundLogicalSink<? extends Plan> unboundLogicalSink, Optional<InsertCommandContext> insertCtx) {
+        // should not check delete stmt, because deletestmt can transform to insert delete sign
+        if (unboundLogicalSink.getDMLCommandType() == DMLCommandType.DELETE) {
+            return;
+        }
+        // This is for the insert overwrite values(),()
+        // Insert overwrite stmt can enter normalizePlan() twice.
+        // Insert overwrite values(),() is checked in the first time when deal with ConstantExprsList,
+        // and then the insert into values(),() will be transformed to insert into union all in normalizePlan,
+        // and this function is for insert into select, which will check the insert into union all again,
+        // and that is no need, also will lead to problems.
+        // So for insert overwrite values(),(), this check is only performed
+        // when it first enters the normalizePlan checking constantExprsList
+        if (insertCtx.isPresent() && insertCtx.get() instanceof OlapInsertCommandContext
+                && ((OlapInsertCommandContext) insertCtx.get()).isOverwrite()) {
+            return;
+        }
+        Plan query = unboundLogicalSink.child();
         if (table instanceof OlapTable && !(query instanceof LogicalInlineTable)) {
             OlapTable olapTable = (OlapTable) table;
             Set<String> insertNames = Sets.newHashSet();

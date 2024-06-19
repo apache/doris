@@ -49,6 +49,7 @@ import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -73,6 +74,8 @@ public class CreateTableStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateTableStmt.class);
 
     protected static final String DEFAULT_ENGINE_NAME = "olap";
+    private static final ImmutableSet<AggregateType> GENERATED_COLUMN_ALLOW_AGG_TYPE =
+            ImmutableSet.of(AggregateType.REPLACE, AggregateType.REPLACE_IF_NOT_NULL);
 
     protected boolean ifNotExists;
     private boolean isExternal;
@@ -863,9 +866,10 @@ public class CreateTableStmt extends DdlStmt {
     private void generatedColumnCommonCheck() throws AnalysisException {
         for (ColumnDef column : columnDefs) {
             if (keysDesc != null && keysDesc.getKeysType() == KeysType.AGG_KEYS
-                    && column.getGeneratedColumnInfo().isPresent() && !column.isKey()) {
-                throw new AnalysisException(
-                        "Generated Columns in aggregate table must be keys.");
+                    && column.getGeneratedColumnInfo().isPresent()
+                    && (!column.isKey() && !GENERATED_COLUMN_ALLOW_AGG_TYPE.contains(column.getAggregateType()))) {
+                throw new AnalysisException("The generated columns can be key columns, "
+                        + "or value columns of replace and replace_if_not_null aggregation type.");
             }
             if (column.getGeneratedColumnInfo().isPresent() && !engineName.equalsIgnoreCase("olap")) {
                 throw new AnalysisException(

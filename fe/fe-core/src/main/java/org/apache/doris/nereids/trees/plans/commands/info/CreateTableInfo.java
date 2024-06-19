@@ -79,6 +79,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -107,6 +108,8 @@ public class CreateTableInfo {
     public static final String ENGINE_BROKER = "broker";
     public static final String ENGINE_HIVE = "hive";
     public static final String ENGINE_ICEBERG = "iceberg";
+    private static final ImmutableSet<AggregateType> GENERATED_COLUMN_ALLOW_AGG_TYPE =
+            ImmutableSet.of(AggregateType.REPLACE, AggregateType.REPLACE_IF_NOT_NULL);
 
     private final boolean ifNotExists;
     private String ctlName;
@@ -841,8 +844,10 @@ public class CreateTableInfo {
 
     private void generatedColumnCommonCheck() {
         for (ColumnDefinition column : columns) {
-            if (keysType == KeysType.AGG_KEYS && column.getGeneratedColumnDesc().isPresent() && !column.isKey()) {
-                throw new AnalysisException("Generated Columns in aggregate table must be keys.");
+            if (keysType == KeysType.AGG_KEYS && column.getGeneratedColumnDesc().isPresent()
+                    && (!column.isKey() && !GENERATED_COLUMN_ALLOW_AGG_TYPE.contains(column.getAggType()))) {
+                throw new AnalysisException("The generated columns can be key columns, "
+                        + "or value columns of replace and replace_if_not_null aggregation type.");
             }
             if (column.getGeneratedColumnDesc().isPresent() && !engineName.equalsIgnoreCase("olap")) {
                 throw new AnalysisException("Tables can only have generated columns if the olap engine is used");

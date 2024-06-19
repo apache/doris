@@ -51,6 +51,7 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
     private boolean isPartialUpdate;
     private final DMLCommandType dmlCommandType;
     private final boolean autoDetectPartition;
+    private final boolean normalized = false;
 
     public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
             List<String> partitions, CHILD_TYPE child) {

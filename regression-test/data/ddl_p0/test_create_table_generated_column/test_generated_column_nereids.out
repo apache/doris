@@ -212,3 +212,12 @@ d	INT	Yes	false	\N	NONE,STORED GENERATED
 -- !test_drop_column --
 3
 
+-- !test_agg_key --
+1	2	3	6
+
+-- !agg_gen_col_replace --
+0
+
+-- !agg_replace_null --
+1	2	3	4	13
+

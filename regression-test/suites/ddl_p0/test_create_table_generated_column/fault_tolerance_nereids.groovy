@@ -50,7 +50,7 @@ suite("test_generated_column_fault_tolerance_nereids") {
     // gencol_refer_gencol_after
     test {
         sql """
-        create table gencol_refer_gencol(a int,c double generated always as (abs(a+d)) not null,b int, d int generated always as(c+1))
+        create table gencol_refer_gencol_ft(a int,c double generated always as (abs(a+d)) not null,b int, d int generated always as(c+1))
         DISTRIBUTED BY HASH(a)
         PROPERTIES("replication_num" = "1");
         """
@@ -110,7 +110,7 @@ suite("test_generated_column_fault_tolerance_nereids") {
         DISTRIBUTED BY HASH(a)
         PROPERTIES("replication_num" = "1");
         """
-        exception "Generated Columns in aggregate table must be keys."
+        exception "The generated columns can be key columns, or value columns of replace and replace_if_not_null aggregation type."
     }
 
     test {
@@ -162,11 +162,11 @@ suite("test_generated_column_fault_tolerance_nereids") {
              properties('replication_num' = '1'); """
     test {
         sql """ALTER TABLE gen_col_test_modify modify COLUMN c int AS (a+b+1)"""
-        exception "Temporarily not supporting alter table modify generated columns."
+        exception "Not supporting alter table modify generated columns."
     }
     test {
         sql """ALTER TABLE gen_col_test_modify ADD COLUMN d int AS (a+b);"""
-        exception "Temporarily not supporting alter table add generated columns."
+        exception "Not supporting alter table add generated columns."
     }
 
     sql "drop table if exists test_gen_col_common_ft"

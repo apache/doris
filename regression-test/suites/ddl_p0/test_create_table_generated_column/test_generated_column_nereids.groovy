@@ -197,4 +197,40 @@ suite("test_generated_column") {
     sql "alter table gencol_refer_gencol drop column b"
     qt_test_drop_column "select * from gencol_refer_gencol"
 
+    // test agg table, gen col is the key or replace/replace_if_not_null
+    multi_sql """
+        drop table if exists agg_gen_col_key;
+        create table agg_gen_col_key(a int,b int, c int as (a+b), d int sum)
+        aggregate key(a,b,c)
+        DISTRIBUTED BY HASH(a)
+        PROPERTIES("replication_num" = "1");
+        insert into agg_gen_col_key(a,b) values(1,2);
+        insert into agg_gen_col_key(a,b,d) values(1,2,6);
+    """
+    qt_test_agg_key "select * from agg_gen_col_key order by 1,2,3,4"
+
+    sql "drop table if exists agg_gen_col_replace"
+    qt_agg_gen_col_replace """create table agg_gen_col_replace(a int,b int, c int as (a+b), d int replace as (c+1))
+    aggregate key(a,b,c)
+    DISTRIBUTED BY HASH(a)
+    PROPERTIES("replication_num" = "1");"""
+
+    multi_sql """
+        drop table if exists agg_gen_col_replace_if_not_null;
+        create table agg_gen_col_replace_if_not_null(a int,b int, c int as (a+b), d int REPLACE_IF_NOT_NULL as (c+1), f int sum default 10)
+        aggregate key(a,b,c)
+        DISTRIBUTED BY HASH(a)
+        PROPERTIES("replication_num" = "1");
+        insert into agg_gen_col_replace_if_not_null(a,b,f) values(1,2,3);
+        insert into agg_gen_col_replace_if_not_null(a,b) values(1,2);
+    """
+    qt_agg_replace_null "select * from agg_gen_col_replace_if_not_null order by 1,2,3,4"
+
+    test {
+        sql """create table agg_gen_col_replace(a int,b int, c int as (a+b), d int sum as (c+1))
+        aggregate key(a,b,c)
+        DISTRIBUTED BY HASH(a)
+        PROPERTIES("replication_num" = "1");"""
+        exception "The generated columns can be key columns, or value columns of replace and replace_if_not_null aggregation type."
+    }
 }

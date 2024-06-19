@@ -384,13 +384,15 @@ public class SchemaChangeHandler extends AlterHandler {
         for (Column c : indexSchemaMap.get(baseIndexId)) {
             nameToColumn.put(c.getName(), c);
         }
-        if (nameToColumn.containsKey(dropColName)) {
-            Column column = nameToColumn.get(dropColName);
-            Set<String> generatedColumnsThatReferToThis = column.getGeneratedColumnsThatReferToThis();
-            if (!generatedColumnsThatReferToThis.isEmpty()) {
-                throw new DdlException(
-                        "Column '" + dropColName + "' has a generated column dependency on :"
-                                + generatedColumnsThatReferToThis);
+        if (null == targetIndexName) {
+            if (nameToColumn.containsKey(dropColName)) {
+                Column column = nameToColumn.get(dropColName);
+                Set<String> generatedColumnsThatReferToThis = column.getGeneratedColumnsThatReferToThis();
+                if (!generatedColumnsThatReferToThis.isEmpty()) {
+                    throw new DdlException(
+                            "Column '" + dropColName + "' has a generated column dependency on :"
+                                    + generatedColumnsThatReferToThis);
+                }
             }
         }
 
@@ -804,12 +806,15 @@ public class SchemaChangeHandler extends AlterHandler {
         if (targetIndexName == null) {
             targetIndexName = baseIndexName;
         }
-
         long targetIndexId = olapTable.getIndexIdByName(targetIndexName);
 
         LinkedList<Column> newSchema = new LinkedList<Column>();
         List<Column> targetIndexSchema = indexSchemaMap.get(targetIndexId);
-
+        // When rollup is specified, there is no need to check the order of generated columns.
+        // When rollup is not specified and the order of baseIndex needs to be modified, the order needs to be checked.
+        if (alterClause.getRollupName() == null) {
+            checkOrder(targetIndexSchema, orderedColNames);
+        }
         // check and create new ordered column list
         Set<String> colNameSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (String colName : orderedColNames) {
@@ -822,9 +827,6 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             if (oneCol == null) {
                 throw new DdlException("Column[" + colName + "] not exists");
-            }
-            if (oneCol.getGeneratedColumnInfo() != null) {
-                throw new DdlException("Temporarily does not support changing the position of generated columns.");
             }
             newSchema.add(oneCol);
             if (colNameSet.contains(colName)) {
@@ -3239,6 +3241,43 @@ public class SchemaChangeHandler extends AlterHandler {
             Column c = nameToColumn.get(name);
             Set<String> sets = c.getGeneratedColumnsThatReferToThis();
             sets.remove(dropColName);
+        }
+    }
+
+    private void checkOrder(List<Column> targetIndexSchema, List<String> orderedColNames) throws DdlException {
+        Set<String> nameSet = new HashSet<>();
+        for (Column column : targetIndexSchema) {
+            if (column.isVisible() && null == column.getGeneratedColumnInfo()) {
+                nameSet.add(column.getName());
+            }
+        }
+        for (String colName : orderedColNames) {
+            Column oneCol = null;
+            for (Column column : targetIndexSchema) {
+                if (column.getName().equalsIgnoreCase(colName) && column.isVisible()) {
+                    oneCol = column;
+                    break;
+                }
+            }
+            if (oneCol == null) {
+                throw new DdlException("Column[" + colName + "] not exists");
+            }
+            if (null == oneCol.getGeneratedColumnInfo()) {
+                continue;
+            }
+            Expr expr = oneCol.getGeneratedColumnInfo().getExpr();
+            Set<Expr> slotRefsInGeneratedExpr = new HashSet<>();
+            expr.collect(e -> e instanceof SlotRef, slotRefsInGeneratedExpr);
+            for (Expr slotRef : slotRefsInGeneratedExpr) {
+                String slotName = ((SlotRef) slotRef).getColumnName();
+                if (!nameSet.contains(slotName)) {
+                    throw new DdlException("The specified column order is incorrect, `" + colName
+                            + "` should come after `" + slotName
+                            + "`, because both of them are generated columns, and `"
+                            + colName + "` refers to `" + slotName + "`.");
+                }
+            }
+            nameSet.add(colName);
         }
     }
 }

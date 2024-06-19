@@ -712,7 +712,7 @@ public class ColumnDefinition {
             if (autoIncInitValue != -1) {
                 throw new AnalysisException("Generated columns cannot be auto_increment.");
             }
-            if (defaultValue.isPresent()) {
+            if (defaultValue.isPresent() && !defaultValue.get().equals(DefaultValue.NULL_DEFAULT_VALUE)) {
                 throw new AnalysisException("Generated columns cannot have default value.");
             }
             if (onUpdateDefaultValue.isPresent()) {
