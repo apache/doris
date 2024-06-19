@@ -307,10 +307,9 @@ public:
     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, uint32_t* count);
 
-    Status read_null_bitmap(OlapReaderStatistics* stats,
-                            InvertedIndexQueryCacheHandle* cache_handle,
+    Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
                             lucene::store::Directory* dir = nullptr) {
-        return _reader->read_null_bitmap(stats, cache_handle, dir);
+        return _reader->read_null_bitmap(_stats, cache_handle, dir);
     }
 
     [[nodiscard]] InvertedIndexReaderType get_inverted_index_reader_type() const;
