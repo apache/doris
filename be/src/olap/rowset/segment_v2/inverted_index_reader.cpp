@@ -500,7 +500,7 @@ Status FullTextIndexReader::normal_index_search(
         const IndexSearcherPtr& index_searcher, bool& null_bitmap_already_read,
         const std::unique_ptr<lucene::search::Query>& query,
         const std::shared_ptr<roaring::Roaring>& term_match_bitmap) {
-    check_null_bitmap(index_searcher, null_bitmap_already_read);
+    check_null_bitmap(stats, index_searcher, null_bitmap_already_read);
 
     try {
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
@@ -584,13 +584,14 @@ Status FullTextIndexReader::match_regexp_index_search(
     return Status::OK();
 }
 
-void FullTextIndexReader::check_null_bitmap(const IndexSearcherPtr& index_searcher,
+void FullTextIndexReader::check_null_bitmap(OlapReaderStatistics* stats,
+                                            const IndexSearcherPtr& index_searcher,
                                             bool& null_bitmap_already_read) {
     // try to reuse index_searcher's directory to read null_bitmap to cache
     // to avoid open directory additionally for null_bitmap
     if (!null_bitmap_already_read) {
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory());
+        read_null_bitmap(stats, &null_bitmap_cache_handle, index_searcher->getReader()->directory());
         null_bitmap_already_read = true;
     }
 }
