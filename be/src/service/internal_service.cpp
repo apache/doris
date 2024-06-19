@@ -2022,23 +2022,19 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                 -1 /* total_length */, true /* use_proto */);
         ctx->pipe = pipe;
         Status st = _exec_env->new_load_stream_mgr()->put(load_id, ctx);
-        std::shared_ptr<google::protobuf::Closure> done_ptr(done,
-                                                            [](google::protobuf::Closure*) {});
-        std::shared_ptr<PGroupCommitInsertResponse> response_ptr(
-                response, [](PGroupCommitInsertResponse*) {});
         if (st.ok()) {
             try {
                 st = _exec_plan_fragment_impl(
                         request->exec_plan_fragment_request().request(),
                         request->exec_plan_fragment_request().version(),
                         request->exec_plan_fragment_request().compact(),
-                        [&, done_ptr, response_ptr, load_id](RuntimeState* state, Status* status) {
-                            brpc::ClosureGuard cb_closure_guard(done_ptr.get());
-                            response_ptr->set_label(state->import_label());
-                            response_ptr->set_txn_id(state->wal_id());
-                            response_ptr->set_loaded_rows(state->num_rows_load_success());
-                            response_ptr->set_filtered_rows(state->num_rows_load_filtered());
-                            status->to_protobuf(response_ptr->mutable_status());
+                        [&, response, done, load_id](RuntimeState* state, Status* status) {
+                            brpc::ClosureGuard cb_closure_guard(done);
+                            response->set_label(state->import_label());
+                            response->set_txn_id(state->wal_id());
+                            response->set_loaded_rows(state->num_rows_load_success());
+                            response->set_filtered_rows(state->num_rows_load_filtered());
+                            status->to_protobuf(response->mutable_status());
                             _exec_env->new_load_stream_mgr()->remove(load_id);
                         });
             } catch (const Exception& e) {
@@ -2059,8 +2055,8 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                     }
                 }
                 if (st.ok()) {
-                    static_cast<void>(pipe->finish());
                     closure_guard.release();
+                    static_cast<void>(pipe->finish());
                 }
             }
         }
