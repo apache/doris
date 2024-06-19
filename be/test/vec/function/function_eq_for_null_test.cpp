@@ -46,13 +46,11 @@ TEST(EqForNullFunctionTest, both_only_null) {
     auto null_map_for_all_null = ColumnUInt8::create(input_rows_count, 1);
 
     ColumnWithTypeAndName left {
-            ColumnNullable::create(left_i32->clone(),
-                                   null_map_for_all_null->clone()),
+            ColumnNullable::create(left_i32->clone(), null_map_for_all_null->clone()),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
 
     ColumnWithTypeAndName right {
-            ColumnNullable::create(right_i32->clone(),
-                                   null_map_for_all_null->clone()),
+            ColumnNullable::create(right_i32->clone(), null_map_for_all_null->clone()),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
 
     auto return_type = std::make_shared<DataTypeUInt8>();
@@ -299,8 +297,7 @@ TEST(EqForNullFunctionTest, left_nullable_right_only_null) {
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "left"};
 
     ColumnWithTypeAndName right {
-            ColumnNullable::create(right_i32->clone(),
-                                   null_map_for_all_null->clone()),
+            ColumnNullable::create(right_i32->clone(), null_map_for_all_null->clone()),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
 
     auto return_type = std::make_shared<DataTypeUInt8>();
@@ -345,8 +342,7 @@ TEST(EqForNullFunctionTest, left_not_nullable_right_only_null) {
     ColumnWithTypeAndName left {left_i32->clone(), std::make_shared<DataTypeInt32>(), "left"};
 
     ColumnWithTypeAndName right {
-            ColumnNullable::create(right_i32->clone(),
-                                   null_map_for_all_null->clone()),
+            ColumnNullable::create(right_i32->clone(), null_map_for_all_null->clone()),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "right"};
 
     auto return_type = std::make_shared<DataTypeUInt8>();
