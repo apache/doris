@@ -57,6 +57,19 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         return cast;
     }
 
+    public static boolean checkMapKeyIsStringLikeForJson(DataType complexType) {
+        if (complexType.isMapType()) {
+            return ((MapType) complexType).getKeyType().isStringType();
+        } else if (complexType.isArrayType()) {
+            return checkMapKeyIsStringLikeForJson(((ArrayType) complexType).getItemType());
+        } else if (complexType.isStructType()) {
+            for (StructField f : ((StructType) complexType).getFields()) {
+                return checkMapKeyIsStringLikeForJson(f.getDataType());
+            }
+        }
+        return true;
+    }
+
     private static boolean check(DataType originalType, DataType targetType) {
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
@@ -92,6 +105,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
             }
             return true;
         } else if (originalType instanceof JsonType || targetType instanceof JsonType) {
+            if (originalType.isComplexType() && !checkMapKeyIsStringLikeForJson(originalType)) {
+                return false;
+            }
             return true;
         } else {
             return checkPrimitiveType(originalType, targetType);
