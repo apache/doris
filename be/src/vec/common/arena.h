@@ -98,7 +98,12 @@ private:
 
     /// If chunks size is less than 'linear_growth_threshold', then use exponential growth, otherwise - linear growth
     ///  (to not allocate too much excessive memory).
-    size_t next_size(size_t min_next_size) const {
+    size_t next_size(size_t min_next_size) {
+        if (UNLIKELY(head == nullptr)) {
+            head = new Chunk(_initial_size, nullptr);
+            size_in_bytes += head->size();
+        }
+        
         size_t size_after_grow = 0;
 
         if (head->size() < linear_growth_threshold) {
@@ -123,7 +128,8 @@ private:
     /// Add next contiguous chunk of memory with size not less than specified.
     void NO_INLINE add_chunk(size_t min_size) {
         if (UNLIKELY(head == nullptr)) {
-            head = new Chunk(min_size, nullptr);
+            head = new Chunk(_initial_size, nullptr);
+            size_in_bytes += head->size();
         }
 
         _used_size_no_head += head->used();
@@ -149,6 +155,7 @@ public:
     char* alloc(size_t size) {
         if (UNLIKELY(head == nullptr)) {
             head = new Chunk(_initial_size, nullptr);
+            size_in_bytes += head->size();
         }
 
         if (UNLIKELY(head->pos + size > head->end)) {
@@ -165,6 +172,7 @@ public:
     char* aligned_alloc(size_t size, size_t alignment) {
         if (UNLIKELY(head == nullptr)) {
             head = new Chunk(_initial_size, nullptr);
+            size_in_bytes += head->size();
         }
 
         do {
@@ -196,6 +204,7 @@ public:
     void* rollback(size_t size) {
         if (UNLIKELY(head == nullptr)) {
             head = new Chunk(_initial_size, nullptr);
+            size_in_bytes += head->size();
         }
 
         head->pos -= size;
@@ -219,6 +228,7 @@ public:
                                        size_t start_alignment = 0) {
         if (UNLIKELY(head == nullptr)) {
             head = new Chunk(_initial_size, nullptr);
+            size_in_bytes += head->size();
         }
 
         if (!range_start) {
