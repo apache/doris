@@ -57,6 +57,11 @@ public class MapType extends Type {
     }
 
     @Override
+    public boolean isSupported() {
+        return false;
+    }
+
+    @Override
     public boolean equals(Object other) {
         if (!(other instanceof MapType)) {
             return false;
