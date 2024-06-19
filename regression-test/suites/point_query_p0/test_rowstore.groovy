@@ -53,6 +53,6 @@ suite("test_rowstore", "p0") {
     sleep(1000)
     qt_sql """select * from ${tableName} where k1 = 1"""
    
-    sql """insert into ${tableName} values (2, 'def', 1111919.12345678919, 456, NULL)"""
+    sql """insert into ${tableName} values (2, 'def', 456, NULL)"""
     qt_sql """select * from ${tableName} where k1 = 2"""
 }
