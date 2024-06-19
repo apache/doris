@@ -186,7 +186,7 @@ public:
     }
 
     virtual Status eval_inverted_index(FunctionContext* context,
-                                       const vectorized::NameAndTypePair& data_type_with_name,
+                                       const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                        segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                        roaring::Roaring* bitmap) const {
         return Status::NotSupported("eval_inverted_index is not supported in function: ",
@@ -411,7 +411,7 @@ public:
 
     // here are lots of function not extends eval_inverted_index.
     Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::NameAndTypePair& data_type_with_name,
+                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                roaring::Roaring* bitmap) const override {
         return Status::NotSupported("eval_inverted_index is not supported in function: ",
@@ -453,7 +453,7 @@ protected:
     }
 
     Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::NameAndTypePair& data_type_with_name,
+                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                roaring::Roaring* bitmap) const {
         return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);
@@ -524,7 +524,7 @@ public:
     }
 
     Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::NameAndTypePair& data_type_with_name,
+                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                roaring::Roaring* bitmap) const override {
         return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);

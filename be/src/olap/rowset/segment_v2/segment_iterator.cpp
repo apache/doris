@@ -337,6 +337,13 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             if (storage_type == nullptr) {
                 storage_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
             }
+            // Currently, when writing a lucene index, the field of the document is column_name, and the column name is
+            // bound to the index field. Since version 1.2, the data file storage has been changed from column_name to
+            // column_unique_id, allowing the column name to be changed. Due to current limitations, previous inverted
+            // index data cannot be used after Doris changes the column name. Column names also support Unicode
+            // characters, which may cause other problems with indexing in non-ASCII characters.
+            // After consideration, it was decided to change the field name from column_name to column_unique_id in
+            // format V2, while format V1 continues to use column_name.
             std::string field_name;
             if (storage_format == InvertedIndexStorageFormatPB::V1) {
                 field_name = col->name();
@@ -1304,7 +1311,7 @@ Status SegmentIterator::_apply_inverted_index() {
     if (_opts.runtime_state &&
         _opts.runtime_state->enable_common_expr_pushdown_for_inverted_index()) {
         // support expr to evaluate inverted index
-        std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair, InvertedIndexIterator*>>
+        std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair, InvertedIndexIterator*>>
                 iter_map;
         for (auto col_id : _common_expr_columns_for_index) {
             auto tablet_col_id = _schema->column_id(col_id);
