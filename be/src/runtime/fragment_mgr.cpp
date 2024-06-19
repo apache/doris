@@ -643,7 +643,8 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         LOG(INFO) << "query_id: " << print_id(query_id) << ", coord_addr: " << params.coord
                   << ", total fragment num on current host: " << params.fragment_num_on_host
                   << ", fe process uuid: " << params.query_options.fe_process_uuid
-                  << ", query type: " << params.query_options.query_type;
+                  << ", query type: " << params.query_options.query_type
+                  << ", report audit fe:" << params.current_connect_fe;
 
         // This may be a first fragment request of the query.
         // Create the query fragments context.
