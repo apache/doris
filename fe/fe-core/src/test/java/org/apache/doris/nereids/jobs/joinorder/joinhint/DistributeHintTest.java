@@ -19,11 +19,11 @@ package org.apache.doris.nereids.jobs.joinorder.joinhint;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
-import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
+import org.apache.doris.nereids.properties.StatementHint;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
+import org.apache.doris.nereids.trees.plans.logical.LogicalStatementHint;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -85,7 +85,7 @@ public class DistributeHintTest extends TPCHTestBase {
     }
 
     private Plan generateLeadingHintPlan(int tableNum, Plan childPlan) {
-        Map<String, SelectHint> hints = Maps.newLinkedHashMap();
+        Map<String, StatementHint> hints = Maps.newLinkedHashMap();
         List<String> leadingParameters = new ArrayList<String>();
         for (int i = 0; i < tableNum; i++) {
             leadingParameters.add(String.valueOf(i));
@@ -93,7 +93,7 @@ public class DistributeHintTest extends TPCHTestBase {
         Collections.shuffle(leadingParameters);
         System.out.println("LeadingHint: " + leadingParameters.toString());
         hints.put("leading", new SelectHintLeading("leading", leadingParameters));
-        return new LogicalSelectHint<>(hints, childPlan);
+        return new LogicalStatementHint<>(hints, childPlan);
     }
 
     private void randomTest(int tableNum, int edgeNum, boolean withJoinHint, boolean withLeading) {

@@ -142,7 +142,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         targetTableIf.readLock();
         try {
             // 1. process inline table (default values, empty values)
-            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, insertCtx);
+            this.logicalQuery = (LogicalPlan) InsertUtils.normalizeMaybeHintPlan(logicalQuery, targetTableIf, insertCtx);
             if (cte.isPresent()) {
                 this.logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
             }

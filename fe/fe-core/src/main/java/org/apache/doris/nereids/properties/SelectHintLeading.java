@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
  * select hint.
  * e.g. set_var(query_timeout='1800', exec_mem_limit='2147483648')
  */
-public class SelectHintLeading extends SelectHint {
+public class SelectHintLeading extends StatementHint {
     // e.g. query_timeout='1800', exec_mem_limit='2147483648'
     private final List<String> parameters;
 

@@ -20,7 +20,7 @@ package org.apache.doris.nereids.properties;
 /**
  * select hint.
  */
-public class SelectHintOrdered extends SelectHint {
+public class SelectHintOrdered extends StatementHint {
     public SelectHintOrdered(String hintName) {
         super(hintName);
     }

@@ -33,7 +33,7 @@ import org.apache.doris.nereids.rules.analysis.CollectJoinConstraint;
 import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
 import org.apache.doris.nereids.rules.analysis.EliminateDistinctConstant;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
-import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
+import org.apache.doris.nereids.rules.analysis.EliminateLogicalStatementHint;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.HavingToFilter;
 import org.apache.doris.nereids.rules.analysis.LeadingJoin;
@@ -115,7 +115,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
         return jobs(
             // we should eliminate hint before "Subquery unnesting".
             topDown(new AnalyzeCTE()),
-            topDown(new EliminateLogicalSelectHint()),
+            topDown(new EliminateLogicalStatementHint()),
             bottomUp(
                     new BindRelation(customTableResolver),
                     new CheckPolicy()
